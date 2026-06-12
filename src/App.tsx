@@ -8,7 +8,7 @@ import KeychainPanel from './components/KeychainPanel';
 import SettingsPanel from './components/SettingsPanel';
 
 export default function App() {
-  const { loadAll, sessions, activeTabId, setActiveTab, removeSession } = useAppStore();
+  const { loadAll, sessions, activeTabId, setActiveTab, removeSession, settings } = useAppStore();
 
   useEffect(() => {
     loadAll();
@@ -21,7 +21,7 @@ export default function App() {
   }
 
   return (
-    <div className="app">
+    <div className={`app${settings.app_theme === 'light' ? ' app-light' : settings.app_theme === 'amoled' ? ' app-amoled' : ''}`}>
       <Sidebar />
       <div className="main">
         {sessions.length > 0 && (

@@ -31,6 +31,7 @@ ssh-key = { version = "0.6", features = ["alloc", "ed25519", "p256", "rsa", "get
 
 [profile.dev]
 opt-level = 1
+codegen-units = 1
 
 [patch.crates-io]
 cookie = { path = "../patches/cookie-0.18.1" }

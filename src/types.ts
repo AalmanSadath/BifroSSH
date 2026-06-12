@@ -5,6 +5,7 @@ export interface Server {
   port: number;
   identity_id: string | null;
   theme: string | null;
+  os: string;
 }
 
 export interface Identity {
@@ -20,6 +21,7 @@ export interface KeyEntry {
   key_path: string | null;
   encrypted_key: string | null;
   encrypted_passphrase: string | null;
+  algorithm: string | null;
 }
 
 export interface Settings {
@@ -28,6 +30,7 @@ export interface Settings {
   font_family: string;
   cursor_style: string;
   cursor_blink: boolean;
+  app_theme: 'dark' | 'light' | 'amoled';
 }
 
 export interface SessionTab {

@@ -9,7 +9,7 @@ interface Props {
 }
 
 export default function ConnectDialog({ server, onClose }: Props) {
-  const { identities, keys, addSession } = useAppStore();
+  const { identities, keys, addSession, detectServerOs } = useAppStore();
   const identity = identities.find((i) => i.id === server.identity_id);
 
   const [username, setUsername] = useState(identity?.username ?? '');
@@ -38,6 +38,7 @@ export default function ConnectDialog({ server, onClose }: Props) {
         },
       });
       addSession({ session_id: sessionId, server_name: server.name, server_id: server.id });
+      if (server.os === '') detectServerOs(server.id, username.trim(), authType, authType === 'password' ? password : keyId);
       onClose();
     } catch (err) {
       setError(String(err));

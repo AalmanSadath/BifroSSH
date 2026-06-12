@@ -1,12 +1,8 @@
-import { useState } from 'react';
 import { useAppStore } from '../store/appStore';
-import ThemePicker from './ThemePicker';
-import { THEMES } from '../styles/themes';
 import type { Settings } from '../types';
 
 export default function SettingsPanel() {
   const { settings, saveSettings } = useAppStore();
-  const [themeExpanded, setThemeExpanded] = useState(false);
 
   function patch(p: Partial<Settings>) {
     saveSettings({ ...settings, ...p });
@@ -17,21 +13,33 @@ export default function SettingsPanel() {
       <div className="panel-title">Settings</div>
 
       <section className="panel-section">
-        <h3>Theme</h3>
-        <button
-          type="button"
-          className="collapsible-header"
-          onClick={() => setThemeExpanded((v) => !v)}
-        >
-          <span className="collapsible-title">Global Theme</span>
-          <span className="collapsible-meta">{THEMES[settings.theme]?.name ?? settings.theme}</span>
-          <span className={`collapsible-arrow${themeExpanded ? ' open' : ''}`}>▶</span>
-        </button>
-        {themeExpanded && (
-          <div className="collapsible-body">
-            <ThemePicker value={settings.theme} onChange={(theme) => patch({ theme })} />
+        <h3>Appearance</h3>
+        <div className="form-group">
+          <label>App Theme</label>
+          <div className="toggle-row" style={{ maxWidth: 240 }}>
+            <button
+              type="button"
+              className={`toggle-btn${settings.app_theme === 'dark' ? ' active' : ''}`}
+              onClick={() => patch({ app_theme: 'dark' })}
+            >
+              Dark
+            </button>
+            <button
+              type="button"
+              className={`toggle-btn${settings.app_theme === 'light' ? ' active' : ''}`}
+              onClick={() => patch({ app_theme: 'light' })}
+            >
+              Light
+            </button>
+            <button
+              type="button"
+              className={`toggle-btn${settings.app_theme === 'amoled' ? ' active' : ''}`}
+              onClick={() => patch({ app_theme: 'amoled' })}
+            >
+              AMOLED
+            </button>
           </div>
-        )}
+        </div>
       </section>
 
       <section className="panel-section">

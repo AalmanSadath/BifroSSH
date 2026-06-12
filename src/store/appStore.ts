@@ -8,6 +8,7 @@ const DEFAULT_SETTINGS: Settings = {
   font_family: 'monospace',
   cursor_style: 'block',
   cursor_blink: true,
+  app_theme: 'dark',
 };
 
 interface AppStore {
@@ -22,10 +23,13 @@ interface AppStore {
 
   saveServer: (server: Partial<Server> & { name: string; host: string; port: number }) => Promise<void>;
   deleteServer: (id: string) => Promise<void>;
+  detectServerOs: (serverId: string, username: string, authType: string, authValue: string) => Promise<void>;
 
   importKey: (name: string, path: string, passphrase: string | null, storeContent: boolean) => Promise<void>;
   saveKeyFromContent: (name: string, content: string, passphrase: string | null) => Promise<void>;
   generateKey: (algorithm: string) => Promise<{ private_pem: string; public_openssh: string }>;
+  getKeyContent: (keyId: string) => Promise<{ private_pem: string; public_openssh: string | null }>;
+  updateKey: (keyId: string, name: string, content: string, passphrase: string | null) => Promise<void>;
   deleteKey: (id: string) => Promise<void>;
 
   saveIdentity: (identity: Partial<Identity> & { name: string; username: string; key_id: string }) => Promise<void>;
@@ -75,6 +79,26 @@ export const useAppStore = create<AppStore>((set, _get) => ({
     set((s) => ({ servers: s.servers.filter((x) => x.id !== id) }));
   },
 
+  detectServerOs: async (serverId, username, authType, authValue) => {
+    try {
+      const detectedOs = await invoke<string>('detect_server_os', {
+        serverId, username, authType, authValue,
+      });
+      set((s) => ({
+        servers: s.servers.map((srv) =>
+          srv.id === serverId ? { ...srv, os: detectedOs } : srv
+        ),
+      }));
+    } catch (e) {
+      console.warn('[OS detect]', e);
+      set((s) => ({
+        servers: s.servers.map((srv) =>
+          srv.id === serverId ? { ...srv, os: 'server' } : srv
+        ),
+      }));
+    }
+  },
+
   importKey: async (name, path, passphrase, storeContent) => {
     const key = await invoke<KeyEntry>('import_key_from_path', {
       name,
@@ -92,6 +116,16 @@ export const useAppStore = create<AppStore>((set, _get) => ({
 
   generateKey: async (algorithm) => {
     return invoke<{ private_pem: string; public_openssh: string }>('generate_key', { algorithm });
+  },
+
+  getKeyContent: async (keyId) => {
+    return invoke<{ private_pem: string; public_openssh: string | null }>('get_key_content', { keyId });
+  },
+
+  updateKey: async (keyId, name, content, passphrase) => {
+    await invoke('update_key', { keyId, name, content, passphrase });
+    const keys = await invoke<KeyEntry[]>('list_keys');
+    set({ keys });
   },
 
   deleteKey: async (id) => {

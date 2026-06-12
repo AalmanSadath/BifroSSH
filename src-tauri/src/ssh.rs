@@ -60,6 +60,57 @@ pub struct SshConnectParams {
     pub initial_rows: u32,
 }
 
+pub async fn exec_ssh_command(
+    host: &str,
+    port: u16,
+    username: &str,
+    auth: SshAuth,
+    command: &str,
+) -> Result<String> {
+    let config = Arc::new(client::Config {
+        inactivity_timeout: Some(Duration::from_secs(15)),
+        ..Default::default()
+    });
+
+    let mut addrs = tokio::net::lookup_host(format!("{}:{}", host, port)).await?;
+    let addr = addrs.next().ok_or_else(|| anyhow!("Cannot resolve host: {}", host))?;
+
+    let mut handle = client::connect(config, addr, ClientHandler).await?;
+
+    let authenticated = match &auth {
+        SshAuth::Password(password) => handle.authenticate_password(username, password).await?,
+        SshAuth::KeyData { key_pem, passphrase } => {
+            let key_pair: KeyPair = russh_keys::decode_secret_key(key_pem, passphrase.as_deref())?;
+            handle.authenticate_publickey(username, Arc::new(key_pair)).await?
+        }
+    };
+
+    if !authenticated {
+        return Err(anyhow!("Authentication failed"));
+    }
+
+    let mut channel = handle.channel_open_session().await?;
+    channel.exec(true, command).await?;
+
+    let output = tokio::time::timeout(Duration::from_secs(10), async move {
+        let mut buf = Vec::new();
+        loop {
+            let Some(msg) = channel.wait().await else { break };
+            match msg {
+                ChannelMsg::Data { ref data } => buf.extend_from_slice(data.as_ref()),
+                ChannelMsg::ExitStatus { .. } => {}
+                _ => {}
+            }
+        }
+        buf
+    })
+    .await
+    .unwrap_or_default();
+
+    let _ = handle.disconnect(Disconnect::ByApplication, "", "en").await;
+    Ok(String::from_utf8_lossy(&output).to_string())
+}
+
 pub async fn connect_ssh(
     session_id: String,
     params: SshConnectParams,

@@ -5,7 +5,7 @@ interface Props {
   onChange: (id: string) => void;
 }
 
-function ThumbNail({ id }: { id: string }) {
+export function ThumbNail({ id }: { id: string }) {
   const t = THEMES[id];
   if (!t) return null;
 

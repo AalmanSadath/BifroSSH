@@ -47,13 +47,31 @@ pub async fn delete_server(state: State<'_, AppState>, server_id: String) -> Res
 
 #[tauri::command]
 pub async fn list_keys(state: State<'_, AppState>) -> Result<Vec<KeyEntry>, String> {
-    let data = state.data.lock().await;
+    let mut data = state.data.lock().await;
+    let mut updated = false;
+    for key in data.keys.iter_mut() {
+        if key.algorithm.is_none() {
+            let pem = if let Some(ref enc) = key.encrypted_key {
+                decrypt(enc, &state.secret_key).ok().and_then(|b| String::from_utf8(b).ok())
+            } else if let Some(ref path) = key.key_path {
+                std::fs::read_to_string(path).ok()
+            } else {
+                None
+            };
+            if let Some(ref pem) = pem {
+                key.algorithm = detect_algorithm(pem);
+                if key.algorithm.is_some() { updated = true; }
+            }
+        }
+    }
+    if updated { let _ = save_app_data(&*data); }
     let safe: Vec<KeyEntry> = data.keys.iter().map(|k| KeyEntry {
         id: k.id.clone(),
         name: k.name.clone(),
         key_path: k.key_path.clone(),
         encrypted_key: k.encrypted_key.as_ref().map(|_| "[stored]".to_string()),
         encrypted_passphrase: k.encrypted_passphrase.as_ref().map(|_| "[stored]".to_string()),
+        algorithm: k.algorithm.clone(),
     }).collect();
     Ok(safe)
 }
@@ -68,11 +86,15 @@ pub async fn import_key_from_path(
 ) -> Result<KeyEntry, String> {
     let mut data = state.data.lock().await;
 
-    let encrypted_key = if store_content {
+    let (encrypted_key, algorithm) = if store_content {
         let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        Some(encrypt(content.as_bytes(), &state.secret_key).map_err(|e| e.to_string())?)
+        let alg = detect_algorithm(&content);
+        let enc = encrypt(content.as_bytes(), &state.secret_key).map_err(|e| e.to_string())?;
+        (Some(enc), alg)
     } else {
-        None
+        let content = std::fs::read_to_string(&path).ok();
+        let alg = content.as_deref().and_then(detect_algorithm);
+        (None, alg)
     };
 
     let encrypted_passphrase = match passphrase {
@@ -85,9 +107,10 @@ pub async fn import_key_from_path(
     let key = KeyEntry {
         id: Uuid::new_v4().to_string(),
         name,
-        key_path: if !store_content { Some(path) } else { None },
+        key_path: if encrypted_key.is_none() { Some(path) } else { None },
         encrypted_key,
         encrypted_passphrase,
+        algorithm,
     };
     data.keys.push(key.clone());
     save_app_data(&*data).map_err(|e| e.to_string())?;
@@ -98,6 +121,7 @@ pub async fn import_key_from_path(
         key_path: key.key_path,
         encrypted_key: key.encrypted_key.as_ref().map(|_| "[stored]".to_string()),
         encrypted_passphrase: key.encrypted_passphrase.as_ref().map(|_| "[stored]".to_string()),
+        algorithm: key.algorithm,
     })
 }
 
@@ -110,6 +134,7 @@ pub async fn save_key_from_content(
 ) -> Result<KeyEntry, String> {
     let mut data = state.data.lock().await;
 
+    let algorithm = detect_algorithm(&content);
     let encrypted_key = encrypt(content.as_bytes(), &state.secret_key).map_err(|e| e.to_string())?;
 
     let encrypted_passphrase = match passphrase {
@@ -125,6 +150,7 @@ pub async fn save_key_from_content(
         key_path: None,
         encrypted_key: Some(encrypted_key),
         encrypted_passphrase,
+        algorithm,
     };
     data.keys.push(key.clone());
     save_app_data(&*data).map_err(|e| e.to_string())?;
@@ -135,6 +161,7 @@ pub async fn save_key_from_content(
         key_path: None,
         encrypted_key: Some("[stored]".to_string()),
         encrypted_passphrase: key.encrypted_passphrase.as_ref().map(|_| "[stored]".to_string()),
+        algorithm: key.algorithm,
     })
 }
 
@@ -142,6 +169,77 @@ pub async fn save_key_from_content(
 pub async fn delete_key(state: State<'_, AppState>, key_id: String) -> Result<(), String> {
     let mut data = state.data.lock().await;
     data.keys.retain(|k| k.id != key_id);
+    save_app_data(&*data).map_err(|e| e.to_string())
+}
+
+fn detect_algorithm(pem: &str) -> Option<String> {
+    ssh_key::PrivateKey::from_openssh(pem).ok().map(|k| {
+        match k.algorithm() {
+            ssh_key::Algorithm::Ed25519 => "ED25519".to_string(),
+            ssh_key::Algorithm::Ecdsa { curve } => match curve {
+                ssh_key::EcdsaCurve::NistP256 => "ECDSA P-256".to_string(),
+                ssh_key::EcdsaCurve::NistP384 => "ECDSA P-384".to_string(),
+                ssh_key::EcdsaCurve::NistP521 => "ECDSA P-521".to_string(),
+            },
+            ssh_key::Algorithm::Rsa { .. } => "RSA".to_string(),
+            other => other.to_string(),
+        }
+    })
+}
+
+// ── Key content view ─────────────────────────────────────────────────────────
+
+#[derive(serde::Serialize)]
+pub struct KeyContent {
+    pub private_pem: String,
+    pub public_openssh: Option<String>,
+}
+
+#[tauri::command]
+pub async fn get_key_content(
+    state: State<'_, AppState>,
+    key_id: String,
+) -> Result<KeyContent, String> {
+    let data = state.data.lock().await;
+    let key = data.keys.iter().find(|k| k.id == key_id)
+        .ok_or("Key not found")?;
+
+    let private_pem = if let Some(ref enc) = key.encrypted_key {
+        let bytes = decrypt(enc, &state.secret_key).map_err(|e| e.to_string())?;
+        String::from_utf8(bytes).map_err(|e| e.to_string())?
+    } else if let Some(ref path) = key.key_path {
+        std::fs::read_to_string(path).map_err(|e| e.to_string())?
+    } else {
+        return Err("Key has no content or path".to_string());
+    };
+
+    let public_openssh = ssh_key::PrivateKey::from_openssh(&private_pem)
+        .ok()
+        .and_then(|k| k.public_key().to_openssh().ok());
+
+    Ok(KeyContent { private_pem, public_openssh })
+}
+
+#[tauri::command]
+pub async fn update_key(
+    state: State<'_, AppState>,
+    key_id: String,
+    name: String,
+    content: String,
+    passphrase: Option<String>,
+) -> Result<(), String> {
+    let mut data = state.data.lock().await;
+    let key = data.keys.iter_mut().find(|k| k.id == key_id)
+        .ok_or("Key not found")?;
+    key.name = name;
+    key.algorithm = detect_algorithm(&content);
+    key.encrypted_key = Some(encrypt(content.as_bytes(), &state.secret_key).map_err(|e| e.to_string())?);
+    key.key_path = None;
+    key.encrypted_passphrase = match passphrase {
+        Some(ref p) if !p.is_empty() =>
+            Some(encrypt(p.as_bytes(), &state.secret_key).map_err(|e| e.to_string())?),
+        _ => key.encrypted_passphrase.clone(),
+    };
     save_app_data(&*data).map_err(|e| e.to_string())
 }
 
@@ -239,6 +337,114 @@ pub async fn save_settings(
     let mut data = state.data.lock().await;
     data.settings = settings;
     save_app_data(&*data).map_err(|e| e.to_string())
+}
+
+// ── OS detection ─────────────────────────────────────────────────────────────
+
+fn map_distro_id(id: &str) -> &'static str {
+    match id {
+        "ubuntu"                                       => "ubuntu",
+        "debian"                                       => "debian",
+        "fedora"                                       => "fedora",
+        "arch" | "manjaro" | "endeavouros" | "garuda"  => "arch",
+        "raspbian" | "raspios"                         => "raspberrypi",
+        "freebsd"                                      => "freebsd",
+        _                                              => "linux",
+    }
+}
+
+fn parse_os_release(output: &str) -> String {
+    let mut id = String::new();
+    let mut name = String::new();
+    let mut pretty_name = String::new();
+
+    for line in output.lines() {
+        let line = line.trim();
+        if let Some(v) = line.strip_prefix("ID=")          { id          = v.trim_matches('"').to_lowercase(); }
+        if let Some(v) = line.strip_prefix("NAME=")        { name        = v.trim_matches('"').to_lowercase(); }
+        if let Some(v) = line.strip_prefix("PRETTY_NAME=") { pretty_name = v.trim_matches('"').to_lowercase(); }
+    }
+
+    // Raspberry Pi detection — hardware marker or name/pretty_name
+    for line in output.lines() {
+        let l = line.trim().to_lowercase();
+        if l.contains("raspberry pi") { return "raspberrypi".to_string(); }
+    }
+
+    if !id.is_empty() {
+        return map_distro_id(&id).to_string();
+    }
+    if name.contains("raspberry") || pretty_name.contains("raspberry") {
+        return "raspberrypi".to_string();
+    }
+
+    // Fallback: uname -s
+    for line in output.lines().rev() {
+        match line.trim().to_lowercase().as_str() {
+            "darwin"  => return "macos".to_string(),
+            "freebsd" => return "freebsd".to_string(),
+            _         => {}
+        }
+    }
+    "linux".to_string()
+}
+
+#[tauri::command]
+pub async fn detect_server_os(
+    state: State<'_, AppState>,
+    server_id: String,
+    username: String,
+    auth_type: String,
+    auth_value: String,
+) -> Result<String, String> {
+    let (host, port, auth) = {
+        let data = state.data.lock().await;
+        let server = data.servers.iter().find(|s| s.id == server_id)
+            .ok_or("Server not found")?;
+
+        let auth = if auth_type == "password" {
+            SshAuth::Password(auth_value.clone())
+        } else {
+            let key_entry = data.keys.iter().find(|k| k.id == auth_value)
+                .ok_or("Key not found")?;
+            let pem = if let Some(ref enc) = key_entry.encrypted_key {
+                let bytes = decrypt(enc, &state.secret_key).map_err(|e| e.to_string())?;
+                String::from_utf8(bytes).map_err(|e| e.to_string())?
+            } else if let Some(ref path) = key_entry.key_path {
+                std::fs::read_to_string(path).map_err(|e| e.to_string())?
+            } else {
+                return Err("Key has no content".to_string());
+            };
+            let passphrase = if let Some(ref enc) = key_entry.encrypted_passphrase {
+                let bytes = decrypt(enc, &state.secret_key).map_err(|e| e.to_string())?;
+                Some(String::from_utf8(bytes).map_err(|e| e.to_string())?)
+            } else {
+                None
+            };
+            SshAuth::KeyData { key_pem: pem, passphrase }
+        };
+
+        (server.host.clone(), server.port, auth)
+    };
+
+    let output = crate::ssh::exec_ssh_command(
+        &host, port, &username, auth,
+        "cat /etc/os-release 2>/dev/null; cat /proc/device-tree/model 2>/dev/null; echo; uname -s",
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let detected = parse_os_release(&output);
+
+    {
+        let mut data = state.data.lock().await;
+        if let Some(server) = data.servers.iter_mut().find(|s| s.id == server_id) {
+            server.os = detected.clone();
+        }
+        save_app_data(&*data).map_err(|e| e.to_string())?;
+    }
+
+    Ok(detected)
 }
 
 // ── SSH ───────────────────────────────────────────────────────────────────────

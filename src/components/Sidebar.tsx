@@ -23,7 +23,14 @@ export default function Sidebar() {
           className={`nav-btn ${activePanel === 'keychain' ? 'active' : ''}`}
           onClick={() => setActiveTab('keychain')}
         >
-          <span className="nav-icon">&#128273;</span> Keychain
+          <span className="nav-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="7.5" cy="7.5" r="4.5"/>
+              <path d="M10.5 10.5L21 21"/>
+              <path d="M17 17l2-2"/>
+              <path d="M19 15l2-2"/>
+            </svg>
+          </span> Keychain
         </button>
         <button
           className={`nav-btn ${activePanel === 'settings' ? 'active' : ''}`}

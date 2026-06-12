@@ -10,6 +10,12 @@ pub struct Server {
     pub identity_id: Option<String>,
     #[serde(default)]
     pub theme: Option<String>,
+    #[serde(default = "Server::default_os")]
+    pub os: String,
+}
+
+impl Server {
+    fn default_os() -> String { String::new() }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,6 +35,8 @@ pub struct KeyEntry {
     pub key_path: Option<String>,
     pub encrypted_key: Option<String>,
     pub encrypted_passphrase: Option<String>,
+    #[serde(default)]
+    pub algorithm: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,6 +46,8 @@ pub struct Settings {
     pub font_family: String,
     pub cursor_style: String,
     pub cursor_blink: bool,
+    #[serde(default = "Settings::default_app_theme")]
+    pub app_theme: String,
 }
 
 impl Default for Settings {
@@ -48,8 +58,13 @@ impl Default for Settings {
             font_family: "monospace".to_string(),
             cursor_style: "block".to_string(),
             cursor_blink: true,
+            app_theme: "dark".to_string(),
         }
     }
+}
+
+impl Settings {
+    fn default_app_theme() -> String { "dark".to_string() }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
