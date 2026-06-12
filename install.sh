@@ -70,7 +70,7 @@ cat > "$INSTALL_DESKTOP" <<EOF
 [Desktop Entry]
 Name=$APP_NAME
 Comment=SSH client
-Exec=$INSTALL_BIN
+Exec=env WEBKIT_DISABLE_DMABUF_RENDERER=1 $INSTALL_BIN
 Icon=$BIN_NAME
 Terminal=false
 Type=Application
