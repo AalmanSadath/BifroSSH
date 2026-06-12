@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 use crate::crypto::{decrypt, encrypt};
 use crate::models::*;
+use crate::ppk;
 use crate::ssh::{connect_ssh, SshAuth, SshCommand, SshConnectParams, SshState};
 use crate::store::save_app_data;
 
@@ -173,6 +174,9 @@ pub async fn delete_key(state: State<'_, AppState>, key_id: String) -> Result<()
 }
 
 fn detect_algorithm(pem: &str) -> Option<String> {
+    if ppk::is_ppk(pem) {
+        return ppk::ppk_detect_algorithm(pem);
+    }
     if let Ok(k) = ssh_key::PrivateKey::from_openssh(pem) {
         return Some(match k.algorithm() {
             ssh_key::Algorithm::Ed25519 => "ED25519".to_string(),
@@ -185,7 +189,6 @@ fn detect_algorithm(pem: &str) -> Option<String> {
             other => other.to_string(),
         });
     }
-    // Fallback for PKCS#1/PKCS#8 format keys (BEGIN RSA PRIVATE KEY, etc.)
     if let Ok(kp) = russh_keys::decode_secret_key(pem, None) {
         return Some(match kp.name() {
             "ssh-ed25519" => "ED25519".to_string(),
@@ -197,6 +200,14 @@ fn detect_algorithm(pem: &str) -> Option<String> {
         });
     }
     None
+}
+
+#[tauri::command]
+pub async fn convert_ppk(content: String, passphrase: Option<String>) -> Result<String, String> {
+    if !ppk::is_ppk(&content) {
+        return Err("Not a PPK file".into());
+    }
+    ppk::ppk_to_openssh(&content, passphrase.as_deref())
 }
 
 fn pem_to_public_openssh(pem: &str, passphrase: Option<&str>) -> Option<String> {

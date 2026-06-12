@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '../store/appStore';
 import type { Identity } from '../types';
 
@@ -62,10 +63,23 @@ export default function KeychainPanel() {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => {
-      const text = ev.target?.result as string;
-      setKeyContent(text.trim());
-      if (!keyName.trim()) setKeyName(file.name.replace(/\.(pem|key|txt)$/i, ''));
+    reader.onload = async (ev) => {
+      const text = (ev.target?.result as string).trim();
+      if (!keyName.trim()) setKeyName(file.name.replace(/\.(ppk|pem|key|txt)$/i, ''));
+      if (file.name.toLowerCase().endsWith('.ppk') || text.startsWith('PuTTY-User-Key-File')) {
+        try {
+          const openssh = await invoke<string>('convert_ppk', {
+            content: text,
+            passphrase: keyPassphrase || null,
+          });
+          setKeyContent(openssh);
+          setKeyError('');
+        } catch (err) {
+          setKeyError(`PPK conversion failed: ${err}`);
+        }
+      } else {
+        setKeyContent(text);
+      }
     };
     reader.readAsText(file);
     e.target.value = '';
@@ -273,7 +287,7 @@ export default function KeychainPanel() {
                 <input
                   ref={keyFileInputRef}
                   type="file"
-                  accept=".pem,.key,.txt,*"
+                  accept=".ppk,.pem,.key,.txt,*"
                   style={{ display: 'none' }}
                   onChange={handleKeyFileSelect}
                 />

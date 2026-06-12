@@ -28,6 +28,11 @@ anyhow = "1"
 dirs = "5"
 async-trait = "0.1"
 ssh-key = { version = "0.6", features = ["alloc", "ed25519", "p256", "rsa", "getrandom"] }
+sha1 = "0.10"
+hmac = "0.12"
+aes = "0.8"
+cbc = "0.1"
+argon2 = "0.5"
 
 [profile.dev]
 opt-level = 1

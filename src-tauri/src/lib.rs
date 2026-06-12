@@ -1,6 +1,7 @@
 mod commands;
 mod crypto;
 mod models;
+mod ppk;
 mod ssh;
 mod store;
 
@@ -37,6 +38,7 @@ pub fn run() {
             commands::delete_identity,
             commands::get_settings,
             commands::save_settings,
+            commands::convert_ppk,
             commands::detect_server_os,
             commands::ssh_connect,
             commands::ssh_send_input,
