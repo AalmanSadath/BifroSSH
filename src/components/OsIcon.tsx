@@ -1,3 +1,5 @@
+import React from 'react';
+
 export const OS_OPTIONS = [
   { value: 'linux',       label: 'Linux'        },
   { value: 'ubuntu',      label: 'Ubuntu'       },
@@ -141,7 +143,7 @@ function GenericServer() {
   );
 }
 
-const ICON_MAP: Record<string, () => JSX.Element> = {
+const ICON_MAP: Record<string, () => React.ReactElement> = {
   linux:       Linux,
   ubuntu:      Ubuntu,
   debian:      Debian,
