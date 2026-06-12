@@ -294,6 +294,14 @@ pub async fn generate_key(algorithm: String) -> Result<GeneratedKey, String> {
             .map_err(|e| e.to_string())?,
         "ecdsa-p256" => PrivateKey::random(&mut rng, Algorithm::Ecdsa { curve: EcdsaCurve::NistP256 })
             .map_err(|e| e.to_string())?,
+        "rsa-1024" => {
+            let rsa = RsaKeypair::random(&mut rng, 1024).map_err(|e| e.to_string())?;
+            PrivateKey::new(KeypairData::Rsa(rsa), "").map_err(|e| e.to_string())?
+        }
+        "rsa-2048" => {
+            let rsa = RsaKeypair::random(&mut rng, 2048).map_err(|e| e.to_string())?;
+            PrivateKey::new(KeypairData::Rsa(rsa), "").map_err(|e| e.to_string())?
+        }
         "rsa-4096" => {
             let rsa = RsaKeypair::random(&mut rng, 4096).map_err(|e| e.to_string())?;
             PrivateKey::new(KeypairData::Rsa(rsa), "").map_err(|e| e.to_string())?

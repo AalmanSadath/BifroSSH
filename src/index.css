@@ -1284,3 +1284,39 @@ button { cursor: pointer; font-family: inherit; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+/* Add Key split-style button */
+.add-key-btn-group { display: flex; align-items: stretch; }
+.add-key-btn-main { border-radius: 6px 0 0 6px !important; }
+.add-key-btn-caret {
+  border-radius: 0 6px 6px 0 !important;
+  border-left: 1px solid rgba(255,255,255,0.15) !important;
+  padding: 0 8px !important;
+  display: flex; align-items: center; justify-content: center;
+}
+.key-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  background: var(--bg-mid);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+  z-index: 100;
+  min-width: 140px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+}
+.key-dropdown button {
+  padding: 7px 12px;
+  text-align: left;
+  border-radius: 5px;
+  font-size: 13px;
+  color: var(--text);
+  background: none;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.key-dropdown button:hover { background: var(--bg-light); }
