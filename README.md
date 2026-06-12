@@ -7,7 +7,7 @@ A fast SSH client built with Tauri 2, React, and Rust.
 ### 1. System dependencies (one-time)
 
 ```bash
-sudo dnf install -y webkit2gtk4.1-devel openssl-devel gtk3-devel \
+sudo dnf install -y webkit2gtk4.1-devel javascriptcoregtk4.1-devel openssl-devel gtk3-devel \
   libappindicator-gtk3-devel librsvg2-devel \
   curl file gcc
 ```
