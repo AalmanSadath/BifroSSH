@@ -9,7 +9,7 @@ const KEY_ALGORITHMS = [
   { value: 'rsa', label: 'RSA' },
 ];
 
-const RSA_SIZES = [1024, 2048, 4096];
+const RSA_SIZES = [2048, 4096];
 
 export default function KeychainPanel() {
   const { keys, identities, saveKeyFromContent, generateKey, getKeyContent, updateKey, deleteKey, saveIdentity, deleteIdentity } = useAppStore();
