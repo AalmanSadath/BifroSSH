@@ -173,8 +173,8 @@ pub async fn delete_key(state: State<'_, AppState>, key_id: String) -> Result<()
 }
 
 fn detect_algorithm(pem: &str) -> Option<String> {
-    ssh_key::PrivateKey::from_openssh(pem).ok().map(|k| {
-        match k.algorithm() {
+    if let Ok(k) = ssh_key::PrivateKey::from_openssh(pem) {
+        return Some(match k.algorithm() {
             ssh_key::Algorithm::Ed25519 => "ED25519".to_string(),
             ssh_key::Algorithm::Ecdsa { curve } => match curve {
                 ssh_key::EcdsaCurve::NistP256 => "ECDSA P-256".to_string(),
@@ -183,8 +183,37 @@ fn detect_algorithm(pem: &str) -> Option<String> {
             },
             ssh_key::Algorithm::Rsa { .. } => "RSA".to_string(),
             other => other.to_string(),
-        }
-    })
+        });
+    }
+    // Fallback for PKCS#1/PKCS#8 format keys (BEGIN RSA PRIVATE KEY, etc.)
+    if let Ok(kp) = russh_keys::decode_secret_key(pem, None) {
+        return Some(match kp.name() {
+            "ssh-ed25519" => "ED25519".to_string(),
+            "ssh-rsa" | "rsa-sha2-256" | "rsa-sha2-512" => "RSA".to_string(),
+            "ecdsa-sha2-nistp256" => "ECDSA P-256".to_string(),
+            "ecdsa-sha2-nistp384" => "ECDSA P-384".to_string(),
+            "ecdsa-sha2-nistp521" => "ECDSA P-521".to_string(),
+            other => other.to_string(),
+        });
+    }
+    None
+}
+
+fn pem_to_public_openssh(pem: &str, passphrase: Option<&str>) -> Option<String> {
+    if let Some(s) = ssh_key::PrivateKey::from_openssh(pem)
+        .ok()
+        .and_then(|k| k.public_key().to_openssh().ok())
+    {
+        return Some(s);
+    }
+    russh_keys::decode_secret_key(pem, passphrase)
+        .ok()
+        .and_then(|kp| kp.clone_public_key().ok())
+        .and_then(|pub_key| {
+            let mut buf = Vec::new();
+            russh_keys::write_public_key_base64(&mut buf, &pub_key).ok()?;
+            String::from_utf8(buf).ok()
+        })
 }
 
 // ── Key content view ─────────────────────────────────────────────────────────
@@ -213,9 +242,10 @@ pub async fn get_key_content(
         return Err("Key has no content or path".to_string());
     };
 
-    let public_openssh = ssh_key::PrivateKey::from_openssh(&private_pem)
-        .ok()
-        .and_then(|k| k.public_key().to_openssh().ok());
+    let passphrase = key.encrypted_passphrase.as_ref()
+        .and_then(|enc| decrypt(enc, &state.secret_key).ok())
+        .and_then(|b| String::from_utf8(b).ok());
+    let public_openssh = pem_to_public_openssh(&private_pem, passphrase.as_deref());
 
     Ok(KeyContent { private_pem, public_openssh })
 }
