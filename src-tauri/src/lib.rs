@@ -28,6 +28,7 @@ pub fn run() {
             commands::list_keys,
             commands::import_key_from_path,
             commands::save_key_from_content,
+            commands::generate_key,
             commands::delete_key,
             commands::list_identities,
             commands::save_identity,

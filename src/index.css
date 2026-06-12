@@ -631,6 +631,31 @@ button { cursor: pointer; font-family: inherit; }
   color: var(--text-primary);
 }
 
+.toggle-btn.disabled,
+.toggle-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.key-pub-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: var(--bg-mid);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px;
+}
+
+.key-pub-box code {
+  flex: 1;
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--text-primary);
+  word-break: break-all;
+  line-height: 1.4;
+}
+
 .key-paste-area {
   width: 100%;
   background: var(--bg-mid);

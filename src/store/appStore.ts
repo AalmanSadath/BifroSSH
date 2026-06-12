@@ -25,6 +25,7 @@ interface AppStore {
 
   importKey: (name: string, path: string, passphrase: string | null, storeContent: boolean) => Promise<void>;
   saveKeyFromContent: (name: string, content: string, passphrase: string | null) => Promise<void>;
+  generateKey: (algorithm: string) => Promise<{ private_pem: string; public_openssh: string }>;
   deleteKey: (id: string) => Promise<void>;
 
   saveIdentity: (identity: Partial<Identity> & { name: string; username: string; key_id: string }) => Promise<void>;
@@ -87,6 +88,10 @@ export const useAppStore = create<AppStore>((set, _get) => ({
   saveKeyFromContent: async (name, content, passphrase) => {
     const key = await invoke<KeyEntry>('save_key_from_content', { name, content, passphrase });
     set((s) => ({ keys: [...s.keys, key] }));
+  },
+
+  generateKey: async (algorithm) => {
+    return invoke<{ private_pem: string; public_openssh: string }>('generate_key', { algorithm });
   },
 
   deleteKey: async (id) => {

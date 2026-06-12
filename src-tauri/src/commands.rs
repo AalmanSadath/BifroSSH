@@ -145,6 +145,44 @@ pub async fn delete_key(state: State<'_, AppState>, key_id: String) -> Result<()
     save_app_data(&*data).map_err(|e| e.to_string())
 }
 
+// ── Key generation ───────────────────────────────────────────────────────────
+
+#[derive(serde::Serialize)]
+pub struct GeneratedKey {
+    pub private_pem: String,
+    pub public_openssh: String,
+}
+
+#[tauri::command]
+pub async fn generate_key(algorithm: String) -> Result<GeneratedKey, String> {
+    use ssh_key::{Algorithm, EcdsaCurve, LineEnding, PrivateKey};
+    use ssh_key::private::{KeypairData, RsaKeypair};
+    use rand::rngs::OsRng;
+
+    let mut rng = OsRng;
+
+    let key = match algorithm.as_str() {
+        "ed25519" => PrivateKey::random(&mut rng, Algorithm::Ed25519)
+            .map_err(|e| e.to_string())?,
+        "ecdsa-p256" => PrivateKey::random(&mut rng, Algorithm::Ecdsa { curve: EcdsaCurve::NistP256 })
+            .map_err(|e| e.to_string())?,
+        "rsa-4096" => {
+            let rsa = RsaKeypair::random(&mut rng, 4096).map_err(|e| e.to_string())?;
+            PrivateKey::new(KeypairData::Rsa(rsa), "").map_err(|e| e.to_string())?
+        }
+        _ => return Err(format!("Unknown algorithm: {}", algorithm)),
+    };
+
+    let private_pem = key.to_openssh(LineEnding::LF)
+        .map_err(|e| e.to_string())?
+        .to_string();
+    let public_openssh = key.public_key()
+        .to_openssh()
+        .map_err(|e| e.to_string())?;
+
+    Ok(GeneratedKey { private_pem, public_openssh })
+}
+
 // ── Identities ───────────────────────────────────────────────────────────────
 
 #[tauri::command]

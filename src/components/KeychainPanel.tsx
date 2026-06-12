@@ -2,11 +2,18 @@ import { useState } from 'react';
 import { useAppStore } from '../store/appStore';
 import type { Identity } from '../types';
 
+const KEY_ALGORITHMS = [
+  { value: 'ed25519', label: 'ED25519', supported: true },
+  { value: 'ecdsa-p256', label: 'ECDSA (P-256)', supported: true },
+  { value: 'rsa-4096', label: 'RSA (4096)', supported: true },
+  { value: 'ml-dsa', label: 'ML-DSA', supported: false },
+];
+
 export default function KeychainPanel() {
-  const { keys, identities, importKey, saveKeyFromContent, deleteKey, saveIdentity, deleteIdentity } = useAppStore();
+  const { keys, identities, importKey, saveKeyFromContent, generateKey, deleteKey, saveIdentity, deleteIdentity } = useAppStore();
 
   const [showKeyForm, setShowKeyForm] = useState(false);
-  const [keyInputMode, setKeyInputMode] = useState<'file' | 'paste'>('file');
+  const [keyInputMode, setKeyInputMode] = useState<'file' | 'paste' | 'generate'>('file');
   const [keyName, setKeyName] = useState('');
   const [keyPath, setKeyPath] = useState('');
   const [keyContent, setKeyContent] = useState('');
@@ -14,6 +21,10 @@ export default function KeychainPanel() {
   const [storeContent, setStoreContent] = useState(true);
   const [keyError, setKeyError] = useState('');
   const [savingKey, setSavingKey] = useState(false);
+
+  const [genAlgorithm, setGenAlgorithm] = useState('ed25519');
+  const [genResult, setGenResult] = useState<{ private_pem: string; public_openssh: string } | null>(null);
+  const [generating, setGenerating] = useState(false);
 
   const [showIdForm, setShowIdForm] = useState(false);
   const [editId, setEditId] = useState<Identity | null>(null);
@@ -26,6 +37,7 @@ export default function KeychainPanel() {
   function resetKeyForm() {
     setKeyName(''); setKeyPath(''); setKeyContent(''); setKeyPassphrase('');
     setStoreContent(true); setKeyError(''); setKeyInputMode('file');
+    setGenResult(null); setGenAlgorithm('ed25519');
   }
 
   async function handleAddKey(e: React.FormEvent) {
@@ -33,11 +45,14 @@ export default function KeychainPanel() {
     if (!keyName.trim()) { setKeyError('Name required'); return; }
     if (keyInputMode === 'file' && !keyPath.trim()) { setKeyError('File path required'); return; }
     if (keyInputMode === 'paste' && !keyContent.trim()) { setKeyError('Key content required'); return; }
+    if (keyInputMode === 'generate' && !genResult) { setKeyError('Generate a key first'); return; }
     setSavingKey(true);
     setKeyError('');
     try {
       if (keyInputMode === 'paste') {
         await saveKeyFromContent(keyName.trim(), keyContent.trim(), keyPassphrase || null);
+      } else if (keyInputMode === 'generate') {
+        await saveKeyFromContent(keyName.trim(), genResult!.private_pem, keyPassphrase || null);
       } else {
         await importKey(keyName.trim(), keyPath.trim(), keyPassphrase || null, storeContent);
       }
@@ -47,6 +62,20 @@ export default function KeychainPanel() {
       setKeyError(String(err));
     } finally {
       setSavingKey(false);
+    }
+  }
+
+  async function handleGenerate() {
+    setGenerating(true);
+    setKeyError('');
+    setGenResult(null);
+    try {
+      const result = await generateKey(genAlgorithm);
+      setGenResult(result);
+    } catch (err) {
+      setKeyError(String(err));
+    } finally {
+      setGenerating(false);
     }
   }
 
@@ -114,10 +143,17 @@ export default function KeychainPanel() {
                 >
                   Paste key
                 </button>
+                <button
+                  type="button"
+                  className={`toggle-btn${keyInputMode === 'generate' ? ' active' : ''}`}
+                  onClick={() => { setKeyInputMode('generate'); setGenResult(null); }}
+                >
+                  Generate
+                </button>
               </div>
             </div>
 
-            {keyInputMode === 'file' ? (
+            {keyInputMode === 'file' && (
               <>
                 <div className="form-group">
                   <label>Key file path</label>
@@ -128,7 +164,9 @@ export default function KeychainPanel() {
                   <span>Import and store key content (encrypted)</span>
                 </label>
               </>
-            ) : (
+            )}
+
+            {keyInputMode === 'paste' && (
               <div className="form-group">
                 <label>Key content</label>
                 <textarea
@@ -142,10 +180,58 @@ export default function KeychainPanel() {
               </div>
             )}
 
-            <div className="form-group">
-              <label>Passphrase (if encrypted)</label>
-              <input type="password" value={keyPassphrase} onChange={(e) => setKeyPassphrase(e.target.value)} placeholder="leave empty if none" />
-            </div>
+            {keyInputMode === 'generate' && (
+              <>
+                <div className="form-group">
+                  <label>Algorithm</label>
+                  <div className="toggle-row">
+                    {KEY_ALGORITHMS.map((alg) => (
+                      <button
+                        key={alg.value}
+                        type="button"
+                        className={`toggle-btn${genAlgorithm === alg.value ? ' active' : ''}${!alg.supported ? ' disabled' : ''}`}
+                        onClick={() => { if (alg.supported) { setGenAlgorithm(alg.value); setGenResult(null); } }}
+                        title={!alg.supported ? 'Not yet supported by SSH servers' : undefined}
+                        disabled={!alg.supported}
+                      >
+                        {alg.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="btn-secondary btn-sm"
+                  onClick={handleGenerate}
+                  disabled={generating}
+                  style={{ alignSelf: 'flex-start' }}
+                >
+                  {generating ? 'Generating…' : genResult ? 'Regenerate' : 'Generate Key'}
+                </button>
+                {genResult && (
+                  <div className="form-group">
+                    <label>Public key — add this to your server's authorized_keys</label>
+                    <div className="key-pub-box">
+                      <code>{genResult.public_openssh}</code>
+                      <button
+                        type="button"
+                        className="btn-secondary btn-sm"
+                        onClick={() => navigator.clipboard.writeText(genResult.public_openssh)}
+                      >
+                        Copy
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {keyInputMode !== 'generate' && (
+              <div className="form-group">
+                <label>Passphrase (if encrypted)</label>
+                <input type="password" value={keyPassphrase} onChange={(e) => setKeyPassphrase(e.target.value)} placeholder="leave empty if none" />
+              </div>
+            )}
 
             {keyError && <p className="form-error">{keyError}</p>}
             <div className="form-actions">
