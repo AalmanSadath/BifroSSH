@@ -145,6 +145,19 @@ export default function SettingsPanel() {
           />
         </div>
         <p className="form-hint">Per-host timeout can be set in host settings and overrides this value.</p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 10 }}>
+          <label style={{ margin: 0, whiteSpace: 'nowrap' }}>SFTP inactivity timeout (seconds)</label>
+          <input
+            type="number"
+            min={30}
+            max={86400}
+            value={settings.sftp_inactivity_timeout_secs}
+            onChange={(e) => patch({ sftp_inactivity_timeout_secs: Math.max(30, Number(e.target.value)) })}
+            style={{ width: 80 }}
+            className="no-spinner"
+          />
+        </div>
+        <p className="form-hint">How long an idle SFTP session is kept alive. Default 300s (5 min).</p>
       </section>
 
       <section className="panel-section">

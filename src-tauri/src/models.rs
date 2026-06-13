@@ -64,6 +64,8 @@ pub struct Settings {
     pub connection_timeout_secs: u32,
     #[serde(default = "Settings::default_show_hover_hints")]
     pub show_hover_hints: bool,
+    #[serde(default = "Settings::default_sftp_inactivity_timeout")]
+    pub sftp_inactivity_timeout_secs: u32,
 }
 
 impl Default for Settings {
@@ -77,6 +79,7 @@ impl Default for Settings {
             app_theme: "dark".to_string(),
             connection_timeout_secs: 60,
             show_hover_hints: true,
+            sftp_inactivity_timeout_secs: 300,
         }
     }
 }
@@ -85,6 +88,7 @@ impl Settings {
     fn default_app_theme() -> String { "dark".to_string() }
     fn default_connection_timeout() -> u32 { 60 }
     fn default_show_hover_hints() -> bool { true }
+    fn default_sftp_inactivity_timeout() -> u32 { 300 }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

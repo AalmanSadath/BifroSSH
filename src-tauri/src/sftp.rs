@@ -170,10 +170,11 @@ pub async fn connect_sftp(
     key_pem: Option<&str>,
     passphrase: Option<&str>,
     password: Option<&str>,
+    inactivity_timeout_secs: u32,
 ) -> Result<(), String> {
     tokio::time::timeout(
         Duration::from_secs(30),
-        connect_sftp_inner(sftp_state, session_id, host, port, username, key_pem, passphrase, password),
+        connect_sftp_inner(sftp_state, session_id, host, port, username, key_pem, passphrase, password, inactivity_timeout_secs),
     )
     .await
     .map_err(|_| "Connection timed out after 30 seconds".to_string())?
@@ -188,9 +189,10 @@ async fn connect_sftp_inner(
     key_pem: Option<&str>,
     passphrase: Option<&str>,
     password: Option<&str>,
+    inactivity_timeout_secs: u32,
 ) -> Result<(), String> {
     let config = Arc::new(client::Config {
-        inactivity_timeout: Some(Duration::from_secs(30)),
+        inactivity_timeout: Some(Duration::from_secs(inactivity_timeout_secs as u64)),
         ..Default::default()
     });
 

@@ -38,6 +38,7 @@ export interface Settings {
   app_theme: 'dark' | 'light' | 'amoled';
   connection_timeout_secs: number;
   show_hover_hints: boolean;
+  sftp_inactivity_timeout_secs: number;
 }
 
 export interface LogEntry {

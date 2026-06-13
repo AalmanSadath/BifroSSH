@@ -22,6 +22,7 @@ const DEFAULT_SETTINGS: Settings = {
   app_theme: 'dark',
   connection_timeout_secs: 60,
   show_hover_hints: true,
+  sftp_inactivity_timeout_secs: 300,
 };
 
 interface AppStore {

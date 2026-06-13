@@ -844,6 +844,10 @@ pub async fn sftp_connect_remote(
     };
 
     let session_id = Uuid::new_v4().to_string();
+    let inactivity_timeout_secs = {
+        let data = state.data.lock().await;
+        data.settings.sftp_inactivity_timeout_secs
+    };
 
     if auth_type == "key" {
         let pem = key_pem.ok_or_else(|| "Key not found or could not be read".to_string())?;
@@ -856,6 +860,7 @@ pub async fn sftp_connect_remote(
             Some(&pem),
             passphrase.as_deref(),
             None,
+            inactivity_timeout_secs,
         ).await?;
     } else {
         crate::sftp::connect_sftp(
@@ -867,6 +872,7 @@ pub async fn sftp_connect_remote(
             None,
             None,
             Some(&auth_value),
+            inactivity_timeout_secs,
         ).await?;
     }
 

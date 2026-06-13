@@ -129,6 +129,10 @@ function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
   }, [path]);
 
   useEffect(() => {
+    if (!onReconnect) setReconnecting(false);
+  }, [onReconnect]);
+
+  useEffect(() => {
     if (!dropdownOpen) return;
     function onClickOutside(e: MouseEvent) {
       if (!dropdownRef.current?.contains(e.target as Node)) setDropdownOpen(false);
@@ -277,6 +281,11 @@ function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
           </div>
         )}
         <div className="sftp-panel-actions">
+          {onReconnect && (
+            reconnecting
+              ? <span className="sftp-reconnecting-text">Reconnecting…</span>
+              : <button className="sftp-reconnect-btn" onClick={() => { setReconnecting(true); onReconnect(); }}>Reconnect</button>
+          )}
           <div className="sftp-dropdown-wrap" ref={dropdownRef}>
             <button className="sftp-action-btn" onClick={() => setDropdownOpen(o => !o)}>
               Actions ▾
@@ -360,16 +369,7 @@ function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
             {loading ? (
               <tr><td colSpan={4} className="sftp-status-cell">Loading…</td></tr>
             ) : error ? (
-              <tr><td colSpan={4} className="sftp-status-cell sftp-cell-error">
-                <div className="sftp-error-content">
-                  <span>{error}</span>
-                  {onReconnect && (
-                    reconnecting
-                      ? <span className="sftp-reconnecting-text">Reconnecting…</span>
-                      : <button className="sftp-reconnect-btn" onClick={() => { setReconnecting(true); onReconnect(); }}>Reconnect</button>
-                  )}
-                </div>
-              </td></tr>
+              <tr><td colSpan={4} className="sftp-status-cell sftp-cell-error">{error}</td></tr>
             ) : (() => {
               const dotdot = entries.filter(en => en.name === '..');
               const rest = entries
@@ -1176,11 +1176,18 @@ export default function SftpPanel() {
         const eta = remaining !== null
           ? remaining < 60 ? `${Math.ceil(remaining)}s` : `${Math.ceil(remaining / 60)}m`
           : '…';
+        const speedStr = speed > 0
+          ? speed >= 1024 * 1024
+            ? `${(speed / (1024 * 1024)).toFixed(1)} MB/s`
+            : speed >= 1024
+              ? `${(speed / 1024).toFixed(1)} KB/s`
+              : `${Math.round(speed)} B/s`
+          : '';
         return (
           <div className="sftp-progress-wrap">
             <div className="sftp-progress-info">
               <span className="sftp-progress-name">{progress.file_name}</span>
-              <span className="sftp-progress-stat">{pct}% · ETA {eta}</span>
+              <span className="sftp-progress-stat">{pct}% · {speedStr}{speedStr ? ' · ' : ''}ETA {eta}</span>
             </div>
             <div className="sftp-progress-track">
               <div className="sftp-progress-fill" style={{ width: `${pct}%` }} />
