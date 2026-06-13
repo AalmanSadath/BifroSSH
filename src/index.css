@@ -3001,6 +3001,12 @@ button { cursor: pointer; font-family: inherit; }
   display: flex;
   gap: 6px;
   flex-shrink: 0;
+  align-items: center;
+}
+
+.te-delete-confirm-text {
+  font-size: 12px;
+  color: var(--danger);
 }
 
 /* Theme picker custom divider */

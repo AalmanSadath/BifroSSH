@@ -194,6 +194,7 @@ function SavedThemeCard({ theme, onEdit, onDelete, active }: {
   theme: NamedTheme;
   onEdit: () => void; onDelete: () => void; active: boolean;
 }) {
+  const [confirming, setConfirming] = useState(false);
   const bars = [
     { color: theme.green, width: '72%' },
     { color: theme.foreground, width: '55%' },
@@ -217,8 +218,18 @@ function SavedThemeCard({ theme, onEdit, onDelete, active }: {
       </div>
       <span className="te-saved-name">{theme.name}</span>
       <div className="te-saved-actions">
-        <button className="btn-secondary btn-sm" onClick={onEdit}>Edit</button>
-        <button className="btn-danger btn-sm" onClick={onDelete}>Delete</button>
+        {confirming ? (
+          <>
+            <span className="te-delete-confirm-text">Delete?</span>
+            <button className="btn-danger btn-sm" onClick={onDelete}>Yes</button>
+            <button className="btn-secondary btn-sm" onClick={() => setConfirming(false)}>No</button>
+          </>
+        ) : (
+          <>
+            <button className="btn-secondary btn-sm" onClick={onEdit}>Edit</button>
+            <button className="btn-danger btn-sm" onClick={() => setConfirming(true)}>Delete</button>
+          </>
+        )}
       </div>
     </div>
   );
