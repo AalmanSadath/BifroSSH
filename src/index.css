@@ -41,17 +41,18 @@
 }
 
 .app-light {
-  --bg-darkest:   #ffffff;
-  --bg-dark:      #f6f8fa;
-  --bg-mid:       #eaeef2;
-  --bg-hover:     #d0d7de;
-  --border:       #d0d7de;
-  --accent:       #0969da;
-  --accent-hover: #0550ae;
-  --danger:       #cf222e;
-  --text-primary: #1f2328;
-  --text-muted:   #656d76;
-  --text-dim:     #8c959f;
+  --bg-darkest:   #e8ecf0;
+  --bg-dark:      #ffffff;
+  --bg-mid:       #f0f3f6;
+  --bg-hover:     #dde3ea;
+  --border:       #bcc5cf;
+  --accent:       #2f80ed;
+  --accent-hover: #1a6fd4;
+  --danger:       #b91c1c;
+  --error:        #b91c1c;
+  --text-primary: #111827;
+  --text-muted:   #374151;
+  --text-dim:     #6b7280;
   color: var(--text-primary);
   background: var(--bg-darkest);
 }
