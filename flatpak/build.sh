@@ -6,6 +6,21 @@ cd "$(dirname "$0")/.."
 BUILD_DIR=flatpak/.build
 REPO_DIR=flatpak/.repo
 
+# Save terminal state; disable echo so CPR responses from terminal queries
+# (ESC[6n) don't get echoed back as visible text during build tool execution.
+_stty_save=$(stty -g 2>/dev/null) || true
+stty -echo 2>/dev/null || true
+
+_restore_tty() {
+    if [ -n "$_stty_save" ]; then
+        stty "$_stty_save" 2>/dev/null || true
+    else
+        stty sane 2>/dev/null || true
+    fi
+    printf '\033[?2004l' 2>/dev/null || true
+}
+trap _restore_tty EXIT
+
 echo "==> Cleaning previous build..."
 rm -rf "$BUILD_DIR"
 
@@ -26,8 +41,8 @@ flatpak remote-add --no-gpg-verify --if-not-exists bifrossh-local "$REPO_DIR"
 echo "==> Installing..."
 flatpak install --reinstall --assumeyes bifrossh-local com.bifrossh.app
 
-printf '\033[?2004l' 2>/dev/null || true  # disable bracketed paste if left on
-stty sane 2>/dev/null || true            # restore terminal to sane state
+_restore_tty
+trap - EXIT
 
 echo ""
 echo "Done. Run with:"
