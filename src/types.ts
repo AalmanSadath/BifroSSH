@@ -13,7 +13,8 @@ export interface Identity {
   id: string;
   name: string;
   username: string;
-  key_id: string;
+  key_id: string | null;
+  encrypted_password: string | null;
 }
 
 export interface KeyEntry {

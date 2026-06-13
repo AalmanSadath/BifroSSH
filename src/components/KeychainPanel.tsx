@@ -40,7 +40,10 @@ export default function KeychainPanel() {
   const [editId, setEditId] = useState<Identity | null>(null);
   const [idName, setIdName] = useState('');
   const [idUsername, setIdUsername] = useState('');
+  const [idAuthType, setIdAuthType] = useState<'key' | 'password'>('key');
   const [idKeyId, setIdKeyId] = useState('');
+  const [idPassword, setIdPassword] = useState('');
+  const [idKeyDropdownOpen, setIdKeyDropdownOpen] = useState(false);
   const [idError, setIdError] = useState('');
   const [savingId, setSavingId] = useState(false);
 
@@ -197,23 +200,32 @@ export default function KeychainPanel() {
 
   function openAddIdentity() {
     setEditId(null);
-    setIdName(''); setIdUsername(''); setIdKeyId(''); setIdError('');
+    setIdName(''); setIdUsername(''); setIdAuthType('key'); setIdKeyId(''); setIdPassword(''); setIdError('');
     setShowIdForm(true);
   }
 
   function openEditIdentity(id: Identity) {
     setEditId(id);
-    setIdName(id.name); setIdUsername(id.username); setIdKeyId(id.key_id); setIdError('');
+    const authType = id.encrypted_password === '[stored]' ? 'password' : 'key';
+    setIdName(id.name); setIdUsername(id.username);
+    setIdAuthType(authType); setIdKeyId(id.key_id ?? ''); setIdPassword(''); setIdError('');
     setShowIdForm(true);
   }
 
   async function handleSaveIdentity(e: React.FormEvent) {
     e.preventDefault();
-    if (!idName.trim() || !idUsername.trim() || !idKeyId) { setIdError('All fields required'); return; }
+    if (!idName.trim() || !idUsername.trim()) { setIdError('Name and username required'); return; }
+    if (idAuthType === 'key' && !idKeyId) { setIdError('Select a key'); return; }
+    if (idAuthType === 'password' && !idPassword && editId?.encrypted_password !== '[stored]') {
+      setIdError('Password required'); return;
+    }
     setSavingId(true);
     setIdError('');
     try {
-      await saveIdentity({ id: editId?.id ?? '', name: idName.trim(), username: idUsername.trim(), key_id: idKeyId });
+      await saveIdentity(
+        { id: editId?.id ?? '', name: idName.trim(), username: idUsername.trim(), key_id: idAuthType === 'key' ? idKeyId : null, encrypted_password: null },
+        idAuthType === 'password' && idPassword ? idPassword : undefined,
+      );
       setShowIdForm(false);
     } catch (err) {
       setIdError(String(err));
@@ -455,15 +467,60 @@ export default function KeychainPanel() {
                   <input value={idUsername} onChange={(e) => setIdUsername(e.target.value)} placeholder="ubuntu" />
                 </div>
                 <div className="form-group">
-                  <label>Key</label>
-                  <select value={idKeyId} onChange={(e) => setIdKeyId(e.target.value)}>
-                    <option value="">Select key…</option>
-                    {keys.map((k) => <option key={k.id} value={k.id}>{k.name}</option>)}
-                  </select>
-                  {keys.length === 0 && (
-                    <p className="form-hint">No keys yet — add one in the SSH Keys section above.</p>
-                  )}
+                  <label>Auth</label>
+                  <div className="toggle-row">
+                    <button type="button" className={`toggle-btn${idAuthType === 'key' ? ' active' : ''}`} onClick={() => setIdAuthType('key')}>Key</button>
+                    <button type="button" className={`toggle-btn${idAuthType === 'password' ? ' active' : ''}`} onClick={() => setIdAuthType('password')}>Password</button>
+                  </div>
                 </div>
+                {idAuthType === 'key' ? (
+                  <div className="form-group">
+                    <div className="id-key-picker" style={{ position: 'relative' }}>
+                      <button
+                        type="button"
+                        className="id-key-picker-btn"
+                        onClick={() => setIdKeyDropdownOpen((o) => !o)}
+                      >
+                        <span>{keys.find((k) => k.id === idKeyId)?.name ?? 'Select key…'}</span>
+                        <svg width="10" height="6" viewBox="0 0 10 6" fill="currentColor"><path d="M0 0l5 6 5-6z"/></svg>
+                      </button>
+                      {idKeyDropdownOpen && (
+                        <>
+                          <div style={{ position: 'fixed', inset: 0, zIndex: 99 }} onClick={() => setIdKeyDropdownOpen(false)} />
+                          <div className="id-key-picker-menu">
+                            {keys.map((k) => (
+                              <button
+                                key={k.id}
+                                type="button"
+                                className={`id-key-picker-item${idKeyId === k.id ? ' selected' : ''}`}
+                                onClick={() => { setIdKeyId(k.id); setIdKeyDropdownOpen(false); }}
+                              >
+                                {k.name}
+                              </button>
+                            ))}
+                            {keys.length > 0 && <div className="id-key-picker-divider" />}
+                            <button
+                              type="button"
+                              className="id-key-picker-item id-key-picker-add"
+                              onClick={() => { setIdKeyDropdownOpen(false); setShowKeyForm(true); resetKeyForm(); }}
+                            >
+                              + Add Key…
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="form-group">
+                    <input
+                      type="password"
+                      value={idPassword}
+                      onChange={(e) => setIdPassword(e.target.value)}
+                      placeholder={editId?.encrypted_password === '[stored]' ? 'leave blank to keep existing' : 'password'}
+                    />
+                  </div>
+                )}
                 {idError && <p className="form-error">{idError}</p>}
               </form>
             </div>
@@ -487,14 +544,16 @@ export default function KeychainPanel() {
           ? <p className="list-empty">No identities. Add a key first.</p>
           : <div className="kc-grid">
               {identities.map((id) => {
-                const key = keys.find((k) => k.id === id.key_id);
+                const isPasswordAuth = id.encrypted_password === '[stored]';
+                const key = isPasswordAuth ? null : keys.find((k) => k.id === id.key_id);
+                const keyMissing = !isPasswordAuth && !key;
                 return (
-                  <div key={id.id} className={`kc-card kc-card--clickable${!key ? ' warn' : ''}`} onClick={() => openEditIdentity(id)} onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, kind: 'identity', id: id.id }); }}>
+                  <div key={id.id} className={`kc-card kc-card--clickable${keyMissing ? ' warn' : ''}`} onClick={() => openEditIdentity(id)} onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, kind: 'identity', id: id.id }); }}>
                     <div className="kc-card-info">
                       <span className="kc-card-name">{id.name}</span>
                       <span className="kc-card-detail">{id.username}</span>
                       <span className="kc-card-detail">
-                        {key ? key.name : <span className="warn-text">key deleted</span>}
+                        {isPasswordAuth ? 'password' : key ? key.name : <span className="warn-text">key deleted</span>}
                       </span>
                     </div>
                     <button className="kc-card-edit-btn" onClick={(e) => { e.stopPropagation(); openEditIdentity(id); }} title={hint('Edit')}>

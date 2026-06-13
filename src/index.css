@@ -24,7 +24,7 @@
   background: var(--bg-darkest);
 }
 
-.app-amoled {
+.app-amoled, body.app-amoled {
   --bg-darkest:   #000000;
   --bg-dark:      #0a0a0a;
   --bg-mid:       #111111;
@@ -40,7 +40,7 @@
   background: var(--bg-darkest);
 }
 
-.app-light {
+.app-light, body.app-light {
   --bg-darkest:   #e8ecf0;
   --bg-dark:      #ffffff;
   --bg-mid:       #f0f3f6;
@@ -1441,7 +1441,99 @@ button { cursor: pointer; font-family: inherit; }
   cursor: pointer;
   white-space: nowrap;
 }
-.key-dropdown button:hover { background: var(--bg-light); }
+.key-dropdown button:hover { background: var(--bg-hover); }
+
+/* ── Identity key picker ───────────────────────────────────── */
+.id-key-picker-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-mid);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-primary);
+  padding: 7px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.id-key-picker-btn:hover,
+.id-key-picker-btn:focus { border-color: var(--accent); outline: none; }
+.id-key-picker-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--bg-mid);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+  z-index: 100;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  display: flex;
+  flex-direction: column;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.id-key-picker-item {
+  padding: 7px 10px;
+  text-align: left;
+  border-radius: 5px;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.id-key-picker-item:hover { background: var(--bg-hover); }
+.id-key-picker-item.selected { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+.id-key-picker-divider { height: 1px; background: var(--border); margin: 4px 0; }
+.id-key-picker-add { color: var(--accent); }
+.id-key-picker-add:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+
+/* ── Host credential badge + suggestions ───────────────────── */
+.host-identity-badge {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 6px;
+  color: var(--accent);
+  font-size: 13px;
+}
+.host-identity-badge-name { font-weight: 600; }
+.host-identity-badge-user { opacity: 0.7; flex: 1; }
+.host-identity-badge-remove {
+  background: none;
+  border: none;
+  color: var(--accent);
+  opacity: 0.6;
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 12px;
+  line-height: 1;
+}
+.host-identity-badge-remove:hover { opacity: 1; }
+.host-credential-suggestions {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  z-index: 200;
+}
+.host-suggestion-type {
+  margin-left: auto;
+  font-size: 11px;
+  opacity: 0.5;
+  padding-left: 8px;
+}
 
 /* ── SFTP Panel ────────────────────────────────────────────── */
 

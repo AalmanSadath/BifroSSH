@@ -26,7 +26,10 @@ pub struct Identity {
     pub id: String,
     pub name: String,
     pub username: String,
-    pub key_id: String,
+    #[serde(default)]
+    pub key_id: Option<String>,
+    #[serde(default)]
+    pub encrypted_password: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

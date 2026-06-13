@@ -45,7 +45,7 @@ interface AppStore {
   updateKey: (keyId: string, name: string, content: string, passphrase: string | null) => Promise<void>;
   deleteKey: (id: string) => Promise<void>;
 
-  saveIdentity: (identity: Partial<Identity> & { name: string; username: string; key_id: string }) => Promise<void>;
+  saveIdentity: (identity: Partial<Identity> & { name: string; username: string }, password?: string) => Promise<void>;
   deleteIdentity: (id: string) => Promise<void>;
 
   saveSettings: (settings: Settings) => Promise<void>;
@@ -158,9 +158,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }));
   },
 
-  saveIdentity: async (identity) => {
+  saveIdentity: async (identity, password?) => {
     const saved = await invoke<Identity>('save_identity', {
       identity: { id: identity.id ?? '', ...identity },
+      password: password ?? null,
     });
     set((s) => {
       const exists = s.identities.some((x) => x.id === saved.id);
@@ -284,12 +285,18 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }));
 
     try {
+      const isPasswordAuth = identity.encrypted_password === '[stored]';
+      const authType = isPasswordAuth ? 'password' : 'key';
+      const authValue = isPasswordAuth
+        ? await invoke<string>('get_identity_password', { identityId: identity.id })
+        : (identity.key_id ?? '');
+
       const sessionId = await invoke<string>('ssh_connect', {
         request: {
           server_id: serverId,
           username: identity.username,
-          auth_type: 'key',
-          auth_value: identity.key_id,
+          auth_type: authType,
+          auth_value: authValue,
           cols: 80,
           rows: 24,
           connect_id: connectId,
@@ -297,7 +304,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       });
       unlisten();
       get().updateSessionConnected(connectId, sessionId);
-      if (server.os === '') detectServerOs(serverId, identity.username, 'key', identity.key_id);
+      if (server.os === '') detectServerOs(serverId, identity.username, authType, authValue);
     } catch (err) {
       unlisten();
       get().updateSessionError(connectId, String(err));

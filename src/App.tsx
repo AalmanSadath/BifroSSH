@@ -28,6 +28,13 @@ export default function App() {
   useEffect(() => { loadAll(); }, []);
 
   useEffect(() => {
+    const body = document.body;
+    body.classList.remove('app-light', 'app-amoled');
+    if (settings.app_theme === 'light') body.classList.add('app-light');
+    else if (settings.app_theme === 'amoled') body.classList.add('app-amoled');
+  }, [settings.app_theme]);
+
+  useEffect(() => {
     if (!tabCtx) return;
     function onDown(e: MouseEvent) {
       if (!tabCtxRef.current?.contains(e.target as Node)) setTabCtx(null);
