@@ -10,8 +10,18 @@ use russh::*;
 use russh_keys::key::KeyPair;
 use russh_sftp::client::SftpSession;
 use serde::Serialize;
+use tauri::Emitter;
 use tokio::sync::Mutex;
 use tokio::time::Duration;
+
+const CHUNK: usize = 128 * 1024; // 128 KB
+
+#[derive(Serialize, Clone)]
+pub struct TransferProgress {
+    pub file_name: String,
+    pub transferred: u64,
+    pub total: u64,
+}
 
 #[derive(Serialize, Clone, Debug)]
 pub struct FileEntry {
@@ -279,12 +289,13 @@ pub async fn list_remote(
 }
 
 pub async fn upload_file(
+    app: &tauri::AppHandle,
     sftp_state: &SftpClientState,
     session_id: &str,
     local_path: &str,
     remote_dir: &str,
 ) -> Result<(), String> {
-    use tokio::io::AsyncWriteExt;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let file_name = Path::new(local_path)
         .file_name()
@@ -297,26 +308,37 @@ pub async fn upload_file(
         format!("{}/{}", remote_dir.trim_end_matches('/'), file_name)
     };
 
-    let data = tokio::fs::read(local_path).await.map_err(|e| e.to_string())?;
+    let total = tokio::fs::metadata(local_path).await.map(|m| m.len()).unwrap_or(0);
+    let mut local_file = tokio::fs::File::open(local_path).await.map_err(|e| e.to_string())?;
 
     let sftp_arc = get_session(sftp_state, session_id).await?;
     let mut remote_file = {
         let sftp = sftp_arc.lock().await;
         sftp.create(&remote_path).await.map_err(|e| e.to_string())?
     };
-    remote_file.write_all(&data).await.map_err(|e| e.to_string())?;
+
+    let mut buf = vec![0u8; CHUNK];
+    let mut transferred = 0u64;
+    loop {
+        let n = local_file.read(&mut buf).await.map_err(|e| e.to_string())?;
+        if n == 0 { break; }
+        remote_file.write_all(&buf[..n]).await.map_err(|e| e.to_string())?;
+        transferred += n as u64;
+        let _ = app.emit("sftp-progress", TransferProgress { file_name: file_name.clone(), transferred, total });
+    }
     remote_file.flush().await.map_err(|e| e.to_string())?;
 
     Ok(())
 }
 
 pub async fn download_file(
+    app: &tauri::AppHandle,
     sftp_state: &SftpClientState,
     session_id: &str,
     remote_path: &str,
     local_dir: &str,
 ) -> Result<(), String> {
-    use tokio::io::AsyncReadExt;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let file_name = Path::new(remote_path)
         .file_name()
@@ -326,14 +348,75 @@ pub async fn download_file(
     let local_path = std::path::Path::new(local_dir).join(&file_name);
 
     let sftp_arc = get_session(sftp_state, session_id).await?;
-    let mut remote_file = {
+    let (total, mut remote_file) = {
         let sftp = sftp_arc.lock().await;
-        sftp.open(remote_path).await.map_err(|e| e.to_string())?
+        let meta = sftp.metadata(remote_path).await.map_err(|e| e.to_string())?;
+        let total = meta.size.unwrap_or(0);
+        let f = sftp.open(remote_path).await.map_err(|e| e.to_string())?;
+        (total, f)
     };
-    let mut data = Vec::new();
-    remote_file.read_to_end(&mut data).await.map_err(|e| e.to_string())?;
 
-    tokio::fs::write(&local_path, &data).await.map_err(|e| e.to_string())?;
+    let mut local_file = tokio::fs::File::create(&local_path).await.map_err(|e| e.to_string())?;
+    let mut buf = vec![0u8; CHUNK];
+    let mut transferred = 0u64;
+    loop {
+        let n = remote_file.read(&mut buf).await.map_err(|e| e.to_string())?;
+        if n == 0 { break; }
+        local_file.write_all(&buf[..n]).await.map_err(|e| e.to_string())?;
+        transferred += n as u64;
+        let _ = app.emit("sftp-progress", TransferProgress { file_name: file_name.clone(), transferred, total });
+    }
+
+    Ok(())
+}
+
+pub async fn copy_remote_to_remote(
+    app: &tauri::AppHandle,
+    sftp_state: &SftpClientState,
+    src_session_id: &str,
+    src_path: &str,
+    dst_session_id: &str,
+    dst_dir: &str,
+) -> Result<(), String> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let file_name = Path::new(src_path)
+        .file_name()
+        .ok_or("Invalid source path")?
+        .to_string_lossy()
+        .into_owned();
+
+    let src_arc = get_session(sftp_state, src_session_id).await?;
+    let (total, data) = {
+        let sftp = src_arc.lock().await;
+        let meta = sftp.metadata(src_path).await.map_err(|e| e.to_string())?;
+        let total = meta.size.unwrap_or(0);
+        let mut f = sftp.open(src_path).await.map_err(|e| e.to_string())?;
+        let mut buf = Vec::new();
+        f.read_to_end(&mut buf).await.map_err(|e| e.to_string())?;
+        (total, buf)
+    };
+
+    let dst_path = if dst_dir == "/" {
+        format!("/{}", file_name)
+    } else {
+        format!("{}/{}", dst_dir.trim_end_matches('/'), file_name)
+    };
+
+    let dst_arc = get_session(sftp_state, dst_session_id).await?;
+    let mut remote_file = {
+        let sftp = dst_arc.lock().await;
+        sftp.create(&dst_path).await.map_err(|e| e.to_string())?
+    };
+
+    let mut offset = 0usize;
+    while offset < data.len() {
+        let end = (offset + CHUNK).min(data.len());
+        remote_file.write_all(&data[offset..end]).await.map_err(|e| e.to_string())?;
+        offset = end;
+        let _ = app.emit("sftp-progress", TransferProgress { file_name: file_name.clone(), transferred: offset as u64, total });
+    }
+    remote_file.flush().await.map_err(|e| e.to_string())?;
 
     Ok(())
 }

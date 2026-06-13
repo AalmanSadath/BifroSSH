@@ -901,22 +901,36 @@ pub async fn sftp_disconnect_remote(
 
 #[tauri::command]
 pub async fn sftp_upload(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     session_id: String,
     local_path: String,
     remote_dir: String,
 ) -> Result<(), String> {
-    crate::sftp::upload_file(&state.sftp_state, &session_id, &local_path, &remote_dir).await
+    crate::sftp::upload_file(&app, &state.sftp_state, &session_id, &local_path, &remote_dir).await
 }
 
 #[tauri::command]
 pub async fn sftp_download(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     session_id: String,
     remote_path: String,
     local_dir: String,
 ) -> Result<(), String> {
-    crate::sftp::download_file(&state.sftp_state, &session_id, &remote_path, &local_dir).await
+    crate::sftp::download_file(&app, &state.sftp_state, &session_id, &remote_path, &local_dir).await
+}
+
+#[tauri::command]
+pub async fn sftp_copy_remote_to_remote(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    src_session_id: String,
+    src_path: String,
+    dst_session_id: String,
+    dst_dir: String,
+) -> Result<(), String> {
+    crate::sftp::copy_remote_to_remote(&app, &state.sftp_state, &src_session_id, &src_path, &dst_session_id, &dst_dir).await
 }
 
 #[tauri::command]

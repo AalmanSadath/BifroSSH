@@ -58,6 +58,7 @@ pub fn run() {
             commands::sftp_disconnect_remote,
             commands::sftp_upload,
             commands::sftp_download,
+            commands::sftp_copy_remote_to_remote,
             commands::sftp_create_local_dir,
             commands::sftp_mkdir,
             commands::sftp_delete_local,

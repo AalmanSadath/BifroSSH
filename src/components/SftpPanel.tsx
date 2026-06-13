@@ -1,8 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { useAppStore } from '../store/appStore';
 import OsIcon from './OsIcon';
 import type { Server } from '../types';
+
+interface TransferProgress {
+  file_name: string;
+  transferred: number;
+  total: number;
+}
 
 interface FileEntry {
   name: string;
@@ -44,7 +51,7 @@ function FolderIcon({ size = 16 }: { size?: number }) {
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
       <path
         d="M3 8a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"
-        fill="#4a9eff"
+        fill="var(--accent)"
         opacity="0.9"
       />
     </svg>
@@ -60,7 +67,8 @@ function FileIcon({ size = 16 }: { size?: number }) {
   );
 }
 
-const HEADERS = ['Name', 'Date Modified', 'Size', 'Type'];
+const HEADERS = ['Name', 'Date Modified', 'Size', 'Type'] as const;
+type SortCol = typeof HEADERS[number];
 const DEFAULT_COL_WIDTHS = [44, 26, 12, 18];
 
 interface FileBrowserProps {
@@ -79,31 +87,39 @@ interface FileBrowserProps {
   onCopyToTarget?: (entry: FileEntry) => void;
   onRename?: (entry: FileEntry, newName: string) => void;
   onDelete?: (entry: FileEntry) => void;
-  side?: 'local' | 'remote';
+  side?: 'left' | 'right';
   isDropTarget?: boolean;
   transferring?: boolean;
   onDragEnter?: () => void;
   onDragLeave?: () => void;
-  onFileDrop?: (entry: FileEntry, fromSide: 'local' | 'remote') => void;
+  onFileDrop?: (entry: FileEntry, fromSide: 'left' | 'right') => void;
+  onReconnect?: () => void;
 }
 
 function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
   onRefresh, onNewFolder, extraActions, onLocalBtn,
   canCopyToTarget, onCopyToTarget, onRename, onDelete,
-  side, isDropTarget, transferring, onDragEnter: onDragEnterCb, onDragLeave: onDragLeaveCb, onFileDrop
+  side, transferring, onDragEnter: onDragEnterCb, onDragLeave: onDragLeaveCb, onFileDrop, onReconnect
 }: FileBrowserProps) {
   const { settings } = useAppStore();
   const hint = (t: string) => settings.show_hover_hints ? t : undefined;
   const segments = pathSegments(path);
   const [colWidths, setColWidths] = useState(DEFAULT_COL_WIDTHS);
+  const [sortCol, setSortCol] = useState<SortCol>('Name');
+  const [sortAsc, setSortAsc] = useState(true);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [showHidden, setShowHidden] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; entry: FileEntry } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<FileEntry | null>(null);
+  const [newFolderName, setNewFolderName] = useState<string | null>(null);
+  const [renamingEntry, setRenamingEntry] = useState<{ entry: FileEntry; value: string } | null>(null);
+  const [reconnecting, setReconnecting] = useState(false);
   const tableRef = useRef<HTMLTableElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  const newFolderInputRef = useRef<HTMLInputElement>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
   const dragCountRef = useRef(0);
   const lastClickIdxRef = useRef(-1);
 
@@ -132,14 +148,25 @@ function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
 
   function handleNewFolderClick() {
     setDropdownOpen(false);
-    const name = window.prompt('Folder name:');
-    if (name?.trim()) onNewFolder?.(name.trim());
+    setNewFolderName('');
+    setTimeout(() => newFolderInputRef.current?.focus(), 30);
+  }
+
+  function commitNewFolder() {
+    if (newFolderName?.trim()) onNewFolder?.(newFolderName.trim());
+    setNewFolderName(null);
   }
 
   function handleRenameClick(entry: FileEntry) {
     setContextMenu(null);
-    const newName = window.prompt('Rename to:', entry.name);
-    if (newName?.trim() && newName.trim() !== entry.name) onRename?.(entry, newName.trim());
+    setRenamingEntry({ entry, value: entry.name });
+    setTimeout(() => { renameInputRef.current?.focus(); renameInputRef.current?.select(); }, 30);
+  }
+
+  function commitRename() {
+    if (renamingEntry && renamingEntry.value.trim() && renamingEntry.value.trim() !== renamingEntry.entry.name)
+      onRename?.(renamingEntry.entry, renamingEntry.value.trim());
+    setRenamingEntry(null);
   }
 
   function startResize(colIdx: number, e: React.MouseEvent<HTMLDivElement>) {
@@ -199,7 +226,7 @@ function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
   }
 
   function handleDragStart(e: React.DragEvent, entry: FileEntry) {
-    e.dataTransfer.setData('application/x-sftp-entry', JSON.stringify({ side, entry }));
+    e.dataTransfer.setData('text/plain', JSON.stringify({ side, entry }));
     e.dataTransfer.effectAllowed = 'copy';
   }
 
@@ -219,7 +246,7 @@ function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
   function handleDragLeave() {
     if (!onFileDrop) return;
     dragCountRef.current--;
-    if (dragCountRef.current === 0) onDragLeaveCb?.();
+    if (dragCountRef.current === 0) setTimeout(() => { if (dragCountRef.current === 0) onDragLeaveCb?.(); }, 0);
   }
 
   function handleDrop(e: React.DragEvent) {
@@ -227,10 +254,10 @@ function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
     dragCountRef.current = 0;
     onDragLeaveCb?.();
     if (!onFileDrop) return;
-    const raw = e.dataTransfer.getData('application/x-sftp-entry');
+    const raw = e.dataTransfer.getData('text/plain');
     if (!raw) return;
     try {
-      const { side: fromSide, entry } = JSON.parse(raw) as { side: 'local' | 'remote'; entry: FileEntry };
+      const { side: fromSide, entry } = JSON.parse(raw) as { side: 'left' | 'right'; entry: FileEntry };
       if (fromSide !== side) onFileDrop(entry, fromSide);
     } catch {}
   }
@@ -286,7 +313,7 @@ function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
       </div>
 
       <div
-        className={`sftp-table-wrap${isDropTarget ? ' sftp-drop-target' : ''}`}
+        className="sftp-table-wrap"
         onDragOver={handleDragOver}
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
@@ -299,23 +326,64 @@ function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
           <thead>
             <tr>
               {HEADERS.map((h, i) => (
-                <th key={h}>
-                  <span className="sftp-th-label">{h}</span>
+                <th key={h} onClick={() => { if (sortCol === h) setSortAsc(v => !v); else { setSortCol(h); setSortAsc(true); } }} style={{ cursor: 'pointer' }}>
+                  <span className="sftp-th-label">
+                    {h}
+                    {sortCol === h && <span className="sftp-sort-arrow">{sortAsc ? ' ▲' : ' ▼'}</span>}
+                  </span>
                   {i < HEADERS.length - 1 && (
-                    <div className="sftp-col-handle" onMouseDown={(e) => startResize(i, e)} />
+                    <div className="sftp-col-handle" onMouseDown={(e) => { e.stopPropagation(); startResize(i, e); }} />
                   )}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
+            {newFolderName !== null && (
+              <tr className="sftp-row">
+                <td colSpan={4}>
+                  <div className="sftp-name-cell">
+                    <FolderIcon />
+                    <input
+                      ref={newFolderInputRef}
+                      className="sftp-inline-input"
+                      value={newFolderName}
+                      onChange={(e) => setNewFolderName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') commitNewFolder(); if (e.key === 'Escape') setNewFolderName(null); }}
+                      onBlur={commitNewFolder}
+                      placeholder="Folder name"
+                    />
+                  </div>
+                </td>
+              </tr>
+            )}
             {loading ? (
               <tr><td colSpan={4} className="sftp-status-cell">Loading…</td></tr>
             ) : error ? (
-              <tr><td colSpan={4} className="sftp-status-cell sftp-cell-error">{error}</td></tr>
-            ) : entries
-              .filter(en => showHidden || en.name === '..' || !en.name.startsWith('.'))
-              .map((entry, idx) => (
+              <tr><td colSpan={4} className="sftp-status-cell sftp-cell-error">
+                <div className="sftp-error-content">
+                  <span>{error}</span>
+                  {onReconnect && (
+                    reconnecting
+                      ? <span className="sftp-reconnecting-text">Reconnecting…</span>
+                      : <button className="sftp-reconnect-btn" onClick={() => { setReconnecting(true); onReconnect(); }}>Reconnect</button>
+                  )}
+                </div>
+              </td></tr>
+            ) : (() => {
+              const dotdot = entries.filter(en => en.name === '..');
+              const rest = entries
+                .filter(en => en.name !== '..' && (showHidden || !en.name.startsWith('.')))
+                .sort((a, b) => {
+                  let cmp = 0;
+                  if (sortCol === 'Name') cmp = a.name.localeCompare(b.name);
+                  else if (sortCol === 'Date Modified') cmp = (a.modified ?? 0) - (b.modified ?? 0);
+                  else if (sortCol === 'Size') cmp = a.size - b.size;
+                  else if (sortCol === 'Type') cmp = a.kind.localeCompare(b.kind);
+                  return sortAsc ? cmp : -cmp;
+                });
+              return [...dotdot, ...rest];
+            })().map((entry, idx) => (
               <tr
                 key={entry.path}
                 className={`sftp-row${selectedPaths.has(entry.path) ? ' sftp-row-selected' : ''}`}
@@ -329,8 +397,20 @@ function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
                 <td>
                   <div className="sftp-name-cell">
                     {entry.is_dir ? <FolderIcon /> : <FileIcon />}
-                    <span className="sftp-name-text">{entry.name}</span>
-                    {entry.permissions && (
+                    {renamingEntry?.entry.path === entry.path ? (
+                      <input
+                        ref={renameInputRef}
+                        className="sftp-inline-input"
+                        value={renamingEntry.value}
+                        onChange={(e) => setRenamingEntry({ ...renamingEntry, value: e.target.value })}
+                        onKeyDown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenamingEntry(null); }}
+                        onBlur={commitRename}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    ) : (
+                      <span className="sftp-name-text">{entry.name}</span>
+                    )}
+                    {!renamingEntry && entry.permissions && (
                       <span className="sftp-perms">{entry.permissions}</span>
                     )}
                   </div>
@@ -345,11 +425,6 @@ function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
         {transferring && (
           <div className="sftp-transfer-overlay">
             <span>Transferring…</span>
-          </div>
-        )}
-        {isDropTarget && !transferring && (
-          <div className="sftp-drop-overlay">
-            <span>Drop to copy here</span>
           </div>
         )}
       </div>
@@ -537,10 +612,25 @@ export default function SftpPanel() {
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [connectError, setConnectError] = useState('');
 
+  // Unexpected disconnect flags (set when navigate/list fails while connected)
+  const [leftDisconnected, setLeftDisconnected] = useState(false);
+  const [remoteDisconnected, setRemoteDisconnected] = useState(false);
+
   // Drag-and-drop transfer state
   const [dropTarget, setDropTarget] = useState<'left' | 'right' | null>(null);
   const [transferring, setTransferring] = useState(false);
   const [transferTarget, setTransferTarget] = useState<'left' | 'right' | null>(null);
+  const [progress, setProgress] = useState<(TransferProgress & { startTime: number }) | null>(null);
+
+  useEffect(() => {
+    const unlisten = listen<TransferProgress>('sftp-progress', (e) => {
+      setProgress((prev) => ({
+        ...e.payload,
+        startTime: prev?.startTime ?? Date.now(),
+      }));
+    });
+    return () => { unlisten.then((f) => f()); };
+  }, []);
 
   useEffect(() => {
     invoke<string>('sftp_local_home').then((home) => navigateLocal(home)).catch((e) => {
@@ -587,6 +677,8 @@ export default function SftpPanel() {
       setRemoteEntries(entries);
     } catch (e) {
       setRemoteError(String(e));
+      setRemoteDisconnected(true);
+      setRemoteSid(null);
     } finally {
       setRemoteLoading(false);
     }
@@ -602,6 +694,8 @@ export default function SftpPanel() {
       setLeftEntries(entries);
     } catch (e) {
       setLeftError(String(e));
+      setLeftDisconnected(true);
+      setLeftSid(null);
     } finally {
       setLeftLoading(false);
     }
@@ -639,6 +733,8 @@ export default function SftpPanel() {
       setLeftServerId(server.id);
       setLeftServerName(server.name);
       setLeftState('connected');
+      setLeftDisconnected(false);
+      setLeftError('');
       setLeftLoading(true);
       const homePath = await invoke<string>('sftp_get_home', { sessionId: sid });
       setLeftPath(homePath);
@@ -664,6 +760,7 @@ export default function SftpPanel() {
     setLeftPath('');
     setLeftServerName('');
     setLeftError('');
+    setLeftDisconnected(false);
   }
 
   async function handleSftpConnect(server: Server) {
@@ -693,6 +790,8 @@ export default function SftpPanel() {
       setRemoteServerId(server.id);
       setRemoteServerName(server.name);
       setRemoteState('connected');
+      setRemoteDisconnected(false);
+      setRemoteError('');
       setRemoteLoading(true);
 
       const homePath = await invoke<string>('sftp_get_home', { sessionId: sid });
@@ -763,8 +862,13 @@ export default function SftpPanel() {
       };
     } else if (targetPanel === 'right' && rightIsRemote && leftIsRemote) {
       uploadCmd = async () => {
-        await invoke('sftp_upload', { sessionId: remoteSid, localPath: entry.path, remoteDir: remotePath });
-        // can't directly transfer remote-to-remote; skip
+        await invoke('sftp_copy_remote_to_remote', { srcSessionId: leftSid, srcPath: entry.path, dstSessionId: remoteSid, dstDir: remotePath });
+        await navigateRemote(remotePath);
+      };
+    } else if (targetPanel === 'left' && leftIsRemote && rightIsRemote) {
+      uploadCmd = async () => {
+        await invoke('sftp_copy_remote_to_remote', { srcSessionId: remoteSid, srcPath: entry.path, dstSessionId: leftSid, dstDir: leftPath });
+        await navigateLeftRemote(leftPath);
       };
     } else if (targetPanel === 'right' && rightIsLocal && leftIsRemote) {
       uploadCmd = async () => {
@@ -784,7 +888,7 @@ export default function SftpPanel() {
     setDropTarget(null);
     try { await uploadCmd(); }
     catch (e) { console.error('Transfer failed:', e); }
-    finally { setTransferring(false); setTransferTarget(null); }
+    finally { setTransferring(false); setTransferTarget(null); setProgress(null); }
   }
 
   async function handleNewLocalFolder(name: string) {
@@ -870,6 +974,7 @@ export default function SftpPanel() {
     setRemotePath('');
     setRemoteServerName('');
     setRemoteError('');
+    setRemoteDisconnected(false);
   }
 
   const localIcon = (
@@ -898,8 +1003,12 @@ export default function SftpPanel() {
 
   return (
     <div className="sftp-container">
+      <div className="sftp-panels-row">
       {/* Left panel */}
-      <div className="sftp-file-panel">
+      <div className={`sftp-file-panel${dropTarget === 'left' ? ' sftp-drop-target' : ''}`}>
+        {dropTarget === 'left' && !transferring && (
+          <div className="sftp-drop-overlay"><span>Drop to copy here</span></div>
+        )}
         {leftState === 'local' && (
           <FileBrowser
             title="Local"
@@ -917,11 +1026,11 @@ export default function SftpPanel() {
             onDelete={handleDeleteLocal}
             onLocalBtn={() => setLeftState('idle')}
             extraActions={closeConnectionActions(() => setLeftState('idle'))}
-            side="local"
+            side="left"
             isDropTarget={dropTarget === 'left'}
             transferring={transferring && transferTarget === 'left'}
             onDragEnter={() => setDropTarget('left')}
-            onDragLeave={() => setDropTarget(null)}
+            onDragLeave={() => setDropTarget(p => p === 'left' ? null : p)}
             onFileDrop={(entry) => handleDrop('left', entry)}
           />
         )}
@@ -962,12 +1071,16 @@ export default function SftpPanel() {
             onDelete={handleDeleteLeftRemote}
             onLocalBtn={() => setLeftState('idle')}
             extraActions={closeConnectionActions(handleLeftDisconnect)}
-            side="remote"
+            side="left"
             isDropTarget={dropTarget === 'left'}
             transferring={transferring && transferTarget === 'left'}
             onDragEnter={() => setDropTarget('left')}
-            onDragLeave={() => setDropTarget(null)}
+            onDragLeave={() => setDropTarget(p => p === 'left' ? null : p)}
             onFileDrop={(entry) => handleDrop('left', entry)}
+            onReconnect={leftDisconnected ? () => {
+              const s = servers.find(sv => sv.id === leftServerId);
+              if (s) handleLeftSftpConnect(s);
+            } : undefined}
           />
         )}
       </div>
@@ -975,7 +1088,10 @@ export default function SftpPanel() {
       <div className="sftp-divider" />
 
       {/* Right panel */}
-      <div className="sftp-file-panel sftp-remote-panel">
+      <div className={`sftp-file-panel sftp-remote-panel${dropTarget === 'right' ? ' sftp-drop-target' : ''}`}>
+        {dropTarget === 'right' && !transferring && (
+          <div className="sftp-drop-overlay"><span>Drop to copy here</span></div>
+        )}
         {remoteState === 'idle' && (
           <ConnectPrompt
             onSelectHost={() => setRemoteState('picking')}
@@ -1000,11 +1116,11 @@ export default function SftpPanel() {
             onDelete={handleDeleteRightLocal}
             onLocalBtn={() => setRemoteState('idle')}
             extraActions={closeConnectionActions(() => setRemoteState('idle'))}
-            side="local"
+            side="right"
             isDropTarget={dropTarget === 'right'}
             transferring={transferring && transferTarget === 'right'}
             onDragEnter={() => setDropTarget('right')}
-            onDragLeave={() => setDropTarget(null)}
+            onDragLeave={() => setDropTarget(p => p === 'right' ? null : p)}
             onFileDrop={(entry) => handleDrop('right', entry)}
           />
         )}
@@ -1038,15 +1154,40 @@ export default function SftpPanel() {
             onDelete={handleDeleteRemote}
             onLocalBtn={() => setRemoteState('idle')}
             extraActions={closeConnectionActions(handleDisconnect)}
-            side="remote"
+            side="right"
             isDropTarget={dropTarget === 'right'}
             transferring={transferring && transferTarget === 'right'}
             onDragEnter={() => setDropTarget('right')}
-            onDragLeave={() => setDropTarget(null)}
+            onDragLeave={() => setDropTarget(p => p === 'right' ? null : p)}
             onFileDrop={(entry) => handleDrop('right', entry)}
+            onReconnect={remoteDisconnected ? () => {
+              const s = servers.find(sv => sv.id === remoteServerId);
+              if (s) handleSftpConnect(s);
+            } : undefined}
           />
         )}
       </div>
+      </div>{/* end sftp-panels-row */}
+      {progress && (() => {
+        const pct = progress.total > 0 ? Math.min(100, Math.round((progress.transferred / progress.total) * 100)) : 0;
+        const elapsed = (Date.now() - progress.startTime) / 1000;
+        const speed = elapsed > 0.1 ? progress.transferred / elapsed : 0;
+        const remaining = speed > 0 ? (progress.total - progress.transferred) / speed : null;
+        const eta = remaining !== null
+          ? remaining < 60 ? `${Math.ceil(remaining)}s` : `${Math.ceil(remaining / 60)}m`
+          : '…';
+        return (
+          <div className="sftp-progress-wrap">
+            <div className="sftp-progress-info">
+              <span className="sftp-progress-name">{progress.file_name}</span>
+              <span className="sftp-progress-stat">{pct}% · ETA {eta}</span>
+            </div>
+            <div className="sftp-progress-track">
+              <div className="sftp-progress-fill" style={{ width: `${pct}%` }} />
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
