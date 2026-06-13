@@ -33,6 +33,7 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
       theme,
       fontSize: settings.font_size,
       fontFamily: settings.font_family,
+      lineHeight: 1.2,
       cursorStyle: settings.cursor_style as 'block' | 'underline' | 'bar',
       cursorBlink: settings.cursor_blink,
       scrollback: 10000,

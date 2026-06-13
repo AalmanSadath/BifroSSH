@@ -1,4 +1,5 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { createPortal } from 'react-dom';
 import { useAppStore } from '../store/appStore';
 import ThemePicker, { ThumbNail } from './ThemePicker';
@@ -14,17 +15,24 @@ interface Props {
 }
 
 export default function ServerForm({ server, onClose, onDelete }: Props) {
-  const { identities, keys, saveServer, saveIdentity, customThemes, setActiveTab } = useAppStore();
-
-  const initIdentity = server?.identity_id ? identities.find((i) => i.id === server.identity_id) : null;
+  const { identities, keys, saveServer, customThemes, setActiveTab } = useAppStore();
 
   const [name, setName] = useState(server?.name ?? '');
   const [host, setHost] = useState(server?.host ?? '');
   const [port, setPort] = useState(server?.port ?? 22);
   const [identityId, setIdentityId] = useState(server?.identity_id ?? '');
-  const [username, setUsername] = useState(initIdentity ? '' : '');
+  const [username, setUsername] = useState(server?.username ?? '');
   const [password, setPassword] = useState('');
-  const [keyId, setKeyId] = useState('');
+
+  useEffect(() => {
+    if (server?.id && server.encrypted_password === '[stored]') {
+      invoke<string>('get_server_password', { serverId: server.id })
+        .then(setPassword)
+        .catch(() => {});
+    }
+  }, []);
+  const [keyId, setKeyId] = useState(server?.key_id ?? '');
+  const [showPassword, setShowPassword] = useState(false);
   const [keyDropdownOpen, setKeyDropdownOpen] = useState(false);
   const [keyDropdownRect, setKeyDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -74,34 +82,22 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
     setSaving(true);
     setError('');
     try {
-      let finalIdentityId = identityId || null;
-
-      if (!identityId && username.trim() && (password.trim() || keyId)) {
-        if (keyId) {
-          await saveIdentity({
-            id: '', name: `${name.trim()} (${username.trim()})`, username: username.trim(), key_id: keyId, encrypted_password: null,
-          });
-        } else {
-          await saveIdentity(
-            { id: '', name: `${name.trim()} (${username.trim()})`, username: username.trim(), key_id: null, encrypted_password: null },
-            password.trim(),
-          );
-        }
-        const fresh = useAppStore.getState().identities;
-        const created = fresh.find((i) => i.username === username.trim() && i.name === `${name.trim()} (${username.trim()})`);
-        finalIdentityId = created?.id ?? null;
-      }
-
       const parsed = parseInt(timeoutSecs, 10);
-      await saveServer({
-        id: server?.id,
-        name: name.trim(),
-        host: host.trim(),
-        port,
-        identity_id: finalIdentityId,
-        theme: themeOverride as string | null,
-        connection_timeout: timeoutSecs.trim() === '' || isNaN(parsed) ? null : Math.max(1, parsed),
-      });
+      await saveServer(
+        {
+          id: server?.id,
+          name: name.trim(),
+          host: host.trim(),
+          port,
+          identity_id: identityId || null,
+          username: (!identityId && username.trim()) ? username.trim() : null,
+          encrypted_password: null,
+          key_id: (!identityId && keyId) ? keyId : null,
+          theme: themeOverride as string | null,
+          connection_timeout: timeoutSecs.trim() === '' || isNaN(parsed) ? null : Math.max(1, parsed),
+        },
+        (!identityId && !keyId && password.trim()) ? password.trim() : undefined,
+      );
       onClose();
     } catch (err) {
       setError(String(err));
@@ -168,27 +164,43 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
                 </div>
                 <div className="form-group" ref={passwordGroupRef}>
                   <label>Password</label>
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => { setPassword(e.target.value); setShowSuggestions(true); }}
-                    onFocus={() => {
-                      const r = passwordGroupRef.current?.getBoundingClientRect();
-                      if (r) setDropdownRect({ top: r.bottom + 2, left: r.left, width: r.width });
-                      setShowSuggestions(true);
-                    }}
-                    onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
-                    placeholder="leave blank to use key or prompt"
-                    autoComplete="new-password"
-                  />
+                  <div className="input-with-eye">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => { setPassword(e.target.value); setShowSuggestions(true); }}
+                      onFocus={() => {
+                        const r = passwordGroupRef.current?.getBoundingClientRect();
+                        if (r) setDropdownRect({ top: r.bottom + 2, left: r.left, width: r.width });
+                        setShowSuggestions(true);
+                      }}
+                      onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+                      placeholder="leave blank to use key or prompt"
+                      autoComplete="new-password"
+                    />
+                    <button type="button" className="eye-btn" onClick={() => setShowPassword((v) => !v)} tabIndex={-1}>
+                      {showPassword ? (
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                          <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                          <line x1="1" y1="1" x2="23" y2="23"/>
+                        </svg>
+                      ) : (
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                          <circle cx="12" cy="12" r="3"/>
+                        </svg>
+                      )}
+                    </button>
+                  </div>
                 </div>
                 <div className="form-group">
                   <label>Key</label>
-                  <div className="id-key-picker">
+                  <div className="picker">
                     <button
                       ref={keyBtnRef}
                       type="button"
-                      className="id-key-picker-btn"
+                      className="picker-btn"
                       onClick={openKeyDropdown}
                     >
                       <span>{selectedKey?.name ?? 'Select key…'}</span>
@@ -203,23 +215,23 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
                       onMouseDown={() => setKeyDropdownOpen(false)}
                     />
                     <div
-                      className="id-key-picker-menu"
+                      className="picker-menu"
                       style={{ position: 'fixed', top: keyDropdownRect.top, left: keyDropdownRect.left, width: keyDropdownRect.width, zIndex: 9999 }}
                     >
                       {keys.map((k) => (
                         <button
                           key={k.id}
                           type="button"
-                          className={`id-key-picker-item${keyId === k.id ? ' selected' : ''}`}
+                          className={`picker-item${keyId === k.id ? ' selected' : ''}`}
                           onMouseDown={(e) => { e.preventDefault(); setKeyId(keyId === k.id ? '' : k.id); setKeyDropdownOpen(false); }}
                         >
                           {k.name}
                         </button>
                       ))}
-                      {keys.length > 0 && <div className="id-key-picker-divider" />}
+                      {keys.length > 0 && <div className="picker-divider" />}
                       <button
                         type="button"
-                        className="id-key-picker-item id-key-picker-add"
+                        className="picker-item picker-add"
                         onMouseDown={(e) => { e.preventDefault(); setKeyDropdownOpen(false); setActiveTab('keychain'); onClose(); }}
                       >
                         + Add Key…
@@ -233,14 +245,14 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
                   if (items.length === 0) return null;
                   return createPortal(
                     <div
-                      className="id-key-picker-menu"
+                      className="picker-menu"
                       style={{ position: 'fixed', top: dropdownRect.top, left: dropdownRect.left, width: dropdownRect.width, zIndex: 9999 }}
                     >
                       {items.map((i) => (
                         <button
                           key={i.id}
                           type="button"
-                          className="id-key-picker-item"
+                          className="picker-item"
                           onMouseDown={(e) => { e.preventDefault(); pickIdentity(i.id); }}
                         >
                           {i.name} <span style={{ opacity: 0.6 }}>({i.username})</span>

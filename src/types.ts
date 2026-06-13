@@ -4,6 +4,9 @@ export interface Server {
   host: string;
   port: number;
   identity_id: string | null;
+  username: string | null;
+  encrypted_password: string | null;
+  key_id: string | null;
   theme: string | null;
   os: string;
   connection_timeout: number | null;
@@ -50,6 +53,7 @@ export interface SessionTab {
   connect_id?: string;
   error?: string;
   logs?: LogEntry[];
+  quick_info?: { host: string; port: number; username: string };
 }
 
 export interface ConnectRequest {

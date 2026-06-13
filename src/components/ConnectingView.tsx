@@ -7,8 +7,8 @@ interface Props {
   tabId: string;
   server: Server;
   error?: string;
-  onRetry: () => void;
-  onEditHost: () => void;
+  onRetry?: () => void;
+  onEditHost?: () => void;
 }
 
 export default function ConnectingView({ tabId, server, error, onRetry, onEditHost }: Props) {
@@ -35,9 +35,21 @@ export default function ConnectingView({ tabId, server, error, onRetry, onEditHo
   }
 
   function logIcon(kind: string) {
-    if (kind === 'error') return '😨';
-    if (kind === 'auth') return '👤';
-    return '⚙';
+    if (kind === 'error') return (
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+    );
+    if (kind === 'auth') return (
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+      </svg>
+    );
+    return (
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/>
+      </svg>
+    );
   }
 
   return (
@@ -89,10 +101,10 @@ export default function ConnectingView({ tabId, server, error, onRetry, onEditHo
 
         <div className="connecting-actions">
           <button className="btn-secondary btn-sm" onClick={() => removeSession(tabId)}>Close</button>
-          {isError && (
+          {isError && onEditHost && (
             <button className="btn-secondary btn-sm" onClick={onEditHost}>Edit host</button>
           )}
-          {isError && (
+          {isError && onRetry && (
             <button className="btn-primary btn-sm connecting-retry-btn" onClick={() => { removeSession(tabId); onRetry(); }}>
               Start over
             </button>

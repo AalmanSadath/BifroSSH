@@ -28,6 +28,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::list_servers,
             commands::save_server,
+            commands::get_server_password,
             commands::delete_server,
             commands::list_keys,
             commands::import_key_from_path,
@@ -45,6 +46,7 @@ pub fn run() {
             commands::convert_ppk,
             commands::detect_server_os,
             commands::ssh_connect,
+            commands::ssh_connect_quick,
             commands::ssh_send_input,
             commands::ssh_resize,
             commands::ssh_disconnect,

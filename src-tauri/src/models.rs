@@ -7,7 +7,14 @@ pub struct Server {
     pub name: String,
     pub host: String,
     pub port: u16,
+    #[serde(default)]
     pub identity_id: Option<String>,
+    #[serde(default)]
+    pub username: Option<String>,
+    #[serde(default)]
+    pub encrypted_password: Option<String>,
+    #[serde(default)]
+    pub key_id: Option<String>,
     #[serde(default)]
     pub theme: Option<String>,
     #[serde(default = "Server::default_os")]

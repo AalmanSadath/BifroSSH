@@ -475,10 +475,10 @@ export default function KeychainPanel() {
                 </div>
                 {idAuthType === 'key' ? (
                   <div className="form-group">
-                    <div className="id-key-picker" style={{ position: 'relative' }}>
+                    <div className="picker" style={{ position: 'relative' }}>
                       <button
                         type="button"
-                        className="id-key-picker-btn"
+                        className="picker-btn"
                         onClick={() => setIdKeyDropdownOpen((o) => !o)}
                       >
                         <span>{keys.find((k) => k.id === idKeyId)?.name ?? 'Select key…'}</span>
@@ -487,21 +487,21 @@ export default function KeychainPanel() {
                       {idKeyDropdownOpen && (
                         <>
                           <div style={{ position: 'fixed', inset: 0, zIndex: 99 }} onClick={() => setIdKeyDropdownOpen(false)} />
-                          <div className="id-key-picker-menu">
+                          <div className="picker-menu">
                             {keys.map((k) => (
                               <button
                                 key={k.id}
                                 type="button"
-                                className={`id-key-picker-item${idKeyId === k.id ? ' selected' : ''}`}
+                                className={`picker-item${idKeyId === k.id ? ' selected' : ''}`}
                                 onClick={() => { setIdKeyId(k.id); setIdKeyDropdownOpen(false); }}
                               >
                                 {k.name}
                               </button>
                             ))}
-                            {keys.length > 0 && <div className="id-key-picker-divider" />}
+                            {keys.length > 0 && <div className="picker-divider" />}
                             <button
                               type="button"
-                              className="id-key-picker-item id-key-picker-add"
+                              className="picker-item picker-add"
                               onClick={() => { setIdKeyDropdownOpen(false); setShowKeyForm(true); resetKeyForm(); }}
                             >
                               + Add Key…

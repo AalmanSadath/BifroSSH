@@ -20,23 +20,60 @@ pub struct AppState {
 
 #[tauri::command]
 pub async fn list_servers(state: State<'_, AppState>) -> Result<Vec<Server>, String> {
-    Ok(state.data.lock().await.servers.clone())
+    let data = state.data.lock().await;
+    let safe = data.servers.iter().map(|s| Server {
+        encrypted_password: s.encrypted_password.as_ref().map(|_| "[stored]".to_string()),
+        ..s.clone()
+    }).collect();
+    Ok(safe)
 }
 
 #[tauri::command]
-pub async fn save_server(state: State<'_, AppState>, server: Server) -> Result<Server, String> {
+pub async fn save_server(
+    state: State<'_, AppState>,
+    server: Server,
+    password: Option<String>,
+) -> Result<Server, String> {
     let mut data = state.data.lock().await;
-    let server = if server.id.is_empty() {
-        Server { id: Uuid::new_v4().to_string(), ..server }
+
+    let encrypted_password = if let Some(pw) = password.filter(|p| !p.is_empty()) {
+        Some(encrypt(pw.as_bytes(), &state.secret_key).map_err(|e| e.to_string())?)
+    } else if !server.id.is_empty() {
+        data.servers.iter().find(|s| s.id == server.id).and_then(|s| s.encrypted_password.clone())
     } else {
-        server
+        None
     };
+
+    let encrypted_password = if server.key_id.is_some() { None } else { encrypted_password };
+
+    let server = Server {
+        id: if server.id.is_empty() { Uuid::new_v4().to_string() } else { server.id },
+        encrypted_password,
+        ..server
+    };
+
     match data.servers.iter().position(|s| s.id == server.id) {
         Some(idx) => data.servers[idx] = server.clone(),
         None => data.servers.push(server.clone()),
     }
     save_app_data(&*data).map_err(|e| e.to_string())?;
-    Ok(server)
+
+    Ok(Server {
+        encrypted_password: server.encrypted_password.as_ref().map(|_| "[stored]".to_string()),
+        ..server
+    })
+}
+
+#[tauri::command]
+pub async fn get_server_password(
+    state: State<'_, AppState>,
+    server_id: String,
+) -> Result<String, String> {
+    let data = state.data.lock().await;
+    let server = data.servers.iter().find(|s| s.id == server_id).ok_or("Server not found")?;
+    let enc = server.encrypted_password.as_ref().ok_or("No password stored for this server")?;
+    let bytes = decrypt(enc, &state.secret_key).map_err(|e| e.to_string())?;
+    String::from_utf8(bytes).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -610,6 +647,88 @@ pub async fn ssh_connect(
         connect_ssh(session_id.clone(), params, request.connect_id.clone(), app.clone(), Arc::clone(&state.ssh_state)),
     )
     .await;
+
+    let err_msg = match connect_result {
+        Ok(Ok(())) => None,
+        Ok(Err(e)) => Some(e.to_string()),
+        Err(_) => Some(format!("Connection timed out after {} seconds", timeout_secs)),
+    };
+
+    if let Some(ref msg) = err_msg {
+        let _ = app.emit(
+            &format!("ssh-connect-log:{}", request.connect_id),
+            ConnectLogEvent { message: format!("Connection failed: {}", msg), kind: "error".to_string() },
+        );
+        return Err(msg.clone());
+    }
+
+    Ok(session_id)
+}
+
+#[derive(serde::Deserialize)]
+pub struct QuickConnectRequest {
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub auth_type: String,
+    pub auth_value: String,
+    pub cols: u32,
+    pub rows: u32,
+    pub connect_id: String,
+}
+
+#[tauri::command]
+pub async fn ssh_connect_quick(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    request: QuickConnectRequest,
+) -> Result<String, String> {
+    let session_id = Uuid::new_v4().to_string();
+
+    let auth = if request.auth_type == "password" {
+        SshAuth::Password(request.auth_value.clone())
+    } else {
+        let (key_pem, passphrase) = {
+            let data = state.data.lock().await;
+            let key_entry = data.keys.iter().find(|k| k.id == request.auth_value)
+                .ok_or_else(|| "Key not found".to_string())?;
+            let pem = if let Some(ref enc) = key_entry.encrypted_key {
+                let bytes = decrypt(enc, &state.secret_key).map_err(|e| e.to_string())?;
+                String::from_utf8(bytes).map_err(|e| e.to_string())?
+            } else if let Some(ref path) = key_entry.key_path {
+                std::fs::read_to_string(path).map_err(|e| e.to_string())?
+            } else {
+                return Err("Key has no content or path".to_string());
+            };
+            let pass = if let Some(ref enc) = key_entry.encrypted_passphrase {
+                let bytes = decrypt(enc, &state.secret_key).map_err(|e| e.to_string())?;
+                Some(String::from_utf8(bytes).map_err(|e| e.to_string())?)
+            } else {
+                None
+            };
+            (pem, pass)
+        };
+        SshAuth::KeyData { key_pem, passphrase }
+    };
+
+    let timeout_secs = {
+        let data = state.data.lock().await;
+        data.settings.connection_timeout_secs as u64
+    };
+
+    let params = SshConnectParams {
+        host: request.host,
+        port: request.port,
+        username: request.username,
+        auth,
+        initial_cols: request.cols,
+        initial_rows: request.rows,
+    };
+
+    let connect_result = tokio::time::timeout(
+        std::time::Duration::from_secs(timeout_secs),
+        connect_ssh(session_id.clone(), params, request.connect_id.clone(), app.clone(), Arc::clone(&state.ssh_state)),
+    ).await;
 
     let err_msg = match connect_result {
         Ok(Ok(())) => None,

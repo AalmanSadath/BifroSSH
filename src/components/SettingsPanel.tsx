@@ -1,5 +1,53 @@
+import { useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useAppStore } from '../store/appStore';
 import type { Settings } from '../types';
+
+const CURSOR_STYLES = [
+  { value: 'block', label: 'Block' },
+  { value: 'underline', label: 'Underline' },
+  { value: 'bar', label: 'Bar' },
+];
+
+function CursorStylePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null);
+  const label = CURSOR_STYLES.find((s) => s.value === value)?.label ?? value;
+
+  function openPicker() {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) setRect({ top: r.bottom + 2, left: r.left, width: r.width });
+    setOpen(true);
+  }
+
+  return (
+    <>
+      <button ref={btnRef} type="button" className="picker-btn" onClick={openPicker}>
+        <span>{label}</span>
+        <svg width="10" height="6" viewBox="0 0 10 6" fill="currentColor"><path d="M0 0l5 6 5-6z"/></svg>
+      </button>
+      {open && rect && createPortal(
+        <>
+          <div style={{ position: 'fixed', inset: 0, zIndex: 9998 }} onMouseDown={() => setOpen(false)} />
+          <div className="picker-menu" style={{ position: 'fixed', top: rect.top, left: rect.left, width: rect.width, zIndex: 9999 }}>
+            {CURSOR_STYLES.map((s) => (
+              <button
+                key={s.value}
+                type="button"
+                className={`picker-item${value === s.value ? ' selected' : ''}`}
+                onMouseDown={(e) => { e.preventDefault(); onChange(s.value); setOpen(false); }}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </>,
+        document.body,
+      )}
+    </>
+  );
+}
 
 export default function SettingsPanel() {
   const { settings, saveSettings } = useAppStore();
@@ -70,11 +118,7 @@ export default function SettingsPanel() {
         <h3>Cursor</h3>
         <div className="form-group">
           <label>Style</label>
-          <select value={settings.cursor_style} onChange={(e) => patch({ cursor_style: e.target.value })}>
-            <option value="block">Block</option>
-            <option value="underline">Underline</option>
-            <option value="bar">Bar</option>
-          </select>
+          <CursorStylePicker value={settings.cursor_style} onChange={(v) => patch({ cursor_style: v })} />
         </div>
         <label className="checkbox-row">
           <input

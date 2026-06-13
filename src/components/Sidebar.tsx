@@ -1,6 +1,6 @@
 import { useAppStore } from '../store/appStore';
 
-const PANELS = ['hosts', 'keychain', 'sftp', 'settings', 'theme-editor'];
+const PANELS = ['hosts', 'sftp', 'keychain', 'settings', 'theme-editor'];
 
 export default function Sidebar() {
   const { activeTabId, setActiveTab } = useAppStore();
@@ -39,6 +39,19 @@ export default function Sidebar() {
             </svg>
           </span> SFTP
         </button>
+        <button
+          className={`nav-btn ${activePanel === 'keychain' ? 'active' : ''}`}
+          onClick={() => setActiveTab('keychain')}
+        >
+          <span className="nav-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="7.5" cy="7.5" r="4.5"/>
+              <path d="M10.5 10.5L21 21"/>
+              <path d="M17 17l2-2"/>
+              <path d="M19 15l2-2"/>
+            </svg>
+          </span> Keychain
+        </button>
       </nav>
       <nav className="sidebar-nav-bottom">
         <button
@@ -52,20 +65,7 @@ export default function Sidebar() {
               <circle cx="6" cy="14" r="2.5"/>
               <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.9 0 1.6-.7 1.6-1.6 0-.4-.2-.8-.4-1.1-.2-.3-.4-.7-.4-1.1 0-.9.7-1.6 1.6-1.6H16c2.8 0 5-2.2 5-5 0-4.4-4-8-9-8z"/>
             </svg>
-          </span> Themes
-        </button>
-        <button
-          className={`nav-btn ${activePanel === 'keychain' ? 'active' : ''}`}
-          onClick={() => setActiveTab('keychain')}
-        >
-          <span className="nav-icon">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="7.5" cy="7.5" r="4.5"/>
-              <path d="M10.5 10.5L21 21"/>
-              <path d="M17 17l2-2"/>
-              <path d="M19 15l2-2"/>
-            </svg>
-          </span> Keychain
+          </span> Theme Editor
         </button>
         <button
           className={`nav-btn ${activePanel === 'settings' ? 'active' : ''}`}

@@ -34,7 +34,7 @@ interface AppStore {
 
   loadAll: () => Promise<void>;
 
-  saveServer: (server: Partial<Server> & { name: string; host: string; port: number }) => Promise<void>;
+  saveServer: (server: Partial<Server> & { name: string; host: string; port: number }, password?: string) => Promise<void>;
   deleteServer: (id: string) => Promise<void>;
   detectServerOs: (serverId: string, username: string, authType: string, authValue: string) => Promise<void>;
 
@@ -61,6 +61,7 @@ interface AppStore {
   updateSessionError: (connectId: string, error: string) => void;
   appendSessionLog: (connectId: string, entry: LogEntry) => void;
   openSession: (serverId: string, fallback?: (serverId: string) => void) => Promise<void>;
+  quickConnect: (host: string, port: number, username: string, authType: string, authValue: string) => Promise<void>;
   setActiveTab: (id: string | null) => void;
 }
 
@@ -83,9 +84,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({ servers, identities, keys, settings });
   },
 
-  saveServer: async (server) => {
+  saveServer: async (server, password) => {
     const saved = await invoke<Server>('save_server', {
       server: { id: server.id ?? '', ...server },
+      password: password ?? null,
     });
     set((s) => {
       const exists = s.servers.some((x) => x.id === saved.id);
@@ -260,14 +262,39 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const { servers, identities, sessions, detectServerOs } = get();
     const server = servers.find((s) => s.id === serverId);
     if (!server) return;
-    const identity = identities.find((i) => i.id === server.identity_id);
-    if (!identity) { fallback?.(serverId); return; }
+
+    // Resolve credentials: identity takes priority, then server-direct credentials
+    let username: string;
+    let authType: string;
+    let authValue: string;
+
+    if (server.identity_id) {
+      const identity = identities.find((i) => i.id === server.identity_id);
+      if (!identity) { fallback?.(serverId); return; }
+      username = identity.username;
+      const isPasswordAuth = identity.encrypted_password === '[stored]';
+      authType = isPasswordAuth ? 'password' : 'key';
+      authValue = isPasswordAuth
+        ? await invoke<string>('get_identity_password', { identityId: identity.id })
+        : (identity.key_id ?? '');
+    } else if (server.username && (server.key_id || server.encrypted_password === '[stored]')) {
+      username = server.username;
+      if (server.key_id) {
+        authType = 'key';
+        authValue = server.key_id;
+      } else {
+        authType = 'password';
+        authValue = await invoke<string>('get_server_password', { serverId });
+      }
+    } else {
+      fallback?.(serverId);
+      return;
+    }
 
     const connectId = crypto.randomUUID();
     const existing = sessions.filter((s) => s.server_id === serverId).length;
     const tabName = existing === 0 ? server.name : `${server.name} (${existing})`;
 
-    // Set up listener BEFORE invoking so no log events are lost to race conditions
     const unlisten = await listen<LogEntry>(`ssh-connect-log:${connectId}`, (event) => {
       get().appendSessionLog(connectId, event.payload);
     });
@@ -285,16 +312,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }));
 
     try {
-      const isPasswordAuth = identity.encrypted_password === '[stored]';
-      const authType = isPasswordAuth ? 'password' : 'key';
-      const authValue = isPasswordAuth
-        ? await invoke<string>('get_identity_password', { identityId: identity.id })
-        : (identity.key_id ?? '');
-
       const sessionId = await invoke<string>('ssh_connect', {
         request: {
           server_id: serverId,
-          username: identity.username,
+          username,
           auth_type: authType,
           auth_value: authValue,
           cols: 80,
@@ -304,7 +325,36 @@ export const useAppStore = create<AppStore>((set, get) => ({
       });
       unlisten();
       get().updateSessionConnected(connectId, sessionId);
-      if (server.os === '') detectServerOs(serverId, identity.username, authType, authValue);
+      if (server.os === '') detectServerOs(serverId, username, authType, authValue);
+    } catch (err) {
+      unlisten();
+      get().updateSessionError(connectId, String(err));
+    }
+  },
+
+  quickConnect: async (host, port, username, authType, authValue) => {
+    const connectId = crypto.randomUUID();
+    const unlisten = await listen<LogEntry>(`ssh-connect-log:${connectId}`, (event) => {
+      get().appendSessionLog(connectId, event.payload);
+    });
+    set((s) => ({
+      sessions: [...s.sessions, {
+        session_id: connectId,
+        server_name: `${username}@${host}`,
+        server_id: '',
+        status: 'connecting',
+        connect_id: connectId,
+        logs: [],
+        quick_info: { host, port, username },
+      }],
+      activeTabId: connectId,
+    }));
+    try {
+      const sessionId = await invoke<string>('ssh_connect_quick', {
+        request: { host, port, username, auth_type: authType, auth_value: authValue, cols: 80, rows: 24, connect_id: connectId },
+      });
+      unlisten();
+      get().updateSessionConnected(connectId, sessionId);
     } catch (err) {
       unlisten();
       get().updateSessionError(connectId, String(err));
