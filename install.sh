@@ -10,6 +10,19 @@ INSTALL_BIN="$HOME/.local/bin/$BIN_NAME"
 INSTALL_DESKTOP="$HOME/.local/share/applications/$IDENTIFIER.desktop"
 ICON_DIR="$HOME/.local/share/icons/hicolor"
 
+# ── Clean build artifacts ─────────────────────────────────────────────────────
+
+if [[ "${1:-}" == "clean" ]]; then
+    echo "==> Cleaning build artifacts (installed app and Flatpak are not affected)"
+    cd "$SCRIPT_DIR"
+    rm -rf dist
+    rm -rf src-tauri/target
+    rm -rf flatpak/.build
+    rm -rf flatpak/.repo
+    echo "Done. Removed: dist/, src-tauri/target/, flatpak/.build/, flatpak/.repo/"
+    exit 0
+fi
+
 # ── Flatpak install ───────────────────────────────────────────────────────────
 
 if [[ "${1:-}" == "flatpak" ]]; then
