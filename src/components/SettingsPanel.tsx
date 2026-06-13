@@ -172,7 +172,7 @@ export default function SettingsPanel() {
             className="no-spinner"
           />
         </div>
-        <p className="form-hint">How long an idle SFTP session is kept alive. Default 300s (5 min).</p>
+        <p className="form-hint">How long an idle SFTP session is kept alive.</p>
       </section>
 
       <section className="panel-section">
