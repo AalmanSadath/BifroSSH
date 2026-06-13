@@ -8,6 +8,7 @@ import ConnectingView from './components/ConnectingView';
 import HostsPanel from './components/HostsPanel';
 import KeychainPanel from './components/KeychainPanel';
 import SettingsPanel from './components/SettingsPanel';
+import ThemeEditorPanel from './components/ThemeEditorPanel';
 import SftpPanel from './components/SftpPanel';
 import ServerForm from './components/ServerForm';
 
@@ -118,6 +119,7 @@ export default function App() {
           {activeTabId === 'keychain' && <KeychainPanel />}
           <div style={{ display: activeTabId === 'sftp' ? 'contents' : 'none' }}><SftpPanel /></div>
           {activeTabId === 'settings' && <SettingsPanel />}
+          {activeTabId === 'theme-editor' && <ThemeEditorPanel />}
         </div>
       </div>
 

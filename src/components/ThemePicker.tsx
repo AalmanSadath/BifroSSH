@@ -1,4 +1,6 @@
+import { useAppStore } from '../store/appStore';
 import { THEMES } from '../styles/themes';
+import type { NamedTheme } from '../styles/themes';
 
 interface Props {
   value: string;
@@ -6,7 +8,8 @@ interface Props {
 }
 
 export function ThumbNail({ id }: { id: string }) {
-  const t = THEMES[id];
+  const customThemes = useAppStore((s) => s.customThemes);
+  const t: NamedTheme | undefined = THEMES[id] ?? customThemes[id];
   if (!t) return null;
 
   const bars = [
@@ -35,8 +38,29 @@ export function ThumbNail({ id }: { id: string }) {
 }
 
 export default function ThemePicker({ value, onChange }: Props) {
+  const customThemes = useAppStore((s) => s.customThemes);
+  const hasCustom = Object.keys(customThemes).length > 0;
+
   return (
     <div className="theme-picker">
+      {hasCustom && (
+        <>
+          <div className="theme-picker-divider">Custom</div>
+          {Object.entries(customThemes).map(([id, t]) => (
+            <button
+              key={id}
+              type="button"
+              className={`theme-card${value === id ? ' active' : ''}`}
+              onClick={() => onChange(id)}
+              title={t.name}
+            >
+              <ThumbNail id={id} />
+              <span className="theme-card-name">{t.name}</span>
+            </button>
+          ))}
+          <div className="theme-picker-divider">Default</div>
+        </>
+      )}
       {Object.entries(THEMES).map(([id, t]) => (
         <button
           key={id}

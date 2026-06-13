@@ -1,6 +1,6 @@
 import { useAppStore } from '../store/appStore';
 
-const PANELS = ['hosts', 'keychain', 'sftp', 'settings'];
+const PANELS = ['hosts', 'keychain', 'sftp', 'settings', 'theme-editor'];
 
 export default function Sidebar() {
   const { activeTabId, setActiveTab } = useAppStore();
@@ -32,6 +32,19 @@ export default function Sidebar() {
         </button>
       </nav>
       <nav className="sidebar-nav-bottom">
+        <button
+          className={`nav-btn ${activePanel === 'theme-editor' ? 'active' : ''}`}
+          onClick={() => setActiveTab('theme-editor')}
+        >
+          <span className="nav-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="13.5" cy="6.5" r="2.5"/>
+              <circle cx="19" cy="14" r="2.5"/>
+              <circle cx="6" cy="14" r="2.5"/>
+              <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.9 0 1.6-.7 1.6-1.6 0-.4-.2-.8-.4-1.1-.2-.3-.4-.7-.4-1.1 0-.9.7-1.6 1.6-1.6H16c2.8 0 5-2.2 5-5 0-4.4-4-8-9-8z"/>
+            </svg>
+          </span> Themes
+        </button>
         <button
           className={`nav-btn ${activePanel === 'keychain' ? 'active' : ''}`}
           onClick={() => setActiveTab('keychain')}

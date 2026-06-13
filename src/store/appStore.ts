@@ -2,6 +2,16 @@ import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { Identity, KeyEntry, LogEntry, Server, SessionTab, Settings } from '../types';
+import type { NamedTheme } from '../styles/themes';
+
+const CUSTOM_THEMES_KEY = 'bifrossh_custom_themes';
+
+function loadCustomThemesFromStorage(): Record<string, NamedTheme> {
+  try {
+    const raw = localStorage.getItem(CUSTOM_THEMES_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch { return {}; }
+}
 
 const DEFAULT_SETTINGS: Settings = {
   theme: 'bifrossh-dark',
@@ -40,6 +50,10 @@ interface AppStore {
 
   saveSettings: (settings: Settings) => Promise<void>;
 
+  customThemes: Record<string, NamedTheme>;
+  saveCustomTheme: (id: string, theme: NamedTheme) => void;
+  deleteCustomTheme: (id: string) => void;
+
   addSession: (tab: SessionTab) => void;
   removeSession: (sessionId: string) => void;
   renameSession: (sessionId: string, name: string) => void;
@@ -53,6 +67,7 @@ interface AppStore {
 export const useAppStore = create<AppStore>((set, get) => ({
   servers: [],
   identities: [],
+  customThemes: loadCustomThemesFromStorage(),
   keys: [],
   settings: DEFAULT_SETTINGS,
   sessions: [],
@@ -170,6 +185,23 @@ export const useAppStore = create<AppStore>((set, get) => ({
   saveSettings: async (settings) => {
     await invoke('save_settings', { settings });
     set({ settings });
+  },
+
+  saveCustomTheme: (id, theme) => {
+    set((s) => {
+      const next = { ...s.customThemes, [id]: theme };
+      localStorage.setItem(CUSTOM_THEMES_KEY, JSON.stringify(next));
+      return { customThemes: next };
+    });
+  },
+
+  deleteCustomTheme: (id) => {
+    set((s) => {
+      const next = { ...s.customThemes };
+      delete next[id];
+      localStorage.setItem(CUSTOM_THEMES_KEY, JSON.stringify(next));
+      return { customThemes: next };
+    });
   },
 
   addSession: (tab) =>

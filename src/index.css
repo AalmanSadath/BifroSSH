@@ -2237,3 +2237,230 @@ button { cursor: pointer; font-family: inherit; }
 .connecting-retry-btn {
   margin-left: auto;
 }
+
+/* ─── Theme Editor ─────────────────────────────────────────────── */
+
+.te-panel {
+  max-width: none !important;
+}
+
+.te-editor-layout {
+  display: flex;
+  gap: 32px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.te-preview-col {
+  flex-shrink: 0;
+  width: 360px;
+}
+
+.te-controls-col {
+  flex: 1;
+  min-width: 280px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Terminal preview window */
+.te-preview-window {
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.te-preview-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  background: rgba(128, 128, 128, 0.15);
+  border-bottom: 1px solid var(--border);
+}
+
+.te-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.te-preview-title-text {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.te-preview-terminal {
+  padding: 10px 14px;
+  font-family: 'Menlo', 'Monaco', 'Consolas', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre;
+}
+
+.te-cursor {
+  display: inline;
+}
+
+/* ANSI swatch rows below terminal preview */
+.te-swatches-row {
+  display: flex;
+  gap: 2px;
+  padding: 4px 6px;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.te-swatch {
+  flex: 1;
+  height: 14px;
+  border-radius: 2px;
+}
+
+/* Color field controls */
+.te-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+
+.te-color-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.te-color-label {
+  width: 120px;
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.te-color-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.te-color-swatch {
+  position: relative;
+  width: 32px;
+  height: 28px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.te-color-swatch input[type="color"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: none;
+}
+
+.te-color-hex {
+  width: 74px;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+/* ANSI color grid */
+.te-ansi-grid {
+  display: grid;
+  grid-template-columns: 64px 1fr 1fr;
+  align-items: center;
+  gap: 5px 10px;
+}
+
+.te-ansi-col-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-align: center;
+  padding-bottom: 2px;
+}
+
+.te-ansi-label {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+/* Save row — sits at bottom of right column */
+.te-save-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 16px;
+}
+
+.te-name-input {
+  width: 100%;
+  font-size: 14px;
+}
+
+/* Saved custom themes list */
+.te-saved-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.te-saved-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  transition: border-color 0.15s;
+}
+
+.te-saved-card-active {
+  border-color: var(--accent);
+}
+
+.te-saved-thumb-wrap {
+  flex-shrink: 0;
+  width: 64px;
+}
+
+.te-saved-name {
+  flex: 1;
+  font-size: 14px;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.te-saved-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Theme picker custom divider */
+.theme-picker-divider {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  padding: 4px 2px 0;
+  border-top: 1px solid var(--border);
+  margin-top: 2px;
+}

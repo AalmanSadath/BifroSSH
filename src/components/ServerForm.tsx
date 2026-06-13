@@ -12,7 +12,7 @@ interface Props {
 }
 
 export default function ServerForm({ server, onClose, onDelete }: Props) {
-  const { identities, saveServer } = useAppStore();
+  const { identities, saveServer, customThemes } = useAppStore();
   const [name, setName] = useState(server?.name ?? '');
   const [host, setHost] = useState(server?.host ?? '');
   const [port, setPort] = useState(server?.port ?? 22);
@@ -102,7 +102,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
                 <div className="theme-current-thumb">
                   <ThumbNail id={themeOverride} />
                 </div>
-                <span className="theme-current-name">{THEMES[themeOverride]?.name ?? themeOverride}</span>
+                <span className="theme-current-name">{(THEMES[themeOverride] ?? customThemes[themeOverride])?.name ?? themeOverride}</span>
               </div>
               <button
                 type="button"
