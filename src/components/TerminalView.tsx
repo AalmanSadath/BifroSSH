@@ -18,12 +18,6 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
-  // Printable char bytes locally echoed, pending server confirmation
-  const charTypeaheadRef = useRef<number[]>([]);
-  // How many [BS SP BS] sequences to strip from server output
-  const bsPendingRef = useRef(0);
-  // Count of locally-echoed chars currently visible on screen
-  const localCountRef = useRef(0);
   const { settings, servers, removeSession } = useAppStore();
 
   function effectiveThemeKey() {
@@ -53,32 +47,40 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
     termRef.current = term;
     fitRef.current = fitAddon;
 
-    term.onData((data) => {
-      const bytes = Array.from(new TextEncoder().encode(data));
+    // Defer fit until after paint so font metrics and layout are settled.
+    // Two rAF frames: first ensures React has flushed DOM, second ensures
+    // the browser has performed a layout pass with correct character metrics.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        fitAddon.fit();
+        // Explicitly push the real PTY size to the server — onResize alone
+        // can miss this if the cols/rows match the xterm default (80×24).
+        const { cols, rows } = term;
+        if (cols > 0 && rows > 0) {
+          invoke('ssh_resize', { sessionId, cols, rows }).catch(() => {});
+        }
+      });
+    });
 
-      // If ESC is present the whole batch is a control sequence (arrows, F-keys,
-      // etc.). The bytes after ESC are often printable ASCII (e.g. '[A') but are
-      // NOT characters to echo — skip local echo for the entire batch.
-      if (bytes.includes(0x1b)) {
-        localCountRef.current = 0;
-      } else {
-        for (const b of bytes) {
-          if (b >= 0x20 && b <= 0x7e) {
-            term.write(String.fromCharCode(b));
-            charTypeaheadRef.current.push(b);
-            localCountRef.current++;
-          } else if ((b === 0x7f || b === 0x08) && localCountRef.current > 0) {
-            // Separate BS suppression counter — keeps BS echoes out of the char
-            // typeahead so a pending BS echo can't cause a char-echo mismatch.
-            term.write('\b \b');
-            bsPendingRef.current++;
-            localCountRef.current--;
-          } else {
-            localCountRef.current = 0;
-          }
+    term.attachCustomKeyEventHandler((ev) => {
+      if (ev.type === 'keydown' && ev.ctrlKey && ev.shiftKey) {
+        if (ev.key === 'C') {
+          const sel = term.getSelection();
+          if (sel) navigator.clipboard.writeText(sel).catch(() => {});
+          return false;
+        }
+        if (ev.key === 'V') {
+          navigator.clipboard.readText().then((text) => {
+            if (text) invoke('ssh_send_input', { sessionId, data: Array.from(new TextEncoder().encode(text)) }).catch(() => {});
+          }).catch(() => {});
+          return false;
         }
       }
+      return true;
+    });
 
+    term.onData((data) => {
+      const bytes = Array.from(new TextEncoder().encode(data));
       invoke('ssh_send_input', { sessionId, data: bytes }).catch(() => {});
     });
 
@@ -86,54 +88,21 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
       invoke('ssh_resize', { sessionId, cols, rows }).catch(() => {});
     });
 
+    term.onSelectionChange(() => {
+      const pos = term.getSelectionPosition();
+      if (!pos) return;
+      const buf = term.buffer.active;
+      // pos.end.y is 1-based buffer-absolute; cursor is baseY + cursorY (0-based) + 1
+      const cursorAbsRow = buf.baseY + buf.cursorY + 1;
+      if (pos.end.y > cursorAbsRow) term.clearSelection();
+    });
+
     const unlistenOutput = listen<string>(`ssh-output:${sessionId}`, (ev) => {
-      let buf = Uint8Array.from(atob(ev.payload), (c) => c.charCodeAt(0));
-
-      // Strip leading char echoes (prefix match).
-      const ct = charTypeaheadRef.current;
-      let n = 0;
-      while (n < buf.length && n < ct.length && buf[n] === ct[n]) n++;
-      charTypeaheadRef.current = ct.slice(n);
-      buf = buf.slice(n);
-
-      // Char echoes and BS echoes can be interleaved (e.g. 'e' echo, BS echo, 'x' echo).
-      // Alternate stripping BS sequences and char prefix echoes until nothing changes.
-      let progress = true;
-      while (progress && buf.length > 0) {
-        progress = false;
-
-        // Strip [BS SP BS] sequences
-        while (bsPendingRef.current > 0 && buf.length >= 3
-               && buf[0] === 0x08 && buf[1] === 0x20 && buf[2] === 0x08) {
-          bsPendingRef.current--;
-          buf = buf.slice(3);
-          progress = true;
-        }
-
-        // Strip more char echoes
-        const ct2 = charTypeaheadRef.current;
-        let n2 = 0;
-        while (n2 < buf.length && n2 < ct2.length && buf[n2] === ct2[n2]) n2++;
-        if (n2 > 0) {
-          charTypeaheadRef.current = ct2.slice(n2);
-          buf = buf.slice(n2);
-          progress = true;
-        }
-      }
-
-      if (buf.length > 0) {
-        // Server overrode our predictions — clear all local state.
-        charTypeaheadRef.current = [];
-        bsPendingRef.current = 0;
-        localCountRef.current = 0;
-        term.write(buf);
-      }
+      const buf = Uint8Array.from(atob(ev.payload), (c) => c.charCodeAt(0));
+      if (buf.length > 0) term.write(buf);
     });
 
     const unlistenClose = listen(`ssh-closed:${sessionId}`, () => {
-      charTypeaheadRef.current = [];
-      bsPendingRef.current = 0;
-      localCountRef.current = 0;
       term.writeln('\r\n\x1b[31mConnection closed.\x1b[0m');
       removeSession(sessionId);
     });
@@ -163,10 +132,12 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
 
   useEffect(() => {
     if (active) {
-      setTimeout(() => {
-        fitRef.current?.fit();
-        termRef.current?.focus();
-      }, 20);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          fitRef.current?.fit();
+          termRef.current?.focus();
+        });
+      });
     }
   }, [active]);
 
