@@ -525,7 +525,7 @@ interface HostPickerProps {
 }
 
 function HostPicker({ servers, connectingId, activeServerId, error, onConnect, onBack, onGoLocal }: HostPickerProps) {
-  const { settings } = useAppStore();
+  const { settings, identities } = useAppStore();
   const hint = (t: string) => settings.show_hover_hints ? t : undefined;
   return (
     <div className="sftp-host-picker">
@@ -562,7 +562,7 @@ function HostPicker({ servers, connectingId, activeServerId, error, onConnect, o
             </div>
             <div className="sftp-picker-info">
               <div className="sftp-picker-name">{s.name}</div>
-              <div className="sftp-picker-addr">ssh · {s.host}:{s.port}</div>
+              <div className="sftp-picker-addr">{(s.username ?? identities.find(i => i.id === s.identity_id)?.username ?? 'ssh')} · {s.host}:{s.port}</div>
             </div>
             {activeServerId === s.id && !connectingId && (
               <span className="sftp-active-badge">● Active</span>
