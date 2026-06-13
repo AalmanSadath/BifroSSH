@@ -1916,19 +1916,22 @@ button { cursor: pointer; font-family: inherit; }
 }
 
 .sftp-th-label {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   padding: 6px 16px;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+  gap: 4px;
 }
 
 .sftp-table th:hover { color: var(--text-primary); }
 
 .sftp-sort-arrow {
   font-size: 9px;
-  color: var(--accent);
-  margin-left: 2px;
+  color: var(--text-dim);
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 .sftp-col-handle {

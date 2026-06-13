@@ -343,7 +343,7 @@ function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
                 <th key={h} onClick={() => { if (sortCol === h) setSortAsc(v => !v); else { setSortCol(h); setSortAsc(true); } }} style={{ cursor: 'pointer' }}>
                   <span className="sftp-th-label">
                     {h}
-                    {sortCol === h && <span className="sftp-sort-arrow">{sortAsc ? ' ▲' : ' ▼'}</span>}
+                    {sortCol === h && <span className="sftp-sort-arrow">{sortAsc ? '▲' : '▼'}</span>}
                   </span>
                   {i < HEADERS.length - 1 && (
                     <div className="sftp-col-handle" onMouseDown={(e) => { e.stopPropagation(); startResize(i, e); }} />
