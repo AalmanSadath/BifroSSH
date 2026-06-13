@@ -269,7 +269,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
             )}
 
             <div className="form-group">
-              <label>Connection Timeout (seconds)</label>
+              <label>Connection Attempt Timeout (seconds)</label>
               <input
                 type="number"
                 min={1}

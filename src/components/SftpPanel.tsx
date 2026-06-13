@@ -392,7 +392,7 @@ function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
                 onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, entry }); }}
                 onDragStart={(e) => !entry.is_dir && entry.name !== '..' && handleDragStart(e, entry)}
                 onDoubleClick={() => entry.is_dir && onNavigate(entry.path)}
-                title={entry.is_dir ? 'Double-click to open' : entry.name}
+                title={entry.is_dir ? hint('Double-click to open') : entry.name}
               >
                 <td>
                   <div className="sftp-name-cell">
@@ -549,7 +549,7 @@ function HostPicker({ servers, connectingId, activeServerId, error, onConnect, o
             key={s.id}
             className={`sftp-picker-item${connectingId === s.id ? ' sftp-picker-connecting' : ''}${activeServerId === s.id ? ' sftp-picker-has-session' : ''}`}
             onDoubleClick={() => !connectingId && onConnect(s)}
-            title={activeServerId === s.id ? 'Double-click to resume' : 'Double-click to connect via SFTP'}
+            title={hint(activeServerId === s.id ? 'Double-click to resume' : 'Double-click to connect via SFTP')}
           >
             <div className="sftp-picker-icon">
               <OsIcon os={s.os ?? 'linux'} size={28} />

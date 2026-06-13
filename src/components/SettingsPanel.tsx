@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useAppStore } from '../store/appStore';
 import type { Settings } from '../types';
@@ -51,6 +51,11 @@ function CursorStylePicker({ value, onChange }: { value: string; onChange: (v: s
 
 export default function SettingsPanel() {
   const { settings, saveSettings } = useAppStore();
+  const [connTimeoutStr, setConnTimeoutStr] = useState(String(settings.connection_timeout_secs));
+  const [sftpTimeoutStr, setSftpTimeoutStr] = useState(String(settings.sftp_inactivity_timeout_secs));
+
+  useEffect(() => { setConnTimeoutStr(String(settings.connection_timeout_secs)); }, [settings.connection_timeout_secs]);
+  useEffect(() => { setSftpTimeoutStr(String(settings.sftp_inactivity_timeout_secs)); }, [settings.sftp_inactivity_timeout_secs]);
 
   function patch(p: Partial<Settings>) {
     saveSettings({ ...settings, ...p });
@@ -138,21 +143,31 @@ export default function SettingsPanel() {
             type="number"
             min={1}
             max={3600}
-            value={settings.connection_timeout_secs}
-            onChange={(e) => patch({ connection_timeout_secs: Math.max(1, Number(e.target.value)) })}
+            value={connTimeoutStr}
+            onChange={(e) => setConnTimeoutStr(e.target.value)}
+            onBlur={() => {
+              const v = Math.min(3600, Math.max(1, Number(connTimeoutStr) || 1));
+              setConnTimeoutStr(String(v));
+              patch({ connection_timeout_secs: v });
+            }}
             style={{ width: 80 }}
             className="no-spinner"
           />
         </div>
-        <p className="form-hint">Per-host timeout can be set in host settings and overrides this value.</p>
+        <p className="form-hint">Connection attempt timeout. Per-host timeout can be set in host settings and overrides this value.</p>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 10 }}>
           <label style={{ margin: 0, whiteSpace: 'nowrap' }}>SFTP inactivity timeout (seconds)</label>
           <input
             type="number"
             min={30}
             max={86400}
-            value={settings.sftp_inactivity_timeout_secs}
-            onChange={(e) => patch({ sftp_inactivity_timeout_secs: Math.max(30, Number(e.target.value)) })}
+            value={sftpTimeoutStr}
+            onChange={(e) => setSftpTimeoutStr(e.target.value)}
+            onBlur={() => {
+              const v = Math.min(86400, Math.max(30, Number(sftpTimeoutStr) || 30));
+              setSftpTimeoutStr(String(v));
+              patch({ sftp_inactivity_timeout_secs: v });
+            }}
             style={{ width: 80 }}
             className="no-spinner"
           />
@@ -168,8 +183,9 @@ export default function SettingsPanel() {
             checked={settings.show_hover_hints}
             onChange={(e) => patch({ show_hover_hints: e.target.checked })}
           />
-          <span>Show hover hints on host cards</span>
+          <span>Show hover hints</span>
         </label>
+        <p className="form-hint">Toggles hints while hovering.</p>
       </section>
     </div>
   );

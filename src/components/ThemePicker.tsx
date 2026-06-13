@@ -52,7 +52,6 @@ export default function ThemePicker({ value, onChange }: Props) {
               type="button"
               className={`theme-card${value === id ? ' active' : ''}`}
               onClick={() => onChange(id)}
-              title={t.name}
             >
               <ThumbNail id={id} />
               <span className="theme-card-name">{t.name}</span>
@@ -67,7 +66,6 @@ export default function ThemePicker({ value, onChange }: Props) {
           type="button"
           className={`theme-card${value === id ? ' active' : ''}`}
           onClick={() => onChange(id)}
-          title={t.name}
         >
           <ThumbNail id={id} />
           <span className="theme-card-name">{t.name}</span>

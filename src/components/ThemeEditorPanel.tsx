@@ -125,6 +125,8 @@ function PresetDropdown({ allThemes, customThemes, onSelect }: {
 }
 
 function TerminalPreview({ colors }: { colors: ThemeColors }) {
+  const { settings } = useAppStore();
+  const hint = (t: string) => settings.show_hover_hints ? t : undefined;
   const { background, foreground, cursor, green, blue, red, yellow,
     brightBlack, brightBlue, brightRed, magenta, cyan, white, black,
     brightGreen, brightYellow, brightMagenta, brightCyan, brightWhite } = colors;
@@ -176,12 +178,12 @@ function TerminalPreview({ colors }: { colors: ThemeColors }) {
       </div>
       <div className="te-swatches-row">
         {swatchNormal.map((c, i) => (
-          <div key={i} className="te-swatch" style={{ background: c }} title={['Black','Red','Green','Yellow','Blue','Magenta','Cyan','White'][i]} />
+          <div key={i} className="te-swatch" style={{ background: c }} title={hint(['Black','Red','Green','Yellow','Blue','Magenta','Cyan','White'][i])} />
         ))}
       </div>
       <div className="te-swatches-row">
         {swatchBright.map((c, i) => (
-          <div key={i} className="te-swatch" style={{ background: c }} title={['Bright Black','Bright Red','Bright Green','Bright Yellow','Bright Blue','Bright Magenta','Bright Cyan','Bright White'][i]} />
+          <div key={i} className="te-swatch" style={{ background: c }} title={hint(['Bright Black','Bright Red','Bright Green','Bright Yellow','Bright Blue','Bright Magenta','Bright Cyan','Bright White'][i])} />
         ))}
       </div>
     </div>

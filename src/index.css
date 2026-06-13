@@ -2,6 +2,13 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+input, textarea, select, [contenteditable] {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 :root {
@@ -98,11 +105,27 @@ html, body, #root {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  transition: width 0.18s ease, min-width 0.18s ease;
+}
+
+.sidebar-collapsed {
+  width: 48px;
+  min-width: 48px;
 }
 
 .sidebar-top {
-  padding: 14px 12px 10px;
+  padding: 10px 8px;
   border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.sidebar-collapsed .sidebar-top {
+  justify-content: center;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .sidebar-brand {
@@ -113,6 +136,29 @@ html, body, #root {
   font-weight: 700;
   color: var(--accent);
   letter-spacing: 0.5px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.sidebar-brand-text {
+  overflow: hidden;
+}
+
+.sidebar-collapse-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 3px 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.sidebar-collapse-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .sidebar-nav {
@@ -129,6 +175,12 @@ html, body, #root {
   flex-direction: column;
   gap: 2px;
   border-top: 1px solid var(--border);
+}
+
+.sidebar-collapsed .nav-btn {
+  justify-content: center;
+  padding: 7px;
+  gap: 0;
 }
 
 .dot {
@@ -167,7 +219,7 @@ html, body, #root {
   color: var(--accent);
 }
 
-.nav-icon { font-size: 14px; }
+.nav-icon { font-size: 20px; }
 
 /* ── Tab Bar ───────────────────────────────────────────────── */
 
@@ -181,7 +233,6 @@ html, body, #root {
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
-.quick-connect-icon { color: var(--text-muted); flex-shrink: 0; }
 .quick-connect-input {
   flex: 1;
   background: var(--bg-mid);

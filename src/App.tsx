@@ -141,14 +141,8 @@ export default function App() {
     <div className={`app${settings.app_theme === 'light' ? ' app-light' : settings.app_theme === 'amoled' ? ' app-amoled' : ''}`}>
       <Sidebar />
       <div className="main">
-        <div className="quick-connect-bar">
-          <svg className="quick-connect-icon" width="13" height="13" viewBox="0 0 512 512" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M 110 390 L 110 200" strokeWidth="48"/>
-            <path d="M 402 390 L 402 200" strokeWidth="48"/>
-            <path d="M 110 200 Q 256 40 402 200" strokeWidth="48"/>
-            <path d="M 174 254 L 254 296 L 174 338" strokeWidth="40"/>
-            <path d="M 254 360 L 338 360" strokeWidth="40"/>
-          </svg>
+        {(activeTabId === 'hosts' || activeTabId === null) && <div className="quick-connect-bar">
+
           <input
             className="quick-connect-input"
             value={quickInput}
@@ -162,9 +156,9 @@ export default function App() {
             className="btn-primary btn-sm"
             onClick={() => handleQuickSubmit({ key: 'Enter' } as React.KeyboardEvent<HTMLInputElement>)}
           >
-            Connect
+            Quick Connect
           </button>
-        </div>
+        </div>}
         {sessions.length > 0 && (
           <div className="tab-bar">
             {sessions.map((s) => (
