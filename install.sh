@@ -10,6 +10,29 @@ INSTALL_BIN="$HOME/.local/bin/$BIN_NAME"
 INSTALL_DESKTOP="$HOME/.local/share/applications/$IDENTIFIER.desktop"
 ICON_DIR="$HOME/.local/share/icons/hicolor"
 
+# ── Flatpak install ───────────────────────────────────────────────────────────
+
+if [[ "${1:-}" == "flatpak" ]]; then
+    echo "==> Installing $APP_NAME as Flatpak"
+    cd "$SCRIPT_DIR"
+    if ! command -v flatpak-builder &>/dev/null; then
+        echo "ERROR: flatpak-builder not found. Install with: sudo dnf install flatpak-builder" >&2
+        exit 1
+    fi
+    bash flatpak/build.sh
+    exit 0
+fi
+
+# ── Flatpak uninstall ─────────────────────────────────────────────────────────
+
+if [[ "${1:-}" == "uninstall-flatpak" ]]; then
+    echo "==> Uninstalling $APP_NAME Flatpak"
+    flatpak uninstall --assumeyes "$IDENTIFIER" 2>/dev/null || true
+    flatpak remote-delete --force bifrossh-local 2>/dev/null || true
+    echo "Done."
+    exit 0
+fi
+
 # ── Uninstall ─────────────────────────────────────────────────────────────────
 
 if [[ "${1:-}" == "uninstall" ]]; then
