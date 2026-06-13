@@ -1802,6 +1802,23 @@ button { cursor: pointer; font-family: inherit; }
   margin-left: auto;
 }
 
+.sftp-dropdown-checkbox {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 10px;
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+  gap: 24px;
+}
+.sftp-dropdown-checkbox input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+
 .sftp-action-btn {
   background: none;
   border: 1px solid var(--border);

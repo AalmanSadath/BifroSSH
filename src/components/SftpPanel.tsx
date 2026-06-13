@@ -109,6 +109,7 @@ function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
   const [sortAsc, setSortAsc] = useState(true);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [showHidden, setShowHidden] = useState(false);
+  const [dirsOnTop, setDirsOnTop] = useState(true);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; entry: FileEntry } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<FileEntry | null>(null);
@@ -301,6 +302,10 @@ function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
                 <button className="sftp-dropdown-item" onClick={() => { setDropdownOpen(false); setShowHidden(h => !h); }}>
                   {showHidden ? 'Hide Hidden Files' : 'Show Hidden Files'}
                 </button>
+                <label className="sftp-dropdown-checkbox" onClick={(e) => e.stopPropagation()}>
+                  Folders on top
+                  <input type="checkbox" checked={dirsOnTop} onChange={(e) => setDirsOnTop(e.target.checked)} />
+                </label>
                 {extraActions && <div className="sftp-dropdown-divider" />}
                 {extraActions}
               </div>
@@ -375,6 +380,7 @@ function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
               const rest = entries
                 .filter(en => en.name !== '..' && (showHidden || !en.name.startsWith('.')))
                 .sort((a, b) => {
+                  if (dirsOnTop && a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
                   let cmp = 0;
                   if (sortCol === 'Name') cmp = a.name.localeCompare(b.name);
                   else if (sortCol === 'Date Modified') cmp = (a.modified ?? 0) - (b.modified ?? 0);
