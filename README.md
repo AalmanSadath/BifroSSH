@@ -36,6 +36,41 @@ npm install
 
 `install.sh` builds the app and registers it as a desktop application. Re-run it after pulling major changes.
 
+## Flatpak
+
+### One-time setup
+
+```bash
+sudo dnf install flatpak-builder
+flatpak install flathub org.gnome.Platform//50 org.gnome.Sdk//50
+flatpak install flathub org.freedesktop.Sdk.Extension.rust-stable//25.08
+```
+
+### Build and install
+
+```bash
+bash flatpak/build.sh
+```
+
+This builds the frontend, compiles the Tauri binary inside the Flatpak sandbox using pre-vendored Cargo dependencies (`flatpak/cargo-sources.json`), and installs the app locally.
+
+Run it:
+
+```bash
+flatpak run com.bifrossh.app
+```
+
+### Adding new Rust dependencies
+
+After updating `Cargo.lock`, regenerate the vendor sources:
+
+```bash
+pip install aiohttp tomlkit
+python3 flatpak/flatpak-cargo-generator.py src-tauri/Cargo.lock -o flatpak/cargo-sources.json
+```
+
+Then rebuild with `bash flatpak/build.sh`.
+
 ## Development
 
 ```bash
