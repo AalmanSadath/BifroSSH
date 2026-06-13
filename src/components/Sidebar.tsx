@@ -10,7 +10,16 @@ export default function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="sidebar-top">
-        <div className="sidebar-brand">BifroSSH</div>
+        <div className="sidebar-brand">
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 512 512" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M 110 390 L 110 200" strokeWidth="30"/>
+            <path d="M 402 390 L 402 200" strokeWidth="30"/>
+            <path d="M 110 200 Q 256 40 402 200" strokeWidth="30"/>
+            <path d="M 174 254 L 254 296 L 174 338" strokeWidth="24"/>
+            <path d="M 254 360 L 338 360" strokeWidth="24"/>
+          </svg>
+          BifroSSH
+        </div>
       </div>
       <nav className="sidebar-nav">
         <button
