@@ -989,6 +989,9 @@ button { cursor: pointer; font-family: inherit; }
 .drawer-footer {
   padding: 16px 20px;
   border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .drawer-body .inline-form {

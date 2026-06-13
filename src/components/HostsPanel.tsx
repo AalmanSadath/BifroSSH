@@ -3,14 +3,12 @@ import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '../store/appStore';
 import type { Server } from '../types';
 import ServerForm from './ServerForm';
-import ConnectDialog from './ConnectDialog';
 import OsIcon from './OsIcon';
 
 export default function HostsPanel() {
   const { servers, sessions, settings, setActiveTab, removeSession, deleteServer, openSession } = useAppStore();
   const [showServerForm, setShowServerForm] = useState(false);
   const [editServer, setEditServer] = useState<Server | null>(null);
-  const [connectServer, setConnectServer] = useState<Server | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; server: Server } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
@@ -29,7 +27,7 @@ export default function HostsPanel() {
   async function handleDoubleClick(server: Server) {
     const existing = sessions.find((s) => s.server_id === server.id && s.status === 'connected');
     if (existing) { setActiveTab(existing.session_id); return; }
-    openSession(server.id, () => setConnectServer(server));
+    openSession(server.id);
   }
 
   function handleContextMenu(e: React.MouseEvent, server: Server) {
@@ -123,7 +121,7 @@ export default function HostsPanel() {
                     <div className="host-ctx-divider" />
                   </>
                 )}
-                <button className="host-ctx-item" onClick={() => { setContextMenu(null); openSession(contextMenu.server.id, () => setConnectServer(contextMenu.server)); }}>
+                <button className="host-ctx-item" onClick={() => { setContextMenu(null); openSession(contextMenu.server.id); }}>
                   Duplicate
                 </button>
                 <button className="host-ctx-item" onClick={() => { setContextMenu(null); setEditServer(contextMenu.server); setShowServerForm(true); }}>
@@ -144,12 +142,6 @@ export default function HostsPanel() {
           server={editServer}
           onClose={() => { setShowServerForm(false); setEditServer(null); }}
           onDelete={editServer ? () => setConfirmDeleteId(editServer.id) : undefined}
-        />
-      )}
-      {connectServer && (
-        <ConnectDialog
-          server={connectServer}
-          onClose={() => setConnectServer(null)}
         />
       )}
       {confirmDeleteId && (

@@ -304,9 +304,17 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
             {error && <p className="form-error">{error}</p>}
           </form>
         </div>
-        {onDelete && (
+        {(onDelete || server) && (
           <div className="drawer-footer">
-            <button className="btn-danger btn-sm" onClick={onDelete}>Delete Host</button>
+            {onDelete && <button className="btn-danger btn-sm" onClick={onDelete}>Delete Host</button>}
+            {server && (
+              <button
+                className="btn-primary btn-sm"
+                onClick={() => { onClose(); useAppStore.getState().openSession(server.id); }}
+              >
+                Connect
+              </button>
+            )}
           </div>
         )}
       </div>
