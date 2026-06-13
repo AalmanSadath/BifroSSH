@@ -26,6 +26,9 @@ flatpak remote-add --no-gpg-verify --if-not-exists bifrossh-local "$REPO_DIR"
 echo "==> Installing..."
 flatpak install --reinstall --assumeyes bifrossh-local com.bifrossh.app
 
+printf '\033[?2004l' 2>/dev/null || true  # disable bracketed paste if left on
+stty sane 2>/dev/null || true            # restore terminal to sane state
+
 echo ""
 echo "Done. Run with:"
 echo "  flatpak run com.bifrossh.app"
