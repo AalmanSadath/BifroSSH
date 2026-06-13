@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '../store/appStore';
 import type { Server } from '../types';
@@ -7,26 +7,28 @@ import ConnectDialog from './ConnectDialog';
 import OsIcon from './OsIcon';
 
 export default function HostsPanel() {
-  const { servers, sessions, setActiveTab, deleteServer, identities, addSession, detectServerOs } = useAppStore();
+  const { servers, sessions, setActiveTab, removeSession, deleteServer, identities, addSession, detectServerOs } = useAppStore();
   const [showServerForm, setShowServerForm] = useState(false);
   const [editServer, setEditServer] = useState<Server | null>(null);
   const [connectServer, setConnectServer] = useState<Server | null>(null);
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [connectError, setConnectError] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; server: Server } | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
 
   const connectedIds = new Set(sessions.map((s) => s.server_id));
 
-  function openEdit(server: Server, e: React.MouseEvent) {
-    e.stopPropagation();
-    setEditServer(server);
-    setShowServerForm(true);
-  }
+  useEffect(() => {
+    if (!contextMenu) return;
+    function onClickOutside(e: MouseEvent) {
+      if (!contextMenuRef.current?.contains(e.target as Node)) setContextMenu(null);
+    }
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [contextMenu]);
 
-  async function handleDoubleClick(server: Server) {
-    const sess = sessions.find((s) => s.server_id === server.id);
-    if (sess) { setActiveTab(sess.session_id); return; }
-
+  async function openSession(server: Server) {
     const identity = identities.find((i) => i.id === server.identity_id);
     if (!identity) { setConnectServer(server); return; }
 
@@ -43,13 +45,26 @@ export default function HostsPanel() {
           rows: 24,
         },
       });
-      addSession({ session_id: sessionId, server_name: server.name, server_id: server.id });
+      const existing = sessions.filter((s) => s.server_id === server.id).length;
+      const tabName = existing === 0 ? server.name : `${server.name} (${existing})`;
+      addSession({ session_id: sessionId, server_name: tabName, server_id: server.id });
       if (server.os === '') detectServerOs(server.id, identity.username, 'key', identity.key_id);
     } catch (err) {
       setConnectError(String(err));
     } finally {
       setConnectingId(null);
     }
+  }
+
+  async function handleDoubleClick(server: Server) {
+    const existing = sessions.find((s) => s.server_id === server.id);
+    if (existing) { setActiveTab(existing.session_id); return; }
+    await openSession(server);
+  }
+
+  function handleContextMenu(e: React.MouseEvent, server: Server) {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, server });
   }
 
   return (
@@ -85,7 +100,8 @@ export default function HostsPanel() {
                   key={server.id}
                   className="host-card"
                   onDoubleClick={() => handleDoubleClick(server)}
-                  title="Double-click to connect"
+                  onContextMenu={(e) => handleContextMenu(e, server)}
+                  title="Double-click to connect · Right-click for options"
                 >
                   <div className="host-card-icon">
                     <OsIcon os={server.os ?? 'linux'} size={28} />
@@ -99,22 +115,55 @@ export default function HostsPanel() {
                     {isConnecting && <span className="host-status">Connecting…</span>}
                     {connected && !isConnecting && <span className="host-status host-status-on">Connected</span>}
                   </div>
-                  <button
-                    className="kc-card-edit-btn"
-                    onClick={(e) => { e.stopPropagation(); openEdit(server, e); }}
-                    title="Edit"
-                  >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                    </svg>
-                  </button>
                 </div>
               );
             })}
           </div>
         )}
       </div>
+
+      {contextMenu && (
+        <div
+          ref={contextMenuRef}
+          className="host-context-menu"
+          style={{
+            top: Math.min(contextMenu.y, window.innerHeight - 120),
+            left: Math.min(contextMenu.x, window.innerWidth - 160),
+          }}
+        >
+          {(() => {
+            const activeSessions = sessions.filter((s) => s.server_id === contextMenu.server.id);
+            return (
+              <>
+                {activeSessions.length > 0 && (
+                  <>
+                    {activeSessions.map((s) => (
+                      <button key={s.session_id} className="host-ctx-item host-ctx-danger" onClick={() => {
+                        invoke('ssh_disconnect', { sessionId: s.session_id }).catch(() => {});
+                        removeSession(s.session_id);
+                        setContextMenu(null);
+                      }}>
+                        End {s.server_name}
+                      </button>
+                    ))}
+                    <div className="host-ctx-divider" />
+                  </>
+                )}
+                <button className="host-ctx-item" onClick={() => { setContextMenu(null); openSession(contextMenu.server); }}>
+                  Duplicate
+                </button>
+                <button className="host-ctx-item" onClick={() => { setContextMenu(null); setEditServer(contextMenu.server); setShowServerForm(true); }}>
+                  Edit
+                </button>
+                <div className="host-ctx-divider" />
+                <button className="host-ctx-item host-ctx-danger" onClick={() => { setConfirmDeleteId(contextMenu.server.id); setContextMenu(null); }}>
+                  Remove
+                </button>
+              </>
+            );
+          })()}
+        </div>
+      )}
 
       {showServerForm && (
         <ServerForm

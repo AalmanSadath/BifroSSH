@@ -2,11 +2,13 @@ mod commands;
 mod crypto;
 mod models;
 mod ppk;
+mod sftp;
 mod ssh;
 mod store;
 
 use std::sync::Arc;
 use commands::AppState;
+use sftp::SftpClientState;
 use ssh::SshState;
 use store::{load_app_data, load_secret_key};
 
@@ -21,6 +23,7 @@ pub fn run() {
             data: tokio::sync::Mutex::new(app_data),
             secret_key,
             ssh_state: Arc::new(SshState::new()),
+            sftp_state: Arc::new(SftpClientState::new()),
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_servers,
@@ -44,6 +47,20 @@ pub fn run() {
             commands::ssh_send_input,
             commands::ssh_resize,
             commands::ssh_disconnect,
+            commands::sftp_local_home,
+            commands::sftp_list_local,
+            commands::sftp_connect_remote,
+            commands::sftp_get_home,
+            commands::sftp_list_remote,
+            commands::sftp_disconnect_remote,
+            commands::sftp_upload,
+            commands::sftp_download,
+            commands::sftp_create_local_dir,
+            commands::sftp_mkdir,
+            commands::sftp_delete_local,
+            commands::sftp_rename_local,
+            commands::sftp_delete_remote,
+            commands::sftp_rename_remote,
         ])
         .run(tauri::generate_context!())
         .expect("Error running BifroSSH");

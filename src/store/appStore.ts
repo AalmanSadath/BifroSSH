@@ -39,6 +39,7 @@ interface AppStore {
 
   addSession: (tab: SessionTab) => void;
   removeSession: (sessionId: string) => void;
+  renameSession: (sessionId: string, name: string) => void;
   setActiveTab: (id: string | null) => void;
 }
 
@@ -181,6 +182,13 @@ export const useAppStore = create<AppStore>((set, _get) => ({
           : s.activeTabId;
       return { sessions: next, activeTabId: nextActive };
     }),
+
+  renameSession: (sessionId, name) =>
+    set((s) => ({
+      sessions: s.sessions.map((t) =>
+        t.session_id === sessionId ? { ...t, server_name: name } : t
+      ),
+    })),
 
   setActiveTab: (id) => set({ activeTabId: id }),
 }));

@@ -5,6 +5,7 @@ use uuid::Uuid;
 use crate::crypto::{decrypt, encrypt};
 use crate::models::*;
 use crate::ppk;
+use crate::sftp::SftpClientState;
 use crate::ssh::{connect_ssh, SshAuth, SshCommand, SshConnectParams, SshState};
 use crate::store::save_app_data;
 
@@ -12,6 +13,7 @@ pub struct AppState {
     pub data: tokio::sync::Mutex<AppData>,
     pub secret_key: [u8; 32],
     pub ssh_state: Arc<SshState>,
+    pub sftp_state: Arc<SftpClientState>,
 }
 
 // ── Servers ──────────────────────────────────────────────────────────────────
@@ -611,4 +613,177 @@ pub async fn ssh_disconnect(
         let _ = handle.cmd_tx.send(SshCommand::Close).await;
     }
     Ok(())
+}
+
+// ── SFTP ─────────────────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn sftp_local_home() -> String {
+    crate::sftp::get_local_home()
+}
+
+#[tauri::command]
+pub async fn sftp_list_local(path: String) -> Result<Vec<crate::sftp::FileEntry>, String> {
+    crate::sftp::list_local(&path)
+}
+
+#[tauri::command]
+pub async fn sftp_connect_remote(
+    state: State<'_, AppState>,
+    server_id: String,
+    username: String,
+    auth_type: String,
+    auth_value: String,
+) -> Result<String, String> {
+    let (host, port, key_pem, passphrase) = {
+        let data = state.data.lock().await;
+        let server = data.servers.iter()
+            .find(|s| s.id == server_id)
+            .ok_or_else(|| "Server not found".to_string())?;
+        let host = server.host.clone();
+        let port = server.port as u16;
+
+        let (key_pem, passphrase) = if auth_type == "key" {
+            match data.keys.iter().find(|k| k.id == auth_value) {
+                Some(k) => {
+                    let pem = if let Some(ref enc) = k.encrypted_key {
+                        decrypt(enc, &state.secret_key).ok()
+                            .and_then(|b| String::from_utf8(b).ok())
+                    } else if let Some(ref path) = k.key_path {
+                        std::fs::read_to_string(path).ok()
+                    } else {
+                        None
+                    };
+                    let pass = k.encrypted_passphrase.as_ref()
+                        .and_then(|enc| decrypt(enc, &state.secret_key).ok())
+                        .and_then(|b| String::from_utf8(b).ok());
+                    (pem, pass)
+                }
+                None => (None, None),
+            }
+        } else {
+            (None, None)
+        };
+
+        (host, port, key_pem, passphrase)
+    };
+
+    let session_id = Uuid::new_v4().to_string();
+
+    if auth_type == "key" {
+        let pem = key_pem.ok_or_else(|| "Key not found or could not be read".to_string())?;
+        crate::sftp::connect_sftp(
+            &state.sftp_state,
+            &session_id,
+            &host,
+            port,
+            &username,
+            Some(&pem),
+            passphrase.as_deref(),
+            None,
+        ).await?;
+    } else {
+        crate::sftp::connect_sftp(
+            &state.sftp_state,
+            &session_id,
+            &host,
+            port,
+            &username,
+            None,
+            None,
+            Some(&auth_value),
+        ).await?;
+    }
+
+    Ok(session_id)
+}
+
+#[tauri::command]
+pub async fn sftp_get_home(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<String, String> {
+    crate::sftp::get_remote_home(&state.sftp_state, &session_id).await
+}
+
+#[tauri::command]
+pub async fn sftp_list_remote(
+    state: State<'_, AppState>,
+    session_id: String,
+    path: String,
+) -> Result<Vec<crate::sftp::FileEntry>, String> {
+    crate::sftp::list_remote(&state.sftp_state, &session_id, &path).await
+}
+
+#[tauri::command]
+pub async fn sftp_disconnect_remote(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    crate::sftp::disconnect_sftp(&state.sftp_state, &session_id).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn sftp_upload(
+    state: State<'_, AppState>,
+    session_id: String,
+    local_path: String,
+    remote_dir: String,
+) -> Result<(), String> {
+    crate::sftp::upload_file(&state.sftp_state, &session_id, &local_path, &remote_dir).await
+}
+
+#[tauri::command]
+pub async fn sftp_download(
+    state: State<'_, AppState>,
+    session_id: String,
+    remote_path: String,
+    local_dir: String,
+) -> Result<(), String> {
+    crate::sftp::download_file(&state.sftp_state, &session_id, &remote_path, &local_dir).await
+}
+
+#[tauri::command]
+pub fn sftp_create_local_dir(path: String) -> Result<(), String> {
+    crate::sftp::create_local_dir(&path)
+}
+
+#[tauri::command]
+pub async fn sftp_mkdir(
+    state: State<'_, AppState>,
+    session_id: String,
+    path: String,
+) -> Result<(), String> {
+    crate::sftp::mkdir(&state.sftp_state, &session_id, &path).await
+}
+
+#[tauri::command]
+pub fn sftp_delete_local(path: String) -> Result<(), String> {
+    crate::sftp::delete_local(&path)
+}
+
+#[tauri::command]
+pub fn sftp_rename_local(old_path: String, new_path: String) -> Result<(), String> {
+    crate::sftp::rename_local(&old_path, &new_path)
+}
+
+#[tauri::command]
+pub async fn sftp_delete_remote(
+    state: State<'_, AppState>,
+    session_id: String,
+    path: String,
+    is_dir: bool,
+) -> Result<(), String> {
+    crate::sftp::delete_remote(&state.sftp_state, &session_id, &path, is_dir).await
+}
+
+#[tauri::command]
+pub async fn sftp_rename_remote(
+    state: State<'_, AppState>,
+    session_id: String,
+    old_path: String,
+    new_path: String,
+) -> Result<(), String> {
+    crate::sftp::rename_remote(&state.sftp_state, &session_id, &old_path, &new_path).await
 }
