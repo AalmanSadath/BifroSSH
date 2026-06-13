@@ -39,7 +39,14 @@ export default function Sidebar() {
           onClick={() => setActiveTab('hosts')}
           title={collapsed ? 'Hosts' : undefined}
         >
-          <span className="nav-icon">&#9707;</span>
+          <span className="nav-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="8" width="20" height="4" rx="1.5"/>
+              <rect x="2" y="15" width="20" height="4" rx="1.5"/>
+              <line x1="6" y1="10" x2="6.01" y2="10"/>
+              <line x1="6" y1="17" x2="6.01" y2="17"/>
+            </svg>
+          </span>
           {!collapsed && 'Hosts'}
         </button>
         <button
