@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.bifrossh.app</id>
+  <name>BifroSSH</name>
+  <summary>GUI SSH client with built-in SFTP and keychain management</summary>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>BifroSSH is a modern SSH client built with Tauri, featuring a full terminal emulator, SFTP file browser, SSH key management, and customisable themes.</p>
+  </description>
+  <launchable type="desktop-id">com.bifrossh.app.desktop</launchable>
+  <url type="homepage">https://github.com/AalmanSadath/BifroSSH</url>
+  <provides>
+    <binary>bifrossh</binary>
+  </provides>
+  <releases>
+    <release version="0.1.0" date="2026-06-13"/>
+  </releases>
+  <content_rating type="oars-1.1"/>
+</component>

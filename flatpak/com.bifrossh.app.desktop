@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=BifroSSH
+GenericName=SSH Client
+Comment=GUI SSH client with built-in SFTP and keychain management
+Exec=bifrossh
+Icon=com.bifrossh.app
+Type=Application
+Categories=Network;RemoteAccess;TerminalEmulator;
+Keywords=ssh;terminal;remote;sftp;
+StartupNotify=true
+StartupWMClass=bifrossh

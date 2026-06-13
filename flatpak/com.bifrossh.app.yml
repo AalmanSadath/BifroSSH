@@ -1,0 +1,83 @@
+id: com.bifrossh.app
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+
+command: bifrossh
+
+finish-args:
+  # SSH connections to remote hosts
+  - --share=network
+  # X11 shared memory transport
+  - --share=ipc
+  # Wayland display (preferred)
+  - --socket=wayland
+  # X11 fallback
+  - --socket=fallback-x11
+  # GPU/DRI for WebKitGTK rendering
+  - --device=dri
+  # SSH key files — read-only
+  - --filesystem=~/.ssh:ro
+  # SSH agent socket for agent-forwarding / key unlock
+  - --socket=ssh-auth
+  # Full home dir access for SFTP local file browser
+  - --filesystem=home
+  # Desktop notifications
+  - --talk-name=org.freedesktop.Notifications
+  # WebKitGTK: disable internal sandbox and compositing in Flatpak
+  - --env=WEBKIT_DISABLE_SANDBOX=1
+  - --env=WEBKIT_DISABLE_COMPOSITING_MODE=1
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/bifrossh/cargo-home
+    CARGO_NET_OFFLINE: 'true'
+
+modules:
+  - name: bifrossh
+    buildsystem: simple
+    # Frontend (dist/) must be pre-built on the host before running this manifest.
+    # Run: npm run build
+    # from the project root first.
+    sources:
+      - type: dir
+        path: ..
+      - cargo-sources.json
+
+    build-commands:
+      # Point cargo at the pre-downloaded vendor directory
+      - mkdir -p .cargo
+      - |
+        cat >> .cargo/config.toml << 'CARGO_EOF'
+        [source.crates-io]
+        replace-with = "vendored-sources"
+
+        [source.vendored-sources]
+        directory = "cargo/vendor"
+        CARGO_EOF
+
+      # Build the Tauri binary (dist/ is already present in the source dir).
+      # custom-protocol feature required: switches from devUrl to embedded frontend.
+      - |
+        cd src-tauri
+        cargo build --release --features tauri/custom-protocol
+
+      # Install binary
+      - install -Dm755 src-tauri/target/release/bifrossh /app/bin/bifrossh
+
+      # Desktop entry
+      - install -Dm644 flatpak/com.bifrossh.app.desktop
+          /app/share/applications/com.bifrossh.app.desktop
+
+      # Icons
+      - install -Dm644 src-tauri/icons/128x128.png
+          /app/share/icons/hicolor/128x128/apps/com.bifrossh.app.png
+      - install -Dm644 src-tauri/icons/32x32.png
+          /app/share/icons/hicolor/32x32/apps/com.bifrossh.app.png
+
+      # AppStream metadata
+      - install -Dm644 flatpak/com.bifrossh.app.metainfo.xml
+          /app/share/metainfo/com.bifrossh.app.metainfo.xml
