@@ -1,12 +1,12 @@
 use std::sync::Arc;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
 use crate::crypto::{decrypt, encrypt};
 use crate::models::*;
 use crate::ppk;
 use crate::sftp::SftpClientState;
-use crate::ssh::{connect_ssh, SshAuth, SshCommand, SshConnectParams, SshState};
+use crate::ssh::{connect_ssh, ConnectLogEvent, SshAuth, SshCommand, SshConnectParams, SshState};
 use crate::store::save_app_data;
 
 pub struct AppState {
@@ -504,6 +504,7 @@ pub struct ConnectRequest {
     pub auth_value: String,
     pub cols: u32,
     pub rows: u32,
+    pub connect_id: String,
 }
 
 #[tauri::command]
@@ -565,9 +566,33 @@ pub async fn ssh_connect(
         initial_rows: request.rows,
     };
 
-    connect_ssh(session_id.clone(), params, app, Arc::clone(&state.ssh_state))
-        .await
-        .map_err(|e| e.to_string())?;
+    let timeout_secs = {
+        let data = state.data.lock().await;
+        let host_timeout = data.servers.iter()
+            .find(|s| s.id == request.server_id)
+            .and_then(|s| s.connection_timeout);
+        host_timeout.unwrap_or(data.settings.connection_timeout_secs) as u64
+    };
+
+    let connect_result = tokio::time::timeout(
+        std::time::Duration::from_secs(timeout_secs),
+        connect_ssh(session_id.clone(), params, request.connect_id.clone(), app.clone(), Arc::clone(&state.ssh_state)),
+    )
+    .await;
+
+    let err_msg = match connect_result {
+        Ok(Ok(())) => None,
+        Ok(Err(e)) => Some(e.to_string()),
+        Err(_) => Some(format!("Connection timed out after {} seconds", timeout_secs)),
+    };
+
+    if let Some(ref msg) = err_msg {
+        let _ = app.emit(
+            &format!("ssh-connect-log:{}", request.connect_id),
+            ConnectLogEvent { message: format!("Connection failed: {}", msg), kind: "error".to_string() },
+        );
+        return Err(msg.clone());
+    }
 
     Ok(session_id)
 }

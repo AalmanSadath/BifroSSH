@@ -92,6 +92,8 @@ function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
   canCopyToTarget, onCopyToTarget, onRename, onDelete,
   side, isDropTarget, transferring, onDragEnter: onDragEnterCb, onDragLeave: onDragLeaveCb, onFileDrop
 }: FileBrowserProps) {
+  const { settings } = useAppStore();
+  const hint = (t: string) => settings.show_hover_hints ? t : undefined;
   const segments = pathSegments(path);
   const [colWidths, setColWidths] = useState(DEFAULT_COL_WIDTHS);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
@@ -237,7 +239,7 @@ function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
     <>
       <div className="sftp-panel-header">
         {onLocalBtn ? (
-          <button className="sftp-local-header-btn" onClick={onLocalBtn} title="Switch source">
+          <button className="sftp-local-header-btn" onClick={onLocalBtn} title={hint('Switch source')}>
             {icon}
             {title}
           </button>
@@ -393,11 +395,13 @@ function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
 }
 
 function ConnectPrompt({ onSelectHost, onGoLocal }: { onSelectHost: () => void; onGoLocal?: () => void }) {
+  const { settings } = useAppStore();
+  const hint = (t: string) => settings.show_hover_hints ? t : undefined;
   return (
     <div className="sftp-connect-prompt">
       <div className="sftp-source-list">
         {onGoLocal && (
-          <button className="sftp-source-item" onDoubleClick={onGoLocal} onClick={onGoLocal} title="Open local filesystem">
+          <button className="sftp-source-item" onDoubleClick={onGoLocal} onClick={onGoLocal} title={hint('Open local filesystem')}>
             <div className="sftp-source-icon">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                 <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
@@ -440,10 +444,12 @@ interface HostPickerProps {
 }
 
 function HostPicker({ servers, connectingId, activeServerId, error, onConnect, onBack, onGoLocal }: HostPickerProps) {
+  const { settings } = useAppStore();
+  const hint = (t: string) => settings.show_hover_hints ? t : undefined;
   return (
     <div className="sftp-host-picker">
       <div className="sftp-picker-header">
-        <button className="sftp-back-btn" onClick={onBack} title="Back">
+        <button className="sftp-back-btn" onClick={onBack} title={hint('Back')}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <polyline points="15,18 9,12 15,6" />
           </svg>

@@ -12,6 +12,8 @@ pub struct Server {
     pub theme: Option<String>,
     #[serde(default = "Server::default_os")]
     pub os: String,
+    #[serde(default)]
+    pub connection_timeout: Option<u32>,
 }
 
 impl Server {
@@ -48,6 +50,10 @@ pub struct Settings {
     pub cursor_blink: bool,
     #[serde(default = "Settings::default_app_theme")]
     pub app_theme: String,
+    #[serde(default = "Settings::default_connection_timeout")]
+    pub connection_timeout_secs: u32,
+    #[serde(default = "Settings::default_show_hover_hints")]
+    pub show_hover_hints: bool,
 }
 
 impl Default for Settings {
@@ -59,12 +65,16 @@ impl Default for Settings {
             cursor_style: "block".to_string(),
             cursor_blink: true,
             app_theme: "dark".to_string(),
+            connection_timeout_secs: 60,
+            show_hover_hints: true,
         }
     }
 }
 
 impl Settings {
     fn default_app_theme() -> String { "dark".to_string() }
+    fn default_connection_timeout() -> u32 { 60 }
+    fn default_show_hover_hints() -> bool { true }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

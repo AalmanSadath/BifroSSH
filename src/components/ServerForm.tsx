@@ -18,6 +18,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
   const [port, setPort] = useState(server?.port ?? 22);
   const [identityId, setIdentityId] = useState(server?.identity_id ?? '');
   const [themeOverride, setThemeOverride] = useState<string>(server?.theme ?? 'bifrossh-dark');
+  const [timeoutSecs, setTimeoutSecs] = useState<string>(server?.connection_timeout != null ? String(server.connection_timeout) : '');
   const [themeExpanded, setThemeExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -31,6 +32,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
     setSaving(true);
     setError('');
     try {
+      const parsed = parseInt(timeoutSecs, 10);
       await saveServer({
         id: server?.id,
         name: name.trim(),
@@ -38,6 +40,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
         port,
         identity_id: identityId || null,
         theme: themeOverride as string | null,
+        connection_timeout: timeoutSecs.trim() === '' || isNaN(parsed) ? null : Math.max(1, parsed),
       });
       onClose();
     } catch (err) {
@@ -81,6 +84,18 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
                   <option key={i.id} value={i.id}>{i.name} ({i.username})</option>
                 ))}
               </select>
+            </div>
+            <div className="form-group">
+              <label>Connection Timeout (seconds)</label>
+              <input
+                type="number"
+                min={1}
+                max={3600}
+                className="no-spinner"
+                value={timeoutSecs}
+                onChange={(e) => setTimeoutSecs(e.target.value)}
+                placeholder="Global default (60s)"
+              />
             </div>
             <div className="form-group">
               <div className="theme-current-row">

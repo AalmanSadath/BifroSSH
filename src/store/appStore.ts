@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
-import type { Identity, KeyEntry, Server, SessionTab, Settings } from '../types';
+import { listen } from '@tauri-apps/api/event';
+import type { Identity, KeyEntry, LogEntry, Server, SessionTab, Settings } from '../types';
 
 const DEFAULT_SETTINGS: Settings = {
   theme: 'bifrossh-dark',
@@ -9,6 +10,8 @@ const DEFAULT_SETTINGS: Settings = {
   cursor_style: 'block',
   cursor_blink: true,
   app_theme: 'dark',
+  connection_timeout_secs: 60,
+  show_hover_hints: true,
 };
 
 interface AppStore {
@@ -40,10 +43,14 @@ interface AppStore {
   addSession: (tab: SessionTab) => void;
   removeSession: (sessionId: string) => void;
   renameSession: (sessionId: string, name: string) => void;
+  updateSessionConnected: (connectId: string, sessionId: string) => void;
+  updateSessionError: (connectId: string, error: string) => void;
+  appendSessionLog: (connectId: string, entry: LogEntry) => void;
+  openSession: (serverId: string, fallback?: (serverId: string) => void) => Promise<void>;
   setActiveTab: (id: string | null) => void;
 }
 
-export const useAppStore = create<AppStore>((set, _get) => ({
+export const useAppStore = create<AppStore>((set, get) => ({
   servers: [],
   identities: [],
   keys: [],
@@ -189,6 +196,81 @@ export const useAppStore = create<AppStore>((set, _get) => ({
         t.session_id === sessionId ? { ...t, server_name: name } : t
       ),
     })),
+
+  updateSessionConnected: (connectId, sessionId) =>
+    set((s) => ({
+      sessions: s.sessions.map((t) =>
+        t.session_id === connectId
+          ? { ...t, session_id: sessionId, status: 'connected', connect_id: undefined, error: undefined }
+          : t
+      ),
+      activeTabId: s.activeTabId === connectId ? sessionId : s.activeTabId,
+    })),
+
+  updateSessionError: (connectId, error) =>
+    set((s) => ({
+      sessions: s.sessions.map((t) =>
+        t.session_id === connectId ? { ...t, status: 'error', error } : t
+      ),
+    })),
+
+  appendSessionLog: (connectId, entry) =>
+    set((s) => ({
+      sessions: s.sessions.map((t) =>
+        t.session_id === connectId
+          ? { ...t, logs: [...(t.logs ?? []), entry] }
+          : t
+      ),
+    })),
+
+  openSession: async (serverId, fallback) => {
+    const { servers, identities, sessions, detectServerOs } = get();
+    const server = servers.find((s) => s.id === serverId);
+    if (!server) return;
+    const identity = identities.find((i) => i.id === server.identity_id);
+    if (!identity) { fallback?.(serverId); return; }
+
+    const connectId = crypto.randomUUID();
+    const existing = sessions.filter((s) => s.server_id === serverId).length;
+    const tabName = existing === 0 ? server.name : `${server.name} (${existing})`;
+
+    // Set up listener BEFORE invoking so no log events are lost to race conditions
+    const unlisten = await listen<LogEntry>(`ssh-connect-log:${connectId}`, (event) => {
+      get().appendSessionLog(connectId, event.payload);
+    });
+
+    set((s) => ({
+      sessions: [...s.sessions, {
+        session_id: connectId,
+        server_name: tabName,
+        server_id: serverId,
+        status: 'connecting',
+        connect_id: connectId,
+        logs: [],
+      }],
+      activeTabId: connectId,
+    }));
+
+    try {
+      const sessionId = await invoke<string>('ssh_connect', {
+        request: {
+          server_id: serverId,
+          username: identity.username,
+          auth_type: 'key',
+          auth_value: identity.key_id,
+          cols: 80,
+          rows: 24,
+          connect_id: connectId,
+        },
+      });
+      unlisten();
+      get().updateSessionConnected(connectId, sessionId);
+      if (server.os === '') detectServerOs(serverId, identity.username, 'key', identity.key_id);
+    } catch (err) {
+      unlisten();
+      get().updateSessionError(connectId, String(err));
+    }
+  },
 
   setActiveTab: (id) => set({ activeTabId: id }),
 }));

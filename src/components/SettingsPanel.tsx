@@ -85,6 +85,35 @@ export default function SettingsPanel() {
           <span>Cursor blink</span>
         </label>
       </section>
+
+      <section className="panel-section">
+        <h3>Connection</h3>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <label style={{ margin: 0, whiteSpace: 'nowrap' }}>Global timeout (seconds)</label>
+          <input
+            type="number"
+            min={1}
+            max={3600}
+            value={settings.connection_timeout_secs}
+            onChange={(e) => patch({ connection_timeout_secs: Math.max(1, Number(e.target.value)) })}
+            style={{ width: 80 }}
+            className="no-spinner"
+          />
+        </div>
+        <p className="form-hint">Per-host timeout can be set in host settings and overrides this value.</p>
+      </section>
+
+      <section className="panel-section">
+        <h3>Interface</h3>
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={settings.show_hover_hints}
+            onChange={(e) => patch({ show_hover_hints: e.target.checked })}
+          />
+          <span>Show hover hints on host cards</span>
+        </label>
+      </section>
     </div>
   );
 }

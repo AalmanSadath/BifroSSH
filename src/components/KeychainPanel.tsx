@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '../store/appStore';
 import type { Identity } from '../types';
@@ -12,7 +12,8 @@ const KEY_ALGORITHMS = [
 const RSA_SIZES = [2048, 4096];
 
 export default function KeychainPanel() {
-  const { keys, identities, saveKeyFromContent, generateKey, getKeyContent, updateKey, deleteKey, saveIdentity, deleteIdentity } = useAppStore();
+  const { keys, identities, settings, saveKeyFromContent, generateKey, getKeyContent, updateKey, deleteKey, saveIdentity, deleteIdentity } = useAppStore();
+  const hint = (t: string) => settings.show_hover_hints ? t : undefined;
 
   // import drawer
   const [showKeyForm, setShowKeyForm] = useState(false);
@@ -45,6 +46,19 @@ export default function KeychainPanel() {
 
   const [confirmDeleteKey, setConfirmDeleteKey] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  type KcCtx = { x: number; y: number; kind: 'key'; id: string } | { x: number; y: number; kind: 'identity'; id: string };
+  const [ctxMenu, setCtxMenu] = useState<KcCtx | null>(null);
+  const ctxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!ctxMenu) return;
+    function onDown(e: MouseEvent) {
+      if (!ctxRef.current?.contains(e.target as Node)) setCtxMenu(null);
+    }
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [ctxMenu]);
 
   // edit key drawer
   const [editKeyId, setEditKeyId] = useState<string | null>(null);
@@ -398,7 +412,7 @@ export default function KeychainPanel() {
           ? <p className="list-empty">No keys added yet.</p>
           : <div className="kc-grid">
               {keys.map((key) => (
-                <div key={key.id} className="kc-card kc-card--clickable" onClick={() => handleOpenEditKey(key)}>
+                <div key={key.id} className="kc-card kc-card--clickable" onClick={() => handleOpenEditKey(key)} onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, kind: 'key', id: key.id }); }}>
                   <div className="kc-card-info">
                     <span className="kc-card-name">{key.name}</span>
                     <span className="kc-card-detail">
@@ -406,7 +420,7 @@ export default function KeychainPanel() {
                       {key.encrypted_passphrase === '[stored]' && ' · passphrase'}
                     </span>
                   </div>
-                  <button className="kc-card-edit-btn" onClick={(e) => { e.stopPropagation(); handleOpenEditKey(key); }} title="Edit" disabled={editKeyLoading}>
+                  <button className="kc-card-edit-btn" onClick={(e) => { e.stopPropagation(); handleOpenEditKey(key); }} title={hint('Edit')} disabled={editKeyLoading}>
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                       <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
@@ -475,7 +489,7 @@ export default function KeychainPanel() {
               {identities.map((id) => {
                 const key = keys.find((k) => k.id === id.key_id);
                 return (
-                  <div key={id.id} className={`kc-card kc-card--clickable${!key ? ' warn' : ''}`} onClick={() => openEditIdentity(id)}>
+                  <div key={id.id} className={`kc-card kc-card--clickable${!key ? ' warn' : ''}`} onClick={() => openEditIdentity(id)} onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, kind: 'identity', id: id.id }); }}>
                     <div className="kc-card-info">
                       <span className="kc-card-name">{id.name}</span>
                       <span className="kc-card-detail">{id.username}</span>
@@ -483,7 +497,7 @@ export default function KeychainPanel() {
                         {key ? key.name : <span className="warn-text">key deleted</span>}
                       </span>
                     </div>
-                    <button className="kc-card-edit-btn" onClick={(e) => { e.stopPropagation(); openEditIdentity(id); }} title="Edit">
+                    <button className="kc-card-edit-btn" onClick={(e) => { e.stopPropagation(); openEditIdentity(id); }} title={hint('Edit')}>
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                         <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
@@ -551,6 +565,30 @@ export default function KeychainPanel() {
             )}
           </div>
         </>
+      )}
+
+      {ctxMenu && (
+        <div
+          ref={ctxRef}
+          className="host-context-menu"
+          style={{
+            top: Math.min(ctxMenu.y, window.innerHeight - 80),
+            left: Math.min(ctxMenu.x, window.innerWidth - 160),
+          }}
+        >
+          <button className="host-ctx-item" onClick={() => {
+            setCtxMenu(null);
+            if (ctxMenu.kind === 'key') { const k = keys.find(k => k.id === ctxMenu.id); if (k) handleOpenEditKey(k); }
+            else { const id = identities.find(i => i.id === ctxMenu.id); if (id) openEditIdentity(id); }
+          }}>Edit</button>
+          <div className="host-ctx-divider" />
+          <button className="host-ctx-item host-ctx-danger" onClick={() => {
+            const id = ctxMenu.id;
+            setCtxMenu(null);
+            if (ctxMenu.kind === 'key') setConfirmDeleteKey(id);
+            else setConfirmDeleteId(id);
+          }}>Delete</button>
+        </div>
       )}
 
       {confirmDeleteKey && (

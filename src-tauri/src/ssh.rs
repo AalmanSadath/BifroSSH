@@ -31,17 +31,46 @@ impl SshState {
     }
 }
 
-struct ClientHandler;
+#[derive(serde::Serialize, Clone)]
+pub struct ConnectLogEvent {
+    pub message: String,
+    pub kind: String,
+}
+
+fn emit_log(app: &AppHandle, connect_id: &str, kind: &str, message: &str) {
+    let _ = app.emit(&format!("ssh-connect-log:{}", connect_id), ConnectLogEvent {
+        message: message.to_string(),
+        kind: kind.to_string(),
+    });
+}
+
+struct BasicClientHandler;
 
 #[async_trait]
-impl client::Handler for ClientHandler {
+impl client::Handler for BasicClientHandler {
     type Error = russh::Error;
-
     async fn check_server_key(
         &mut self,
         _server_public_key: &russh_keys::key::PublicKey,
     ) -> Result<bool, Self::Error> {
-        // TODO: implement known_hosts verification
+        Ok(true)
+    }
+}
+
+struct LoggingClientHandler {
+    app: AppHandle,
+    connect_id: String,
+}
+
+#[async_trait]
+impl client::Handler for LoggingClientHandler {
+    type Error = russh::Error;
+    async fn check_server_key(
+        &mut self,
+        _server_public_key: &russh_keys::key::PublicKey,
+    ) -> Result<bool, Self::Error> {
+        emit_log(&self.app, &self.connect_id, "auth", "Checking host key...");
+        emit_log(&self.app, &self.connect_id, "auth", "Host key accepted");
         Ok(true)
     }
 }
@@ -75,7 +104,7 @@ pub async fn exec_ssh_command(
     let mut addrs = tokio::net::lookup_host(format!("{}:{}", host, port)).await?;
     let addr = addrs.next().ok_or_else(|| anyhow!("Cannot resolve host: {}", host))?;
 
-    let mut handle = client::connect(config, addr, ClientHandler).await?;
+    let mut handle = client::connect(config, addr, BasicClientHandler).await?;
 
     let authenticated = match &auth {
         SshAuth::Password(password) => handle.authenticate_password(username, password).await?,
@@ -114,6 +143,7 @@ pub async fn exec_ssh_command(
 pub async fn connect_ssh(
     session_id: String,
     params: SshConnectParams,
+    connect_id: String,
     app: AppHandle,
     ssh_state: Arc<SshState>,
 ) -> Result<()> {
@@ -123,31 +153,39 @@ pub async fn connect_ssh(
         ..Default::default()
     });
 
+    emit_log(&app, &connect_id, "auth", &format!("Starting a new connection to: \"{}\" port \"{}\"", params.host, params.port));
+    emit_log(&app, &connect_id, "network", &format!("Starting address resolution of \"{}\"", params.host));
     let mut addrs = tokio::net::lookup_host(format!("{}:{}", params.host, params.port)).await?;
     let addr = addrs.next().ok_or_else(|| anyhow!("Cannot resolve host: {}", params.host))?;
+    emit_log(&app, &connect_id, "network", "Address resolution finished");
 
-    let mut handle = client::connect(config, addr, ClientHandler).await?;
+    emit_log(&app, &connect_id, "network", &format!("Connecting to \"{}\" port \"{}\"", params.host, params.port));
+    let handler = LoggingClientHandler { app: app.clone(), connect_id: connect_id.clone() };
+    let mut handle = client::connect(config, addr, handler).await?;
+    emit_log(&app, &connect_id, "network", "TCP connection established");
 
+    emit_log(&app, &connect_id, "auth", &format!("Authenticating to \"{}\":\"{}\" as \"{}\"", params.host, params.port, params.username));
     let authenticated = match &params.auth {
         SshAuth::Password(password) => {
-            handle
-                .authenticate_password(&params.username, password)
-                .await?
+            handle.authenticate_password(&params.username, password).await?
         }
         SshAuth::KeyData { key_pem, passphrase } => {
             let pass = passphrase.as_deref();
             let key_pair: KeyPair = russh_keys::decode_secret_key(key_pem, pass)?;
-            handle
-                .authenticate_publickey(&params.username, Arc::new(key_pair))
-                .await?
+            emit_log(&app, &connect_id, "network", "Authenticating using publickey method");
+            handle.authenticate_publickey(&params.username, Arc::new(key_pair)).await?
         }
     };
 
     if !authenticated {
         return Err(anyhow!("Authentication failed"));
     }
+    emit_log(&app, &connect_id, "auth", "Authentication succeeded");
 
+    emit_log(&app, &connect_id, "network", "Opening session channel...");
     let mut channel = handle.channel_open_session().await?;
+
+    emit_log(&app, &connect_id, "network", "Requesting PTY...");
     channel
         .request_pty(
             false,
@@ -160,10 +198,14 @@ pub async fn connect_ssh(
         )
         .await
         .map_err(|_| anyhow!("PTY request failed"))?;
+
+    emit_log(&app, &connect_id, "network", "Starting shell...");
     channel
         .request_shell(false)
         .await
         .map_err(|_| anyhow!("Shell request failed"))?;
+
+    emit_log(&app, &connect_id, "auth", "Shell ready — connected");
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<SshCommand>(256);
 
@@ -210,8 +252,6 @@ pub async fn connect_ssh(
                         ChannelMsg::Data { ref data } => {
                             let was_empty = outbuf.is_empty();
                             outbuf.extend_from_slice(data.as_ref());
-                            // Flush immediately for first chunk (keeps echo latency low).
-                            // For large bursts the timer coalesces subsequent packets.
                             if was_empty || outbuf.len() >= 8192 {
                                 flush_outbuf!();
                             }

@@ -6,6 +6,7 @@ export interface Server {
   identity_id: string | null;
   theme: string | null;
   os: string;
+  connection_timeout: number | null;
 }
 
 export interface Identity {
@@ -31,12 +32,23 @@ export interface Settings {
   cursor_style: string;
   cursor_blink: boolean;
   app_theme: 'dark' | 'light' | 'amoled';
+  connection_timeout_secs: number;
+  show_hover_hints: boolean;
+}
+
+export interface LogEntry {
+  message: string;
+  kind: string;
 }
 
 export interface SessionTab {
   session_id: string;
   server_name: string;
   server_id: string;
+  status: 'connecting' | 'connected' | 'error';
+  connect_id?: string;
+  error?: string;
+  logs?: LogEntry[];
 }
 
 export interface ConnectRequest {

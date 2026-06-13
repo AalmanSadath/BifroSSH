@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { useAppStore } from '../store/appStore';
-import type { Server } from '../types';
+import type { LogEntry, Server } from '../types';
 
 interface Props {
   server: Server;
@@ -9,7 +10,7 @@ interface Props {
 }
 
 export default function ConnectDialog({ server, onClose }: Props) {
-  const { identities, keys, sessions, addSession, detectServerOs } = useAppStore();
+  const { identities, keys, sessions, addSession, appendSessionLog, updateSessionConnected, updateSessionError, detectServerOs } = useAppStore();
   const identity = identities.find((i) => i.id === server.identity_id);
 
   const [username, setUsername] = useState(identity?.username ?? '');
@@ -24,8 +25,27 @@ export default function ConnectDialog({ server, onClose }: Props) {
     if (!username.trim()) { setError('Username required'); return; }
     if (authType === 'key' && !keyId) { setError('Select a key'); return; }
 
+    const connectId = crypto.randomUUID();
+    const existing = sessions.filter((s) => s.server_id === server.id).length;
+    const tabName = existing === 0 ? server.name : `${server.name} (${existing})`;
+
     setConnecting(true);
     setError('');
+    onClose();
+
+    const unlisten = await listen<LogEntry>(`ssh-connect-log:${connectId}`, (event) => {
+      appendSessionLog(connectId, event.payload);
+    });
+
+    addSession({
+      session_id: connectId,
+      server_name: tabName,
+      server_id: server.id,
+      status: 'connecting',
+      connect_id: connectId,
+      logs: [],
+    });
+
     try {
       const sessionId = await invoke<string>('ssh_connect', {
         request: {
@@ -35,15 +55,16 @@ export default function ConnectDialog({ server, onClose }: Props) {
           auth_value: authType === 'password' ? password : keyId,
           cols: 80,
           rows: 24,
+          connect_id: connectId,
         },
       });
-      const existing = sessions.filter((s) => s.server_id === server.id).length;
-      const tabName = existing === 0 ? server.name : `${server.name} (${existing})`;
-      addSession({ session_id: sessionId, server_name: tabName, server_id: server.id });
+      unlisten();
+      updateSessionConnected(connectId, sessionId);
       if (server.os === '') detectServerOs(server.id, username.trim(), authType, authType === 'password' ? password : keyId);
-      onClose();
     } catch (err) {
-      setError(String(err));
+      unlisten();
+      updateSessionError(connectId, String(err));
+    } finally {
       setConnecting(false);
     }
   }

@@ -4,17 +4,20 @@ import { useAppStore } from './store/appStore';
 import type { SessionTab } from './types';
 import Sidebar from './components/Sidebar';
 import TerminalView from './components/TerminalView';
+import ConnectingView from './components/ConnectingView';
 import HostsPanel from './components/HostsPanel';
 import KeychainPanel from './components/KeychainPanel';
 import SettingsPanel from './components/SettingsPanel';
 import SftpPanel from './components/SftpPanel';
+import ServerForm from './components/ServerForm';
 
 export default function App() {
   const {
     loadAll, sessions, activeTabId, setActiveTab, removeSession,
-    renameSession, addSession, servers, identities, detectServerOs, settings,
+    renameSession, openSession, servers, settings,
   } = useAppStore();
 
+  const [editServerId, setEditServerId] = useState<string | null>(null);
   type TabCtxMode = 'menu' | 'rename';
   const [tabCtx, setTabCtx] = useState<{ x: number; y: number; session: SessionTab; mode: TabCtxMode } | null>(null);
   const [renameValue, setRenameValue] = useState('');
@@ -38,7 +41,8 @@ export default function App() {
 
   function handleCloseTab(sessionId: string, e: React.MouseEvent) {
     e.stopPropagation();
-    invoke('ssh_disconnect', { sessionId }).catch(() => {});
+    const session = sessions.find((s) => s.session_id === sessionId);
+    if (session?.status === 'connected') invoke('ssh_disconnect', { sessionId }).catch(() => {});
     removeSession(sessionId);
   }
 
@@ -49,28 +53,9 @@ export default function App() {
     setTabCtx({ x: e.clientX, y: e.clientY, session, mode: 'menu' });
   }
 
-  async function handleDuplicate(session: SessionTab) {
+  function handleDuplicate(session: SessionTab) {
     setTabCtx(null);
-    const server = servers.find((s) => s.id === session.server_id);
-    if (!server) return;
-    const identity = identities.find((i) => i.id === server.identity_id);
-    if (!identity) return;
-    try {
-      const sessionId = await invoke<string>('ssh_connect', {
-        request: {
-          server_id: server.id,
-          username: identity.username,
-          auth_type: 'key',
-          auth_value: identity.key_id,
-          cols: 80,
-          rows: 24,
-        },
-      });
-      const existing = sessions.filter((s) => s.server_id === server.id).length;
-      const tabName = existing === 0 ? server.name : `${server.name} (${existing})`;
-      addSession({ session_id: sessionId, server_name: tabName, server_id: server.id });
-      if (server.os === '') detectServerOs(server.id, identity.username, 'key', identity.key_id);
-    } catch {}
+    openSession(session.server_id);
   }
 
   function commitRename() {
@@ -101,14 +86,33 @@ export default function App() {
         )}
 
         <div className="content">
-          {sessions.map((s) => (
-            <TerminalView
-              key={s.session_id}
-              sessionId={s.session_id}
-              serverId={s.server_id}
-              active={activeTabId === s.session_id}
-            />
-          ))}
+          {sessions.map((s) => {
+            const server = servers.find((srv) => srv.id === s.server_id);
+
+            if (s.status === 'connecting' || s.status === 'error') {
+              if (!server) return null;
+              return (
+                <div key={s.session_id} style={{ display: activeTabId === s.session_id ? 'contents' : 'none' }}>
+                  <ConnectingView
+                    tabId={s.session_id}
+                    server={server}
+                    error={s.error}
+                    onRetry={() => openSession(s.server_id)}
+                    onEditHost={() => setEditServerId(server.id)}
+                  />
+                </div>
+              );
+            }
+
+            return (
+              <TerminalView
+                key={s.session_id}
+                sessionId={s.session_id}
+                serverId={s.server_id}
+                active={activeTabId === s.session_id}
+              />
+            );
+          })}
 
           {(activeTabId === 'hosts' || activeTabId === null) && <HostsPanel />}
           {activeTabId === 'keychain' && <KeychainPanel />}
@@ -116,6 +120,13 @@ export default function App() {
           {activeTabId === 'settings' && <SettingsPanel />}
         </div>
       </div>
+
+      {editServerId && (
+        <ServerForm
+          server={servers.find((s) => s.id === editServerId) ?? null}
+          onClose={() => setEditServerId(null)}
+        />
+      )}
 
       {tabCtx && (
         <div
