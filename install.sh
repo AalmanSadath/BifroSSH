@@ -10,6 +10,21 @@ INSTALL_BIN="$HOME/.local/bin/$BIN_NAME"
 INSTALL_DESKTOP="$HOME/.local/share/applications/$IDENTIFIER.desktop"
 ICON_DIR="$HOME/.local/share/icons/hicolor"
 
+# ── Uninstall ─────────────────────────────────────────────────────────────────
+
+if [[ "${1:-}" == "uninstall" ]]; then
+    echo "==> Uninstalling $APP_NAME"
+    rm -f "$INSTALL_BIN"
+    rm -f "$INSTALL_DESKTOP"
+    rm -f "$ICON_DIR/32x32/apps/$BIN_NAME.png"
+    rm -f "$ICON_DIR/128x128/apps/$BIN_NAME.png"
+    rm -f "$ICON_DIR/256x256/apps/$BIN_NAME.png"
+    command -v update-desktop-database &>/dev/null && update-desktop-database "$HOME/.local/share/applications"
+    command -v gtk-update-icon-cache &>/dev/null && gtk-update-icon-cache -f -t "$ICON_DIR" 2>/dev/null || true
+    echo "Done. $APP_NAME uninstalled."
+    exit 0
+fi
+
 # ── 1. Build ─────────────────────────────────────────────────────────────────
 
 echo "==> Building $APP_NAME (release)…"
