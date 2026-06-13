@@ -57,6 +57,12 @@ export interface SessionTab {
   quick_info?: { host: string; port: number; username: string };
 }
 
+export interface Codeprint {
+  id: string;
+  name: string;
+  command: string;
+}
+
 export interface ConnectRequest {
   server_id: string;
   username: string;

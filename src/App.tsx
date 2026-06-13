@@ -11,6 +11,7 @@ import SettingsPanel from './components/SettingsPanel';
 import ThemeEditorPanel from './components/ThemeEditorPanel';
 import SftpPanel from './components/SftpPanel';
 import ServerForm from './components/ServerForm';
+import TerminalSidebar from './components/TerminalSidebar';
 
 function parseSSHInput(input: string): { user: string; host: string; port: number; password?: string } | null {
   let s = input.trim();
@@ -59,6 +60,7 @@ export default function App() {
   const [quickKeyId, setQuickKeyId] = useState('');
   const quickPasswordRef = useRef<HTMLInputElement>(null);
   type TabCtxMode = 'menu' | 'rename';
+  const [termSidebarOpen, setTermSidebarOpen] = useState(false);
   const [tabCtx, setTabCtx] = useState<{ x: number; y: number; session: SessionTab; mode: TabCtxMode } | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const tabCtxRef = useRef<HTMLDivElement>(null);
@@ -172,10 +174,23 @@ export default function App() {
                 <button className="tab-close" onClick={(e) => handleCloseTab(s.session_id, e)}>&#10005;</button>
               </div>
             ))}
+            {sessions.some((s) => s.session_id === activeTabId) && (
+              <button
+                className={`tab-sidebar-toggle${termSidebarOpen ? ' active' : ''}`}
+                onClick={() => setTermSidebarOpen((v) => !v)}
+                title="Toggle terminal sidebar"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="18" height="18" rx="2"/>
+                  <line x1="15" y1="3" x2="15" y2="21"/>
+                </svg>
+              </button>
+            )}
           </div>
         )}
 
         <div className="content">
+          <div className="content-main">
           {sessions.map((s) => {
             const server = servers.find((srv) => srv.id === s.server_id)
               ?? (s.quick_info ? {
@@ -215,6 +230,10 @@ export default function App() {
           <div style={{ display: activeTabId === 'sftp' ? 'contents' : 'none' }}><SftpPanel /></div>
           {activeTabId === 'settings' && <SettingsPanel />}
           {activeTabId === 'theme-editor' && <ThemeEditorPanel />}
+          </div>
+          {termSidebarOpen && sessions.some((s) => s.session_id === activeTabId) && (
+            <TerminalSidebar activeSessionId={activeTabId} />
+          )}
         </div>
       </div>
 

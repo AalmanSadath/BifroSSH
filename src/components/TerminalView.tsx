@@ -18,9 +18,10 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
-  const { settings, servers, removeSession } = useAppStore();
+  const { settings, servers, removeSession, sessionThemeOverrides } = useAppStore();
 
   function effectiveThemeKey() {
+    if (sessionThemeOverrides[sessionId]) return sessionThemeOverrides[sessionId];
     const server = servers.find((s) => s.id === serverId);
     return server?.theme ?? settings.theme;
   }
@@ -129,7 +130,7 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
     term.options.cursorStyle = settings.cursor_style as 'block' | 'underline' | 'bar';
     term.options.cursorBlink = settings.cursor_blink;
     fitRef.current?.fit();
-  }, [settings, servers]);
+  }, [settings, servers, sessionThemeOverrides]);
 
   useEffect(() => {
     if (active) {

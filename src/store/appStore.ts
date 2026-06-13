@@ -1,10 +1,18 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { Identity, KeyEntry, LogEntry, Server, SessionTab, Settings } from '../types';
+import type { Codeprint, Identity, KeyEntry, LogEntry, Server, SessionTab, Settings } from '../types';
 import type { NamedTheme } from '../styles/themes';
 
 const CUSTOM_THEMES_KEY = 'bifrossh_custom_themes';
+const CODEPRINTS_KEY = 'bifrossh_codeprints';
+
+function loadCodeprintsFromStorage(): Codeprint[] {
+  try {
+    const raw = localStorage.getItem(CODEPRINTS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
 
 function loadCustomThemesFromStorage(): Record<string, NamedTheme> {
   try {
@@ -55,6 +63,14 @@ interface AppStore {
   saveCustomTheme: (id: string, theme: NamedTheme) => void;
   deleteCustomTheme: (id: string) => void;
 
+  codeprints: Codeprint[];
+  addCodeprint: (cp: Omit<Codeprint, 'id'>) => void;
+  updateCodeprint: (id: string, cp: Omit<Codeprint, 'id'>) => void;
+  deleteCodeprint: (id: string) => void;
+
+  sessionThemeOverrides: Record<string, string>;
+  setSessionTheme: (sessionId: string, themeKey: string) => void;
+
   addSession: (tab: SessionTab) => void;
   removeSession: (sessionId: string) => void;
   renameSession: (sessionId: string, name: string) => void;
@@ -70,6 +86,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   servers: [],
   identities: [],
   customThemes: loadCustomThemesFromStorage(),
+  codeprints: loadCodeprintsFromStorage(),
+  sessionThemeOverrides: {},
   keys: [],
   settings: DEFAULT_SETTINGS,
   sessions: [],
@@ -206,6 +224,36 @@ export const useAppStore = create<AppStore>((set, get) => ({
       localStorage.setItem(CUSTOM_THEMES_KEY, JSON.stringify(next));
       return { customThemes: next };
     });
+  },
+
+  addCodeprint: (cp) => {
+    set((s) => {
+      const next = [...s.codeprints, { id: crypto.randomUUID(), ...cp }];
+      localStorage.setItem(CODEPRINTS_KEY, JSON.stringify(next));
+      return { codeprints: next };
+    });
+  },
+
+  updateCodeprint: (id, cp) => {
+    set((s) => {
+      const next = s.codeprints.map((c) => c.id === id ? { ...c, ...cp } : c);
+      localStorage.setItem(CODEPRINTS_KEY, JSON.stringify(next));
+      return { codeprints: next };
+    });
+  },
+
+  deleteCodeprint: (id) => {
+    set((s) => {
+      const next = s.codeprints.filter((c) => c.id !== id);
+      localStorage.setItem(CODEPRINTS_KEY, JSON.stringify(next));
+      return { codeprints: next };
+    });
+  },
+
+  setSessionTheme: (sessionId, themeKey) => {
+    set((s) => ({
+      sessionThemeOverrides: { ...s.sessionThemeOverrides, [sessionId]: themeKey },
+    }));
   },
 
   addSession: (tab) =>
