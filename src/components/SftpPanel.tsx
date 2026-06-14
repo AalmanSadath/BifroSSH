@@ -721,19 +721,49 @@ export default function SftpPanel() {
       setLeftState('connected');
       return;
     }
-    const identity = identities.find((i) => i.id === server.identity_id);
-    if (!identity) {
-      setLeftConnectError(`No identity configured for "${server.name}". Add one in Hosts settings.`);
-      return;
+    let username: string;
+    let authType: string;
+    let authValue: string;
+
+    if (server.identity_id) {
+      const identity = identities.find((i) => i.id === server.identity_id);
+      if (!identity) {
+        setLeftConnectError(`Identity not found for "${server.name}". Check Hosts settings.`);
+        return;
+      }
+      if (!identity.key_id && !identity.encrypted_password) {
+        setLeftConnectError(`No authentication configured for "${identity.username}". Add a key or password in Hosts settings.`);
+        return;
+      }
+      username = identity.username;
+      authType = identity.key_id ? 'key' : 'password';
+      authValue = identity.key_id
+        ? identity.key_id
+        : await invoke<string>('get_identity_password', { identityId: identity.id });
+    } else {
+      if (!server.username) {
+        setLeftConnectError(`No username configured for "${server.name}". Add one in Hosts settings.`);
+        return;
+      }
+      if (!server.key_id && !server.encrypted_password) {
+        setLeftConnectError(`No authentication configured for "${server.name}". Add a key or password in Hosts settings.`);
+        return;
+      }
+      username = server.username;
+      authType = server.key_id ? 'key' : 'password';
+      authValue = server.key_id
+        ? server.key_id
+        : await invoke<string>('get_server_password', { serverId: server.id });
     }
+
     setLeftConnectingId(server.id);
     setLeftConnectError('');
     try {
       const sid = await invoke<string>('sftp_connect_remote', {
         serverId: server.id,
-        username: identity.username,
-        authType: 'key',
-        authValue: identity.key_id,
+        username,
+        authType,
+        authValue,
       });
       setLeftSid(sid);
       setLeftServerId(server.id);
@@ -775,10 +805,39 @@ export default function SftpPanel() {
       setRemoteState('connected');
       return;
     }
-    const identity = identities.find((i) => i.id === server.identity_id);
-    if (!identity) {
-      setConnectError(`No identity configured for "${server.name}". Add one in Hosts settings.`);
-      return;
+    let username: string;
+    let authType: string;
+    let authValue: string;
+
+    if (server.identity_id) {
+      const identity = identities.find((i) => i.id === server.identity_id);
+      if (!identity) {
+        setConnectError(`Identity not found for "${server.name}". Check Hosts settings.`);
+        return;
+      }
+      if (!identity.key_id && !identity.encrypted_password) {
+        setConnectError(`No authentication configured for "${identity.username}". Add a key or password in Hosts settings.`);
+        return;
+      }
+      username = identity.username;
+      authType = identity.key_id ? 'key' : 'password';
+      authValue = identity.key_id
+        ? identity.key_id
+        : await invoke<string>('get_identity_password', { identityId: identity.id });
+    } else {
+      if (!server.username) {
+        setConnectError(`No username configured for "${server.name}". Add one in Hosts settings.`);
+        return;
+      }
+      if (!server.key_id && !server.encrypted_password) {
+        setConnectError(`No authentication configured for "${server.name}". Add a key or password in Hosts settings.`);
+        return;
+      }
+      username = server.username;
+      authType = server.key_id ? 'key' : 'password';
+      authValue = server.key_id
+        ? server.key_id
+        : await invoke<string>('get_server_password', { serverId: server.id });
     }
 
     setConnectingId(server.id);
@@ -787,9 +846,9 @@ export default function SftpPanel() {
     try {
       const sid = await invoke<string>('sftp_connect_remote', {
         serverId: server.id,
-        username: identity.username,
-        authType: 'key',
-        authValue: identity.key_id,
+        username,
+        authType,
+        authValue,
       });
 
       setRemoteSid(sid);

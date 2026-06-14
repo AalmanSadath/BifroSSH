@@ -25,8 +25,40 @@
   <url type="bugtracker">https://github.com/AalmanSadath/BifroSSH/issues</url>
   <screenshots>
     <screenshot type="default">
-      <caption>Terminal session with tab bar</caption>
-      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/terminal.png</image>
+      <caption>Active terminal session</caption>
+      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/ActiveSession.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Terminal session with Codeprints sidebar</caption>
+      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/SessionwithCodePrints.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>SFTP file browser</caption>
+      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/SFTPSession.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>SFTP directory listing</caption>
+      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/SFTPList.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Theme editor</caption>
+      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/ThemeEditor.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Host list</caption>
+      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/HostList.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Adding a new host</caption>
+      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/AddHost.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Managing identities</caption>
+      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/AddIdentity.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>SSH key generation</caption>
+      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/GenerateSSHKey.png</image>
     </screenshot>
   </screenshots>
   <provides>
