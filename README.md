@@ -36,12 +36,23 @@ Store connection details per server: hostname, port, username, SSH key or passwo
 
 The easiest install - no Rust, Node.js, or build tools needed.
 
+### Fedora
+
 ```bash
+flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
 flatpak remote-add bifrossh https://aalmansadath.github.io/BifroSSH/bifrossh.flatpakrepo
 flatpak install bifrossh io.github.aalmansadath.bifrossh
 ```
 
-Or download [`bifrossh.flatpakrepo`](bifrossh.flatpakrepo) and double-click it in GNOME Files to add via GNOME Software.
+### Ubuntu and other distros
+
+Ubuntu requires a user-mode install to avoid FUSE permission issues:
+
+```bash
+flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+flatpak remote-add --user bifrossh https://aalmansadath.github.io/BifroSSH/bifrossh.flatpakrepo
+flatpak install --user bifrossh io.github.aalmansadath.bifrossh
+```
 
 **Run:**
 ```bash
