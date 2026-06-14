@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>io.github.AalmanSadath.BifroSSH</id>
+  <id>io.github.aalmansadath.bifrossh</id>
   <name>BifroSSH</name>
   <summary>GUI SSH client with built-in SFTP and keychain management</summary>
   <metadata_license>FSFAP</metadata_license>
@@ -19,7 +19,7 @@
       <li>Codeprints: named commands that can be pasted or run in any session</li>
     </ul>
   </description>
-  <launchable type="desktop-id">io.github.AalmanSadath.BifroSSH.desktop</launchable>
+  <launchable type="desktop-id">io.github.aalmansadath.bifrossh.desktop</launchable>
   <url type="homepage">https://github.com/AalmanSadath/BifroSSH</url>
   <url type="vcs-browser">https://github.com/AalmanSadath/BifroSSH</url>
   <url type="bugtracker">https://github.com/AalmanSadath/BifroSSH/issues</url>

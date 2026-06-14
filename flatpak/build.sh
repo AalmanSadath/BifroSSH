@@ -18,17 +18,17 @@ TERM=dumb flatpak-builder \
     --repo="$REPO_DIR" \
     --install-deps-from=flathub \
     "$BUILD_DIR" \
-    flatpak/io.github.AalmanSadath.BifroSSH.yml
+    flatpak/io.github.aalmansadath.bifrossh.yml
 
 echo "==> Adding local repo..."
 flatpak remote-add --no-gpg-verify --if-not-exists bifrossh-local "$REPO_DIR"
 
 echo "==> Installing..."
-TERM=dumb flatpak install --reinstall --assumeyes bifrossh-local io.github.AalmanSadath.BifroSSH
+TERM=dumb flatpak install --reinstall --assumeyes bifrossh-local io.github.aalmansadath.bifrossh
 
 printf '\033[?2004l' 2>/dev/null || true
 stty sane 2>/dev/null || true
 
 echo ""
 echo "Done. Run with:"
-echo "  flatpak run io.github.AalmanSadath.BifroSSH"
+echo "  flatpak run io.github.aalmansadath.bifrossh"

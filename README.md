@@ -9,8 +9,21 @@ A GUI SSH client built with Tauri 2, React, and Rust.
 - **SFTP file browser** — upload, download, create folders, delete, and rename files on remote servers; sort by name, size, or date with optional folders-on-top
 - **SSH key management** — generate, import, and store Ed25519 / RSA / ECDSA keys in an encrypted local keychain; assign a key per server
 - **Themes** — built-in dark and light themes plus a full theme editor; override the theme per session without changing server defaults
-- **Codeprints** — save named commands and send them to any active terminal with one click (Paste or Run)
+- **Codeprints** — save named shell commands with a label; send them to any active terminal session with one click — either paste the text into the prompt or run it immediately
 - **Host profiles** — store connection details (host, port, username, key) per server; quick-connect from the sidebar
+
+---
+
+## Codeprints
+
+Codeprints are saved shell commands with a name. Open the Codeprints sidebar in any session and click **Paste** to insert the command into the prompt (so you can review or edit it first) or **Run** to execute it immediately.
+
+Typical uses:
+- Restart services: `sudo systemctl restart nginx`
+- Tail logs: `journalctl -fu myapp`
+- Deploy commands, database queries, monitoring one-liners
+
+Codeprints are global — one list shared across all sessions and servers.
 
 ---
 
@@ -79,7 +92,7 @@ The entire build runs inside the Flatpak sandbox — npm dependencies are suppli
 Run it:
 
 ```bash
-flatpak run io.github.AalmanSadath.BifroSSH
+flatpak run io.github.aalmansadath.bifrossh
 ```
 
 ### Uninstall

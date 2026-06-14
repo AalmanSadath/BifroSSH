@@ -1,4 +1,4 @@
-id: io.github.AalmanSadath.BifroSSH
+id: io.github.aalmansadath.bifrossh
 runtime: org.gnome.Platform
 runtime-version: '50'
 sdk: org.gnome.Sdk
@@ -71,17 +71,17 @@ modules:
       - install -Dm755 src-tauri/target/release/bifrossh /app/bin/bifrossh
 
       # Desktop entry
-      - install -Dm644 flatpak/io.github.AalmanSadath.BifroSSH.desktop
-          /app/share/applications/io.github.AalmanSadath.BifroSSH.desktop
+      - install -Dm644 flatpak/io.github.aalmansadath.bifrossh.desktop
+          /app/share/applications/io.github.aalmansadath.bifrossh.desktop
 
       # Icons
       - install -Dm644 src-tauri/icons/32x32.png
-          /app/share/icons/hicolor/32x32/apps/io.github.AalmanSadath.BifroSSH.png
+          /app/share/icons/hicolor/32x32/apps/io.github.aalmansadath.bifrossh.png
       - install -Dm644 src-tauri/icons/128x128.png
-          /app/share/icons/hicolor/128x128/apps/io.github.AalmanSadath.BifroSSH.png
+          /app/share/icons/hicolor/128x128/apps/io.github.aalmansadath.bifrossh.png
       - install -Dm644 src-tauri/icons/icon.png
-          /app/share/icons/hicolor/256x256/apps/io.github.AalmanSadath.BifroSSH.png
+          /app/share/icons/hicolor/256x256/apps/io.github.aalmansadath.bifrossh.png
 
       # AppStream metadata
-      - install -Dm644 flatpak/io.github.AalmanSadath.BifroSSH.metainfo.xml
-          /app/share/metainfo/io.github.AalmanSadath.BifroSSH.metainfo.xml
+      - install -Dm644 flatpak/io.github.aalmansadath.bifrossh.metainfo.xml
+          /app/share/metainfo/io.github.aalmansadath.bifrossh.metainfo.xml
