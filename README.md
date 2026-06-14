@@ -32,6 +32,35 @@ Store connection details per server: hostname, port, username, SSH key or passwo
 
 ---
 
+## Install via Flatpak repo (no build required)
+
+The easiest install — no Rust, Node.js, or build tools needed.
+
+```bash
+flatpak remote-add bifrossh https://aalmansadath.github.io/BifroSSH/bifrossh.flatpakrepo
+flatpak install bifrossh io.github.aalmansadath.bifrossh
+```
+
+Or download [`bifrossh.flatpakrepo`](bifrossh.flatpakrepo) and double-click it in GNOME Files to add via GNOME Software.
+
+**Run:**
+```bash
+flatpak run io.github.aalmansadath.bifrossh
+```
+
+**Update:**
+```bash
+flatpak update io.github.aalmansadath.bifrossh
+```
+
+**Uninstall:**
+```bash
+flatpak uninstall io.github.aalmansadath.bifrossh
+flatpak remote-delete bifrossh
+```
+
+---
+
 ## Install on Fedora
 
 ### 1. System dependencies (one-time)
@@ -72,35 +101,6 @@ npm install
 | `./install.sh flatpak` | Build and install as Flatpak |
 | `./install.sh uninstall-flatpak` | Remove Flatpak and local repo |
 | `./install.sh clean` | Delete build artefacts (`dist/`, `src-tauri/target/`, `flatpak/.build/`, `flatpak/.repo/`) without touching the installed app |
-
----
-
-## Install via Flatpak repo (no build required)
-
-The easiest install — no Rust, Node.js, or build tools needed.
-
-```bash
-flatpak remote-add bifrossh https://aalmansadath.github.io/BifroSSH/bifrossh.flatpakrepo
-flatpak install bifrossh io.github.aalmansadath.bifrossh
-```
-
-Or download [`bifrossh.flatpakrepo`](bifrossh.flatpakrepo) and double-click it in GNOME Files to add via GNOME Software.
-
-**Run:**
-```bash
-flatpak run io.github.aalmansadath.bifrossh
-```
-
-**Update:**
-```bash
-flatpak update io.github.aalmansadath.bifrossh
-```
-
-**Uninstall:**
-```bash
-flatpak uninstall io.github.aalmansadath.bifrossh
-flatpak remote-delete bifrossh
-```
 
 ---
 
