@@ -34,7 +34,7 @@ Store connection details per server: hostname, port, username, SSH key or passwo
 
 ## Install via Flatpak repo (no build required)
 
-The easiest install — no Rust, Node.js, or build tools needed.
+The easiest install - no Rust, Node.js, or build tools needed.
 
 ```bash
 flatpak remote-add bifrossh https://aalmansadath.github.io/BifroSSH/bifrossh.flatpakrepo
