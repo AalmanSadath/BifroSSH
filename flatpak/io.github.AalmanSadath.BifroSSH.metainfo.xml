@@ -67,5 +67,6 @@
   <releases>
     <release version="0.1.0" date="2026-06-13"/>
   </releases>
+  <update_contact>aalman.dev@gmail.com</update_contact>
   <content_rating type="oars-1.1"/>
 </component>
