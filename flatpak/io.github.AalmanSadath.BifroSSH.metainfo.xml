@@ -5,7 +5,9 @@
   <summary>GUI SSH client with built-in SFTP and keychain management</summary>
   <metadata_license>FSFAP</metadata_license>
   <project_license>PolyForm-Noncommercial-1.0.0</project_license>
-  <developer_name>Aalman Sadath</developer_name>
+  <developer id="io.github.aalmansadath">
+    <name>Aalman Sadath</name>
+  </developer>
   <description>
     <p>BifroSSH is a modern SSH client with a full terminal emulator, SFTP file browser, SSH key management, per-server theming, and codeprints for quick command access.</p>
     <ul>
