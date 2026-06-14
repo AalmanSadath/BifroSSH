@@ -121,4 +121,4 @@ npm run tauri dev
 
 ## License
 
-[PolyForm Noncommercial 1.0.0](LICENSE) — free to use, modify, and share; commercial use and paid subscriptions are not permitted.
+[GPL-3.0-or-later](LICENSE) — free to use, modify, and distribute; derivatives must also be open source under GPL-3.0 or later.
