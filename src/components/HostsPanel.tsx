@@ -10,7 +10,7 @@ export default function HostsPanel() {
   const [showServerForm, setShowServerForm] = useState(false);
   const [editServer, setEditServer] = useState<Server | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; server: Server } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ kind: 'server'; x: number; y: number; server: Server } | { kind: 'panel'; x: number; y: number } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
 
   const connectedIds = new Set(sessions.map((s) => s.server_id));
@@ -32,12 +32,13 @@ export default function HostsPanel() {
 
   function handleContextMenu(e: React.MouseEvent, server: Server) {
     e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY, server });
+    e.stopPropagation();
+    setContextMenu({ kind: 'server', x: e.clientX, y: e.clientY, server });
   }
 
   return (
     <>
-      <div className="panel hosts-panel">
+      <div className="panel hosts-panel" onContextMenu={(e) => { if ((e.target as HTMLElement).closest('button, input, textarea, select, label, a')) return; e.preventDefault(); setContextMenu({ kind: 'panel', x: e.clientX, y: e.clientY }); }}>
         <div className="panel-title-row">
           <div className="panel-title">Hosts</div>
           <button className="btn-primary btn-sm" onClick={() => { setEditServer(null); setShowServerForm(true); }}>
@@ -103,37 +104,43 @@ export default function HostsPanel() {
             left: Math.min(contextMenu.x, window.innerWidth - 160),
           }}
         >
-          {(() => {
-            const activeSessions = sessions.filter((s) => s.server_id === contextMenu.server.id);
-            return (
-              <>
-                {activeSessions.length > 0 && (
-                  <>
-                    {activeSessions.map((s) => (
-                      <button key={s.session_id} className="host-ctx-item host-ctx-danger" onClick={() => {
-                        if (s.status === 'connected') invoke('ssh_disconnect', { sessionId: s.session_id }).catch(() => {});
-                        removeSession(s.session_id);
-                        setContextMenu(null);
-                      }}>
-                        End {s.server_name}
-                      </button>
-                    ))}
-                    <div className="host-ctx-divider" />
-                  </>
-                )}
-                <button className="host-ctx-item" onClick={() => { setContextMenu(null); openSession(contextMenu.server.id); }}>
-                  Duplicate
-                </button>
-                <button className="host-ctx-item" onClick={() => { setContextMenu(null); setEditServer(contextMenu.server); setShowServerForm(true); }}>
-                  Edit
-                </button>
-                <div className="host-ctx-divider" />
-                <button className="host-ctx-item host-ctx-danger" onClick={() => { setConfirmDeleteId(contextMenu.server.id); setContextMenu(null); }}>
-                  Remove
-                </button>
-              </>
-            );
-          })()}
+          {contextMenu.kind === 'panel' ? (
+            <button className="host-ctx-item" onClick={() => { setContextMenu(null); setEditServer(null); setShowServerForm(true); }}>
+              Add Host
+            </button>
+          ) : (
+            (() => {
+              const activeSessions = sessions.filter((s) => s.server_id === contextMenu.server.id);
+              return (
+                <>
+                  {activeSessions.length > 0 && (
+                    <>
+                      {activeSessions.map((s) => (
+                        <button key={s.session_id} className="host-ctx-item host-ctx-danger" onClick={() => {
+                          if (s.status === 'connected') invoke('ssh_disconnect', { sessionId: s.session_id }).catch(() => {});
+                          removeSession(s.session_id);
+                          setContextMenu(null);
+                        }}>
+                          End {s.server_name}
+                        </button>
+                      ))}
+                      <div className="host-ctx-divider" />
+                    </>
+                  )}
+                  <button className="host-ctx-item" onClick={() => { setContextMenu(null); openSession(contextMenu.server.id); }}>
+                    Duplicate
+                  </button>
+                  <button className="host-ctx-item" onClick={() => { setContextMenu(null); setEditServer(contextMenu.server); setShowServerForm(true); }}>
+                    Edit
+                  </button>
+                  <div className="host-ctx-divider" />
+                  <button className="host-ctx-item host-ctx-danger" onClick={() => { setConfirmDeleteId(contextMenu.server.id); setContextMenu(null); }}>
+                    Remove
+                  </button>
+                </>
+              );
+            })()
+          )}
         </div>
       )}
 

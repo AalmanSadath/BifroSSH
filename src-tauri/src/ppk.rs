@@ -295,21 +295,25 @@ fn build_openssh_pem(public_blob: &[u8], private_key_data: &[u8], comment: &str)
 
 fn build_ed25519(public_data: &[u8], private_blob: &[u8], comment: &str) -> Result<String, String> {
     // PPK public blob:  string("ssh-ed25519") + string(pub[32])
-    // PPK private blob: string(seed[32] + pub[32])  → 64-byte raw value inside
+    // PPK private blob: string(seed[32])  — PuTTY stores only the 32-byte seed
     let mut pos = 0;
     let _algo = ssh_read_bytes(public_data, &mut pos)?;
     let pub_bytes = ssh_read_bytes(public_data, &mut pos)?;
     if pub_bytes.len() != 32 { return Err("ED25519 public key must be 32 bytes".into()); }
 
     let mut ppos = 0;
-    let priv_bytes = ssh_read_bytes(private_blob, &mut ppos)?;
-    if priv_bytes.len() != 64 { return Err("ED25519 private blob must be 64 bytes".into()); }
+    let seed_bytes = ssh_read_bytes(private_blob, &mut ppos)?;
+    if seed_bytes.len() != 32 { return Err("ED25519 private seed must be 32 bytes".into()); }
 
-    // OpenSSH private data: string("ssh-ed25519") + string(pub) + string(priv64)
+    // OpenSSH private data: string("ssh-ed25519") + string(pub32) + string(seed32 || pub32)
+    let mut combined = Vec::with_capacity(64);
+    combined.extend_from_slice(&seed_bytes);
+    combined.extend_from_slice(&pub_bytes);
+
     let mut pk_data = Vec::new();
     ssh_write_bytes(&mut pk_data, b"ssh-ed25519");
     ssh_write_bytes(&mut pk_data, &pub_bytes);
-    ssh_write_bytes(&mut pk_data, &priv_bytes);
+    ssh_write_bytes(&mut pk_data, &combined);
 
     Ok(build_openssh_pem(public_data, &pk_data, comment))
 }

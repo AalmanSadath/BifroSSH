@@ -108,7 +108,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
   return (
     <>
       <div className="drawer-backdrop" onClick={onClose} />
-      <div className="drawer">
+      <div className="drawer" onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}>
         <div className="drawer-header">
           <button className="drawer-close" onClick={onClose}>✕</button>
           <span>{server ? 'Edit Host' : 'Add Host'}</span>

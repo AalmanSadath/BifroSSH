@@ -49,8 +49,8 @@ interface AppStore {
 
   importKey: (name: string, path: string, passphrase: string | null, storeContent: boolean) => Promise<void>;
   saveKeyFromContent: (name: string, content: string, passphrase: string | null) => Promise<void>;
-  generateKey: (algorithm: string) => Promise<{ private_pem: string; public_openssh: string }>;
-  getKeyContent: (keyId: string) => Promise<{ private_pem: string; public_openssh: string | null }>;
+  generateKey: (algorithm: string, passphrase?: string | null) => Promise<{ private_pem: string; public_openssh: string }>;
+  getKeyContent: (keyId: string) => Promise<{ private_pem: string; public_openssh: string | null; passphrase: string | null }>;
   updateKey: (keyId: string, name: string, content: string, passphrase: string | null) => Promise<void>;
   deleteKey: (id: string) => Promise<void>;
 
@@ -158,12 +158,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set((s) => ({ keys: [...s.keys, key] }));
   },
 
-  generateKey: async (algorithm) => {
-    return invoke<{ private_pem: string; public_openssh: string }>('generate_key', { algorithm });
+  generateKey: async (algorithm, passphrase) => {
+    return invoke<{ private_pem: string; public_openssh: string }>('generate_key', { algorithm, passphrase: passphrase ?? null });
   },
 
   getKeyContent: async (keyId) => {
-    return invoke<{ private_pem: string; public_openssh: string | null }>('get_key_content', { keyId });
+    return invoke<{ private_pem: string; public_openssh: string | null; passphrase: string | null }>('get_key_content', { keyId });
   },
 
   updateKey: async (keyId, name, content, passphrase) => {

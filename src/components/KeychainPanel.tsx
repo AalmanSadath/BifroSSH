@@ -34,6 +34,8 @@ export default function KeychainPanel() {
   const [rsaSize, setRsaSize] = useState(4096);
   const [genResult, setGenResult] = useState<{ private_pem: string; public_openssh: string } | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [genPassphrase, setGenPassphrase] = useState('');
+  const [showGenPassphrase, setShowGenPassphrase] = useState(false);
 
   // identity drawer
   const [showIdForm, setShowIdForm] = useState(false);
@@ -46,11 +48,13 @@ export default function KeychainPanel() {
   const [idKeyDropdownOpen, setIdKeyDropdownOpen] = useState(false);
   const [idError, setIdError] = useState('');
   const [savingId, setSavingId] = useState(false);
+  const [showIdPassword, setShowIdPassword] = useState(false);
+  const [showPassphrase, setShowPassphrase] = useState(false);
 
   const [confirmDeleteKey, setConfirmDeleteKey] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
-  type KcCtx = { x: number; y: number; kind: 'key'; id: string } | { x: number; y: number; kind: 'identity'; id: string };
+  type KcCtx = { x: number; y: number; kind: 'key'; id: string } | { x: number; y: number; kind: 'identity'; id: string } | { x: number; y: number; kind: 'panel' };
   const [ctxMenu, setCtxMenu] = useState<KcCtx | null>(null);
   const ctxRef = useRef<HTMLDivElement>(null);
 
@@ -68,42 +72,32 @@ export default function KeychainPanel() {
   const [editKeyName, setEditKeyName] = useState('');
   const [editKeyPrivate, setEditKeyPrivate] = useState('');
   const [editKeyPublic, setEditKeyPublic] = useState<string | null>(null);
+  const [editKeyPassphrase, setEditKeyPassphrase] = useState('');
+  const [showEditKeyPassphrase, setShowEditKeyPassphrase] = useState(false);
   const [editKeySaving, setEditKeySaving] = useState(false);
   const [editKeyLoading, setEditKeyLoading] = useState(false);
   const [editKeyError, setEditKeyError] = useState('');
 
   function resetKeyForm() {
-    setKeyName(''); setKeyContent(''); setKeyPassphrase(''); setKeyError('');
+    setKeyName(''); setKeyContent(''); setKeyPassphrase(''); setKeyError(''); setShowPassphrase(false);
   }
 
   function handleKeyFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = async (ev) => {
+    reader.onload = (ev) => {
       const text = (ev.target?.result as string).trim();
       if (!keyName.trim()) setKeyName(file.name.replace(/\.(ppk|pem|key|txt)$/i, ''));
-      if (file.name.toLowerCase().endsWith('.ppk') || text.startsWith('PuTTY-User-Key-File')) {
-        try {
-          const openssh = await invoke<string>('convert_ppk', {
-            content: text,
-            passphrase: keyPassphrase || null,
-          });
-          setKeyContent(openssh);
-          setKeyError('');
-        } catch (err) {
-          setKeyError(`PPK conversion failed: ${err}`);
-        }
-      } else {
-        setKeyContent(text);
-      }
+      setKeyContent(text);
+      setKeyError('');
     };
     reader.readAsText(file);
     e.target.value = '';
   }
 
   function resetGenForm() {
-    setGenKeyName(''); setGenKeyError(''); setGenResult(null); setGenAlgorithm('ed25519'); setRsaSize(4096);
+    setGenKeyName(''); setGenKeyError(''); setGenResult(null); setGenAlgorithm('ed25519'); setRsaSize(4096); setGenPassphrase(''); setShowGenPassphrase(false);
   }
 
   async function handleAddKey(e: React.FormEvent) {
@@ -113,7 +107,16 @@ export default function KeychainPanel() {
     setSavingKey(true);
     setKeyError('');
     try {
-      await saveKeyFromContent(keyName.trim(), keyContent.trim(), keyPassphrase || null);
+      let content = keyContent.trim();
+      let passphraseToStore: string | null = keyPassphrase || null;
+      if (content.startsWith('PuTTY-User-Key-File')) {
+        content = await invoke<string>('convert_ppk', {
+          content,
+          passphrase: keyPassphrase || null,
+        });
+        passphraseToStore = null;
+      }
+      await saveKeyFromContent(keyName.trim(), content, passphraseToStore);
       setShowKeyForm(false);
       resetKeyForm();
     } catch (err) {
@@ -129,7 +132,7 @@ export default function KeychainPanel() {
     setGenResult(null);
     try {
       const algoArg = genAlgorithm === 'rsa' ? `rsa-${rsaSize}` : genAlgorithm;
-      const result = await generateKey(algoArg);
+      const result = await generateKey(algoArg, genPassphrase || null);
       setGenResult(result);
     } catch (err) {
       setGenKeyError(String(err));
@@ -145,7 +148,7 @@ export default function KeychainPanel() {
     setGenSaving(true);
     setGenKeyError('');
     try {
-      await saveKeyFromContent(genKeyName.trim(), genResult.private_pem, null);
+      await saveKeyFromContent(genKeyName.trim(), genResult.private_pem, genPassphrase || null);
       setShowGenForm(false);
       resetGenForm();
     } catch (err) {
@@ -166,6 +169,7 @@ export default function KeychainPanel() {
       const content = await getKeyContent(key.id);
       setEditKeyPrivate(content.private_pem);
       setEditKeyPublic(content.public_openssh ?? null);
+      setEditKeyPassphrase(content.passphrase ?? '');
     } catch (err) {
       setEditKeyError(String(err));
     } finally {
@@ -178,6 +182,8 @@ export default function KeychainPanel() {
     setEditKeyName('');
     setEditKeyPrivate('');
     setEditKeyPublic(null);
+    setEditKeyPassphrase('');
+    setShowEditKeyPassphrase(false);
     setEditKeyError('');
   }
 
@@ -189,7 +195,7 @@ export default function KeychainPanel() {
     setEditKeySaving(true);
     setEditKeyError('');
     try {
-      await updateKey(editKeyId, editKeyName.trim(), editKeyPrivate.trim(), null);
+      await updateKey(editKeyId, editKeyName.trim(), editKeyPrivate.trim(), editKeyPassphrase || null);
       closeEditKey();
     } catch (err) {
       setEditKeyError(String(err));
@@ -200,7 +206,7 @@ export default function KeychainPanel() {
 
   function openAddIdentity() {
     setEditId(null);
-    setIdName(''); setIdUsername(''); setIdAuthType('key'); setIdKeyId(''); setIdPassword(''); setIdError('');
+    setIdName(''); setIdUsername(''); setIdAuthType('key'); setIdKeyId(''); setIdPassword(''); setIdError(''); setShowIdPassword(false);
     setShowIdForm(true);
   }
 
@@ -208,7 +214,7 @@ export default function KeychainPanel() {
     setEditId(id);
     const authType = id.encrypted_password === '[stored]' ? 'password' : 'key';
     setIdName(id.name); setIdUsername(id.username);
-    setIdAuthType(authType); setIdKeyId(id.key_id ?? ''); setIdPassword(''); setIdError('');
+    setIdAuthType(authType); setIdKeyId(id.key_id ?? ''); setIdPassword(''); setIdError(''); setShowIdPassword(false);
     setShowIdForm(true);
   }
 
@@ -235,7 +241,7 @@ export default function KeychainPanel() {
   }
 
   return (
-    <div className="panel keychain-panel">
+    <div className="panel keychain-panel" onContextMenu={(e) => { if ((e.target as HTMLElement).closest('button, input, textarea, select, label, a')) return; e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, kind: 'panel' }); }}>
       <div className="panel-title">Keychain</div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
 
@@ -280,7 +286,7 @@ export default function KeychainPanel() {
       {showKeyForm && (
         <>
           <div className="drawer-backdrop" onClick={() => { setShowKeyForm(false); resetKeyForm(); }} />
-          <div className="drawer">
+          <div className="drawer" onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}>
             <div className="drawer-header">
               <button className="drawer-close" onClick={() => { setShowKeyForm(false); resetKeyForm(); }}>✕</button>
               <span>Add SSH Key</span>
@@ -307,8 +313,32 @@ export default function KeychainPanel() {
                 </div>
                 <div className="form-group">
                   <label>Passphrase (if encrypted)</label>
-                  <input type="password" value={keyPassphrase} onChange={(e) => setKeyPassphrase(e.target.value)} placeholder="leave empty if none" />
+                  <div className="input-with-eye">
+                    <input
+                      type={showPassphrase ? 'text' : 'password'}
+                      value={keyPassphrase}
+                      onChange={(e) => setKeyPassphrase(e.target.value)}
+                      placeholder="leave empty if none"
+                    />
+                    <button type="button" className="eye-btn" onClick={() => setShowPassphrase((v) => !v)} tabIndex={-1}>
+                      {showPassphrase ? (
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                          <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                          <line x1="1" y1="1" x2="23" y2="23"/>
+                        </svg>
+                      ) : (
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                          <circle cx="12" cy="12" r="3"/>
+                        </svg>
+                      )}
+                    </button>
+                  </div>
                 </div>
+                {keyContent.trimStart().startsWith('PuTTY-User-Key-File') && (
+                  <p className="form-info">PPK file will be converted to OpenSSH format on save.</p>
+                )}
                 {keyError && <p className="form-error">{keyError}</p>}
                 <input
                   ref={keyFileInputRef}
@@ -335,7 +365,7 @@ export default function KeychainPanel() {
       {showGenForm && (
         <>
           <div className="drawer-backdrop" onClick={() => { setShowGenForm(false); resetGenForm(); }} />
-          <div className="drawer">
+          <div className="drawer" onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}>
             <div className="drawer-header">
               <button className="drawer-close" onClick={() => { setShowGenForm(false); resetGenForm(); }}>✕</button>
               <span>Generate SSH Key</span>
@@ -348,6 +378,31 @@ export default function KeychainPanel() {
                 <div className="form-group">
                   <label>Name</label>
                   <input value={genKeyName} onChange={(e) => setGenKeyName(e.target.value)} placeholder="My Generated Key" autoFocus />
+                </div>
+                <div className="form-group">
+                  <label>Passphrase (optional)</label>
+                  <div className="input-with-eye">
+                    <input
+                      type={showGenPassphrase ? 'text' : 'password'}
+                      value={genPassphrase}
+                      onChange={(e) => setGenPassphrase(e.target.value)}
+                      placeholder="leave empty for no passphrase"
+                    />
+                    <button type="button" className="eye-btn" onClick={() => setShowGenPassphrase((v) => !v)} tabIndex={-1}>
+                      {showGenPassphrase ? (
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                          <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                          <line x1="1" y1="1" x2="23" y2="23"/>
+                        </svg>
+                      ) : (
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                          <circle cx="12" cy="12" r="3"/>
+                        </svg>
+                      )}
+                    </button>
+                  </div>
                 </div>
                 <div className="form-group">
                   <label>Algorithm</label>
@@ -424,7 +479,7 @@ export default function KeychainPanel() {
           ? <p className="list-empty">No keys added yet.</p>
           : <div className="kc-grid">
               {keys.map((key) => (
-                <div key={key.id} className="kc-card kc-card--clickable" onClick={() => handleOpenEditKey(key)} onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, kind: 'key', id: key.id }); }}>
+                <div key={key.id} className="kc-card kc-card--clickable" onClick={() => handleOpenEditKey(key)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, kind: 'key', id: key.id }); }}>
                   <div className="kc-card-info">
                     <span className="kc-card-name">{key.name}</span>
                     <span className="kc-card-detail">
@@ -448,7 +503,7 @@ export default function KeychainPanel() {
       {showIdForm && (
         <>
           <div className="drawer-backdrop" onClick={() => setShowIdForm(false)} />
-          <div className="drawer">
+          <div className="drawer" onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}>
             <div className="drawer-header">
               <button className="drawer-close" onClick={() => setShowIdForm(false)}>✕</button>
               <span>{editId ? 'Edit Identity' : 'Add Identity'}</span>
@@ -513,12 +568,33 @@ export default function KeychainPanel() {
                   </div>
                 ) : (
                   <div className="form-group">
-                    <input
-                      type="password"
-                      value={idPassword}
-                      onChange={(e) => setIdPassword(e.target.value)}
-                      placeholder={editId?.encrypted_password === '[stored]' ? 'leave blank to keep existing' : 'password'}
-                    />
+                    <div className="input-with-eye">
+                      <input
+                        type={showIdPassword ? 'text' : 'password'}
+                        value={idPassword}
+                        onChange={(e) => setIdPassword(e.target.value)}
+                        placeholder={editId?.encrypted_password === '[stored]' ? 'leave blank to keep existing' : 'password'}
+                      />
+                      <button
+                        type="button"
+                        className="eye-btn"
+                        onClick={() => setShowIdPassword((v) => !v)}
+                        tabIndex={-1}
+                      >
+                        {showIdPassword ? (
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                            <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                            <line x1="1" y1="1" x2="23" y2="23"/>
+                          </svg>
+                        ) : (
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                            <circle cx="12" cy="12" r="3"/>
+                          </svg>
+                        )}
+                      </button>
+                    </div>
                   </div>
                 )}
                 {idError && <p className="form-error">{idError}</p>}
@@ -548,7 +624,7 @@ export default function KeychainPanel() {
                 const key = isPasswordAuth ? null : keys.find((k) => k.id === id.key_id);
                 const keyMissing = !isPasswordAuth && !key;
                 return (
-                  <div key={id.id} className={`kc-card kc-card--clickable${keyMissing ? ' warn' : ''}`} onClick={() => openEditIdentity(id)} onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, kind: 'identity', id: id.id }); }}>
+                  <div key={id.id} className={`kc-card kc-card--clickable${keyMissing ? ' warn' : ''}`} onClick={() => openEditIdentity(id)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, kind: 'identity', id: id.id }); }}>
                     <div className="kc-card-info">
                       <span className="kc-card-name">{id.name}</span>
                       <span className="kc-card-detail">{id.username}</span>
@@ -573,7 +649,7 @@ export default function KeychainPanel() {
       {editKeyId && (
         <>
           <div className="drawer-backdrop" onClick={closeEditKey} />
-          <div className="drawer">
+          <div className="drawer" onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}>
             <div className="drawer-header">
               <button className="drawer-close" onClick={closeEditKey}>✕</button>
               <span>Edit Key</span>
@@ -589,6 +665,31 @@ export default function KeychainPanel() {
                     <div className="form-group">
                       <label>Name</label>
                       <input value={editKeyName} onChange={(e) => setEditKeyName(e.target.value)} placeholder="Key name" autoFocus />
+                    </div>
+                    <div className="form-group">
+                      <label>Passphrase</label>
+                      <div className="input-with-eye">
+                        <input
+                          type={showEditKeyPassphrase ? 'text' : 'password'}
+                          value={editKeyPassphrase}
+                          onChange={(e) => setEditKeyPassphrase(e.target.value)}
+                          placeholder="leave blank to keep existing"
+                        />
+                        <button type="button" className="eye-btn" onClick={() => setShowEditKeyPassphrase((v) => !v)} tabIndex={-1}>
+                          {showEditKeyPassphrase ? (
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                              <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                              <line x1="1" y1="1" x2="23" y2="23"/>
+                            </svg>
+                          ) : (
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                              <circle cx="12" cy="12" r="3"/>
+                            </svg>
+                          )}
+                        </button>
+                      </div>
                     </div>
                     {editKeyPublic && (
                       <div className="form-group">
@@ -631,22 +732,33 @@ export default function KeychainPanel() {
           ref={ctxRef}
           className="host-context-menu"
           style={{
-            top: Math.min(ctxMenu.y, window.innerHeight - 80),
+            top: Math.min(ctxMenu.y, window.innerHeight - (ctxMenu.kind === 'panel' ? 100 : 80)),
             left: Math.min(ctxMenu.x, window.innerWidth - 160),
           }}
         >
-          <button className="host-ctx-item" onClick={() => {
-            setCtxMenu(null);
-            if (ctxMenu.kind === 'key') { const k = keys.find(k => k.id === ctxMenu.id); if (k) handleOpenEditKey(k); }
-            else { const id = identities.find(i => i.id === ctxMenu.id); if (id) openEditIdentity(id); }
-          }}>Edit</button>
-          <div className="host-ctx-divider" />
-          <button className="host-ctx-item host-ctx-danger" onClick={() => {
-            const id = ctxMenu.id;
-            setCtxMenu(null);
-            if (ctxMenu.kind === 'key') setConfirmDeleteKey(id);
-            else setConfirmDeleteId(id);
-          }}>Delete</button>
+          {ctxMenu.kind === 'panel' ? (
+            <>
+              <button className="host-ctx-item" onClick={() => { setCtxMenu(null); setShowKeyForm(true); }}>Add Key</button>
+              <button className="host-ctx-item" onClick={() => { setCtxMenu(null); setShowGenForm(true); }}>Generate Key</button>
+              <div className="host-ctx-divider" />
+              <button className="host-ctx-item" onClick={() => { setCtxMenu(null); setShowIdForm(true); }}>Add Identity</button>
+            </>
+          ) : (
+            <>
+              <button className="host-ctx-item" onClick={() => {
+                setCtxMenu(null);
+                if (ctxMenu.kind === 'key') { const k = keys.find(k => k.id === ctxMenu.id); if (k) handleOpenEditKey(k); }
+                else { const id = identities.find(i => i.id === ctxMenu.id); if (id) openEditIdentity(id); }
+              }}>Edit</button>
+              <div className="host-ctx-divider" />
+              <button className="host-ctx-item host-ctx-danger" onClick={() => {
+                const id = ctxMenu.id;
+                setCtxMenu(null);
+                if (ctxMenu.kind === 'key') setConfirmDeleteKey(id);
+                else setConfirmDeleteId(id);
+              }}>Delete</button>
+            </>
+          )}
         </div>
       )}
 

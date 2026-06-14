@@ -578,6 +578,12 @@ select option {
   margin: -4px 0 8px;
 }
 
+.form-info {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin: -4px 0 8px;
+}
+
 .collapsible-header {
   display: flex;
   align-items: center;

@@ -272,6 +272,7 @@ fn pem_to_public_openssh(pem: &str, passphrase: Option<&str>) -> Option<String> 
 pub struct KeyContent {
     pub private_pem: String,
     pub public_openssh: Option<String>,
+    pub passphrase: Option<String>,
 }
 
 #[tauri::command]
@@ -297,7 +298,7 @@ pub async fn get_key_content(
         .and_then(|b| String::from_utf8(b).ok());
     let public_openssh = pem_to_public_openssh(&private_pem, passphrase.as_deref());
 
-    Ok(KeyContent { private_pem, public_openssh })
+    Ok(KeyContent { private_pem, public_openssh, passphrase })
 }
 
 #[tauri::command]
@@ -332,7 +333,7 @@ pub struct GeneratedKey {
 }
 
 #[tauri::command]
-pub async fn generate_key(algorithm: String) -> Result<GeneratedKey, String> {
+pub async fn generate_key(algorithm: String, passphrase: Option<String>) -> Result<GeneratedKey, String> {
     use ssh_key::{Algorithm, EcdsaCurve, LineEnding, PrivateKey};
     use ssh_key::private::{KeypairData, RsaKeypair};
     use rand::rngs::OsRng;
@@ -355,12 +356,20 @@ pub async fn generate_key(algorithm: String) -> Result<GeneratedKey, String> {
         _ => return Err(format!("Unknown algorithm: {}", algorithm)),
     };
 
-    let private_pem = key.to_openssh(LineEnding::LF)
-        .map_err(|e| e.to_string())?
-        .to_string();
     let public_openssh = key.public_key()
         .to_openssh()
         .map_err(|e| e.to_string())?;
+
+    let private_pem = match passphrase.as_deref().filter(|p| !p.is_empty()) {
+        Some(p) => key.encrypt(&mut rng, p)
+            .map_err(|e| e.to_string())?
+            .to_openssh(LineEnding::LF)
+            .map_err(|e| e.to_string())?
+            .to_string(),
+        None => key.to_openssh(LineEnding::LF)
+            .map_err(|e| e.to_string())?
+            .to_string(),
+    };
 
     Ok(GeneratedKey { private_pem, public_openssh })
 }

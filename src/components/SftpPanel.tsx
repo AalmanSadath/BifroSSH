@@ -111,7 +111,7 @@ function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
   const [showHidden, setShowHidden] = useState(false);
   const [dirsOnTop, setDirsOnTop] = useState(true);
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; entry: FileEntry } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; entry: FileEntry | null } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<FileEntry | null>(null);
   const [newFolderName, setNewFolderName] = useState<string | null>(null);
   const [renamingEntry, setRenamingEntry] = useState<{ entry: FileEntry; value: string } | null>(null);
@@ -332,6 +332,7 @@ function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
+        onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, entry: null }); }}
       >
         <table className="sftp-table" ref={tableRef}>
           <colgroup>
@@ -395,7 +396,7 @@ function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
                 className={`sftp-row${selectedPaths.has(entry.path) ? ' sftp-row-selected' : ''}`}
                 draggable={!entry.is_dir && entry.name !== '..'}
                 onClick={(e) => handleRowClick(e, entry, idx)}
-                onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, entry }); }}
+                onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, entry }); }}
                 onDragStart={(e) => !entry.is_dir && entry.name !== '..' && handleDragStart(e, entry)}
                 onDoubleClick={() => entry.is_dir && onNavigate(entry.path)}
                 title={entry.is_dir ? hint('Double-click to open') : entry.name}
@@ -440,22 +441,41 @@ function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
           ref={contextMenuRef}
           className="sftp-context-menu"
           style={{
-            top: Math.min(contextMenu.y, window.innerHeight - 130),
+            top: Math.min(contextMenu.y, window.innerHeight - 200),
             left: Math.min(contextMenu.x, window.innerWidth - 190),
           }}
         >
-          {!contextMenu.entry.is_dir && canCopyToTarget && (
-            <button className="sftp-ctx-item" onClick={() => { onCopyToTarget?.(contextMenu.entry); setContextMenu(null); }}>
-              Copy to Target
-            </button>
+          {contextMenu.entry ? (
+            <>
+              {!contextMenu.entry.is_dir && canCopyToTarget && (
+                <button className="sftp-ctx-item" onClick={() => { onCopyToTarget?.(contextMenu.entry!); setContextMenu(null); }}>
+                  Copy to Target
+                </button>
+              )}
+              <button className="sftp-ctx-item" onClick={() => handleRenameClick(contextMenu.entry!)}>
+                Rename
+              </button>
+              <div className="sftp-ctx-divider" />
+              <button className="sftp-ctx-item sftp-ctx-danger" onClick={() => { setConfirmDelete(contextMenu.entry); setContextMenu(null); }}>
+                Delete
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="sftp-ctx-item" onClick={() => { onRefresh?.(); setContextMenu(null); }}>
+                Refresh
+              </button>
+              <button className="sftp-ctx-item" onClick={() => { setContextMenu(null); handleNewFolderClick(); }}>
+                New Folder
+              </button>
+              <button className="sftp-ctx-item" onClick={() => { setShowHidden(h => !h); setContextMenu(null); }}>
+                {showHidden ? 'Hide Hidden Files' : 'Show Hidden Files'}
+              </button>
+              <button className="sftp-ctx-item" onClick={() => { setDirsOnTop(v => !v); setContextMenu(null); }}>
+                {dirsOnTop ? 'Folders on Top ✓' : 'Folders on Top'}
+              </button>
+            </>
           )}
-          <button className="sftp-ctx-item" onClick={() => handleRenameClick(contextMenu.entry)}>
-            Rename
-          </button>
-          <div className="sftp-ctx-divider" />
-          <button className="sftp-ctx-item sftp-ctx-danger" onClick={() => { setConfirmDelete(contextMenu.entry); setContextMenu(null); }}>
-            Delete
-          </button>
         </div>
       )}
 
@@ -479,7 +499,7 @@ function ConnectPrompt({ onSelectHost, onGoLocal }: { onSelectHost: () => void; 
   const { settings } = useAppStore();
   const hint = (t: string) => settings.show_hover_hints ? t : undefined;
   return (
-    <div className="sftp-connect-prompt">
+    <div className="sftp-connect-prompt" onContextMenu={(e) => e.preventDefault()}>
       <div className="sftp-source-list">
         {onGoLocal && (
           <button className="sftp-source-item" onDoubleClick={onGoLocal} onClick={onGoLocal} title={hint('Open local filesystem')}>
@@ -528,7 +548,7 @@ function HostPicker({ servers, connectingId, activeServerId, error, onConnect, o
   const { settings, identities } = useAppStore();
   const hint = (t: string) => settings.show_hover_hints ? t : undefined;
   return (
-    <div className="sftp-host-picker">
+    <div className="sftp-host-picker" onContextMenu={(e) => e.preventDefault()}>
       <div className="sftp-picker-header">
         <button className="sftp-back-btn" onClick={onBack} title={hint('Back')}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

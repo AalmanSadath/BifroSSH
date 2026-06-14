@@ -132,7 +132,7 @@ flatpak install flathub org.freedesktop.Sdk.Extension.node22//25.08
 ./install.sh flatpak
 ```
 
-The entire build runs inside the Flatpak sandbox — npm dependencies are supplied from the pre-vendored `flatpak/node-sources.json` and Cargo dependencies from `flatpak/cargo-sources.json`. No network access is needed at build time.
+The entire build runs inside the Flatpak sandbox. npm dependencies are supplied from the pre-vendored `flatpak/node-sources.json` and Cargo dependencies from `flatpak/cargo-sources.json`. No network access is needed at build time.
 
 Run it:
 
@@ -179,4 +179,4 @@ npm run tauri dev
 
 ## License
 
-[GPL-3.0-or-later](LICENSE) — free to use, modify, and distribute; derivatives must also be open source under GPL-3.0 or later.
+[GPL-3.0-or-later](LICENSE): free to use, modify, and distribute; derivatives must also be open source under GPL-3.0 or later.

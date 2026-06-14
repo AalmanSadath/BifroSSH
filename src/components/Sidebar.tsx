@@ -12,7 +12,7 @@ export default function Sidebar() {
   const activePanel = PANELS.includes(activeTabId ?? '') ? activeTabId : null;
 
   return (
-    <aside className={`sidebar${collapsed ? ' sidebar-collapsed' : ''}`}>
+    <aside className={`sidebar${collapsed ? ' sidebar-collapsed' : ''}`} onContextMenu={(e) => e.preventDefault()}>
       <div className="sidebar-top">
         <div className="sidebar-brand">
           <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 512 512" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>

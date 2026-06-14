@@ -30,7 +30,7 @@ uuid = { version = "1", features = ["v4"] }
 anyhow = "1"
 dirs = "5"
 async-trait = "0.1"
-ssh-key = { version = "0.6", features = ["alloc", "ed25519", "p256", "rsa", "getrandom"] }
+ssh-key = { version = "0.6", features = ["alloc", "ed25519", "p256", "rsa", "getrandom", "encryption"] }
 sha1 = "0.10"
 hmac = "0.12"
 aes = "0.8"
