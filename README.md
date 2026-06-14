@@ -4,26 +4,31 @@ A GUI SSH client built with Tauri 2, React, and Rust.
 
 ## Features
 
-- **Terminal emulator** — full xterm.js terminal with configurable font, cursor, colour schemes, and 10 000-line scrollback
-- **Multiple sessions** — open servers in tabs; sessions stay alive while you switch between them
-- **SFTP file browser** — upload, download, create folders, delete, and rename files on remote servers; sort by name, size, or date with optional folders-on-top
-- **SSH key management** — generate, import, and store Ed25519 / RSA / ECDSA keys in an encrypted local keychain; assign a key per server
-- **Themes** — built-in dark and light themes plus a full theme editor; override the theme per session without changing server defaults
-- **Codeprints** — save named shell commands with a label; send them to any active terminal session with one click — either paste the text into the prompt or run it immediately
-- **Host profiles** — store connection details (host, port, username, key) per server; quick-connect from the sidebar
+### Terminal emulator
+Full xterm.js terminal with configurable font family, font size, cursor style, and colour scheme. Supports 10 000-line scrollback, copy/paste, and standard terminal escape sequences. Each session runs in its own tab and stays alive while you switch between tabs.
 
----
+### Multiple sessions
+Open any number of servers at once in tabs. Sessions are independent, so running a long command on one server does not block interaction with another. Closing a tab disconnects cleanly.
 
-## Codeprints
+### SFTP file browser
+Browse, upload, download, rename, delete, and create folders on remote servers without leaving the app. The file list can be sorted by name, size, or modification date, with an option to show folders at the top. Supports both key-based and password-based auth, and works with per-host credentials or shared identities.
 
-Codeprints are saved shell commands with a name. Open the Codeprints sidebar in any session and click **Paste** to insert the command into the prompt (so you can review or edit it first) or **Run** to execute it immediately.
+### SSH key management
+Generate Ed25519, RSA, and ECDSA keys directly in the app. Import existing keys. All private keys are stored in an encrypted local keychain and are never written to disk unencrypted. Assign a key to a server or identity; the app decrypts and uses it at connect time.
+
+### Themes and per-session colours
+Ships with dark and light themes. The built-in theme editor lets you customise every colour: background, foreground, cursor, selection, and all 16 ANSI colours. Theme changes can be applied per-session without changing the server's default theme.
+
+### Codeprints
+Save named shell commands with a label. Open the Codeprints sidebar in any session and click **Paste** to insert the command into the prompt (so you can edit it first) or **Run** to execute it immediately. Codeprints are global, one list shared across all sessions and servers.
 
 Typical uses:
 - Restart services: `sudo systemctl restart nginx`
 - Tail logs: `journalctl -fu myapp`
-- Deploy commands, database queries, monitoring one-liners
+- Deploy scripts, database queries, monitoring one-liners
 
-Codeprints are global — one list shared across all sessions and servers.
+### Host profiles
+Store connection details per server: hostname, port, username, SSH key or password, identity, and default theme. Each server has an OS tag (Linux, Ubuntu, Debian, Arch, Fedora, macOS, Windows, FreeBSD, Raspberry Pi) shown as an icon in the sidebar. Quick-connect from the sidebar with one click. Supports per-host credentials or shared identities reused across servers.
 
 ---
 
@@ -70,7 +75,36 @@ npm install
 
 ---
 
-## Flatpak
+## Install via Flatpak repo (no build required)
+
+The easiest install — no Rust, Node.js, or build tools needed.
+
+```bash
+flatpak remote-add bifrossh https://aalmansadath.github.io/BifroSSH/bifrossh.flatpakrepo
+flatpak install bifrossh io.github.aalmansadath.bifrossh
+```
+
+Or download [`bifrossh.flatpakrepo`](bifrossh.flatpakrepo) and double-click it in GNOME Files to add via GNOME Software.
+
+**Run:**
+```bash
+flatpak run io.github.aalmansadath.bifrossh
+```
+
+**Update:**
+```bash
+flatpak update io.github.aalmansadath.bifrossh
+```
+
+**Uninstall:**
+```bash
+flatpak uninstall io.github.aalmansadath.bifrossh
+flatpak remote-delete bifrossh
+```
+
+---
+
+## Build Flatpak from source
 
 ### One-time setup
 
