@@ -1,8 +1,10 @@
 [package]
 name = "bifrossh"
 version = "0.1.0"
-description = "BifroSSH Client"
-authors = ["you"]
+description = "GUI SSH client with built-in SFTP and keychain management"
+authors = ["Aalman Sadath"]
+license = "PolyForm-Noncommercial-1.0.0"
+repository = "https://github.com/AalmanSadath/BifroSSH"
 edition = "2021"
 
 [lib]

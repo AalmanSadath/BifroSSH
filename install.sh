@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_NAME="BifroSSH"
 BIN_NAME="bifrossh"
-IDENTIFIER="com.bifrossh.app"
+IDENTIFIER="io.github.AalmanSadath.BifroSSH"
 
 INSTALL_BIN="$HOME/.local/bin/$BIN_NAME"
 INSTALL_DESKTOP="$HOME/.local/share/applications/$IDENTIFIER.desktop"

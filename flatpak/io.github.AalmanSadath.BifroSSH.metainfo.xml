@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.AalmanSadath.BifroSSH</id>
+  <name>BifroSSH</name>
+  <summary>GUI SSH client with built-in SFTP and keychain management</summary>
+  <metadata_license>FSFAP</metadata_license>
+  <project_license>PolyForm-Noncommercial-1.0.0</project_license>
+  <developer_name>Aalman Sadath</developer_name>
+  <description>
+    <p>BifroSSH is a modern SSH client with a full terminal emulator, SFTP file browser, SSH key management, per-server theming, and codeprints for quick command access.</p>
+    <ul>
+      <li>Full terminal emulator via xterm.js</li>
+      <li>SFTP file browser with upload, download, and folder navigation</li>
+      <li>SSH key management with encrypted local keychain</li>
+      <li>Multiple sessions in tabs</li>
+      <li>Customisable themes including a built-in theme editor</li>
+      <li>Codeprints: named commands that can be pasted or run in any session</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.github.AalmanSadath.BifroSSH.desktop</launchable>
+  <url type="homepage">https://github.com/AalmanSadath/BifroSSH</url>
+  <url type="vcs-browser">https://github.com/AalmanSadath/BifroSSH</url>
+  <url type="bugtracker">https://github.com/AalmanSadath/BifroSSH/issues</url>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Terminal session with tab bar</caption>
+      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/terminal.png</image>
+    </screenshot>
+  </screenshots>
+  <provides>
+    <binary>bifrossh</binary>
+  </provides>
+  <releases>
+    <release version="0.1.0" date="2026-06-13"/>
+  </releases>
+  <content_rating type="oars-1.1"/>
+</component>
