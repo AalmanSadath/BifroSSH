@@ -1,11 +1,19 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { Codeprint, Identity, KeyEntry, LogEntry, Server, SessionTab, Settings } from '../types';
+import type { Codeprint, Identity, KeyEntry, LogEntry, PortForwarding, Server, SessionTab, Settings } from '../types';
 import type { NamedTheme } from '../styles/themes';
 
 const CUSTOM_THEMES_KEY = 'bifrossh_custom_themes';
 const CODEPRINTS_KEY = 'bifrossh_codeprints';
+const PORT_FORWARDINGS_KEY = 'bifrossh_port_forwardings';
+
+function loadPortForwardingsFromStorage(): PortForwarding[] {
+  try {
+    const raw = localStorage.getItem(PORT_FORWARDINGS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
 
 function loadCodeprintsFromStorage(): Codeprint[] {
   try {
@@ -63,6 +71,10 @@ interface AppStore {
   saveCustomTheme: (id: string, theme: NamedTheme) => void;
   deleteCustomTheme: (id: string) => void;
 
+  portForwardings: PortForwarding[];
+  savePortForwarding: (pf: Omit<PortForwarding, 'id'> & { id?: string }) => void;
+  deletePortForwarding: (id: string) => void;
+
   codeprints: Codeprint[];
   addCodeprint: (cp: Omit<Codeprint, 'id'>) => void;
   updateCodeprint: (id: string, cp: Omit<Codeprint, 'id'>) => void;
@@ -86,6 +98,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   servers: [],
   identities: [],
   customThemes: loadCustomThemesFromStorage(),
+  portForwardings: loadPortForwardingsFromStorage(),
   codeprints: loadCodeprintsFromStorage(),
   sessionThemeOverrides: {},
   keys: [],
@@ -223,6 +236,27 @@ export const useAppStore = create<AppStore>((set, get) => ({
       delete next[id];
       localStorage.setItem(CUSTOM_THEMES_KEY, JSON.stringify(next));
       return { customThemes: next };
+    });
+  },
+
+  savePortForwarding: (pf) => {
+    set((s) => {
+      const id = pf.id ?? crypto.randomUUID();
+      const entry: PortForwarding = { ...pf, id };
+      const exists = s.portForwardings.some((x) => x.id === id);
+      const next = exists
+        ? s.portForwardings.map((x) => (x.id === id ? entry : x))
+        : [...s.portForwardings, entry];
+      localStorage.setItem(PORT_FORWARDINGS_KEY, JSON.stringify(next));
+      return { portForwardings: next };
+    });
+  },
+
+  deletePortForwarding: (id) => {
+    set((s) => {
+      const next = s.portForwardings.filter((x) => x.id !== id);
+      localStorage.setItem(PORT_FORWARDINGS_KEY, JSON.stringify(next));
+      return { portForwardings: next };
     });
   },
 

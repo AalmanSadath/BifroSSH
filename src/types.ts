@@ -63,6 +63,19 @@ export interface Codeprint {
   command: string;
 }
 
+export interface PortForwarding {
+  id: string;
+  label: string;
+  type: 'local' | 'remote' | 'dynamic';
+  bind_address: string;
+  local_port: number | null;
+  intermediate_host_id: string | null;
+  remote_host_id: string | null;
+  remote_port: number | null;
+  dest_address: string;
+  dest_port: number | null;
+}
+
 export interface ConnectRequest {
   server_id: string;
   username: string;

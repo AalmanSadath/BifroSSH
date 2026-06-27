@@ -3254,3 +3254,397 @@ button { cursor: pointer; font-family: inherit; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ── Port Forwarding Panel ─────────────────────────────────── */
+
+.pf-panel {
+  max-width: 100%;
+}
+
+.pf-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: var(--text-muted);
+  padding: 60px 20px;
+  text-align: center;
+}
+
+.pf-empty p { font-size: 14px; color: var(--text-dim); }
+
+.pf-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.pf-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-mid);
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  cursor: default;
+  transition: border-color 0.15s, background 0.1s;
+  position: relative;
+}
+
+.pf-card:hover { background: var(--bg-hover); }
+
+.pf-card-active {
+  border-color: #3fb95066;
+  background: #3fb95008;
+}
+
+.pf-card-left { flex-shrink: 0; display: flex; align-items: center; }
+
+.pf-badge {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.pf-badge-lg {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.pf-card-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.pf-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pf-card-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pf-card-active-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #3fb950;
+  flex-shrink: 0;
+}
+
+.pf-card-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pf-card-edit-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 5px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 0.1s, background 0.1s, color 0.1s;
+  flex-shrink: 0;
+}
+
+.pf-card:hover .pf-card-edit-btn { opacity: 1; }
+.pf-card-edit-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+/* ── Port Forwarding Drawer ───────────────────────────────── */
+
+.pf-drawer {
+  width: 380px;
+  overflow: hidden;
+}
+
+.pf-drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 20px 20px;
+}
+
+.pf-drawer-body::-webkit-scrollbar { width: 5px; }
+.pf-drawer-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+.pf-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 12px 0 8px;
+  margin-bottom: 4px;
+}
+
+.pf-back-btn:hover { opacity: 0.8; }
+
+/* ── Wizard Steps ─────────────────────────────────────────── */
+
+.pf-wiz-step {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding-bottom: 8px;
+}
+
+.pf-wiz-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 12px 0 14px;
+  line-height: 1.4;
+}
+
+.pf-type-switcher {
+  display: flex;
+  background: var(--bg-mid);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px;
+  gap: 2px;
+  margin-bottom: 16px;
+}
+
+.pf-type-tab {
+  flex: 1;
+  padding: 6px 10px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 0.1s, color 0.1s;
+}
+
+.pf-type-tab:hover { color: var(--text-primary); background: var(--bg-hover); }
+
+.pf-type-tab.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.pf-wiz-diagram-wrap {
+  margin-bottom: 12px;
+  border-radius: 8px;
+  background: var(--bg-mid);
+  border: 1px solid var(--border);
+  padding: 8px 4px 4px;
+  overflow: hidden;
+}
+
+.pf-diagram { display: block; }
+
+.pf-wiz-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+.pf-skip-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 6px 0;
+  text-align: center;
+  width: 100%;
+}
+
+.pf-skip-btn:hover { color: var(--text-primary); }
+
+/* ── Floating Label Field ─────────────────────────────────── */
+
+.pf-float-field {
+  position: relative;
+  margin-bottom: 12px;
+}
+
+.pf-float-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-bottom: 3px;
+  letter-spacing: 0.3px;
+}
+
+.pf-float-input {
+  width: 100%;
+  background: var(--bg-mid);
+  border: 1.5px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 13px;
+  padding: 9px 12px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.pf-float-input:focus { border-color: var(--accent); }
+.pf-float-input::placeholder { color: var(--text-dim); }
+
+/* ── Host picker ──────────────────────────────────────────── */
+
+.pf-host-list {
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 12px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.pf-host-list-inline {
+  max-height: 160px;
+}
+
+.pf-host-list::-webkit-scrollbar { width: 4px; }
+.pf-host-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.pf-host-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--bg-mid);
+  border: none;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s;
+  gap: 10px;
+}
+
+.pf-host-item:last-child { border-bottom: none; }
+.pf-host-item:hover { background: var(--bg-hover); }
+.pf-host-item.selected { background: var(--bg-hover); border-left: 2.5px solid var(--accent); }
+
+.pf-host-item-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pf-host-item-addr {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: monospace;
+  flex-shrink: 0;
+}
+
+.pf-host-empty {
+  padding: 12px 14px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* ── Host chip (selected host display) ───────────────────── */
+
+.pf-host-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg-mid);
+  border: 1.5px dashed var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.pf-host-chip-field {
+  flex: 1;
+  margin-bottom: 0 !important;
+}
+
+.pf-host-chip-name {
+  font-size: 13px;
+  color: var(--text-primary);
+  font-weight: 500;
+  padding-top: 2px;
+}
+
+.pf-host-remove-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 5px 10px;
+  white-space: nowrap;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+  flex-shrink: 0;
+}
+
+.pf-host-remove-btn:hover { background: var(--bg-hover); color: var(--danger); border-color: var(--danger); }
+
+/* ── Edit form ────────────────────────────────────────────── */
+
+.pf-edit-form {
+  padding-top: 8px;
+}
+
+.pf-edit-diagram-wrap {
+  margin-bottom: 16px;
+  border-radius: 8px;
+  background: var(--bg-mid);
+  border: 1px solid var(--border);
+  padding: 8px 4px 4px;
+}
+
+.pf-edit-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  margin-top: 12px;
+}
+
+.pf-edit-actions .btn-danger { margin-right: auto; }

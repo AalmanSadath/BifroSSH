@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useAppStore } from '../store/appStore';
 
 
-const PANELS = ['hosts', 'sftp', 'keychain', 'settings', 'theme-editor'];
+const PANELS = ['hosts', 'sftp', 'keychain', 'portforwarding', 'settings', 'theme-editor'];
 
 export default function Sidebar() {
   const { activeTabId, setActiveTab, settings } = useAppStore();
@@ -76,6 +76,20 @@ export default function Sidebar() {
             </svg>
           </span>
           {!collapsed && 'Keychain'}
+        </button>
+        <button
+          className={`nav-btn ${activePanel === 'portforwarding' ? 'active' : ''}`}
+          onClick={() => setActiveTab('portforwarding')}
+          title={collapsed ? 'Port Forwarding' : undefined}
+        >
+          <span className="nav-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 12h14"/>
+              <path d="M15 7l5 5-5 5"/>
+              <path d="M3 6v12"/>
+            </svg>
+          </span>
+          {!collapsed && 'Tunnels'}
         </button>
       </nav>
       <nav className="sidebar-nav-bottom">

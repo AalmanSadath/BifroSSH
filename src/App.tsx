@@ -12,6 +12,7 @@ import ThemeEditorPanel from './components/ThemeEditorPanel';
 import SftpPanel from './components/SftpPanel';
 import ServerForm from './components/ServerForm';
 import TerminalSidebar from './components/TerminalSidebar';
+import PortForwardingPanel from './components/PortForwardingPanel';
 
 function parseSSHInput(input: string): { user: string; host: string; port: number; password?: string } | null {
   let s = input.trim();
@@ -228,6 +229,7 @@ export default function App() {
           {(activeTabId === 'hosts' || activeTabId === null) && <HostsPanel />}
           {activeTabId === 'keychain' && <KeychainPanel />}
           <div style={{ display: activeTabId === 'sftp' ? 'contents' : 'none' }}><SftpPanel /></div>
+          {activeTabId === 'portforwarding' && <PortForwardingPanel />}
           {activeTabId === 'settings' && <SettingsPanel />}
           {activeTabId === 'theme-editor' && <ThemeEditorPanel />}
           </div>
