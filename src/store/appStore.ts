@@ -74,6 +74,9 @@ interface AppStore {
   portForwardings: PortForwarding[];
   savePortForwarding: (pf: Omit<PortForwarding, 'id'> & { id?: string }) => void;
   deletePortForwarding: (id: string) => void;
+  activeTunnelIds: Set<string>;
+  startTunnel: (pf: PortForwarding) => Promise<void>;
+  stopTunnel: (pfId: string) => Promise<void>;
 
   codeprints: Codeprint[];
   addCodeprint: (cp: Omit<Codeprint, 'id'>) => void;
@@ -99,6 +102,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   identities: [],
   customThemes: loadCustomThemesFromStorage(),
   portForwardings: loadPortForwardingsFromStorage(),
+  activeTunnelIds: new Set<string>(),
   codeprints: loadCodeprintsFromStorage(),
   sessionThemeOverrides: {},
   keys: [],
@@ -258,6 +262,60 @@ export const useAppStore = create<AppStore>((set, get) => ({
       localStorage.setItem(PORT_FORWARDINGS_KEY, JSON.stringify(next));
       return { portForwardings: next };
     });
+  },
+
+  startTunnel: async (pf) => {
+    const { servers, identities } = get();
+    const serverId = pf.type === 'remote' ? pf.remote_host_id : pf.intermediate_host_id;
+    if (!serverId) throw new Error('No server configured for this rule');
+    const server = servers.find((s) => s.id === serverId);
+    if (!server) throw new Error('Server not found');
+
+    let username: string;
+    let authType: string;
+    let authValue: string;
+
+    if (server.identity_id) {
+      const identity = identities.find((i) => i.id === server.identity_id);
+      if (!identity) throw new Error('Identity not found');
+      username = identity.username;
+      const isPassword = identity.encrypted_password === '[stored]';
+      authType = isPassword ? 'password' : 'key';
+      authValue = isPassword
+        ? await invoke<string>('get_identity_password', { identityId: identity.id })
+        : (identity.key_id ?? '');
+    } else if (server.username && (server.key_id || server.encrypted_password === '[stored]')) {
+      username = server.username;
+      if (server.key_id) {
+        authType = 'key';
+        authValue = server.key_id;
+      } else {
+        authType = 'password';
+        authValue = await invoke<string>('get_server_password', { serverId });
+      }
+    } else {
+      throw new Error('No credentials configured for this server');
+    }
+
+    await invoke('tunnel_start', {
+      pfId: pf.id,
+      pfType: pf.type,
+      bindAddress: pf.bind_address,
+      localPort: pf.local_port ?? undefined,
+      remotePort: pf.remote_port ?? undefined,
+      destHost: pf.dest_address || undefined,
+      destPort: pf.dest_port ?? undefined,
+      serverId,
+      username,
+      authType,
+      authValue,
+    });
+    set((s) => ({ activeTunnelIds: new Set([...s.activeTunnelIds, pf.id]) }));
+  },
+
+  stopTunnel: async (pfId) => {
+    await invoke('tunnel_stop', { pfId });
+    set((s) => { const n = new Set(s.activeTunnelIds); n.delete(pfId); return { activeTunnelIds: n }; });
   },
 
   addCodeprint: (cp) => {

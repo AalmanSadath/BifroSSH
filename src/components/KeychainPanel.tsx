@@ -242,8 +242,8 @@ export default function KeychainPanel() {
 
   return (
     <div className="panel keychain-panel" onContextMenu={(e) => { if ((e.target as HTMLElement).closest('button, input, textarea, select, label, a')) return; e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, kind: 'panel' }); }}>
-      <div className="panel-title">Keychain</div>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
+      <div className="panel-title" style={{ marginBottom: 6 }}>Keychain</div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
 
         {/* Add Key split-style button */}
         <div style={{ position: 'relative' }}>

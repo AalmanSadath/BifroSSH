@@ -89,7 +89,7 @@ export default function Sidebar() {
               <path d="M3 6v12"/>
             </svg>
           </span>
-          {!collapsed && 'Tunnels'}
+          {!collapsed && 'Port Forwarding'}
         </button>
       </nav>
       <nav className="sidebar-nav-bottom">

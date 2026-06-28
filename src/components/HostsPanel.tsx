@@ -39,12 +39,12 @@ export default function HostsPanel() {
   return (
     <>
       <div className="panel hosts-panel" onContextMenu={(e) => { if ((e.target as HTMLElement).closest('button, input, textarea, select, label, a')) return; e.preventDefault(); setContextMenu({ kind: 'panel', x: e.clientX, y: e.clientY }); }}>
-        <div className="panel-title-row">
+        <div className="panel-title-row" style={{ marginBottom: 6 }}>
           <div className="panel-title">Hosts</div>
-          <button className="btn-primary btn-sm" onClick={() => { setEditServer(null); setShowServerForm(true); }}>
-            + Add Host
-          </button>
         </div>
+        <button className="btn-primary btn-sm" style={{ display: 'block', marginBottom: 20 }} onClick={() => { setEditServer(null); setShowServerForm(true); }}>
+          + Add Host
+        </button>
 
         {servers.length === 0 ? (
           <div className="hosts-empty">

@@ -5,12 +5,14 @@ mod ppk;
 mod sftp;
 mod ssh;
 mod store;
+mod tunnel;
 
 use std::sync::Arc;
 use commands::AppState;
 use sftp::SftpClientState;
 use ssh::SshState;
 use store::{load_app_data, load_secret_key};
+use tunnel::TunnelState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -24,6 +26,7 @@ pub fn run() {
             secret_key,
             ssh_state: Arc::new(SshState::new()),
             sftp_state: Arc::new(SftpClientState::new()),
+            tunnel_state: Arc::new(TunnelState::new()),
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_servers,
@@ -65,6 +68,8 @@ pub fn run() {
             commands::sftp_rename_local,
             commands::sftp_delete_remote,
             commands::sftp_rename_remote,
+            commands::tunnel_start,
+            commands::tunnel_stop,
         ])
         .run(tauri::generate_context!())
         .expect("Error running BifroSSH");

@@ -8,12 +8,14 @@ use crate::ppk;
 use crate::sftp::SftpClientState;
 use crate::ssh::{connect_ssh, ConnectLogEvent, SshAuth, SshCommand, SshConnectParams, SshState};
 use crate::store::save_app_data;
+use crate::tunnel::{TunnelAuth, TunnelKind, TunnelParams, TunnelState};
 
 pub struct AppState {
     pub data: tokio::sync::Mutex<AppData>,
     pub secret_key: [u8; 32],
     pub ssh_state: Arc<SshState>,
     pub sftp_state: Arc<SftpClientState>,
+    pub tunnel_state: Arc<TunnelState>,
 }
 
 // ── Servers ──────────────────────────────────────────────────────────────────
@@ -990,4 +992,105 @@ pub async fn sftp_rename_remote(
     new_path: String,
 ) -> Result<(), String> {
     crate::sftp::rename_remote(&state.sftp_state, &session_id, &old_path, &new_path).await
+}
+
+// ── Tunnel commands ───────────────────────────────────────────────────────────
+
+fn resolve_tunnel_auth(
+    data: &AppData,
+    secret_key: &[u8; 32],
+    auth_type: &str,
+    auth_value: &str,
+) -> Result<TunnelAuth, String> {
+    if auth_type == "password" {
+        return Ok(TunnelAuth {
+            kind: "password".to_string(),
+            value: auth_value.to_string(),
+            passphrase: None,
+        });
+    }
+    let key_entry = data.keys.iter().find(|k| k.id == auth_value)
+        .ok_or("Key not found")?;
+    let pem = if let Some(ref enc) = key_entry.encrypted_key {
+        let bytes = decrypt(enc, secret_key).map_err(|e| e.to_string())?;
+        String::from_utf8(bytes).map_err(|e| e.to_string())?
+    } else if let Some(ref path) = key_entry.key_path {
+        std::fs::read_to_string(path).map_err(|e| e.to_string())?
+    } else {
+        return Err("Key has no content or path".to_string());
+    };
+    let passphrase = if let Some(ref enc) = key_entry.encrypted_passphrase {
+        let bytes = decrypt(enc, secret_key).map_err(|e| e.to_string())?;
+        Some(String::from_utf8(bytes).map_err(|e| e.to_string())?)
+    } else {
+        None
+    };
+    Ok(TunnelAuth { kind: "key".to_string(), value: pem, passphrase })
+}
+
+#[tauri::command]
+pub async fn tunnel_start(
+    state: State<'_, AppState>,
+    pf_id: String,
+    pf_type: String,
+    bind_address: String,
+    local_port: Option<u32>,
+    remote_port: Option<u32>,
+    dest_host: Option<String>,
+    dest_port: Option<u32>,
+    server_id: String,
+    username: String,
+    auth_type: String,
+    auth_value: String,
+) -> Result<(), String> {
+    let (ssh_host, ssh_port, auth) = {
+        let data = state.data.lock().await;
+        let server = data.servers.iter().find(|s| s.id == server_id)
+            .ok_or("Server not found")?;
+        let auth = resolve_tunnel_auth(&data, &state.secret_key, &auth_type, &auth_value)?;
+        (server.host.clone(), server.port as u16, auth)
+    };
+
+    // Check not already running
+    {
+        let tunnels = state.tunnel_state.tunnels.lock().await;
+        if tunnels.contains_key(&pf_id) {
+            return Err("Tunnel already running".to_string());
+        }
+    }
+
+    let kind = match pf_type.as_str() {
+        "local" => TunnelKind::Local {
+            local_port: local_port.ok_or("local_port required")?,
+            dest_host: dest_host.ok_or("dest_host required")?,
+            dest_port: dest_port.ok_or("dest_port required")?,
+        },
+        "remote" => TunnelKind::Remote {
+            remote_port: remote_port.ok_or("remote_port required")?,
+            dest_host: dest_host.ok_or("dest_host required")?,
+            dest_port: dest_port.ok_or("dest_port required")?,
+        },
+        "dynamic" => TunnelKind::Dynamic {
+            local_port: local_port.ok_or("local_port required")?,
+        },
+        t => return Err(format!("Unknown tunnel type: {}", t)),
+    };
+
+    let params = TunnelParams { kind, bind_address, ssh_host, ssh_port, ssh_username: username, auth };
+
+    crate::tunnel::start_tunnel(pf_id, params, Arc::clone(&state.tunnel_state))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn tunnel_stop(
+    state: State<'_, AppState>,
+    pf_id: String,
+) -> Result<(), String> {
+    let mut tunnels = state.tunnel_state.tunnels.lock().await;
+    if let Some(handle) = tunnels.remove(&pf_id) {
+        let _ = handle.stop_tx.send(());
+    }
+    Ok(())
 }

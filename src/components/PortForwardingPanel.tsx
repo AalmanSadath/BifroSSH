@@ -250,17 +250,28 @@ function HostChip({ name, onRemove }: { name: string; onRemove: () => void }) {
 // ── Main component ─────────────────────────────────────────────
 
 export default function PortForwardingPanel() {
-  const { servers, portForwardings, savePortForwarding, deletePortForwarding } = useAppStore();
-
-  const [activePfIds, setActivePfIds] = useState<Set<string>>(new Set());
+  const { servers, portForwardings, savePortForwarding, deletePortForwarding, activeTunnelIds, startTunnel, stopTunnel } = useAppStore();
   const [drawerMode, setDrawerMode] = useState<'none' | 'wizard' | 'edit'>('none');
-  const [editHostPickerOpen, setEditHostPickerOpen] = useState(false);
   const [wizStep, setWizStep] = useState<WizStep>('type');
   const [wizDraft, setWizDraft] = useState<WizDraft>(DEFAULT_WIZ);
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
+  const [hostPickerOpen, setHostPickerOpen] = useState(false);
+  const [hostPickerTarget, setHostPickerTarget] = useState<'intermediate' | 'remote'>('intermediate');
+  const [addDropdownOpen, setAddDropdownOpen] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; pf: PortForwarding } | null>(null);
+  const [panelCtx, setPanelCtx] = useState<{ x: number; y: number } | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const ctxRef = useRef<HTMLDivElement>(null);
+  const panelCtxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!panelCtx) return;
+    function down(e: MouseEvent) {
+      if (!panelCtxRef.current?.contains(e.target as Node)) setPanelCtx(null);
+    }
+    document.addEventListener('mousedown', down);
+    return () => document.removeEventListener('mousedown', down);
+  }, [panelCtx]);
 
   useEffect(() => {
     if (!ctxMenu) return;
@@ -276,7 +287,23 @@ export default function PortForwardingPanel() {
     setWizStep('type');
     setWizDraft(DEFAULT_WIZ);
     setEditDraft(null);
-    setEditHostPickerOpen(false);
+    setHostPickerOpen(false);
+  }
+
+  function openHostPicker(target: 'intermediate' | 'remote') {
+    setHostPickerTarget(target);
+    setHostPickerOpen(true);
+  }
+
+  function selectPickerHost(s: { id: string; name: string }) {
+    if (drawerMode === 'wizard') {
+      if (hostPickerTarget === 'intermediate') wiz({ intermediateHostId: s.id, intermediateHostName: s.name });
+      else wiz({ remoteHostId: s.id, remoteHostName: s.name });
+    } else {
+      if (hostPickerTarget === 'intermediate') ed({ intermediateHostId: s.id, intermediateHostName: s.name });
+      else ed({ remoteHostId: s.id, remoteHostName: s.name });
+    }
+    setHostPickerOpen(false);
   }
 
   function openWizard() {
@@ -376,13 +403,20 @@ export default function PortForwardingPanel() {
     closeDrawer();
   }
 
+  function killAllTunnels() {
+    setPanelCtx(null);
+    setCtxMenu(null);
+    for (const id of activeTunnelIds) {
+      stopTunnel(id).catch((e: unknown) => console.error(e));
+    }
+  }
+
   function handleCardDoubleClick(pf: PortForwarding) {
-    setActivePfIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(pf.id)) next.delete(pf.id);
-      else next.add(pf.id);
-      return next;
-    });
+    if (activeTunnelIds.has(pf.id)) {
+      stopTunnel(pf.id).catch((e: unknown) => alert(String(e)));
+    } else {
+      startTunnel(pf).catch((e: unknown) => alert(String(e)));
+    }
   }
 
   function handleConfirmDelete(id: string) {
@@ -397,17 +431,6 @@ export default function PortForwardingPanel() {
 
   function ed(d: Partial<EditDraft>) {
     setEditDraft((prev) => prev ? { ...prev, ...d } : prev);
-  }
-
-  // ── Wizard host picker select ───────────────────────────────
-  function pickWizardHost(server: { id: string; name: string }) {
-    if (wizStep === 'local-host' || wizStep === 'dyn-host') {
-      wiz({ intermediateHostId: server.id, intermediateHostName: server.name });
-      wizNext();
-    } else if (wizStep === 'remote-host') {
-      wiz({ remoteHostId: server.id, remoteHostName: server.name });
-      wizNext();
-    }
   }
 
   // ── Wizard step rendering ──────────────────────────────────
@@ -463,24 +486,14 @@ export default function PortForwardingPanel() {
           <p className="pf-wiz-desc">This device is used as an intermediate host to access the remote host.</p>
           {wizDraft.intermediateHostId ? (
             <>
-              <HostChip
-                name={wizDraft.intermediateHostName}
-                onRemove={() => wiz({ intermediateHostId: '', intermediateHostName: '' })}
-              />
+              <HostChip name={wizDraft.intermediateHostName} onRemove={() => wiz({ intermediateHostId: '', intermediateHostName: '' })} />
               <button className="btn-primary" style={{ width: '100%', marginTop: 12 }} onClick={wizNext}>Continue</button>
             </>
           ) : (
-            <div className="pf-host-list">
-              {servers.length === 0
-                ? <p className="pf-host-empty">No hosts saved yet.</p>
-                : servers.map((s) => (
-                  <button key={s.id} className="pf-host-item" onClick={() => pickWizardHost(s)}>
-                    <span className="pf-host-item-name">{s.name}</span>
-                    <span className="pf-host-item-addr">{s.host}:{s.port}</span>
-                  </button>
-                ))
-              }
-            </div>
+            <>
+              <label className="pf-float-label" style={{ display: 'block', marginBottom: 6 }}>Intermediate host *</label>
+              <button className="btn-secondary" style={{ width: '100%' }} onClick={() => openHostPicker('intermediate')}>Select host</button>
+            </>
           )}
         </div>
       );
@@ -507,24 +520,14 @@ export default function PortForwardingPanel() {
           <p className="pf-wiz-desc">Select a host where the port will be open. The traffic from this port will be forwarded to the destination host.</p>
           {wizDraft.remoteHostId ? (
             <>
-              <HostChip
-                name={wizDraft.remoteHostName}
-                onRemove={() => wiz({ remoteHostId: '', remoteHostName: '' })}
-              />
+              <HostChip name={wizDraft.remoteHostName} onRemove={() => wiz({ remoteHostId: '', remoteHostName: '' })} />
               <button className="btn-primary" style={{ width: '100%', marginTop: 12 }} onClick={wizNext}>Continue</button>
             </>
           ) : (
-            <div className="pf-host-list">
-              {servers.length === 0
-                ? <p className="pf-host-empty">No hosts saved yet.</p>
-                : servers.map((s) => (
-                  <button key={s.id} className="pf-host-item" onClick={() => pickWizardHost(s)}>
-                    <span className="pf-host-item-name">{s.name}</span>
-                    <span className="pf-host-item-addr">{s.host}:{s.port}</span>
-                  </button>
-                ))
-              }
-            </div>
+            <>
+              <label className="pf-float-label" style={{ display: 'block', marginBottom: 6 }}>Remote host *</label>
+              <button className="btn-secondary" style={{ width: '100%' }} onClick={() => openHostPicker('remote')}>Select host</button>
+            </>
           )}
         </div>
       );
@@ -577,24 +580,14 @@ export default function PortForwardingPanel() {
           <p className="pf-wiz-desc">The intermediate host will receive the traffic that will be forwarded to the local (current) host.</p>
           {wizDraft.intermediateHostId ? (
             <>
-              <HostChip
-                name={wizDraft.intermediateHostName}
-                onRemove={() => wiz({ intermediateHostId: '', intermediateHostName: '' })}
-              />
+              <HostChip name={wizDraft.intermediateHostName} onRemove={() => wiz({ intermediateHostId: '', intermediateHostName: '' })} />
               <button className="btn-primary" style={{ width: '100%', marginTop: 12 }} onClick={wizNext}>Continue</button>
             </>
           ) : (
-            <div className="pf-host-list">
-              {servers.length === 0
-                ? <p className="pf-host-empty">No hosts saved yet.</p>
-                : servers.map((s) => (
-                  <button key={s.id} className="pf-host-item" onClick={() => pickWizardHost(s)}>
-                    <span className="pf-host-item-name">{s.name}</span>
-                    <span className="pf-host-item-addr">{s.host}:{s.port}</span>
-                  </button>
-                ))
-              }
-            </div>
+            <>
+              <label className="pf-float-label" style={{ display: 'block', marginBottom: 6 }}>Intermediate host *</label>
+              <button className="btn-secondary" style={{ width: '100%' }} onClick={() => openHostPicker('intermediate')}>Select host</button>
+            </>
           )}
         </div>
       );
@@ -663,7 +656,7 @@ export default function PortForwardingPanel() {
         <FloatField label="Bind address" value={editDraft.bindAddress} onChange={(v) => ed({ bindAddress: v })} placeholder="127.0.0.1" />
 
         {/* Host selector */}
-        {selectedHostId && !editHostPickerOpen ? (
+        {selectedHostId ? (
           <div className="pf-host-chip" style={{ marginBottom: 12 }}>
             <div className="pf-float-field pf-host-chip-field" style={{ flex: 1 }}>
               <label className="pf-float-label">{hostFieldLabel} *</label>
@@ -672,30 +665,14 @@ export default function PortForwardingPanel() {
             <button className="pf-host-remove-btn" onClick={() => {
               if (t !== 'remote') ed({ intermediateHostId: '', intermediateHostName: '' });
               else ed({ remoteHostId: '', remoteHostName: '' });
-            }}>Remove Host</button>
+            }}>Change</button>
           </div>
         ) : (
           <div style={{ marginBottom: 12 }}>
             <label className="pf-float-label" style={{ display: 'block', marginBottom: 6 }}>{hostFieldLabel} *</label>
-            <div className="pf-host-list pf-host-list-inline">
-              {servers.length === 0
-                ? <p className="pf-host-empty">No hosts saved yet.</p>
-                : servers.map((s) => (
-                  <button
-                    key={s.id}
-                    className={`pf-host-item${selectedHostId === s.id ? ' selected' : ''}`}
-                    onClick={() => {
-                      if (t !== 'remote') ed({ intermediateHostId: s.id, intermediateHostName: s.name });
-                      else ed({ remoteHostId: s.id, remoteHostName: s.name });
-                      setEditHostPickerOpen(false);
-                    }}
-                  >
-                    <span className="pf-host-item-name">{s.name}</span>
-                    <span className="pf-host-item-addr">{s.host}:{s.port}</span>
-                  </button>
-                ))
-              }
-            </div>
+            <button className="btn-secondary" style={{ width: '100%' }} onClick={() => openHostPicker(t !== 'remote' ? 'intermediate' : 'remote')}>
+              Select {hostFieldLabel}
+            </button>
           </div>
         )}
 
@@ -732,11 +709,32 @@ export default function PortForwardingPanel() {
     <>
       <div
         className="panel pf-panel"
-        onContextMenu={(e) => e.preventDefault()}
+        onContextMenu={(e) => { e.preventDefault(); setPanelCtx({ x: e.clientX, y: e.clientY }); }}
       >
-        <div className="panel-title-row">
+        <div className="panel-title-row" style={{ marginBottom: 6 }}>
           <div className="panel-title">Port Forwarding</div>
-          <button className="btn-primary btn-sm" onClick={openWizard}>+ New</button>
+        </div>
+        <div style={{ position: 'relative', display: 'inline-block', marginBottom: 20 }}>
+          <div className="add-key-btn-group">
+            <button className="add-key-btn-main btn-primary btn-sm" onClick={openWizard}>+ Add Forwarding</button>
+            <button
+              className="add-key-btn-caret btn-primary btn-sm"
+              onClick={(e) => { e.stopPropagation(); setAddDropdownOpen((v) => !v); }}
+              aria-label="Select tunnel type"
+            >
+              <svg width="10" height="10" viewBox="0 0 10 6" fill="currentColor"><path d="M0 0l5 6 5-6z"/></svg>
+            </button>
+          </div>
+          {addDropdownOpen && (
+            <>
+              <div style={{ position: 'fixed', inset: 0, zIndex: 99 }} onClick={() => setAddDropdownOpen(false)} />
+              <div className="key-dropdown">
+                <button onClick={() => { setAddDropdownOpen(false); skipWizard('local'); }}>Local Forwarding</button>
+                <button onClick={() => { setAddDropdownOpen(false); skipWizard('remote'); }}>Remote Forwarding</button>
+                <button onClick={() => { setAddDropdownOpen(false); skipWizard('dynamic'); }}>Dynamic Forwarding</button>
+              </div>
+            </>
+          )}
         </div>
 
         {portForwardings.length === 0 ? (
@@ -751,7 +749,7 @@ export default function PortForwardingPanel() {
         ) : (
           <div className="pf-grid">
             {portForwardings.map((pf) => {
-              const active = activePfIds.has(pf.id);
+              const active = activeTunnelIds.has(pf.id);
               return (
                 <div
                   key={pf.id}
@@ -809,7 +807,28 @@ export default function PortForwardingPanel() {
             </div>
 
             <div className="pf-drawer-body">
-              {drawerMode === 'wizard' && (
+              {hostPickerOpen ? (
+                <>
+                  <button className="pf-back-btn" onClick={() => setHostPickerOpen(false)}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="15,18 9,12 15,6"/>
+                    </svg>
+                    Back
+                  </button>
+                  <p className="pf-wiz-title">Select host</p>
+                  <div className="pf-host-list">
+                    {servers.length === 0
+                      ? <p className="pf-host-empty">No hosts saved yet.</p>
+                      : servers.map((s) => (
+                        <button key={s.id} className="pf-host-item" onClick={() => selectPickerHost(s)}>
+                          <span className="pf-host-item-name">{s.name}</span>
+                          <span className="pf-host-item-addr">{s.host}:{s.port}</span>
+                        </button>
+                      ))
+                    }
+                  </div>
+                </>
+              ) : drawerMode === 'wizard' ? (
                 <>
                   {wizStep !== 'type' && (
                     <button className="pf-back-btn" onClick={wizBack}>
@@ -821,9 +840,7 @@ export default function PortForwardingPanel() {
                   )}
                   {renderWizardStep()}
                 </>
-              )}
-
-              {drawerMode === 'edit' && (
+              ) : drawerMode === 'edit' ? (
                 <>
                   {renderEditForm()}
                   <div className="pf-edit-actions">
@@ -834,10 +851,33 @@ export default function PortForwardingPanel() {
                     <button className="btn-primary btn-sm" onClick={saveEdit}>Save</button>
                   </div>
                 </>
-              )}
+              ) : null}
             </div>
           </div>
         </>
+      )}
+
+      {/* Panel background context menu */}
+      {panelCtx && (
+        <div
+          ref={panelCtxRef}
+          className="host-context-menu"
+          style={{
+            top: Math.min(panelCtx.y, window.innerHeight - 60),
+            left: Math.min(panelCtx.x, window.innerWidth - 160),
+          }}
+        >
+          <button className="host-ctx-item" onClick={() => { setPanelCtx(null); openWizard(); }}>Add Forwarding</button>
+          <button className="host-ctx-item" onClick={() => { setPanelCtx(null); skipWizard('local'); }}>Add Local Forwarding</button>
+          <button className="host-ctx-item" onClick={() => { setPanelCtx(null); skipWizard('remote'); }}>Add Remote Forwarding</button>
+          <button className="host-ctx-item" onClick={() => { setPanelCtx(null); skipWizard('dynamic'); }}>Add Dynamic Forwarding</button>
+          {activeTunnelIds.size > 0 && (
+            <>
+              <div className="host-ctx-divider" />
+              <button className="host-ctx-item host-ctx-danger" onClick={killAllTunnels}>Kill all active tunnels</button>
+            </>
+          )}
+        </div>
       )}
 
       {/* Context menu */}
@@ -851,8 +891,13 @@ export default function PortForwardingPanel() {
           }}
         >
           <button className="host-ctx-item" onClick={() => { handleCardDoubleClick(ctxMenu.pf); setCtxMenu(null); }}>
-            {activePfIds.has(ctxMenu.pf.id) ? 'Deactivate' : 'Activate'}
+            {activeTunnelIds.has(ctxMenu.pf.id) ? 'Deactivate' : 'Activate'}
           </button>
+          {activeTunnelIds.size > 1 && (
+            <button className="host-ctx-item" onClick={killAllTunnels}>
+              Kill all active
+            </button>
+          )}
           <button className="host-ctx-item" onClick={() => editExisting(ctxMenu.pf)}>
             Edit
           </button>
