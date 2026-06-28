@@ -4,11 +4,8 @@ A GUI SSH client built with Tauri 2, React, and Rust.
 
 ## Features
 
-### Terminal emulator
-Full xterm.js terminal with configurable font family, font size, cursor style, and colour scheme. Supports 10 000-line scrollback, copy/paste, and standard terminal escape sequences. Each session runs in its own tab and stays alive while you switch between tabs.
-
-### Multiple sessions
-Open any number of servers at once in tabs. Sessions are independent, so running a long command on one server does not block interaction with another. Closing a tab disconnects cleanly.
+### Host profiles
+Store connection details per server: hostname, port, username, SSH key or password, identity, and default theme. Each server has an OS tag (Linux, Ubuntu, Debian, Arch, Fedora, macOS, Windows, FreeBSD, Raspberry Pi) shown as an icon in the sidebar. Quick-connect from the sidebar with one click. Supports per-host credentials or shared identities reused across servers.
 
 ### SFTP file browser
 Browse, upload, download, rename, delete, and create folders on remote servers without leaving the app. The file list can be sorted by name, size, or modification date, with an option to show folders at the top. Supports both key-based and password-based auth, and works with per-host credentials or shared identities.
@@ -16,8 +13,23 @@ Browse, upload, download, rename, delete, and create folders on remote servers w
 ### SSH key management
 Generate Ed25519, RSA, and ECDSA keys directly in the app. Import existing keys. All private keys are stored in an encrypted local keychain and are never written to disk unencrypted. Assign a key to a server or identity; the app decrypts and uses it at connect time.
 
+### Port forwarding
+Create and manage SSH port forwarding rules. Three forwarding types are supported:
+
+- **Local** (`-L`): opens a port on the local machine and forwards traffic through the SSH host to a destination address. Useful for accessing services on a remote network as if they were local.
+- **Remote** (`-R`): opens a port on the remote SSH host and forwards incoming traffic back to a local destination. Useful for exposing a local service to a remote machine.
+- **Dynamic** (`-D`): opens a local SOCKS5 proxy port. Any SOCKS5-aware app can route its traffic through the SSH host, acting as a tunnel for arbitrary destinations.
+
+Rules are created with a step-by-step wizard or directly via the edit form. Double-click a card (or right-click and select Activate) to start the tunnel. Multiple tunnels can run simultaneously and are stopped individually or all at once via right-click and Kill all active tunnels.
+
 ### Themes and per-session colours
 Ships with dark and light themes. The built-in theme editor lets you customise every colour: background, foreground, cursor, selection, and all 16 ANSI colours. Theme changes can be applied per-session without changing the server's default theme.
+
+### Terminal emulator
+Full xterm.js terminal with configurable font family, font size, cursor style, and colour scheme. Supports 10 000-line scrollback, copy/paste, and standard terminal escape sequences. Each session runs in its own tab and stays alive while you switch between tabs.
+
+### Multiple sessions
+Open any number of servers at once in tabs. Sessions are independent, so running a long command on one server does not block interaction with another. Closing a tab disconnects cleanly.
 
 ### Codeprints
 Save named shell commands with a label. Open the Codeprints sidebar in any session and click **Paste** to insert the command into the prompt (so you can edit it first) or **Run** to execute it immediately. Codeprints are global, one list shared across all sessions and servers.
@@ -26,9 +38,6 @@ Typical uses:
 - Restart services: `sudo systemctl restart nginx`
 - Tail logs: `journalctl -fu myapp`
 - Deploy scripts, database queries, monitoring one-liners
-
-### Host profiles
-Store connection details per server: hostname, port, username, SSH key or password, identity, and default theme. Each server has an OS tag (Linux, Ubuntu, Debian, Arch, Fedora, macOS, Windows, FreeBSD, Raspberry Pi) shown as an icon in the sidebar. Quick-connect from the sidebar with one click. Supports per-host credentials or shared identities reused across servers.
 
 ---
 
