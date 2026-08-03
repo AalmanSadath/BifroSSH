@@ -65,6 +65,32 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.5.0" date="2026-08-04">
+      <description>
+        <p>
+          Whole folders can now be transferred over SFTP, in either direction or between
+          two remote servers, instead of only one file at a time. Progress shows which
+          file of how many is moving, and symbolic links are skipped rather than
+          followed.
+        </p>
+        <p>
+          Existing hosts can be imported from ~/.ssh/config. The dialog lists what was
+          found before anything is created, skips hosts already saved, and references
+          identity files where they are rather than copying private keys.
+        </p>
+        <p>
+          Sessions and tunnels now send a keepalive, so they survive NAT and firewall
+          idle timers and report a dead host instead of hanging. Each connection also
+          keeps a log of how it was established, reviewable from the session sidebar
+          after the fact.
+        </p>
+        <p>
+          Port forwarding rules, codeprints and custom themes are now kept with the rest
+          of your data instead of in browser storage, where clearing browsing data
+          destroyed them. Existing entries are migrated automatically on first launch.
+        </p>
+      </description>
+    </release>
     <release version="0.4.0" date="2026-08-04">
       <description>
         <p>

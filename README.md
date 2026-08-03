@@ -5,10 +5,10 @@ A GUI SSH client built with Tauri 2, React, and Rust.
 ## Features
 
 ### Host profiles
-Store connection details per server: hostname, port, username, SSH key or password, identity, and default theme. Each server has an OS tag (Linux, Ubuntu, Debian, Arch, Fedora, macOS, Windows, FreeBSD, Raspberry Pi) shown as an icon in the sidebar. Quick-connect from the sidebar with one click. Supports per-host credentials or shared identities reused across servers.
+Import your existing hosts straight from `~/.ssh/config`, or add them by hand. Store connection details per server: hostname, port, username, SSH key or password, identity, and default theme. Each server has an OS tag (Linux, Ubuntu, Debian, Arch, Fedora, macOS, Windows, FreeBSD, Raspberry Pi) shown as an icon in the sidebar. Quick-connect from the sidebar with one click. Supports per-host credentials or shared identities reused across servers.
 
 ### SFTP file browser
-Browse, upload, download, rename, delete, and create folders on remote servers without leaving the app. The file list can be sorted by name, size, or modification date, with an option to show folders at the top. Supports both key-based and password-based auth, and works with per-host credentials or shared identities.
+Browse, upload, download, rename, delete, and create folders on remote servers without leaving the app. Whole folders can be transferred in either direction, or between two remote servers, and are copied recursively with a progress readout showing which file of how many is moving. Symbolic links are skipped rather than followed. The file list can be sorted by name, size, or modification date, with an option to show folders at the top. Supports both key-based and password-based auth, and works with per-host credentials or shared identities.
 
 ### SSH key management
 Generate Ed25519, RSA, and ECDSA keys directly in the app. Import existing keys. All private keys are stored in an encrypted local keychain and are never written to disk unencrypted. Assign a key to a server or identity; the app decrypts and uses it at connect time.
@@ -57,6 +57,11 @@ Full xterm.js terminal with configurable font family, font size, cursor style, a
 
 ### Multiple sessions
 Open any number of servers at once in tabs. Sessions are independent, so running a long command on one server does not block interaction with another. Closing a tab disconnects cleanly.
+
+### Connection reliability
+Sessions and tunnels send a periodic keepalive, so they are not dropped by a NAT or firewall idle timer while you are not typing, and a connection to a host that has gone away reports itself instead of hanging. The interval is configurable, and can be turned off.
+
+Every connection keeps a log of how it was established: address resolution, host key verification, authentication, and the shell or SFTP subsystem starting. It stays available from the session sidebar, so a connection that failed or behaved oddly can be looked at after the fact rather than only while it is still on screen.
 
 ### Codeprints
 Save named shell commands with a label. Open the Codeprints sidebar in any session and click **Paste** to insert the command into the prompt (so you can edit it first) or **Run** to execute it immediately. Codeprints are global, one list shared across all sessions and servers.
