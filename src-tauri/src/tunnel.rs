@@ -4,12 +4,12 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use russh::*;
 use russh::client::{self, Msg};
-use russh_keys::key::KeyPair;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{oneshot, Mutex};
 
 use crate::hostkeys::{ConnectSecurity, HostKeyVerifier, VerifyingHandler};
+use crate::ssh::{AuthContext, SshAuth};
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -98,19 +98,25 @@ impl client::Handler for RemoteForwardHandler {
 
 // ── SSH connect helpers ───────────────────────────────────────────────────────
 
+impl TunnelAuth {
+    fn to_ssh_auth(&self) -> SshAuth {
+        if self.kind == "password" {
+            SshAuth::Password(self.value.clone())
+        } else {
+            SshAuth::KeyData {
+                key_pem: self.value.clone(),
+                passphrase: self.passphrase.clone(),
+            }
+        }
+    }
+}
+
 async fn authenticate_handle<H: client::Handler>(
     handle: &mut client::Handle<H>,
-    username: &str,
-    auth: &TunnelAuth,
+    base: &TunnelBase,
 ) -> Result<()> {
-    let ok = if auth.kind == "password" {
-        handle.authenticate_password(username, &auth.value).await?
-    } else {
-        let kp: KeyPair = russh_keys::decode_secret_key(&auth.value, auth.passphrase.as_deref())?;
-        handle.authenticate_publickey(username, Arc::new(kp)).await?
-    };
-    if !ok { return Err(anyhow!("Authentication failed")); }
-    Ok(())
+    let ctx = AuthContext::new(base.sec.clone(), &base.ssh_username);
+    crate::ssh::authenticate(handle, &base.auth.to_ssh_auth(), &ctx).await
 }
 
 fn tunnel_verifier(base: &TunnelBase) -> HostKeyVerifier {
@@ -133,7 +139,7 @@ async fn connect_basic(base: &TunnelBase) -> Result<client::Handle<VerifyingHand
         Ok(h) => h,
         Err(e) => return Err(crate::ssh::host_key_error(&verifier, e)),
     };
-    authenticate_handle(&mut handle, &base.ssh_username, &base.auth).await?;
+    authenticate_handle(&mut handle, base).await?;
     Ok(handle)
 }
 
@@ -153,7 +159,7 @@ async fn connect_remote_fwd(
         Ok(h) => h,
         Err(e) => return Err(crate::ssh::host_key_error(&verifier, e)),
     };
-    authenticate_handle(&mut handle, &base.ssh_username, &base.auth).await?;
+    authenticate_handle(&mut handle, base).await?;
     Ok(handle)
 }
 

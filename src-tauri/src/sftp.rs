@@ -6,7 +6,6 @@ use std::time::SystemTime;
 
 use anyhow::Result;
 use russh::*;
-use russh_keys::key::KeyPair;
 use russh_sftp::client::SftpSession;
 use serde::Serialize;
 use tauri::Emitter;
@@ -14,6 +13,7 @@ use tokio::sync::Mutex;
 use tokio::time::Duration;
 
 use crate::hostkeys::{ConnectSecurity, HostKeyVerifier, VerifyingHandler};
+use crate::ssh::{AuthContext, SshAuth};
 
 const CHUNK: usize = 128 * 1024; // 128 KB
 
@@ -193,22 +193,25 @@ async fn connect_sftp_inner(
         .map_err(|e| e.to_string())?;
     let addr = addrs.next().ok_or_else(|| "Cannot resolve host".to_string())?;
 
-    let verifier = HostKeyVerifier::new(sec, host, port, Some(username.to_string()));
-    let mut handle = client::connect(config, addr, VerifyingHandler { v: verifier.clone() })
-        .await
-        .map_err(|e| crate::ssh::host_key_error(&verifier, e).to_string())?;
-
-    let authenticated = if let Some(pw) = password {
-        handle.authenticate_password(username, pw).await.map_err(|e| e.to_string())?
+    let auth = if let Some(pw) = password {
+        SshAuth::Password(pw.to_string())
     } else if let Some(pem) = key_pem {
-        let kp: KeyPair = russh_keys::decode_secret_key(pem, passphrase)
-            .map_err(|e| e.to_string())?;
-        handle.authenticate_publickey(username, Arc::new(kp)).await.map_err(|e| e.to_string())?
+        SshAuth::KeyData {
+            key_pem: pem.to_string(),
+            passphrase: passphrase.map(str::to_string),
+        }
     } else {
         return Err("No authentication provided".into());
     };
 
-    if !authenticated { return Err("Authentication failed".into()); }
+    let verifier = HostKeyVerifier::new(sec.clone(), host, port, Some(username.to_string()));
+    let mut handle = client::connect(config, addr, VerifyingHandler { v: verifier.clone() })
+        .await
+        .map_err(|e| crate::ssh::host_key_error(&verifier, e).to_string())?;
+
+    crate::ssh::authenticate(&mut handle, &auth, &AuthContext::new(sec, username))
+        .await
+        .map_err(|e| e.to_string())?;
 
     let channel = handle.channel_open_session().await.map_err(|e| e.to_string())?;
     channel.request_subsystem(true, "sftp").await.map_err(|e| e.to_string())?;

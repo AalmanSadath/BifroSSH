@@ -50,6 +50,53 @@ pub enum SshAuth {
     KeyData { key_pem: String, passphrase: Option<String> },
 }
 
+/// What `authenticate` needs beyond the credential itself: who we are, and
+/// where to narrate progress. Wraps `ConnectSecurity` rather than repeating
+/// its fields, so the app handle, prompt broker and pause flag stay shared
+/// with host key verification.
+pub struct AuthContext {
+    pub sec: ConnectSecurity,
+    pub username: String,
+}
+
+impl AuthContext {
+    pub fn new(sec: ConnectSecurity, username: &str) -> Self {
+        AuthContext { sec, username: username.to_string() }
+    }
+
+    fn log(&self, kind: &str, message: &str) {
+        if let Some(connect_id) = &self.sec.connect_id {
+            emit_log(&self.sec.app, connect_id, kind, message);
+        }
+    }
+}
+
+/// The single authentication path for every connect in the app: terminal
+/// sessions, SFTP, tunnels and one-shot commands.
+pub async fn authenticate<H: client::Handler>(
+    handle: &mut client::Handle<H>,
+    auth: &SshAuth,
+    ctx: &AuthContext,
+) -> Result<()> {
+    let authenticated = match auth {
+        SshAuth::Password(password) => {
+            handle.authenticate_password(&ctx.username, password).await?
+        }
+        SshAuth::KeyData { key_pem, passphrase } => {
+            let key_pair: KeyPair = russh_keys::decode_secret_key(key_pem, passphrase.as_deref())?;
+            ctx.log("network", "Authenticating using publickey method");
+            handle
+                .authenticate_publickey(&ctx.username, Arc::new(key_pair))
+                .await?
+        }
+    };
+
+    if !authenticated {
+        return Err(anyhow!("Authentication failed"));
+    }
+    Ok(())
+}
+
 pub struct SshConnectParams {
     pub host: String,
     pub port: u16,
@@ -86,23 +133,13 @@ pub async fn exec_ssh_command(
     let mut addrs = tokio::net::lookup_host(format!("{}:{}", host, port)).await?;
     let addr = addrs.next().ok_or_else(|| anyhow!("Cannot resolve host: {}", host))?;
 
-    let verifier = HostKeyVerifier::new(sec, host, port, Some(username.to_string()));
+    let verifier = HostKeyVerifier::new(sec.clone(), host, port, Some(username.to_string()));
     let mut handle = match client::connect(config, addr, VerifyingHandler { v: verifier.clone() }).await {
         Ok(h) => h,
         Err(e) => return Err(host_key_error(&verifier, e)),
     };
 
-    let authenticated = match &auth {
-        SshAuth::Password(password) => handle.authenticate_password(username, password).await?,
-        SshAuth::KeyData { key_pem, passphrase } => {
-            let key_pair: KeyPair = russh_keys::decode_secret_key(key_pem, passphrase.as_deref())?;
-            handle.authenticate_publickey(username, Arc::new(key_pair)).await?
-        }
-    };
-
-    if !authenticated {
-        return Err(anyhow!("Authentication failed"));
-    }
+    authenticate(&mut handle, &auth, &AuthContext::new(sec, username)).await?;
 
     let mut channel = handle.channel_open_session().await?;
     channel.exec(true, command).await?;
@@ -147,7 +184,7 @@ pub async fn connect_ssh(
     emit_log(&app, &connect_id, "network", "Address resolution finished");
 
     emit_log(&app, &connect_id, "network", &format!("Connecting to \"{}\" port \"{}\"", params.host, params.port));
-    let verifier = HostKeyVerifier::new(sec, &params.host, params.port, Some(params.username.clone()));
+    let verifier = HostKeyVerifier::new(sec.clone(), &params.host, params.port, Some(params.username.clone()));
     let mut handle = match client::connect(config, addr, VerifyingHandler { v: verifier.clone() }).await {
         Ok(h) => h,
         Err(e) => return Err(host_key_error(&verifier, e)),
@@ -155,21 +192,7 @@ pub async fn connect_ssh(
     emit_log(&app, &connect_id, "network", "TCP connection established");
 
     emit_log(&app, &connect_id, "auth", &format!("Authenticating to \"{}\":\"{}\" as \"{}\"", params.host, params.port, params.username));
-    let authenticated = match &params.auth {
-        SshAuth::Password(password) => {
-            handle.authenticate_password(&params.username, password).await?
-        }
-        SshAuth::KeyData { key_pem, passphrase } => {
-            let pass = passphrase.as_deref();
-            let key_pair: KeyPair = russh_keys::decode_secret_key(key_pem, pass)?;
-            emit_log(&app, &connect_id, "network", "Authenticating using publickey method");
-            handle.authenticate_publickey(&params.username, Arc::new(key_pair)).await?
-        }
-    };
-
-    if !authenticated {
-        return Err(anyhow!("Authentication failed"));
-    }
+    authenticate(&mut handle, &params.auth, &AuthContext::new(sec, &params.username)).await?;
     emit_log(&app, &connect_id, "auth", "Authentication succeeded");
 
     emit_log(&app, &connect_id, "network", "Opening session channel...");
