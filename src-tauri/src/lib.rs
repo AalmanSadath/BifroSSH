@@ -7,6 +7,8 @@ mod prompts;
 mod sftp;
 mod ssh;
 #[cfg(test)]
+mod agent_tests;
+#[cfg(test)]
 mod ssh_auth_tests;
 mod store;
 mod tunnel;

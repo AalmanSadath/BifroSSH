@@ -3554,8 +3554,6 @@ dependencies = [
 [[package]]
 name = "russh-keys"
 version = "0.44.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb8c0bfe024d4edd242f65a2ac6c8bf38a892930050b9eb90909d8fc2c413c8d"
 dependencies = [
  "aes",
  "async-trait",
