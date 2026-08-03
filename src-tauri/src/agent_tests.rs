@@ -43,8 +43,20 @@ fn sk_ed25519_blob() -> Vec<u8> {
     blob
 }
 
+/// Removes the socket directory when the test ends, so a test run does not
+/// litter /tmp.
+struct SocketDirGuard(std::path::PathBuf);
+
+impl Drop for SocketDirGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 /// Serves exactly one REQUEST_IDENTITIES with the given (blob, comment) pairs.
-async fn spawn_agent(identities: Vec<(Vec<u8>, &'static str)>) -> std::path::PathBuf {
+async fn spawn_agent(
+    identities: Vec<(Vec<u8>, &'static str)>,
+) -> (std::path::PathBuf, SocketDirGuard) {
     let dir = std::env::temp_dir().join(format!(
         "bifrossh-agent-{}-{:?}",
         std::process::id(),
@@ -87,12 +99,12 @@ async fn spawn_agent(identities: Vec<(Vec<u8>, &'static str)>) -> std::path::Pat
         let _ = stream.flush().await;
     });
 
-    path
+    (path, SocketDirGuard(dir))
 }
 
 #[tokio::test]
 async fn parseable_identities_are_returned() {
-    let path = spawn_agent(vec![
+    let (path, _guard) = spawn_agent(vec![
         (ed25519_blob(), "one@host"),
         (ed25519_blob(), "two@host"),
     ])
@@ -109,7 +121,7 @@ async fn parseable_identities_are_returned() {
 /// access to every key in their agent.
 #[tokio::test]
 async fn a_fido_key_does_not_hide_the_others() {
-    let path = spawn_agent(vec![
+    let (path, _guard) = spawn_agent(vec![
         (sk_ed25519_blob(), "yubikey"),
         (ed25519_blob(), "usable@host"),
     ])
@@ -129,7 +141,7 @@ async fn a_fido_key_does_not_hide_the_others() {
 /// only holds if the reader stays in sync across the skipped entry.
 #[tokio::test]
 async fn skipping_keeps_the_reader_aligned() {
-    let path = spawn_agent(vec![
+    let (path, _guard) = spawn_agent(vec![
         (ed25519_blob(), "first"),
         (sk_ed25519_blob(), "yubikey"),
         (ed25519_blob(), "third"),
@@ -144,7 +156,7 @@ async fn skipping_keeps_the_reader_aligned() {
 
 #[tokio::test]
 async fn an_empty_agent_is_not_an_error() {
-    let path = spawn_agent(vec![]).await;
+    let (path, _guard) = spawn_agent(vec![]).await;
 
     let mut agent = AgentClient::connect_uds(&path).await.unwrap();
     let keys = agent.request_identities().await.unwrap();
