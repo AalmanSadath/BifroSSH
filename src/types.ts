@@ -10,7 +10,11 @@ export interface Server {
   theme: string | null;
   os: string;
   connection_timeout: number | null;
+  auth_kind: AuthKind | null;
 }
+
+/** 'keyboard-interactive' selects PAM/2FA challenge-response. */
+export type AuthKind = 'keyboard-interactive';
 
 export interface Identity {
   id: string;
@@ -18,6 +22,7 @@ export interface Identity {
   username: string;
   key_id: string | null;
   encrypted_password: string | null;
+  auth_kind: AuthKind | null;
 }
 
 export interface KeyEntry {
@@ -60,6 +65,22 @@ export interface HostKeyPromptEvent {
   existing_fingerprint: string | null;
   source: string | null;
   line: number | null;
+}
+
+export interface AuthPromptField {
+  prompt: string;
+  /** False for secrets — the server decides, and those stay masked. */
+  echo: boolean;
+}
+
+export interface AuthPromptEvent {
+  request_id: string;
+  connect_id: string | null;
+  host: string;
+  username: string;
+  name: string;
+  instructions: string;
+  prompts: AuthPromptField[];
 }
 
 export interface KnownHostEntry {

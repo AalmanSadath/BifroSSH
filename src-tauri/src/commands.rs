@@ -99,7 +99,10 @@ pub async fn save_server(
         None
     };
 
-    let encrypted_password = if server.key_id.is_some() { None } else { encrypted_password };
+    // Keyboard-interactive answers are typed per connection and never stored,
+    // so no stale password should linger alongside it.
+    let uses_prompts = server.auth_kind.as_deref() == Some("keyboard-interactive");
+    let encrypted_password = if server.key_id.is_some() || uses_prompts { None } else { encrypted_password };
 
     let server = Server {
         id: if server.id.is_empty() { Uuid::new_v4().to_string() } else { server.id },
@@ -452,7 +455,12 @@ pub async fn save_identity(
         identity
     };
 
-    if let Some(ref pw) = password {
+    let uses_prompts = identity.auth_kind.as_deref() == Some("keyboard-interactive");
+    if uses_prompts {
+        // Answered per connection, never stored.
+        identity.encrypted_password = None;
+        identity.key_id = None;
+    } else if let Some(ref pw) = password {
         identity.encrypted_password = Some(encrypt(pw.as_bytes(), &state.secret_key).map_err(|e| e.to_string())?);
     } else if identity.key_id.is_some() {
         identity.encrypted_password = None;
@@ -537,6 +545,21 @@ pub async fn respond_host_key(
         let _ = sender.send(decision);
     }
 
+    Ok(())
+}
+
+/// Completes a keyboard-interactive round. `None` cancels the login.
+#[tauri::command]
+pub async fn respond_auth_prompt(
+    state: State<'_, AppState>,
+    request_id: String,
+    responses: Option<Vec<String>>,
+) -> Result<(), String> {
+    let sender = state.prompts.auth.lock().await.remove(&request_id);
+    // Gone means the connect already gave up; nothing left to answer.
+    if let Some(sender) = sender {
+        let _ = sender.send(responses);
+    }
     Ok(())
 }
 
@@ -696,7 +719,9 @@ pub async fn ssh_connect(
             .ok_or_else(|| "Server not found".to_string())?
     };
 
-    let auth = if request.auth_type == "password" {
+    let auth = if request.auth_type == "keyboard-interactive" {
+        SshAuth::KeyboardInteractive
+    } else if request.auth_type == "password" {
         SshAuth::Password(request.auth_value.clone())
     } else {
         let (key_pem, passphrase) = {
@@ -793,7 +818,9 @@ pub async fn ssh_connect_quick(
 ) -> Result<String, String> {
     let session_id = Uuid::new_v4().to_string();
 
-    let auth = if request.auth_type == "password" {
+    let auth = if request.auth_type == "keyboard-interactive" {
+        SshAuth::KeyboardInteractive
+    } else if request.auth_type == "password" {
         SshAuth::Password(request.auth_value.clone())
     } else {
         let (key_pem, passphrase) = {
@@ -964,34 +991,25 @@ pub async fn sftp_connect_remote(
 
     let sec = connect_security(&state, &app, None, true).await;
 
-    if auth_type == "key" {
-        let pem = key_pem.ok_or_else(|| "Key not found or could not be read".to_string())?;
-        crate::sftp::connect_sftp(
-            &state.sftp_state,
-            &session_id,
-            &host,
-            port,
-            &username,
-            Some(&pem),
-            passphrase.as_deref(),
-            None,
-            inactivity_timeout_secs,
-            sec,
-        ).await?;
-    } else {
-        crate::sftp::connect_sftp(
-            &state.sftp_state,
-            &session_id,
-            &host,
-            port,
-            &username,
-            None,
-            None,
-            Some(&auth_value),
-            inactivity_timeout_secs,
-            sec,
-        ).await?;
-    }
+    let auth = match auth_type.as_str() {
+        "keyboard-interactive" => SshAuth::KeyboardInteractive,
+        "key" => {
+            let key_pem = key_pem.ok_or_else(|| "Key not found or could not be read".to_string())?;
+            SshAuth::KeyData { key_pem, passphrase }
+        }
+        _ => SshAuth::Password(auth_value.clone()),
+    };
+
+    crate::sftp::connect_sftp(
+        &state.sftp_state,
+        &session_id,
+        &host,
+        port,
+        &username,
+        auth,
+        inactivity_timeout_secs,
+        sec,
+    ).await?;
 
     Ok(session_id)
 }
@@ -1108,6 +1126,14 @@ fn resolve_tunnel_auth(
     auth_type: &str,
     auth_value: &str,
 ) -> Result<TunnelAuth, String> {
+    if auth_type == "keyboard-interactive" {
+        // Nothing to resolve: the server asks and the user answers at connect time.
+        return Ok(TunnelAuth {
+            kind: "keyboard-interactive".to_string(),
+            value: String::new(),
+            passphrase: None,
+        });
+    }
     if auth_type == "password" {
         return Ok(TunnelAuth {
             kind: "password".to_string(),

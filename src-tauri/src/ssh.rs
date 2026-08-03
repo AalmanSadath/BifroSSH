@@ -6,9 +6,14 @@ use russh::*;
 use russh_keys::key::KeyPair;
 use tokio::sync::{mpsc, Mutex};
 use tokio::time::{interval, Duration};
+use std::sync::atomic::Ordering;
+use russh::client::{KeyboardInteractiveAuthResponse, Prompt};
 use tauri::{AppHandle, Emitter};
+use tokio::sync::oneshot;
+use tokio::time::timeout;
 
 use crate::hostkeys::{ConnectSecurity, HostKeyVerifier, VerifyingHandler};
+use crate::prompts::{AuthPromptEvent, AuthPromptField, PromptCancelEvent};
 
 pub enum SshCommand {
     Data(Vec<u8>),
@@ -48,6 +53,8 @@ pub(crate) fn emit_log(app: &AppHandle, connect_id: &str, kind: &str, message: &
 pub enum SshAuth {
     Password(String),
     KeyData { key_pem: String, passphrase: Option<String> },
+    /// PAM-style challenge/response, and the transport for most 2FA setups.
+    KeyboardInteractive,
 }
 
 /// What `authenticate` needs beyond the credential itself: who we are, and
@@ -57,11 +64,44 @@ pub enum SshAuth {
 pub struct AuthContext {
     pub sec: ConnectSecurity,
     pub username: String,
+    /// Shown in the prompt so the user knows which server is asking.
+    pub host: String,
+}
+
+/// How the keyboard-interactive loop reaches a human. Split out from
+/// `AuthContext` so the loop can be exercised in tests without a Tauri
+/// AppHandle -- the zero-prompt and multi-round cases are impossible to
+/// reproduce by hand without a live PAM or Duo server.
+#[async_trait::async_trait]
+pub(crate) trait AuthPrompter: Sync {
+    fn interactive(&self) -> bool;
+    fn log(&self, kind: &str, message: &str);
+    async fn ask(&self, name: &str, instructions: &str, prompts: &[Prompt]) -> Option<Vec<String>>;
+}
+
+#[async_trait::async_trait]
+impl AuthPrompter for AuthContext {
+    fn interactive(&self) -> bool {
+        self.sec.interactive
+    }
+
+    fn log(&self, kind: &str, message: &str) {
+        AuthContext::log(self, kind, message);
+    }
+
+    async fn ask(&self, name: &str, instructions: &str, prompts: &[Prompt]) -> Option<Vec<String>> {
+        AuthContext::ask(self, name, instructions, prompts).await
+    }
 }
 
 impl AuthContext {
     pub fn new(sec: ConnectSecurity, username: &str) -> Self {
-        AuthContext { sec, username: username.to_string() }
+        AuthContext { sec, username: username.to_string(), host: String::new() }
+    }
+
+    pub fn with_host(mut self, host: &str) -> Self {
+        self.host = host.to_string();
+        self
     }
 
     fn log(&self, kind: &str, message: &str) {
@@ -69,6 +109,99 @@ impl AuthContext {
             emit_log(&self.sec.app, connect_id, kind, message);
         }
     }
+
+    /// Puts one round of prompts to the user. `None` means they cancelled, or
+    /// nobody answered in time.
+    async fn ask(
+        &self,
+        name: &str,
+        instructions: &str,
+        prompts: &[Prompt],
+    ) -> Option<Vec<String>> {
+        let request_id = uuid::Uuid::new_v4().to_string();
+        let (tx, rx) = oneshot::channel();
+        self.sec.prompts.auth.lock().await.insert(request_id.clone(), tx);
+
+        let event = AuthPromptEvent {
+            request_id: request_id.clone(),
+            connect_id: self.sec.connect_id.clone(),
+            host: self.host.clone(),
+            username: self.username.clone(),
+            name: name.to_string(),
+            instructions: instructions.to_string(),
+            prompts: prompts
+                .iter()
+                .map(|p| AuthPromptField { prompt: p.prompt.clone(), echo: p.echo })
+                .collect(),
+        };
+
+        self.sec.waiting.store(true, Ordering::Relaxed);
+        let _ = self.sec.app.emit("auth-prompt", event);
+
+        let answers = match timeout(Duration::from_secs(300), rx).await {
+            Ok(Ok(answers)) => answers,
+            _ => None,
+        };
+
+        self.sec.waiting.store(false, Ordering::Relaxed);
+        self.sec.prompts.auth.lock().await.remove(&request_id);
+        let _ = self
+            .sec
+            .app
+            .emit("auth-prompt-cancel", PromptCancelEvent { request_id });
+
+        answers
+    }
+}
+
+/// Server-driven challenge/response. Each round may carry any number of
+/// prompts, including none.
+pub(crate) async fn keyboard_interactive<H: client::Handler>(
+    handle: &mut client::Handle<H>,
+    username: &str,
+    ctx: &dyn AuthPrompter,
+) -> Result<bool> {
+    let mut response = handle
+        .authenticate_keyboard_interactive_start(username, None)
+        .await?;
+
+    // A well-behaved server converges in a handful of rounds; the cap stops a
+    // broken or hostile one from looping forever.
+    for _ in 0..20 {
+        match response {
+            KeyboardInteractiveAuthResponse::Success => return Ok(true),
+            KeyboardInteractiveAuthResponse::Failure => return Ok(false),
+            KeyboardInteractiveAuthResponse::InfoRequest { name, instructions, prompts } => {
+                if !instructions.trim().is_empty() {
+                    ctx.log("auth", instructions.trim());
+                }
+
+                let answers = if prompts.is_empty() {
+                    // Not a question. Servers use an empty request to display
+                    // status -- "Pushed a login request to your phone" -- and
+                    // expect an immediate empty reply. Showing a modal here
+                    // would hang the login waiting for input nobody can give.
+                    Vec::new()
+                } else if !ctx.interactive() {
+                    return Ok(false);
+                } else {
+                    match ctx.ask(&name, &instructions, &prompts).await {
+                        Some(answers) => answers,
+                        None => {
+                            ctx.log("auth", "Authentication cancelled");
+                            return Ok(false);
+                        }
+                    }
+                };
+
+                response = handle
+                    .authenticate_keyboard_interactive_respond(answers)
+                    .await?;
+            }
+        }
+    }
+
+    Err(anyhow!("Server sent too many authentication prompts"))
 }
 
 /// The single authentication path for every connect in the app: terminal
@@ -89,12 +222,35 @@ pub async fn authenticate<H: client::Handler>(
                 .authenticate_publickey(&ctx.username, Arc::new(key_pair))
                 .await?
         }
+        SshAuth::KeyboardInteractive => {
+            ctx.log("network", "Authenticating using keyboard-interactive method");
+            return match keyboard_interactive(handle, &ctx.username, ctx).await? {
+                true => Ok(()),
+                false => Err(anyhow!("Authentication failed")),
+            };
+        }
     };
 
-    if !authenticated {
-        return Err(anyhow!("Authentication failed"));
+    if authenticated {
+        return Ok(());
     }
-    Ok(())
+
+    // russh 0.44's client API never surfaces the server's accepted-method list
+    // (Reply::AuthFailure carries no payload), so there is no way to ask what
+    // to try next -- fall back blind. This is the common case of a server with
+    // PasswordAuthentication off that offers PAM keyboard-interactive instead,
+    // and of any 2FA setup.
+    //
+    // The stored password is deliberately not replayed into these prompts: the
+    // server picks the prompt text and could ask for anything at all.
+    if ctx.sec.interactive {
+        ctx.log("auth", "Retrying with keyboard-interactive");
+        if keyboard_interactive(handle, &ctx.username, ctx).await? {
+            return Ok(());
+        }
+    }
+
+    Err(anyhow!("Authentication failed"))
 }
 
 pub struct SshConnectParams {
@@ -139,7 +295,7 @@ pub async fn exec_ssh_command(
         Err(e) => return Err(host_key_error(&verifier, e)),
     };
 
-    authenticate(&mut handle, &auth, &AuthContext::new(sec, username)).await?;
+    authenticate(&mut handle, &auth, &AuthContext::new(sec, username).with_host(host)).await?;
 
     let mut channel = handle.channel_open_session().await?;
     channel.exec(true, command).await?;
@@ -192,7 +348,7 @@ pub async fn connect_ssh(
     emit_log(&app, &connect_id, "network", "TCP connection established");
 
     emit_log(&app, &connect_id, "auth", &format!("Authenticating to \"{}\":\"{}\" as \"{}\"", params.host, params.port, params.username));
-    authenticate(&mut handle, &params.auth, &AuthContext::new(sec, &params.username)).await?;
+    authenticate(&mut handle, &params.auth, &AuthContext::new(sec, &params.username).with_host(&params.host)).await?;
     emit_log(&app, &connect_id, "auth", "Authentication succeeded");
 
     emit_log(&app, &connect_id, "network", "Opening session channel...");

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { useAppStore } from '../store/appStore';
+import { useAppStore, resolveServerAuth } from '../store/appStore';
 import OsIcon from './OsIcon';
 import type { Server } from '../types';
 
@@ -745,36 +745,12 @@ export default function SftpPanel() {
     let authType: string;
     let authValue: string;
 
-    if (server.identity_id) {
-      const identity = identities.find((i) => i.id === server.identity_id);
-      if (!identity) {
-        setLeftConnectError(`Identity not found for "${server.name}". Check Hosts settings.`);
-        return;
-      }
-      if (!identity.key_id && !identity.encrypted_password) {
-        setLeftConnectError(`No authentication configured for "${identity.username}". Add a key or password in Hosts settings.`);
-        return;
-      }
-      username = identity.username;
-      authType = identity.key_id ? 'key' : 'password';
-      authValue = identity.key_id
-        ? identity.key_id
-        : await invoke<string>('get_identity_password', { identityId: identity.id });
-    } else {
-      if (!server.username) {
-        setLeftConnectError(`No username configured for "${server.name}". Add one in Hosts settings.`);
-        return;
-      }
-      if (!server.key_id && !server.encrypted_password) {
-        setLeftConnectError(`No authentication configured for "${server.name}". Add a key or password in Hosts settings.`);
-        return;
-      }
-      username = server.username;
-      authType = server.key_id ? 'key' : 'password';
-      authValue = server.key_id
-        ? server.key_id
-        : await invoke<string>('get_server_password', { serverId: server.id });
+    const resolved = await resolveServerAuth(server, identities);
+    if (!resolved) {
+      setLeftConnectError(`No authentication configured for "${server.name}". Add a key, password or prompt auth in Hosts settings.`);
+      return;
     }
+    ({ username, authType, authValue } = resolved);
 
     setLeftConnectingId(server.id);
     setLeftConnectError('');
@@ -829,36 +805,12 @@ export default function SftpPanel() {
     let authType: string;
     let authValue: string;
 
-    if (server.identity_id) {
-      const identity = identities.find((i) => i.id === server.identity_id);
-      if (!identity) {
-        setConnectError(`Identity not found for "${server.name}". Check Hosts settings.`);
-        return;
-      }
-      if (!identity.key_id && !identity.encrypted_password) {
-        setConnectError(`No authentication configured for "${identity.username}". Add a key or password in Hosts settings.`);
-        return;
-      }
-      username = identity.username;
-      authType = identity.key_id ? 'key' : 'password';
-      authValue = identity.key_id
-        ? identity.key_id
-        : await invoke<string>('get_identity_password', { identityId: identity.id });
-    } else {
-      if (!server.username) {
-        setConnectError(`No username configured for "${server.name}". Add one in Hosts settings.`);
-        return;
-      }
-      if (!server.key_id && !server.encrypted_password) {
-        setConnectError(`No authentication configured for "${server.name}". Add a key or password in Hosts settings.`);
-        return;
-      }
-      username = server.username;
-      authType = server.key_id ? 'key' : 'password';
-      authValue = server.key_id
-        ? server.key_id
-        : await invoke<string>('get_server_password', { serverId: server.id });
+    const resolved = await resolveServerAuth(server, identities);
+    if (!resolved) {
+      setConnectError(`No authentication configured for "${server.name}". Add a key, password or prompt auth in Hosts settings.`);
+      return;
     }
+    ({ username, authType, authValue } = resolved);
 
     setConnectingId(server.id);
     setConnectError('');

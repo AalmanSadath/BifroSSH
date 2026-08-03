@@ -98,6 +98,62 @@ interface AppStore {
   setActiveTab: (id: string | null) => void;
 }
 
+/** How a server's credentials resolve for a connect. */
+export interface ResolvedAuth {
+  username: string;
+  authType: 'key' | 'password' | 'keyboard-interactive';
+  authValue: string;
+}
+
+/**
+ * Single source of truth for turning a server (and its identity, if any) into
+ * connect credentials. Terminal sessions, SFTP and tunnels all go through this
+ * so a new auth mode does not have to be taught to each of them separately.
+ *
+ * Returns null when nothing usable is configured.
+ */
+export async function resolveServerAuth(
+  server: Server,
+  identities: Identity[],
+): Promise<ResolvedAuth | null> {
+  if (server.identity_id) {
+    const identity = identities.find((i) => i.id === server.identity_id);
+    if (!identity) return null;
+    if (identity.auth_kind === 'keyboard-interactive') {
+      // Nothing stored: the server asks and the user answers at connect time.
+      return { username: identity.username, authType: 'keyboard-interactive', authValue: '' };
+    }
+    if (identity.encrypted_password === '[stored]') {
+      return {
+        username: identity.username,
+        authType: 'password',
+        authValue: await invoke<string>('get_identity_password', { identityId: identity.id }),
+      };
+    }
+    if (identity.key_id) {
+      return { username: identity.username, authType: 'key', authValue: identity.key_id };
+    }
+    return null;
+  }
+
+  if (!server.username) return null;
+
+  if (server.auth_kind === 'keyboard-interactive') {
+    return { username: server.username, authType: 'keyboard-interactive', authValue: '' };
+  }
+  if (server.key_id) {
+    return { username: server.username, authType: 'key', authValue: server.key_id };
+  }
+  if (server.encrypted_password === '[stored]') {
+    return {
+      username: server.username,
+      authType: 'password',
+      authValue: await invoke<string>('get_server_password', { serverId: server.id }),
+    };
+  }
+  return null;
+}
+
 export const useAppStore = create<AppStore>((set, get) => ({
   servers: [],
   identities: [],
@@ -276,27 +332,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
     let authType: string;
     let authValue: string;
 
-    if (server.identity_id) {
-      const identity = identities.find((i) => i.id === server.identity_id);
-      if (!identity) throw new Error('Identity not found');
-      username = identity.username;
-      const isPassword = identity.encrypted_password === '[stored]';
-      authType = isPassword ? 'password' : 'key';
-      authValue = isPassword
-        ? await invoke<string>('get_identity_password', { identityId: identity.id })
-        : (identity.key_id ?? '');
-    } else if (server.username && (server.key_id || server.encrypted_password === '[stored]')) {
-      username = server.username;
-      if (server.key_id) {
-        authType = 'key';
-        authValue = server.key_id;
-      } else {
-        authType = 'password';
-        authValue = await invoke<string>('get_server_password', { serverId });
-      }
-    } else {
-      throw new Error('No credentials configured for this server');
-    }
+    const resolved = await resolveServerAuth(server, identities);
+    if (!resolved) throw new Error('No credentials configured for this server');
+    ({ username, authType, authValue } = resolved);
 
     await invoke('tunnel_start', {
       pfId: pf.id,
@@ -410,28 +448,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
     let authType: string;
     let authValue: string;
 
-    if (server.identity_id) {
-      const identity = identities.find((i) => i.id === server.identity_id);
-      if (!identity) { fallback?.(serverId); return; }
-      username = identity.username;
-      const isPasswordAuth = identity.encrypted_password === '[stored]';
-      authType = isPasswordAuth ? 'password' : 'key';
-      authValue = isPasswordAuth
-        ? await invoke<string>('get_identity_password', { identityId: identity.id })
-        : (identity.key_id ?? '');
-    } else if (server.username && (server.key_id || server.encrypted_password === '[stored]')) {
-      username = server.username;
-      if (server.key_id) {
-        authType = 'key';
-        authValue = server.key_id;
-      } else {
-        authType = 'password';
-        authValue = await invoke<string>('get_server_password', { serverId });
-      }
-    } else {
-      fallback?.(serverId);
-      return;
-    }
+    const resolved = await resolveServerAuth(server, identities);
+    if (!resolved) { fallback?.(serverId); return; }
+    ({ username, authType, authValue } = resolved);
 
     const connectId = crypto.randomUUID();
     const existing = sessions.filter((s) => s.server_id === serverId).length;

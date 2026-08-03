@@ -100,13 +100,13 @@ impl client::Handler for RemoteForwardHandler {
 
 impl TunnelAuth {
     fn to_ssh_auth(&self) -> SshAuth {
-        if self.kind == "password" {
-            SshAuth::Password(self.value.clone())
-        } else {
-            SshAuth::KeyData {
+        match self.kind.as_str() {
+            "keyboard-interactive" => SshAuth::KeyboardInteractive,
+            "password" => SshAuth::Password(self.value.clone()),
+            _ => SshAuth::KeyData {
                 key_pem: self.value.clone(),
                 passphrase: self.passphrase.clone(),
-            }
+            },
         }
     }
 }
@@ -115,7 +115,7 @@ async fn authenticate_handle<H: client::Handler>(
     handle: &mut client::Handle<H>,
     base: &TunnelBase,
 ) -> Result<()> {
-    let ctx = AuthContext::new(base.sec.clone(), &base.ssh_username);
+    let ctx = AuthContext::new(base.sec.clone(), &base.ssh_username).with_host(&base.ssh_host);
     crate::ssh::authenticate(handle, &base.auth.to_ssh_auth(), &ctx).await
 }
 

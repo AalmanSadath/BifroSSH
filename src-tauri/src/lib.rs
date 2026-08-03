@@ -6,6 +6,8 @@ mod ppk;
 mod prompts;
 mod sftp;
 mod ssh;
+#[cfg(test)]
+mod ssh_auth_tests;
 mod store;
 mod tunnel;
 
@@ -51,6 +53,7 @@ pub fn run() {
             commands::get_settings,
             commands::save_settings,
             commands::respond_host_key,
+            commands::respond_auth_prompt,
             commands::list_known_hosts,
             commands::forget_known_host,
             commands::convert_ppk,

@@ -42,7 +42,7 @@ export default function KeychainPanel() {
   const [editId, setEditId] = useState<Identity | null>(null);
   const [idName, setIdName] = useState('');
   const [idUsername, setIdUsername] = useState('');
-  const [idAuthType, setIdAuthType] = useState<'key' | 'password'>('key');
+  const [idAuthType, setIdAuthType] = useState<'key' | 'password' | 'keyboard-interactive'>('key');
   const [idKeyId, setIdKeyId] = useState('');
   const [idPassword, setIdPassword] = useState('');
   const [idKeyDropdownOpen, setIdKeyDropdownOpen] = useState(false);
@@ -212,7 +212,9 @@ export default function KeychainPanel() {
 
   function openEditIdentity(id: Identity) {
     setEditId(id);
-    const authType = id.encrypted_password === '[stored]' ? 'password' : 'key';
+    const authType = id.auth_kind === 'keyboard-interactive'
+      ? 'keyboard-interactive' as const
+      : id.encrypted_password === '[stored]' ? 'password' as const : 'key' as const;
     setIdName(id.name); setIdUsername(id.username);
     setIdAuthType(authType); setIdKeyId(id.key_id ?? ''); setIdPassword(''); setIdError(''); setShowIdPassword(false);
     setShowIdForm(true);
@@ -229,7 +231,14 @@ export default function KeychainPanel() {
     setIdError('');
     try {
       await saveIdentity(
-        { id: editId?.id ?? '', name: idName.trim(), username: idUsername.trim(), key_id: idAuthType === 'key' ? idKeyId : null, encrypted_password: null },
+        {
+          id: editId?.id ?? '',
+          name: idName.trim(),
+          username: idUsername.trim(),
+          key_id: idAuthType === 'key' ? idKeyId : null,
+          encrypted_password: null,
+          auth_kind: idAuthType === 'keyboard-interactive' ? 'keyboard-interactive' : null,
+        },
         idAuthType === 'password' && idPassword ? idPassword : undefined,
       );
       setShowIdForm(false);
@@ -526,9 +535,16 @@ export default function KeychainPanel() {
                   <div className="toggle-row">
                     <button type="button" className={`toggle-btn${idAuthType === 'key' ? ' active' : ''}`} onClick={() => setIdAuthType('key')}>Key</button>
                     <button type="button" className={`toggle-btn${idAuthType === 'password' ? ' active' : ''}`} onClick={() => setIdAuthType('password')}>Password</button>
+                    <button type="button" className={`toggle-btn${idAuthType === 'keyboard-interactive' ? ' active' : ''}`} onClick={() => setIdAuthType('keyboard-interactive')}>Prompt</button>
                   </div>
+                  {idAuthType === 'keyboard-interactive' && (
+                    <p className="form-hint">
+                      The server asks for a password, one-time code, or both at connect time.
+                      Nothing is stored. Use this for PAM or two-factor logins.
+                    </p>
+                  )}
                 </div>
-                {idAuthType === 'key' ? (
+                {idAuthType === 'keyboard-interactive' ? null : idAuthType === 'key' ? (
                   <div className="form-group">
                     <div className="picker" style={{ position: 'relative' }}>
                       <button
@@ -620,16 +636,19 @@ export default function KeychainPanel() {
           ? <p className="list-empty">No identities. Add a key first.</p>
           : <div className="kc-grid">
               {identities.map((id) => {
-                const isPasswordAuth = id.encrypted_password === '[stored]';
-                const key = isPasswordAuth ? null : keys.find((k) => k.id === id.key_id);
-                const keyMissing = !isPasswordAuth && !key;
+                // A prompt identity stores neither a key nor a password, so it
+                // must be checked first or it looks like a key that went missing.
+                const isPromptAuth = id.auth_kind === 'keyboard-interactive';
+                const isPasswordAuth = !isPromptAuth && id.encrypted_password === '[stored]';
+                const key = isPromptAuth || isPasswordAuth ? null : keys.find((k) => k.id === id.key_id);
+                const keyMissing = !isPromptAuth && !isPasswordAuth && !key;
                 return (
                   <div key={id.id} className={`kc-card kc-card--clickable${keyMissing ? ' warn' : ''}`} onClick={() => openEditIdentity(id)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, kind: 'identity', id: id.id }); }}>
                     <div className="kc-card-info">
                       <span className="kc-card-name">{id.name}</span>
                       <span className="kc-card-detail">{id.username}</span>
                       <span className="kc-card-detail">
-                        {isPasswordAuth ? 'password' : key ? key.name : <span className="warn-text">key deleted</span>}
+                        {isPromptAuth ? 'prompt' : isPasswordAuth ? 'password' : key ? key.name : <span className="warn-text">key deleted</span>}
                       </span>
                     </div>
                     <button className="kc-card-edit-btn" onClick={(e) => { e.stopPropagation(); openEditIdentity(id); }} title={hint('Edit')}>

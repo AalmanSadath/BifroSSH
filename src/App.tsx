@@ -2,8 +2,9 @@ import { useEffect, useState, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useAppStore } from './store/appStore';
-import type { HostKeyPromptEvent, SessionTab } from './types';
+import type { AuthPromptEvent, HostKeyPromptEvent, SessionTab } from './types';
 import HostKeyPrompt from './components/HostKeyPrompt';
+import AuthPromptModal from './components/AuthPromptModal';
 import Sidebar from './components/Sidebar';
 import TerminalView from './components/TerminalView';
 import ConnectingView from './components/ConnectingView';
@@ -71,6 +72,7 @@ export default function App() {
   const renameInputRef = useRef<HTMLInputElement>(null);
 
   const [hostKeyPrompts, setHostKeyPrompts] = useState<HostKeyPromptEvent[]>([]);
+  const [authPrompts, setAuthPrompts] = useState<AuthPromptEvent[]>([]);
 
   useEffect(() => { loadAll(); }, []);
 
@@ -89,6 +91,25 @@ export default function App() {
       // The connect gave up (timed out, or was cancelled) before the user
       // answered — retract the modal instead of leaving it pointing at nothing.
       listen<{ request_id: string }>('host-key-prompt-cancel', (e) => dismiss(e.payload.request_id)),
+    ]);
+
+    return () => {
+      unlisten.then((fns) => fns.forEach((fn) => fn()));
+    };
+  }, []);
+
+  // Keyboard-interactive rounds (PAM, 2FA). Same global pattern as above.
+  useEffect(() => {
+    const dismiss = (requestId: string) =>
+      setAuthPrompts((q) => q.filter((p) => p.request_id !== requestId));
+
+    const unlisten = Promise.all([
+      listen<AuthPromptEvent>('auth-prompt', (e) => {
+        setAuthPrompts((q) =>
+          q.some((p) => p.request_id === e.payload.request_id) ? q : [...q, e.payload],
+        );
+      }),
+      listen<{ request_id: string }>('auth-prompt-cancel', (e) => dismiss(e.payload.request_id)),
     ]);
 
     return () => {
@@ -226,6 +247,7 @@ export default function App() {
                 host: s.quick_info.host, port: s.quick_info.port,
                 identity_id: null, theme: null, connection_timeout: null, os: '',
                 username: s.quick_info.username, encrypted_password: null, key_id: null,
+                auth_kind: null,
               } : undefined);
 
             if (s.status === 'connecting' || s.status === 'error') {
@@ -281,6 +303,15 @@ export default function App() {
           onResolved={(id) =>
             setHostKeyPrompts((q) => q.filter((p) => p.request_id !== id))
           }
+        />
+      )}
+
+      {/* Host key first: it decides whether to talk to this server at all. */}
+      {hostKeyPrompts.length === 0 && authPrompts.length > 0 && (
+        <AuthPromptModal
+          key={authPrompts[0].request_id}
+          event={authPrompts[0]}
+          onResolved={(id) => setAuthPrompts((q) => q.filter((p) => p.request_id !== id))}
         />
       )}
 

@@ -66,3 +66,24 @@ pub struct HostKeyPromptEvent {
 pub struct PromptCancelEvent {
     pub request_id: String,
 }
+
+#[derive(serde::Serialize, Clone)]
+pub struct AuthPromptField {
+    pub prompt: String,
+    /// False for secrets — the server decides, and passwords must stay masked.
+    pub echo: bool,
+}
+
+/// One round of a keyboard-interactive exchange. The server chooses the
+/// wording, so `name`, `instructions` and each prompt are rendered as untrusted
+/// text, never interpreted.
+#[derive(serde::Serialize, Clone)]
+pub struct AuthPromptEvent {
+    pub request_id: String,
+    pub connect_id: Option<String>,
+    pub host: String,
+    pub username: String,
+    pub name: String,
+    pub instructions: String,
+    pub prompts: Vec<AuthPromptField>,
+}

@@ -21,6 +21,10 @@ pub struct Server {
     pub os: String,
     #[serde(default)]
     pub connection_timeout: Option<u32>,
+    /// "keyboard-interactive" selects PAM/2FA challenge-response. None means
+    /// the credential fields decide, as before.
+    #[serde(default)]
+    pub auth_kind: Option<String>,
 }
 
 impl Server {
@@ -37,6 +41,8 @@ pub struct Identity {
     pub key_id: Option<String>,
     #[serde(default)]
     pub encrypted_password: Option<String>,
+    #[serde(default)]
+    pub auth_kind: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

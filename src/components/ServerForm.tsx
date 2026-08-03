@@ -95,6 +95,8 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
           key_id: (!identityId && keyId) ? keyId : null,
           theme: themeOverride as string | null,
           connection_timeout: timeoutSecs.trim() === '' || isNaN(parsed) ? null : Math.max(1, parsed),
+          // Set on the identity, not here; preserved so editing a host does not clear it.
+          auth_kind: server?.auth_kind ?? null,
         },
         (!identityId && !keyId && password.trim()) ? password.trim() : undefined,
       );
@@ -257,7 +259,9 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
                         >
                           {i.name} <span style={{ opacity: 0.6 }}>({i.username})</span>
                           <span className="host-suggestion-type">
-                            {i.encrypted_password === '[stored]' ? 'password' : 'key'}
+                            {i.auth_kind === 'keyboard-interactive'
+                              ? 'prompt'
+                              : i.encrypted_password === '[stored]' ? 'password' : 'key'}
                           </span>
                         </button>
                       ))}

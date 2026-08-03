@@ -155,16 +155,14 @@ pub async fn connect_sftp(
     host: &str,
     port: u16,
     username: &str,
-    key_pem: Option<&str>,
-    passphrase: Option<&str>,
-    password: Option<&str>,
+    auth: SshAuth,
     inactivity_timeout_secs: u32,
     sec: ConnectSecurity,
 ) -> Result<(), String> {
-    // The countdown pauses while a host key prompt is on screen.
+    // The countdown pauses while a host key or auth prompt is on screen.
     let waiting = Arc::clone(&sec.waiting);
     crate::commands::timeout_pausable(
-        connect_sftp_inner(sftp_state, session_id, host, port, username, key_pem, passphrase, password, inactivity_timeout_secs, sec),
+        connect_sftp_inner(sftp_state, session_id, host, port, username, auth, inactivity_timeout_secs, sec),
         30,
         waiting,
     )
@@ -178,9 +176,7 @@ async fn connect_sftp_inner(
     host: &str,
     port: u16,
     username: &str,
-    key_pem: Option<&str>,
-    passphrase: Option<&str>,
-    password: Option<&str>,
+    auth: SshAuth,
     inactivity_timeout_secs: u32,
     sec: ConnectSecurity,
 ) -> Result<(), String> {
@@ -193,23 +189,12 @@ async fn connect_sftp_inner(
         .map_err(|e| e.to_string())?;
     let addr = addrs.next().ok_or_else(|| "Cannot resolve host".to_string())?;
 
-    let auth = if let Some(pw) = password {
-        SshAuth::Password(pw.to_string())
-    } else if let Some(pem) = key_pem {
-        SshAuth::KeyData {
-            key_pem: pem.to_string(),
-            passphrase: passphrase.map(str::to_string),
-        }
-    } else {
-        return Err("No authentication provided".into());
-    };
-
     let verifier = HostKeyVerifier::new(sec.clone(), host, port, Some(username.to_string()));
     let mut handle = client::connect(config, addr, VerifyingHandler { v: verifier.clone() })
         .await
         .map_err(|e| crate::ssh::host_key_error(&verifier, e).to_string())?;
 
-    crate::ssh::authenticate(&mut handle, &auth, &AuthContext::new(sec, username))
+    crate::ssh::authenticate(&mut handle, &auth, &AuthContext::new(sec, username).with_host(host))
         .await
         .map_err(|e| e.to_string())?;
 
