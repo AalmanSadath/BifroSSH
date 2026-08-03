@@ -83,6 +83,28 @@ export interface TransferSummary {
   skipped_symlinks: number;
 }
 
+export interface SshConfigHost {
+  alias: string;
+  hostname: string;
+  user: string | null;
+  port: number | null;
+  identity_file: string | null;
+  /** ProxyJump is not supported yet; recorded so the UI can warn. */
+  proxy_jump: string | null;
+}
+
+export interface SshConfigScan {
+  hosts: SshConfigHost[];
+  /** Include directives are not followed, so an import may be partial. */
+  has_includes: boolean;
+}
+
+export interface SshConfigImportResult {
+  imported: number;
+  skipped_existing: number;
+  keys_linked: number;
+}
+
 export interface AgentKeyInfo {
   algorithm: string;
   /** No comment field: russh-keys discards it while parsing agent identities. */

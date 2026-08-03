@@ -5,6 +5,7 @@ mod models;
 mod ppk;
 mod prompts;
 mod sftp;
+mod sshconfig;
 mod ssh;
 #[cfg(test)]
 mod agent_tests;
@@ -54,6 +55,8 @@ pub fn run() {
             commands::get_identity_password,
             commands::get_settings,
             commands::save_settings,
+            commands::scan_ssh_config,
+            commands::import_ssh_config_hosts,
             commands::get_port_forwardings,
             commands::save_port_forwardings,
             commands::get_codeprints,

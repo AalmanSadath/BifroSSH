@@ -3,11 +3,13 @@ import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '../store/appStore';
 import type { Server } from '../types';
 import ServerForm from './ServerForm';
+import SshConfigImport from './SshConfigImport';
 import OsIcon from './OsIcon';
 
 export default function HostsPanel() {
   const { servers, sessions, settings, setActiveTab, removeSession, deleteServer, openSession } = useAppStore();
   const [showServerForm, setShowServerForm] = useState(false);
+  const [showSshImport, setShowSshImport] = useState(false);
   const [editServer, setEditServer] = useState<Server | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ kind: 'server'; x: number; y: number; server: Server } | { kind: 'panel'; x: number; y: number } | null>(null);
@@ -42,9 +44,14 @@ export default function HostsPanel() {
         <div className="panel-title-row" style={{ marginBottom: 6 }}>
           <div className="panel-title">Hosts</div>
         </div>
-        <button className="btn-primary btn-sm" style={{ display: 'block', marginBottom: 20 }} onClick={() => { setEditServer(null); setShowServerForm(true); }}>
-          + Add Host
-        </button>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+          <button className="btn-primary btn-sm" onClick={() => { setEditServer(null); setShowServerForm(true); }}>
+            + Add Host
+          </button>
+          <button className="btn-secondary btn-sm" onClick={() => setShowSshImport(true)}>
+            Import from ssh config
+          </button>
+        </div>
 
         {servers.length === 0 ? (
           <div className="hosts-empty">
@@ -143,6 +150,8 @@ export default function HostsPanel() {
           )}
         </div>
       )}
+
+      {showSshImport && <SshConfigImport onClose={() => setShowSshImport(false)} />}
 
       {showServerForm && (
         <ServerForm
