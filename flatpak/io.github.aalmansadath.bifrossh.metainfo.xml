@@ -65,6 +65,21 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.2.0" date="2026-08-03">
+      <description>
+        <p>
+          BifroSSH now verifies the host key of every server it connects to, the same way
+          OpenSSH does. The first time you connect to a server you are shown its fingerprint
+          and asked to confirm it; after that the key is remembered and checked on every
+          connection. If a server ever presents a different key, the connection is refused.
+        </p>
+        <p>
+          Servers already listed in your ~/.ssh/known_hosts are trusted automatically and
+          will not prompt. A new Known Hosts panel lets you review stored fingerprints,
+          choose how unknown servers are handled, and forget individual hosts.
+        </p>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-06-13"/>
   </releases>
   <update_contact>aalman.dev@gmail.com</update_contact>
