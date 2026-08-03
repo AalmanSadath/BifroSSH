@@ -65,6 +65,23 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.3.0" date="2026-08-04">
+      <description>
+        <p>
+          BifroSSH can now log in to servers that ask challenge questions instead of
+          accepting a stored credential. That covers PAM setups with password
+          authentication turned off, and two-factor providers such as Duo, TOTP
+          authenticator apps and hardware tokens, none of which could be connected to
+          before.
+        </p>
+        <p>
+          Set an identity's auth mode to Prompt and nothing is stored for it; the server
+          asks and you answer at connect time. Where the server offers a choice of second
+          factors, the options appear as buttons, so approving a push notification takes a
+          single click. Password and key logins fall back to this automatically.
+        </p>
+      </description>
+    </release>
     <release version="0.2.0" date="2026-08-03">
       <description>
         <p>

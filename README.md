@@ -13,8 +13,15 @@ Browse, upload, download, rename, delete, and create folders on remote servers w
 ### SSH key management
 Generate Ed25519, RSA, and ECDSA keys directly in the app. Import existing keys. All private keys are stored in an encrypted local keychain and are never written to disk unencrypted. Assign a key to a server or identity; the app decrypts and uses it at connect time.
 
+### Two-factor and keyboard-interactive login
+Supports servers that ask challenge questions at login instead of accepting a stored credential, including PAM setups where `PasswordAuthentication` is turned off, and two-factor providers such as Duo, TOTP authenticator apps, and hardware tokens.
+
+Set an identity's auth mode to **Prompt** and nothing is stored for it; the server asks and you answer at connect time. When the server offers a choice of second factors, the options are shown as buttons, so approving a push notification or requesting a phone call is a single click. Passcodes can still be typed for SMS codes and authenticator apps.
+
+Password and key logins also fall back to this automatically, so a server that turns out to want a second factor still connects rather than failing.
+
 ### Known hosts
-Every connection verifies the server's host key before authenticating, the same way OpenSSH does. The first time you connect to a server, its fingerprint is shown for you to confirm; once trusted, it is remembered and checked on every later connection. If a server ever presents a different key than the one stored, the connection is refused and you are warned — this is what a man-in-the-middle attack looks like.
+Every connection verifies the server's host key before authenticating, the same way OpenSSH does. The first time you connect to a server, its fingerprint is shown for you to confirm; once trusted, it is remembered and checked on every later connection. If a server ever presents a different key than the one stored, the connection is refused and you are warned, because this is what a man-in-the-middle attack looks like.
 
 Trusted keys are kept in `~/.local/share/bifrossh/known_hosts` in standard OpenSSH format. Your existing `~/.ssh/known_hosts` is also read, so servers you have already connected to from a terminal are trusted automatically and never prompt. That file is only ever read, never modified.
 
