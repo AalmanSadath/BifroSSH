@@ -65,6 +65,25 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.6.0" date="2026-08-04">
+      <description>
+        <p>
+          A server that is not reachable directly can now be reached through a
+          bastion, the same as ssh's ProxyJump. Pick any other saved host as a
+          host's jump host, and chains of them are followed one link at a time.
+        </p>
+        <p>
+          Every hop is a full connection of its own: it uses its own stored
+          credentials, and its host key is checked and confirmed separately, so
+          a bastion has to be trusted before it can carry anything. Terminal
+          sessions, file transfers and port forwarding all travel the chain.
+        </p>
+        <p>
+          Hosts that name a jump host in ~/.ssh/config are now linked up on
+          import instead of being flagged as unsupported.
+        </p>
+      </description>
+    </release>
     <release version="0.5.0" date="2026-08-04">
       <description>
         <p>

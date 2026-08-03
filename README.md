@@ -5,7 +5,14 @@ A GUI SSH client built with Tauri 2, React, and Rust.
 ## Features
 
 ### Host profiles
-Import your existing hosts straight from `~/.ssh/config`, or add them by hand. Store connection details per server: hostname, port, username, SSH key or password, identity, and default theme. Each server has an OS tag (Linux, Ubuntu, Debian, Arch, Fedora, macOS, Windows, FreeBSD, Raspberry Pi) shown as an icon in the sidebar. Quick-connect from the sidebar with one click. Supports per-host credentials or shared identities reused across servers.
+Import your existing hosts straight from `~/.ssh/config`, or add them by hand. Store connection details per server: hostname, port, username, SSH key or password, identity, jump host, and default theme. Each server has an OS tag (Linux, Ubuntu, Debian, Arch, Fedora, macOS, Windows, FreeBSD, Raspberry Pi) shown as an icon in the sidebar. Quick-connect from the sidebar with one click. Supports per-host credentials or shared identities reused across servers.
+
+### Jump hosts
+Reach a server that is not directly routable by going through a bastion, the same as ssh's `ProxyJump`. Set **Jump Host** on a host to any other saved host; that host's own jump host is followed too, so a chain of bastions is built one link at a time.
+
+Each hop is a full SSH connection rather than a transparent pipe. It authenticates with its own credentials, so a bastion using an agent key and a target using a password work together without either being reconfigured, and its host key is verified and prompted for separately. A bastion has to be trusted before it can carry the connection, so a chain you have not used before asks about each hop in turn, once.
+
+Terminal sessions, SFTP and tunnels all go through the chain. Hosts that name a `ProxyJump` in `~/.ssh/config` are linked automatically on import, provided the jump host is imported alongside them.
 
 ### SFTP file browser
 Browse, upload, download, rename, delete, and create folders on remote servers without leaving the app. Whole folders can be transferred in either direction, or between two remote servers, and are copied recursively with a progress readout showing which file of how many is moving. Symbolic links are skipped rather than followed. The file list can be sorted by name, size, or modification date, with an option to show folders at the top. Supports both key-based and password-based auth, and works with per-host credentials or shared identities.
