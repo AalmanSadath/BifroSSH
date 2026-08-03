@@ -49,6 +49,7 @@ pub struct TunnelParams {
     pub ssh_username: String,
     pub auth: TunnelAuth,
     pub sec: ConnectSecurity,
+    pub keepalive_secs: u32,
 }
 
 struct TunnelBase {
@@ -58,6 +59,7 @@ struct TunnelBase {
     ssh_username: String,
     auth: TunnelAuth,
     sec: ConnectSecurity,
+    keepalive_secs: u32,
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
@@ -132,7 +134,12 @@ fn tunnel_verifier(base: &TunnelBase) -> HostKeyVerifier {
 }
 
 async fn connect_basic(base: &TunnelBase) -> Result<client::Handle<VerifyingHandler>> {
-    let config = Arc::new(client::Config::default());
+    // A tunnel can sit idle for hours between uses, so keepalives matter more
+    // here than anywhere else.
+    let config = Arc::new(client::Config {
+        keepalive_interval: crate::ssh::keepalive_interval(base.keepalive_secs),
+        ..Default::default()
+    });
     let addr = tokio::net::lookup_host(format!("{}:{}", base.ssh_host, base.ssh_port))
         .await?
         .next()
@@ -151,7 +158,12 @@ async fn connect_remote_fwd(
     dest_host: String,
     dest_port: u32,
 ) -> Result<client::Handle<RemoteForwardHandler>> {
-    let config = Arc::new(client::Config::default());
+    // A tunnel can sit idle for hours between uses, so keepalives matter more
+    // here than anywhere else.
+    let config = Arc::new(client::Config {
+        keepalive_interval: crate::ssh::keepalive_interval(base.keepalive_secs),
+        ..Default::default()
+    });
     let addr = tokio::net::lookup_host(format!("{}:{}", base.ssh_host, base.ssh_port))
         .await?
         .next()
@@ -239,8 +251,8 @@ async fn socks5_handshake(stream: &mut TcpStream) -> Result<(String, u16)> {
 // ── Tunnel starters ───────────────────────────────────────────────────────────
 
 pub async fn start_tunnel(pf_id: String, params: TunnelParams, state: Arc<TunnelState>) -> Result<()> {
-    let TunnelParams { kind, bind_address, ssh_host, ssh_port, ssh_username, auth, sec } = params;
-    let base = TunnelBase { bind_address, ssh_host, ssh_port, ssh_username, auth, sec };
+    let TunnelParams { kind, bind_address, ssh_host, ssh_port, ssh_username, auth, sec, keepalive_secs } = params;
+    let base = TunnelBase { bind_address, ssh_host, ssh_port, ssh_username, auth, sec, keepalive_secs };
     match kind {
         TunnelKind::Local { local_port, dest_host, dest_port } =>
             local_tunnel(pf_id, base, local_port, dest_host, dest_port, state).await,

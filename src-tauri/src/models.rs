@@ -78,6 +78,14 @@ pub struct Settings {
     /// "ask" | "accept-new" | "strict". A mismatch is blocked under all three.
     #[serde(default = "Settings::default_host_key_policy")]
     pub host_key_policy: String,
+    /// Seconds between keepalives on terminal and tunnel connections; 0 is off.
+    /// Stops idle sessions being dropped by NAT and firewall idle timers, and
+    /// makes a dead connection surface instead of hanging.
+    ///
+    /// Not applied to SFTP: those set an inactivity timeout to close idle
+    /// sessions, and keepalive traffic would stop it ever firing.
+    #[serde(default = "Settings::default_keepalive_interval")]
+    pub keepalive_interval_secs: u32,
 }
 
 impl Default for Settings {
@@ -93,6 +101,7 @@ impl Default for Settings {
             show_hover_hints: true,
             sftp_inactivity_timeout_secs: 300,
             host_key_policy: "ask".to_string(),
+            keepalive_interval_secs: 30,
         }
     }
 }
@@ -103,6 +112,7 @@ impl Settings {
     fn default_show_hover_hints() -> bool { true }
     fn default_sftp_inactivity_timeout() -> u32 { 300 }
     fn default_host_key_policy() -> String { "ask".to_string() }
+    fn default_keepalive_interval() -> u32 { 30 }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

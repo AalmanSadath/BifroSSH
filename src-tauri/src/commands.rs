@@ -798,6 +798,17 @@ pub async fn ssh_connect(
         SshAuth::KeyData { key_pem, passphrase }
     };
 
+    let (timeout_secs, keepalive_secs) = {
+        let data = state.data.lock().await;
+        let host_timeout = data.servers.iter()
+            .find(|s| s.id == request.server_id)
+            .and_then(|s| s.connection_timeout);
+        (
+            host_timeout.unwrap_or(data.settings.connection_timeout_secs) as u64,
+            data.settings.keepalive_interval_secs,
+        )
+    };
+
     let params = SshConnectParams {
         host: server.host,
         port: server.port,
@@ -805,14 +816,7 @@ pub async fn ssh_connect(
         auth,
         initial_cols: request.cols,
         initial_rows: request.rows,
-    };
-
-    let timeout_secs = {
-        let data = state.data.lock().await;
-        let host_timeout = data.servers.iter()
-            .find(|s| s.id == request.server_id)
-            .and_then(|s| s.connection_timeout);
-        host_timeout.unwrap_or(data.settings.connection_timeout_secs) as u64
+        keepalive_secs,
     };
 
     let sec = connect_security(&state, &app, Some(request.connect_id.clone()), true).await;
@@ -895,9 +899,9 @@ pub async fn ssh_connect_quick(
         SshAuth::KeyData { key_pem, passphrase }
     };
 
-    let timeout_secs = {
+    let (timeout_secs, keepalive_secs) = {
         let data = state.data.lock().await;
-        data.settings.connection_timeout_secs as u64
+        (data.settings.connection_timeout_secs as u64, data.settings.keepalive_interval_secs)
     };
 
     let params = SshConnectParams {
@@ -907,6 +911,7 @@ pub async fn ssh_connect_quick(
         auth,
         initial_cols: request.cols,
         initial_rows: request.rows,
+        keepalive_secs,
     };
 
     let sec = connect_security(&state, &app, Some(request.connect_id.clone()), true).await;
@@ -1271,7 +1276,8 @@ pub async fn tunnel_start(
     };
 
     let sec = connect_security(&state, &app, None, true).await;
-    let params = TunnelParams { kind, bind_address, ssh_host, ssh_port, ssh_username: username, auth, sec };
+    let keepalive_secs = { state.data.lock().await.settings.keepalive_interval_secs };
+    let params = TunnelParams { kind, bind_address, ssh_host, ssh_port, ssh_username: username, auth, sec, keepalive_secs };
 
     crate::tunnel::start_tunnel(pf_id, params, Arc::clone(&state.tunnel_state))
         .await

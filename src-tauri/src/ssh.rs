@@ -330,6 +330,15 @@ pub struct SshConnectParams {
     pub auth: SshAuth,
     pub initial_cols: u32,
     pub initial_rows: u32,
+    /// Seconds between keepalives; 0 disables them.
+    pub keepalive_secs: u32,
+}
+
+/// russh sends a keepalive every interval and gives up after `keepalive_max`
+/// unanswered ones (3 by default), so a dead peer surfaces after roughly
+/// 3x the interval instead of the session hanging indefinitely.
+pub(crate) fn keepalive_interval(secs: u32) -> Option<Duration> {
+    (secs > 0).then(|| Duration::from_secs(secs as u64))
 }
 
 /// russh discards why a handler rejected a key: `Session::run` matches the
@@ -400,6 +409,7 @@ pub async fn connect_ssh(
     let config = Arc::new(client::Config {
         window_size: 4 * 1024 * 1024,
         maximum_packet_size: 64 * 1024,
+        keepalive_interval: keepalive_interval(params.keepalive_secs),
         ..Default::default()
     });
 

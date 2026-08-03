@@ -51,6 +51,8 @@ export interface Settings {
   show_hover_hints: boolean;
   sftp_inactivity_timeout_secs: number;
   host_key_policy: HostKeyPolicy;
+  /** Seconds between keepalives on terminal and tunnel connections; 0 is off. */
+  keepalive_interval_secs: number;
 }
 
 /** A mismatched key is blocked under all three policies. */

@@ -53,9 +53,11 @@ export default function SettingsPanel() {
   const { settings, saveSettings, setActiveTab } = useAppStore();
   const [connTimeoutStr, setConnTimeoutStr] = useState(String(settings.connection_timeout_secs));
   const [sftpTimeoutStr, setSftpTimeoutStr] = useState(String(settings.sftp_inactivity_timeout_secs));
+  const [keepaliveStr, setKeepaliveStr] = useState(String(settings.keepalive_interval_secs));
 
   useEffect(() => { setConnTimeoutStr(String(settings.connection_timeout_secs)); }, [settings.connection_timeout_secs]);
   useEffect(() => { setSftpTimeoutStr(String(settings.sftp_inactivity_timeout_secs)); }, [settings.sftp_inactivity_timeout_secs]);
+  useEffect(() => { setKeepaliveStr(String(settings.keepalive_interval_secs)); }, [settings.keepalive_interval_secs]);
 
   function patch(p: Partial<Settings>) {
     saveSettings({ ...settings, ...p });
@@ -173,6 +175,29 @@ export default function SettingsPanel() {
           />
         </div>
         <p className="form-hint">How long an idle SFTP session is kept alive.</p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 10 }}>
+          <label style={{ margin: 0, whiteSpace: 'nowrap' }}>Keepalive interval (seconds)</label>
+          <input
+            type="number"
+            min={0}
+            max={3600}
+            value={keepaliveStr}
+            onChange={(e) => setKeepaliveStr(e.target.value)}
+            onBlur={() => {
+              const v = Math.min(3600, Math.max(0, Number(keepaliveStr) || 0));
+              setKeepaliveStr(String(v));
+              patch({ keepalive_interval_secs: v });
+            }}
+            style={{ width: 80 }}
+            className="no-spinner"
+          />
+        </div>
+        <p className="form-hint">
+          Sends a periodic keepalive on terminal sessions and tunnels so they are not dropped by
+          a NAT or firewall idle timer, and so a dead connection is noticed rather than hanging.
+          A connection is considered lost after three unanswered keepalives. Set to 0 to disable.
+          Does not apply to SFTP, which uses the inactivity timeout above instead.
+        </p>
       </section>
 
       <section className="panel-section">

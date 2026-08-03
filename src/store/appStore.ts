@@ -40,6 +40,7 @@ const DEFAULT_SETTINGS: Settings = {
   show_hover_hints: true,
   sftp_inactivity_timeout_secs: 300,
   host_key_policy: 'ask',
+  keepalive_interval_secs: 30,
 };
 
 interface AppStore {
