@@ -75,6 +75,14 @@ export interface HostKeyPromptEvent {
   line: number | null;
 }
 
+/** Result of a recursive SFTP transfer. */
+export interface TransferSummary {
+  files: number;
+  directories: number;
+  /** Symlinks are not copied; following them risks an unbounded loop. */
+  skipped_symlinks: number;
+}
+
 export interface AgentKeyInfo {
   algorithm: string;
   /** No comment field: russh-keys discards it while parsing agent identities. */

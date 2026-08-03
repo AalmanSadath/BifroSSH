@@ -22,6 +22,39 @@ pub struct TransferProgress {
     pub file_name: String,
     pub transferred: u64,
     pub total: u64,
+    /// 1-based position of this file within the batch. Always 1/1 for a single
+    /// file, so the UI can show "3 of 12" only when it means something.
+    pub file_index: u32,
+    pub file_count: u32,
+}
+
+/// Outcome of a recursive transfer, so the caller can report what was skipped
+/// rather than silently copying less than the user asked for.
+#[derive(Serialize, Clone, Default)]
+pub struct TransferSummary {
+    pub files: u32,
+    pub directories: u32,
+    /// Symlinks are not copied. Following them risks a loop that would recurse
+    /// until the disk fills, and recreating them is not something SFTP does
+    /// portably.
+    pub skipped_symlinks: u32,
+}
+
+/// One entry in a directory walk, relative to the transfer root.
+struct TreeItem {
+    rel: String,
+    is_dir: bool,
+}
+
+/// Guards against a pathological or hostile tree. Deeper than any real layout.
+const MAX_DEPTH: usize = 64;
+
+fn join_remote(dir: &str, name: &str) -> String {
+    if dir == "/" {
+        format!("/{}", name)
+    } else {
+        format!("{}/{}", dir.trim_end_matches('/'), name)
+    }
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -303,33 +336,112 @@ pub async fn list_remote(
     Ok(entries)
 }
 
-pub async fn upload_file(
+/// Walks a local directory tree, yielding paths relative to `root`.
+///
+/// A directory is always recorded before any of its descendants, which callers
+/// rely on to create parents first and to delete children first.
+///
+/// Symlinks are recorded as skipped rather than followed: a link pointing at an
+/// ancestor would otherwise recurse until the disk fills.
+fn collect_local_tree(root: &Path) -> Result<(Vec<TreeItem>, u32), String> {
+    let mut items = Vec::new();
+    let mut skipped = 0u32;
+    let mut queue: Vec<(std::path::PathBuf, String, usize)> =
+        vec![(root.to_path_buf(), String::new(), 0)];
+
+    while let Some((dir, rel, depth)) = queue.pop() {
+        if depth >= MAX_DEPTH {
+            return Err(format!("Directory nesting deeper than {} levels", MAX_DEPTH));
+        }
+        let entries = fs::read_dir(&dir).map_err(|e| format!("{}: {}", dir.display(), e))?;
+        for entry in entries {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let child_rel = if rel.is_empty() { name.clone() } else { format!("{}/{}", rel, name) };
+
+            // symlink_metadata so a link is seen as a link, not its target.
+            let meta = entry.metadata().map_err(|e| e.to_string())?;
+            let link = fs::symlink_metadata(entry.path())
+                .map(|m| m.file_type().is_symlink())
+                .unwrap_or(false);
+
+            if link {
+                skipped += 1;
+            } else if meta.is_dir() {
+                items.push(TreeItem { rel: child_rel.clone(), is_dir: true });
+                queue.push((entry.path(), child_rel, depth + 1));
+            } else if meta.is_file() {
+                items.push(TreeItem { rel: child_rel, is_dir: false });
+            }
+        }
+    }
+    Ok((items, skipped))
+}
+
+/// Remote equivalent of `collect_local_tree`.
+async fn collect_remote_tree(
+    sftp_arc: &Arc<Mutex<SftpSession>>,
+    root: &str,
+) -> Result<(Vec<TreeItem>, u32), String> {
+    let mut items = Vec::new();
+    let mut skipped = 0u32;
+    let mut queue: Vec<(String, String, usize)> = vec![(root.to_string(), String::new(), 0)];
+
+    while let Some((dir, rel, depth)) = queue.pop() {
+        if depth >= MAX_DEPTH {
+            return Err(format!("Directory nesting deeper than {} levels", MAX_DEPTH));
+        }
+        let read = {
+            let sftp = sftp_arc.lock().await;
+            sftp.read_dir(&dir).await.map_err(|e| format!("{}: {}", dir, e))?
+        };
+        for entry in read {
+            let name = entry.file_name();
+            if name == "." || name == ".." {
+                continue;
+            }
+            let child_rel = if rel.is_empty() { name.clone() } else { format!("{}/{}", rel, name) };
+            let file_type = entry.file_type();
+
+            if file_type.is_symlink() {
+                skipped += 1;
+            } else if file_type.is_dir() {
+                items.push(TreeItem { rel: child_rel.clone(), is_dir: true });
+                queue.push((join_remote(&dir, &name), child_rel, depth + 1));
+            } else {
+                items.push(TreeItem { rel: child_rel, is_dir: false });
+            }
+        }
+    }
+    Ok((items, skipped))
+}
+
+/// Creates a remote directory, treating "already exists" as success.
+async fn ensure_remote_dir(sftp_arc: &Arc<Mutex<SftpSession>>, path: &str) {
+    let sftp = sftp_arc.lock().await;
+    let _ = sftp.create_dir(path).await;
+}
+
+/// Copies one file into an already-created remote path.
+async fn upload_one(
     app: &tauri::AppHandle,
-    sftp_state: &SftpClientState,
-    session_id: &str,
-    local_path: &str,
-    remote_dir: &str,
+    sftp_arc: &Arc<Mutex<SftpSession>>,
+    local_path: &Path,
+    remote_path: &str,
+    index: u32,
+    count: u32,
 ) -> Result<(), String> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    let file_name = Path::new(local_path)
-        .file_name()
-        .ok_or("Invalid local path")?
-        .to_string_lossy()
-        .into_owned();
-    let remote_path = if remote_dir == "/" {
-        format!("/{}", file_name)
-    } else {
-        format!("{}/{}", remote_dir.trim_end_matches('/'), file_name)
-    };
-
+    let file_name = local_path.file_name().unwrap_or_default().to_string_lossy().into_owned();
     let total = tokio::fs::metadata(local_path).await.map(|m| m.len()).unwrap_or(0);
-    let mut local_file = tokio::fs::File::open(local_path).await.map_err(|e| e.to_string())?;
+    let mut local_file = tokio::fs::File::open(local_path)
+        .await
+        .map_err(|e| format!("{}: {}", local_path.display(), e))?;
 
-    let sftp_arc = get_session(sftp_state, session_id).await?;
     let mut remote_file = {
         let sftp = sftp_arc.lock().await;
-        sftp.create(&remote_path).await.map_err(|e| e.to_string())?
+        sftp.create(remote_path).await.map_err(|e| format!("{}: {}", remote_path, e))?
     };
 
     let mut buf = vec![0u8; CHUNK];
@@ -339,39 +451,82 @@ pub async fn upload_file(
         if n == 0 { break; }
         remote_file.write_all(&buf[..n]).await.map_err(|e| e.to_string())?;
         transferred += n as u64;
-        let _ = app.emit("sftp-progress", TransferProgress { file_name: file_name.clone(), transferred, total });
+        let _ = app.emit("sftp-progress", TransferProgress {
+            file_name: file_name.clone(), transferred, total, file_index: index, file_count: count,
+        });
     }
     remote_file.flush().await.map_err(|e| e.to_string())?;
-
     Ok(())
 }
 
-pub async fn download_file(
+/// Uploads a file, or a directory tree rooted at `local_path`.
+pub async fn upload_path(
     app: &tauri::AppHandle,
     sftp_state: &SftpClientState,
     session_id: &str,
+    local_path: &str,
+    remote_dir: &str,
+) -> Result<TransferSummary, String> {
+    let root = Path::new(local_path);
+    let name = root.file_name().ok_or("Invalid local path")?.to_string_lossy().into_owned();
+    let dest_root = join_remote(remote_dir, &name);
+    let sftp_arc = get_session(sftp_state, session_id).await?;
+
+    let meta = fs::metadata(root).map_err(|e| format!("{}: {}", root.display(), e))?;
+    if !meta.is_dir() {
+        upload_one(app, &sftp_arc, root, &dest_root, 1, 1).await?;
+        return Ok(TransferSummary { files: 1, ..Default::default() });
+    }
+
+    let (items, skipped_symlinks) = collect_local_tree(root)?;
+    let files: Vec<&TreeItem> = items.iter().filter(|i| !i.is_dir).collect();
+    let count = files.len() as u32;
+
+    // Every directory first, so no file lands before its parent exists.
+    ensure_remote_dir(&sftp_arc, &dest_root).await;
+    let mut dirs = 0u32;
+    for item in items.iter().filter(|i| i.is_dir) {
+        ensure_remote_dir(&sftp_arc, &join_remote(&dest_root, &item.rel)).await;
+        dirs += 1;
+    }
+
+    for (i, item) in files.iter().enumerate() {
+        upload_one(
+            app,
+            &sftp_arc,
+            &root.join(&item.rel),
+            &join_remote(&dest_root, &item.rel),
+            i as u32 + 1,
+            count,
+        )
+        .await?;
+    }
+
+    Ok(TransferSummary { files: count, directories: dirs, skipped_symlinks })
+}
+
+async fn download_one(
+    app: &tauri::AppHandle,
+    sftp_arc: &Arc<Mutex<SftpSession>>,
     remote_path: &str,
-    local_dir: &str,
+    local_path: &Path,
+    index: u32,
+    count: u32,
 ) -> Result<(), String> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    let file_name = Path::new(remote_path)
-        .file_name()
-        .ok_or("Invalid remote path")?
-        .to_string_lossy()
-        .into_owned();
-    let local_path = std::path::Path::new(local_dir).join(&file_name);
-
-    let sftp_arc = get_session(sftp_state, session_id).await?;
+    let file_name = local_path.file_name().unwrap_or_default().to_string_lossy().into_owned();
     let (total, mut remote_file) = {
         let sftp = sftp_arc.lock().await;
-        let meta = sftp.metadata(remote_path).await.map_err(|e| e.to_string())?;
-        let total = meta.size.unwrap_or(0);
-        let f = sftp.open(remote_path).await.map_err(|e| e.to_string())?;
-        (total, f)
+        let meta = sftp.metadata(remote_path).await.map_err(|e| format!("{}: {}", remote_path, e))?;
+        let f = sftp.open(remote_path).await.map_err(|e| format!("{}: {}", remote_path, e))?;
+        (meta.size.unwrap_or(0), f)
     };
 
-    let mut local_file = tokio::fs::File::create(&local_path).await.map_err(|e| e.to_string())?;
+    let mut local_file = tokio::fs::File::create(local_path)
+        .await
+        .map_err(|e| format!("{}: {}", local_path.display(), e))?;
+
     let mut buf = vec![0u8; CHUNK];
     let mut transferred = 0u64;
     loop {
@@ -379,62 +534,166 @@ pub async fn download_file(
         if n == 0 { break; }
         local_file.write_all(&buf[..n]).await.map_err(|e| e.to_string())?;
         transferred += n as u64;
-        let _ = app.emit("sftp-progress", TransferProgress { file_name: file_name.clone(), transferred, total });
+        let _ = app.emit("sftp-progress", TransferProgress {
+            file_name: file_name.clone(), transferred, total, file_index: index, file_count: count,
+        });
     }
-
+    local_file.flush().await.map_err(|e| e.to_string())?;
     Ok(())
 }
 
-pub async fn copy_remote_to_remote(
+/// Downloads a file, or a directory tree rooted at `remote_path`.
+pub async fn download_path(
+    app: &tauri::AppHandle,
+    sftp_state: &SftpClientState,
+    session_id: &str,
+    remote_path: &str,
+    local_dir: &str,
+) -> Result<TransferSummary, String> {
+    let name = Path::new(remote_path)
+        .file_name()
+        .ok_or("Invalid remote path")?
+        .to_string_lossy()
+        .into_owned();
+    let dest_root = Path::new(local_dir).join(&name);
+    let sftp_arc = get_session(sftp_state, session_id).await?;
+
+    let is_dir = {
+        let sftp = sftp_arc.lock().await;
+        let meta = sftp.metadata(remote_path).await.map_err(|e| format!("{}: {}", remote_path, e))?;
+        meta.file_type().is_dir()
+    };
+
+    if !is_dir {
+        download_one(app, &sftp_arc, remote_path, &dest_root, 1, 1).await?;
+        return Ok(TransferSummary { files: 1, ..Default::default() });
+    }
+
+    let (items, skipped_symlinks) = collect_remote_tree(&sftp_arc, remote_path).await?;
+    let files: Vec<&TreeItem> = items.iter().filter(|i| !i.is_dir).collect();
+    let count = files.len() as u32;
+
+    fs::create_dir_all(&dest_root).map_err(|e| format!("{}: {}", dest_root.display(), e))?;
+    let mut dirs = 0u32;
+    for item in items.iter().filter(|i| i.is_dir) {
+        let path = dest_root.join(&item.rel);
+        fs::create_dir_all(&path).map_err(|e| format!("{}: {}", path.display(), e))?;
+        dirs += 1;
+    }
+
+    for (i, item) in files.iter().enumerate() {
+        download_one(
+            app,
+            &sftp_arc,
+            &join_remote(remote_path, &item.rel),
+            &dest_root.join(&item.rel),
+            i as u32 + 1,
+            count,
+        )
+        .await?;
+    }
+
+    Ok(TransferSummary { files: count, directories: dirs, skipped_symlinks })
+}
+
+async fn copy_one(
+    app: &tauri::AppHandle,
+    src_arc: &Arc<Mutex<SftpSession>>,
+    src_path: &str,
+    dst_arc: &Arc<Mutex<SftpSession>>,
+    dst_path: &str,
+    index: u32,
+    count: u32,
+) -> Result<(), String> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let file_name = Path::new(dst_path).file_name().unwrap_or_default().to_string_lossy().into_owned();
+
+    let (total, mut src_file) = {
+        let sftp = src_arc.lock().await;
+        let meta = sftp.metadata(src_path).await.map_err(|e| format!("{}: {}", src_path, e))?;
+        let f = sftp.open(src_path).await.map_err(|e| format!("{}: {}", src_path, e))?;
+        (meta.size.unwrap_or(0), f)
+    };
+    let mut dst_file = {
+        let sftp = dst_arc.lock().await;
+        sftp.create(dst_path).await.map_err(|e| format!("{}: {}", dst_path, e))?
+    };
+
+    // Streamed rather than read whole into memory, so a large file does not
+    // have to fit in RAM.
+    let mut buf = vec![0u8; CHUNK];
+    let mut transferred = 0u64;
+    loop {
+        let n = src_file.read(&mut buf).await.map_err(|e| e.to_string())?;
+        if n == 0 { break; }
+        dst_file.write_all(&buf[..n]).await.map_err(|e| e.to_string())?;
+        transferred += n as u64;
+        let _ = app.emit("sftp-progress", TransferProgress {
+            file_name: file_name.clone(), transferred, total, file_index: index, file_count: count,
+        });
+    }
+    dst_file.flush().await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Copies a file, or a directory tree, between two remote sessions.
+pub async fn copy_remote_path(
     app: &tauri::AppHandle,
     sftp_state: &SftpClientState,
     src_session_id: &str,
     src_path: &str,
     dst_session_id: &str,
     dst_dir: &str,
-) -> Result<(), String> {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-    let file_name = Path::new(src_path)
+) -> Result<TransferSummary, String> {
+    let name = Path::new(src_path)
         .file_name()
         .ok_or("Invalid source path")?
         .to_string_lossy()
         .into_owned();
+    let dest_root = join_remote(dst_dir, &name);
 
     let src_arc = get_session(sftp_state, src_session_id).await?;
-    let (total, data) = {
-        let sftp = src_arc.lock().await;
-        let meta = sftp.metadata(src_path).await.map_err(|e| e.to_string())?;
-        let total = meta.size.unwrap_or(0);
-        let mut f = sftp.open(src_path).await.map_err(|e| e.to_string())?;
-        let mut buf = Vec::new();
-        f.read_to_end(&mut buf).await.map_err(|e| e.to_string())?;
-        (total, buf)
-    };
-
-    let dst_path = if dst_dir == "/" {
-        format!("/{}", file_name)
-    } else {
-        format!("{}/{}", dst_dir.trim_end_matches('/'), file_name)
-    };
-
     let dst_arc = get_session(sftp_state, dst_session_id).await?;
-    let mut remote_file = {
-        let sftp = dst_arc.lock().await;
-        sftp.create(&dst_path).await.map_err(|e| e.to_string())?
+
+    let is_dir = {
+        let sftp = src_arc.lock().await;
+        let meta = sftp.metadata(src_path).await.map_err(|e| format!("{}: {}", src_path, e))?;
+        meta.file_type().is_dir()
     };
 
-    let mut offset = 0usize;
-    while offset < data.len() {
-        let end = (offset + CHUNK).min(data.len());
-        remote_file.write_all(&data[offset..end]).await.map_err(|e| e.to_string())?;
-        offset = end;
-        let _ = app.emit("sftp-progress", TransferProgress { file_name: file_name.clone(), transferred: offset as u64, total });
+    if !is_dir {
+        copy_one(app, &src_arc, src_path, &dst_arc, &dest_root, 1, 1).await?;
+        return Ok(TransferSummary { files: 1, ..Default::default() });
     }
-    remote_file.flush().await.map_err(|e| e.to_string())?;
 
-    Ok(())
+    let (items, skipped_symlinks) = collect_remote_tree(&src_arc, src_path).await?;
+    let files: Vec<&TreeItem> = items.iter().filter(|i| !i.is_dir).collect();
+    let count = files.len() as u32;
+
+    ensure_remote_dir(&dst_arc, &dest_root).await;
+    let mut dirs = 0u32;
+    for item in items.iter().filter(|i| i.is_dir) {
+        ensure_remote_dir(&dst_arc, &join_remote(&dest_root, &item.rel)).await;
+        dirs += 1;
+    }
+
+    for (i, item) in files.iter().enumerate() {
+        copy_one(
+            app,
+            &src_arc,
+            &join_remote(src_path, &item.rel),
+            &dst_arc,
+            &join_remote(&dest_root, &item.rel),
+            i as u32 + 1,
+            count,
+        )
+        .await?;
+    }
+
+    Ok(TransferSummary { files: count, directories: dirs, skipped_symlinks })
 }
+
 
 pub fn create_local_dir(path: &str) -> Result<(), String> {
     std::fs::create_dir(path).map_err(|e| e.to_string())
@@ -460,12 +719,27 @@ pub async fn delete_remote(
     is_dir: bool,
 ) -> Result<(), String> {
     let sftp_arc = get_session(sftp_state, session_id).await?;
-    let sftp = sftp_arc.lock().await;
-    if is_dir {
-        sftp.remove_dir(path).await.map_err(|e| e.to_string())
-    } else {
-        sftp.remove_file(path).await.map_err(|e| e.to_string())
+
+    if !is_dir {
+        let sftp = sftp_arc.lock().await;
+        return sftp.remove_file(path).await.map_err(|e| e.to_string());
     }
+
+    // remove_dir only works on an empty directory, so the tree has to come out
+    // from the leaves upwards. The walk records a directory before its
+    // descendants, so reversing the directory list deletes children first.
+    let (items, _skipped) = collect_remote_tree(&sftp_arc, path).await?;
+    let sftp = sftp_arc.lock().await;
+
+    for item in items.iter().filter(|i| !i.is_dir) {
+        let child = join_remote(path, &item.rel);
+        sftp.remove_file(&child).await.map_err(|e| format!("{}: {}", child, e))?;
+    }
+    for item in items.iter().filter(|i| i.is_dir).rev() {
+        let child = join_remote(path, &item.rel);
+        sftp.remove_dir(&child).await.map_err(|e| format!("{}: {}", child, e))?;
+    }
+    sftp.remove_dir(path).await.map_err(|e| format!("{}: {}", path, e))
 }
 
 pub async fn rename_remote(
@@ -506,4 +780,104 @@ async fn get_session(
         .get(session_id)
         .cloned()
         .ok_or_else(|| "SFTP session not found".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct TempTree(std::path::PathBuf);
+    impl Drop for TempTree {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn temp_tree(name: &str) -> TempTree {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let id = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir()
+            .join(format!("bifrossh-tree-{}-{}-{}", std::process::id(), name, id));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        TempTree(dir)
+    }
+
+    #[test]
+    fn walks_nested_directories() {
+        let t = temp_tree("nested");
+        let root = t.0.join("src");
+        fs::create_dir_all(root.join("a/b")).unwrap();
+        fs::write(root.join("top.txt"), b"1").unwrap();
+        fs::write(root.join("a/mid.txt"), b"2").unwrap();
+        fs::write(root.join("a/b/deep.txt"), b"3").unwrap();
+
+        let (items, skipped) = collect_local_tree(&root).unwrap();
+        assert_eq!(skipped, 0);
+
+        let mut files: Vec<&str> = items.iter().filter(|i| !i.is_dir).map(|i| i.rel.as_str()).collect();
+        files.sort();
+        assert_eq!(files, vec!["a/b/deep.txt", "a/mid.txt", "top.txt"]);
+
+        let mut dirs: Vec<&str> = items.iter().filter(|i| i.is_dir).map(|i| i.rel.as_str()).collect();
+        dirs.sort();
+        assert_eq!(dirs, vec!["a", "a/b"]);
+    }
+
+    /// Callers create parents before children and delete children before
+    /// parents, both of which depend on this ordering.
+    #[test]
+    fn parents_are_recorded_before_their_children() {
+        let t = temp_tree("order");
+        let root = t.0.join("src");
+        fs::create_dir_all(root.join("x/y/z")).unwrap();
+        fs::write(root.join("x/y/z/f.txt"), b"1").unwrap();
+
+        let (items, _) = collect_local_tree(&root).unwrap();
+        let pos = |rel: &str| items.iter().position(|i| i.rel == rel).unwrap();
+
+        assert!(pos("x") < pos("x/y"));
+        assert!(pos("x/y") < pos("x/y/z"));
+        assert!(pos("x/y/z") < pos("x/y/z/f.txt"));
+    }
+
+    /// A link pointing at an ancestor would otherwise be walked forever.
+    #[test]
+    #[cfg(unix)]
+    fn symlinks_are_skipped_not_followed() {
+        let t = temp_tree("symlink");
+        let root = t.0.join("src");
+        fs::create_dir_all(root.join("real")).unwrap();
+        fs::write(root.join("real/f.txt"), b"1").unwrap();
+        std::os::unix::fs::symlink(&root, root.join("loop")).unwrap();
+        std::os::unix::fs::symlink(root.join("real/f.txt"), root.join("link.txt")).unwrap();
+
+        let (items, skipped) = collect_local_tree(&root).unwrap();
+
+        assert_eq!(skipped, 2, "both the directory loop and the file link are skipped");
+        assert!(
+            !items.iter().any(|i| i.rel.starts_with("loop")),
+            "the loop must not be entered"
+        );
+        assert!(items.iter().any(|i| i.rel == "real/f.txt"));
+    }
+
+    #[test]
+    fn an_empty_directory_walks_cleanly() {
+        let t = temp_tree("empty");
+        let root = t.0.join("src");
+        fs::create_dir_all(&root).unwrap();
+
+        let (items, skipped) = collect_local_tree(&root).unwrap();
+        assert!(items.is_empty());
+        assert_eq!(skipped, 0);
+    }
+
+    #[test]
+    fn remote_paths_join_without_doubling_slashes() {
+        assert_eq!(join_remote("/", "f.txt"), "/f.txt");
+        assert_eq!(join_remote("/home/x", "f.txt"), "/home/x/f.txt");
+        assert_eq!(join_remote("/home/x/", "f.txt"), "/home/x/f.txt");
+        assert_eq!(join_remote("/home/x", "a/b.txt"), "/home/x/a/b.txt");
+    }
 }

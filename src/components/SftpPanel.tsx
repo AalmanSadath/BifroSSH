@@ -10,6 +10,9 @@ interface TransferProgress {
   file_name: string;
   transferred: number;
   total: number;
+  /** 1-based position within a batch; 1/1 for a single file. */
+  file_index: number;
+  file_count: number;
 }
 
 interface FileEntry {
@@ -395,10 +398,10 @@ function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
               <tr
                 key={entry.path}
                 className={`sftp-row${selectedPaths.has(entry.path) ? ' sftp-row-selected' : ''}`}
-                draggable={!entry.is_dir && entry.name !== '..'}
+                draggable={entry.name !== '..'}
                 onClick={(e) => handleRowClick(e, entry, idx)}
                 onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, entry }); }}
-                onDragStart={(e) => !entry.is_dir && entry.name !== '..' && handleDragStart(e, entry)}
+                onDragStart={(e) => entry.name !== '..' && handleDragStart(e, entry)}
                 onDoubleClick={() => entry.is_dir && onNavigate(entry.path)}
                 title={entry.is_dir ? hint('Double-click to open') : entry.name}
               >
@@ -448,7 +451,7 @@ function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
         >
           {contextMenu.entry ? (
             <>
-              {!contextMenu.entry.is_dir && canCopyToTarget && (
+              {canCopyToTarget && (
                 <button className="sftp-ctx-item" onClick={() => { onCopyToTarget?.(contextMenu.entry!); setContextMenu(null); }}>
                   Copy to Target
                 </button>
@@ -1274,7 +1277,14 @@ export default function SftpPanel() {
         return (
           <div className="sftp-progress-wrap">
             <div className="sftp-progress-info">
-              <span className="sftp-progress-name">{progress.file_name}</span>
+              <span className="sftp-progress-name">
+                {progress.file_count > 1 && (
+                  <span className="sftp-progress-count">
+                    {progress.file_index}/{progress.file_count}
+                  </span>
+                )}
+                {progress.file_name}
+              </span>
               <span className="sftp-progress-stat">{pct}% · {speedStr}{speedStr ? ' · ' : ''}ETA {eta}</span>
             </div>
             <div className="sftp-progress-track">

@@ -984,6 +984,19 @@ button { cursor: pointer; font-family: inherit; }
   overflow-wrap: anywhere;
 }
 
+/* Batch position shown while a folder transfer is running. */
+.sftp-progress-count {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--bg-mid);
+  border: 1px solid var(--border);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
 /* ── ssh-agent key picker ──────────────────────────────────── */
 
 .agentkey-list {
