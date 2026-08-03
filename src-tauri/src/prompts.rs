@@ -60,6 +60,10 @@ pub struct HostKeyPromptEvent {
     pub existing_fingerprint: Option<String>,
     pub source: Option<String>,
     pub line: Option<usize>,
+    /// This is a jump host on the way to somewhere else, not the server the
+    /// user asked for. Worth saying, because a chain asks about each hop in
+    /// turn and the prompts are otherwise indistinguishable.
+    pub is_jump: bool,
 }
 
 #[derive(serde::Serialize, Clone)]

@@ -50,8 +50,15 @@ export default function HostKeyPrompt({ event, onResolved }: Props) {
                 : changed
                   ? 'Host key has changed'
                   : 'Unknown host key'}
+              {event.is_jump && ' on a jump host'}
             </h2>
             <div className="modal-subtitle">{target}</div>
+            {event.is_jump && (
+              <div className="modal-subtitle">
+                A jump host on the way to the server you asked for. It has to be
+                trusted before it can carry that connection.
+              </div>
+            )}
           </div>
         </div>
 

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -6,13 +7,14 @@ use uuid::Uuid;
 
 use crate::crypto::{decrypt, encrypt};
 use crate::hostkeys::{self, ConnectSecurity, KnownHostEntry};
+use crate::jump::JumpHop;
 use crate::models::*;
 use crate::ppk;
 use crate::prompts::{HostKeyDecision, PromptState};
 use crate::sftp::SftpClientState;
 use crate::ssh::{connect_ssh, ConnectLogEvent, SshAuth, SshCommand, SshConnectParams, SshState};
 use crate::store::save_app_data;
-use crate::tunnel::{TunnelAuth, TunnelKind, TunnelParams, TunnelState};
+use crate::tunnel::{TunnelKind, TunnelParams, TunnelState};
 
 pub struct AppState {
     pub data: tokio::sync::Mutex<AppData>,
@@ -538,6 +540,7 @@ pub struct SshConfigImport {
     pub imported: u32,
     pub skipped_existing: u32,
     pub keys_linked: u32,
+    pub jumps_linked: u32,
 }
 
 /// Creates hosts from selected ssh_config entries.
@@ -551,7 +554,10 @@ pub async fn import_ssh_config_hosts(
 ) -> Result<SshConfigImport, String> {
     let scan = crate::sshconfig::scan()?;
     let mut data = state.data.lock().await;
-    let mut result = SshConfigImport { imported: 0, skipped_existing: 0, keys_linked: 0 };
+    let mut result = SshConfigImport { imported: 0, skipped_existing: 0, keys_linked: 0, jumps_linked: 0 };
+    // ProxyJump names another alias, which may not exist as a server until
+    // later in this same loop, so the links are made in a second pass.
+    let mut by_alias: HashMap<String, String> = HashMap::new();
 
     for alias in &aliases {
         let Some(entry) = scan.hosts.iter().find(|h| &h.alias == alias) else { continue };
@@ -597,8 +603,10 @@ pub async fn import_ssh_config_hosts(
             _ => None,
         };
 
+        let id = Uuid::new_v4().to_string();
+        by_alias.insert(entry.alias.clone(), id.clone());
         data.servers.push(Server {
-            id: Uuid::new_v4().to_string(),
+            id,
             name: entry.alias.clone(),
             host: entry.hostname.clone(),
             port,
@@ -610,8 +618,27 @@ pub async fn import_ssh_config_hosts(
             os: String::new(),
             connection_timeout: None,
             auth_kind: None,
+            proxy_jump: None,
         });
         result.imported += 1;
+    }
+
+    // A jump host that was not imported alongside its target cannot be linked
+    // to anything, so that host is left as a direct connection rather than
+    // pointing at a server that does not exist.
+    for alias in &aliases {
+        let Some(entry) = scan.hosts.iter().find(|h| &h.alias == alias) else { continue };
+        let Some(jump) = entry.proxy_jump.as_deref().and_then(crate::sshconfig::jump_alias) else { continue };
+        let Some(jump_id) = by_alias.get(jump) else { continue };
+        let Some(server_id) = by_alias.get(alias) else { continue };
+        if jump_id == server_id {
+            continue; // A host declaring itself its own jump host is a loop.
+        }
+        let jump_id = jump_id.clone();
+        if let Some(server) = data.servers.iter_mut().find(|s| &s.id == server_id) {
+            server.proxy_jump = Some(jump_id);
+            result.jumps_linked += 1;
+        }
     }
 
     save_app_data(&*data).map_err(|e| e.to_string())?;
@@ -818,35 +845,15 @@ pub async fn detect_server_os(
     username: String,
     auth_type: String,
     auth_value: String,
+    jumps: Option<Vec<JumpHopRequest>>,
 ) -> Result<String, String> {
-    let (host, port, auth) = {
+    let (host, port, auth, jumps) = {
         let data = state.data.lock().await;
         let server = data.servers.iter().find(|s| s.id == server_id)
             .ok_or("Server not found")?;
-
-        let auth = if auth_type == "password" {
-            SshAuth::Password(auth_value.clone())
-        } else {
-            let key_entry = data.keys.iter().find(|k| k.id == auth_value)
-                .ok_or("Key not found")?;
-            let pem = if let Some(ref enc) = key_entry.encrypted_key {
-                let bytes = decrypt(enc, &state.secret_key).map_err(|e| e.to_string())?;
-                String::from_utf8(bytes).map_err(|e| e.to_string())?
-            } else if let Some(ref path) = key_entry.key_path {
-                std::fs::read_to_string(path).map_err(|e| e.to_string())?
-            } else {
-                return Err("Key has no content".to_string());
-            };
-            let passphrase = if let Some(ref enc) = key_entry.encrypted_passphrase {
-                let bytes = decrypt(enc, &state.secret_key).map_err(|e| e.to_string())?;
-                Some(String::from_utf8(bytes).map_err(|e| e.to_string())?)
-            } else {
-                None
-            };
-            SshAuth::KeyData { key_pem: pem, passphrase }
-        };
-
-        (server.host.clone(), server.port, auth)
+        let auth = resolve_auth(&data, &state.secret_key, &auth_type, &auth_value)?;
+        let jumps = resolve_jumps(&data, &state.secret_key, jumps.as_deref().unwrap_or(&[]))?;
+        (server.host.clone(), server.port, auth, jumps)
     };
 
     // Non-interactive: this runs in the background with no UI to prompt from,
@@ -857,6 +864,7 @@ pub async fn detect_server_os(
         &host, port, &username, auth,
         "cat /etc/os-release 2>/dev/null; cat /proc/device-tree/model 2>/dev/null; echo; uname -s",
         sec,
+        &jumps,
     )
     .await
     .map_err(|e| e.to_string())?;
@@ -876,6 +884,87 @@ pub async fn detect_server_os(
 
 // ── SSH ───────────────────────────────────────────────────────────────────────
 
+/// Turns the credential the frontend picked into something connectable.
+///
+/// The frontend decides *which* credential applies (identity or per-host,
+/// agent or key or password); this decides what that credential means, which
+/// for a key means going to the keychain for the material. Shared by sessions,
+/// SFTP, tunnels and jump hosts so all four agree.
+fn resolve_auth(
+    data: &AppData,
+    secret_key: &[u8; 32],
+    auth_type: &str,
+    auth_value: &str,
+) -> Result<SshAuth, String> {
+    match auth_type {
+        // Nothing is stored: the server asks and the user answers at connect time.
+        "keyboard-interactive" => Ok(SshAuth::KeyboardInteractive),
+        // auth_value optionally pins one agent key by fingerprint.
+        "agent" => Ok(SshAuth::Agent {
+            fingerprint: (!auth_value.is_empty()).then(|| auth_value.to_string()),
+        }),
+        "password" => Ok(SshAuth::Password(auth_value.to_string())),
+        _ => {
+            let key = data
+                .keys
+                .iter()
+                .find(|k| k.id == auth_value)
+                .ok_or_else(|| "Key not found".to_string())?;
+
+            let key_pem = if let Some(enc) = &key.encrypted_key {
+                let bytes = decrypt(enc, secret_key).map_err(|e| e.to_string())?;
+                String::from_utf8(bytes).map_err(|e| e.to_string())?
+            } else if let Some(path) = &key.key_path {
+                std::fs::read_to_string(path).map_err(|e| e.to_string())?
+            } else {
+                return Err("Key has no content or path".to_string());
+            };
+
+            let passphrase = match &key.encrypted_passphrase {
+                Some(enc) => {
+                    let bytes = decrypt(enc, secret_key).map_err(|e| e.to_string())?;
+                    Some(String::from_utf8(bytes).map_err(|e| e.to_string())?)
+                }
+                None => None,
+            };
+
+            Ok(SshAuth::KeyData { key_pem, passphrase })
+        }
+    }
+}
+
+/// One jump host as the frontend sends it, outermost first. The chain is
+/// walked and its credentials picked on the frontend, which is where the
+/// identity and per-host rules already live; only the key material is
+/// resolved here.
+#[derive(serde::Deserialize)]
+pub struct JumpHopRequest {
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub auth_type: String,
+    pub auth_value: String,
+}
+
+fn resolve_jumps(
+    data: &AppData,
+    secret_key: &[u8; 32],
+    hops: &[JumpHopRequest],
+) -> Result<Vec<JumpHop>, String> {
+    hops.iter()
+        .map(|hop| {
+            let auth = resolve_auth(data, secret_key, &hop.auth_type, &hop.auth_value)
+                .map_err(|e| format!("Jump host {}: {}", hop.host, e))?;
+            Ok(JumpHop {
+                host: hop.host.clone(),
+                port: hop.port,
+                username: hop.username.clone(),
+                auth,
+            })
+        })
+        .collect()
+}
+
 #[derive(serde::Deserialize)]
 pub struct ConnectRequest {
     pub server_id: String,
@@ -885,6 +974,8 @@ pub struct ConnectRequest {
     pub cols: u32,
     pub rows: u32,
     pub connect_id: String,
+    #[serde(default)]
+    pub jumps: Vec<JumpHopRequest>,
 }
 
 #[tauri::command]
@@ -904,52 +995,16 @@ pub async fn ssh_connect(
             .ok_or_else(|| "Server not found".to_string())?
     };
 
-    let auth = if request.auth_type == "keyboard-interactive" {
-        SshAuth::KeyboardInteractive
-    } else if request.auth_type == "agent" {
-        // auth_value optionally pins one agent key by fingerprint.
-        SshAuth::Agent {
-            fingerprint: (!request.auth_value.is_empty()).then(|| request.auth_value.clone()),
-        }
-    } else if request.auth_type == "password" {
-        SshAuth::Password(request.auth_value.clone())
-    } else {
-        let (key_pem, passphrase) = {
-            let data = state.data.lock().await;
-            let key_entry = data
-                .keys
-                .iter()
-                .find(|k| k.id == request.auth_value)
-                .cloned()
-                .ok_or_else(|| "Key not found".to_string())?;
-
-            let pem = if let Some(ref enc) = key_entry.encrypted_key {
-                let bytes = decrypt(enc, &state.secret_key).map_err(|e| e.to_string())?;
-                String::from_utf8(bytes).map_err(|e| e.to_string())?
-            } else if let Some(ref path) = key_entry.key_path {
-                std::fs::read_to_string(path).map_err(|e| e.to_string())?
-            } else {
-                return Err("Key has no content or path".to_string());
-            };
-
-            let pass = if let Some(ref enc) = key_entry.encrypted_passphrase {
-                let bytes = decrypt(enc, &state.secret_key).map_err(|e| e.to_string())?;
-                Some(String::from_utf8(bytes).map_err(|e| e.to_string())?)
-            } else {
-                None
-            };
-
-            (pem, pass)
-        };
-        SshAuth::KeyData { key_pem, passphrase }
-    };
-
-    let (timeout_secs, keepalive_secs) = {
+    let (auth, jumps, timeout_secs, keepalive_secs) = {
         let data = state.data.lock().await;
+        let auth = resolve_auth(&data, &state.secret_key, &request.auth_type, &request.auth_value)?;
+        let jumps = resolve_jumps(&data, &state.secret_key, &request.jumps)?;
         let host_timeout = data.servers.iter()
             .find(|s| s.id == request.server_id)
             .and_then(|s| s.connection_timeout);
         (
+            auth,
+            jumps,
             host_timeout.unwrap_or(data.settings.connection_timeout_secs) as u64,
             data.settings.keepalive_interval_secs,
         )
@@ -963,6 +1018,7 @@ pub async fn ssh_connect(
         initial_cols: request.cols,
         initial_rows: request.rows,
         keepalive_secs,
+        jumps,
     };
 
     let sec = connect_security(&state, &app, Some(request.connect_id.clone()), true).await;
@@ -1002,6 +1058,8 @@ pub struct QuickConnectRequest {
     pub cols: u32,
     pub rows: u32,
     pub connect_id: String,
+    #[serde(default)]
+    pub jumps: Vec<JumpHopRequest>,
 }
 
 #[tauri::command]
@@ -1012,42 +1070,14 @@ pub async fn ssh_connect_quick(
 ) -> Result<String, String> {
     let session_id = Uuid::new_v4().to_string();
 
-    let auth = if request.auth_type == "keyboard-interactive" {
-        SshAuth::KeyboardInteractive
-    } else if request.auth_type == "agent" {
-        // auth_value optionally pins one agent key by fingerprint.
-        SshAuth::Agent {
-            fingerprint: (!request.auth_value.is_empty()).then(|| request.auth_value.clone()),
-        }
-    } else if request.auth_type == "password" {
-        SshAuth::Password(request.auth_value.clone())
-    } else {
-        let (key_pem, passphrase) = {
-            let data = state.data.lock().await;
-            let key_entry = data.keys.iter().find(|k| k.id == request.auth_value)
-                .ok_or_else(|| "Key not found".to_string())?;
-            let pem = if let Some(ref enc) = key_entry.encrypted_key {
-                let bytes = decrypt(enc, &state.secret_key).map_err(|e| e.to_string())?;
-                String::from_utf8(bytes).map_err(|e| e.to_string())?
-            } else if let Some(ref path) = key_entry.key_path {
-                std::fs::read_to_string(path).map_err(|e| e.to_string())?
-            } else {
-                return Err("Key has no content or path".to_string());
-            };
-            let pass = if let Some(ref enc) = key_entry.encrypted_passphrase {
-                let bytes = decrypt(enc, &state.secret_key).map_err(|e| e.to_string())?;
-                Some(String::from_utf8(bytes).map_err(|e| e.to_string())?)
-            } else {
-                None
-            };
-            (pem, pass)
-        };
-        SshAuth::KeyData { key_pem, passphrase }
-    };
-
-    let (timeout_secs, keepalive_secs) = {
+    let (auth, jumps, timeout_secs, keepalive_secs) = {
         let data = state.data.lock().await;
-        (data.settings.connection_timeout_secs as u64, data.settings.keepalive_interval_secs)
+        (
+            resolve_auth(&data, &state.secret_key, &request.auth_type, &request.auth_value)?,
+            resolve_jumps(&data, &state.secret_key, &request.jumps)?,
+            data.settings.connection_timeout_secs as u64,
+            data.settings.keepalive_interval_secs,
+        )
     };
 
     let params = SshConnectParams {
@@ -1058,6 +1088,7 @@ pub async fn ssh_connect_quick(
         initial_cols: request.cols,
         initial_rows: request.rows,
         keepalive_secs,
+        jumps,
     };
 
     let sec = connect_security(&state, &app, Some(request.connect_id.clone()), true).await;
@@ -1151,8 +1182,9 @@ pub async fn sftp_connect_remote(
     auth_value: String,
     // Channel the connection log is narrated on.
     connect_id: Option<String>,
+    jumps: Option<Vec<JumpHopRequest>>,
 ) -> Result<String, String> {
-    let (host, port, key_pem, passphrase) = {
+    let (host, port, auth, jumps, inactivity_timeout_secs) = {
         let data = state.data.lock().await;
         let server = data.servers.iter()
             .find(|s| s.id == server_id)
@@ -1160,50 +1192,14 @@ pub async fn sftp_connect_remote(
         let host = server.host.clone();
         let port = server.port as u16;
 
-        let (key_pem, passphrase) = if auth_type == "key" {
-            match data.keys.iter().find(|k| k.id == auth_value) {
-                Some(k) => {
-                    let pem = if let Some(ref enc) = k.encrypted_key {
-                        decrypt(enc, &state.secret_key).ok()
-                            .and_then(|b| String::from_utf8(b).ok())
-                    } else if let Some(ref path) = k.key_path {
-                        std::fs::read_to_string(path).ok()
-                    } else {
-                        None
-                    };
-                    let pass = k.encrypted_passphrase.as_ref()
-                        .and_then(|enc| decrypt(enc, &state.secret_key).ok())
-                        .and_then(|b| String::from_utf8(b).ok());
-                    (pem, pass)
-                }
-                None => (None, None),
-            }
-        } else {
-            (None, None)
-        };
+        let auth = resolve_auth(&data, &state.secret_key, &auth_type, &auth_value)?;
+        let jumps = resolve_jumps(&data, &state.secret_key, jumps.as_deref().unwrap_or(&[]))?;
 
-        (host, port, key_pem, passphrase)
+        (host, port, auth, jumps, data.settings.sftp_inactivity_timeout_secs)
     };
 
     let session_id = Uuid::new_v4().to_string();
-    let inactivity_timeout_secs = {
-        let data = state.data.lock().await;
-        data.settings.sftp_inactivity_timeout_secs
-    };
-
     let sec = connect_security(&state, &app, connect_id, true).await;
-
-    let auth = match auth_type.as_str() {
-        "keyboard-interactive" => SshAuth::KeyboardInteractive,
-        "agent" => SshAuth::Agent {
-            fingerprint: (!auth_value.is_empty()).then(|| auth_value.clone()),
-        },
-        "key" => {
-            let key_pem = key_pem.ok_or_else(|| "Key not found or could not be read".to_string())?;
-            SshAuth::KeyData { key_pem, passphrase }
-        }
-        _ => SshAuth::Password(auth_value.clone()),
-    };
 
     crate::sftp::connect_sftp(
         &state.sftp_state,
@@ -1214,6 +1210,7 @@ pub async fn sftp_connect_remote(
         auth,
         inactivity_timeout_secs,
         sec,
+        jumps,
     ).await?;
 
     Ok(session_id)
@@ -1325,53 +1322,6 @@ pub async fn sftp_rename_remote(
 
 // ── Tunnel commands ───────────────────────────────────────────────────────────
 
-fn resolve_tunnel_auth(
-    data: &AppData,
-    secret_key: &[u8; 32],
-    auth_type: &str,
-    auth_value: &str,
-) -> Result<TunnelAuth, String> {
-    if auth_type == "agent" {
-        return Ok(TunnelAuth {
-            kind: "agent".to_string(),
-            value: auth_value.to_string(),
-            passphrase: None,
-        });
-    }
-    if auth_type == "keyboard-interactive" {
-        // Nothing to resolve: the server asks and the user answers at connect time.
-        return Ok(TunnelAuth {
-            kind: "keyboard-interactive".to_string(),
-            value: String::new(),
-            passphrase: None,
-        });
-    }
-    if auth_type == "password" {
-        return Ok(TunnelAuth {
-            kind: "password".to_string(),
-            value: auth_value.to_string(),
-            passphrase: None,
-        });
-    }
-    let key_entry = data.keys.iter().find(|k| k.id == auth_value)
-        .ok_or("Key not found")?;
-    let pem = if let Some(ref enc) = key_entry.encrypted_key {
-        let bytes = decrypt(enc, secret_key).map_err(|e| e.to_string())?;
-        String::from_utf8(bytes).map_err(|e| e.to_string())?
-    } else if let Some(ref path) = key_entry.key_path {
-        std::fs::read_to_string(path).map_err(|e| e.to_string())?
-    } else {
-        return Err("Key has no content or path".to_string());
-    };
-    let passphrase = if let Some(ref enc) = key_entry.encrypted_passphrase {
-        let bytes = decrypt(enc, secret_key).map_err(|e| e.to_string())?;
-        Some(String::from_utf8(bytes).map_err(|e| e.to_string())?)
-    } else {
-        None
-    };
-    Ok(TunnelAuth { kind: "key".to_string(), value: pem, passphrase })
-}
-
 #[tauri::command]
 pub async fn tunnel_start(
     state: State<'_, AppState>,
@@ -1387,13 +1337,15 @@ pub async fn tunnel_start(
     username: String,
     auth_type: String,
     auth_value: String,
+    jumps: Option<Vec<JumpHopRequest>>,
 ) -> Result<(), String> {
-    let (ssh_host, ssh_port, auth) = {
+    let (ssh_host, ssh_port, auth, jumps) = {
         let data = state.data.lock().await;
         let server = data.servers.iter().find(|s| s.id == server_id)
             .ok_or("Server not found")?;
-        let auth = resolve_tunnel_auth(&data, &state.secret_key, &auth_type, &auth_value)?;
-        (server.host.clone(), server.port as u16, auth)
+        let auth = resolve_auth(&data, &state.secret_key, &auth_type, &auth_value)?;
+        let jumps = resolve_jumps(&data, &state.secret_key, jumps.as_deref().unwrap_or(&[]))?;
+        (server.host.clone(), server.port as u16, auth, jumps)
     };
 
     // Check not already running
@@ -1423,7 +1375,7 @@ pub async fn tunnel_start(
 
     let sec = connect_security(&state, &app, None, true).await;
     let keepalive_secs = { state.data.lock().await.settings.keepalive_interval_secs };
-    let params = TunnelParams { kind, bind_address, ssh_host, ssh_port, ssh_username: username, auth, sec, keepalive_secs };
+    let params = TunnelParams { kind, bind_address, ssh_host, ssh_port, ssh_username: username, auth, sec, keepalive_secs, jumps };
 
     crate::tunnel::start_tunnel(pf_id, params, Arc::clone(&state.tunnel_state))
         .await

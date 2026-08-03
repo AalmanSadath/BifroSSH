@@ -25,6 +25,11 @@ pub struct Server {
     /// the credential fields decide, as before.
     #[serde(default)]
     pub auth_kind: Option<String>,
+    /// Id of another saved server to reach this one through, the equivalent of
+    /// OpenSSH's ProxyJump. That server's own `proxy_jump` is followed too, so
+    /// a chain of bastions is expressed one link at a time.
+    #[serde(default)]
+    pub proxy_jump: Option<String>,
 }
 
 impl Server {

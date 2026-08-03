@@ -522,6 +522,8 @@ pub struct HostKeyVerifier {
     /// with the propagation commented out). The caller would only ever see
     /// "Disconnected", so the real reason is recorded here instead.
     outcome: Arc<StdMutex<Option<String>>>,
+    /// Whether this host is a jump host rather than the requested server.
+    is_jump: bool,
 }
 
 impl HostKeyVerifier {
@@ -532,7 +534,15 @@ impl HostKeyVerifier {
             port,
             username,
             outcome: Arc::new(StdMutex::new(None)),
+            is_jump: false,
         }
+    }
+
+    /// Marks this as a hop on the way somewhere else, so the prompt can say
+    /// which machine it is asking the user to trust.
+    pub fn as_jump(mut self) -> Self {
+        self.is_jump = true;
+        self
     }
 
     /// The rejection reason, if this verifier turned a key down.
@@ -722,6 +732,7 @@ impl HostKeyVerifier {
             existing_fingerprint,
             source,
             line,
+            is_jump: self.is_jump,
         };
 
         self.sec.waiting.store(true, Ordering::Relaxed);

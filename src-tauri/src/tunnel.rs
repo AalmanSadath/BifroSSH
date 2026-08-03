@@ -9,6 +9,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{oneshot, Mutex};
 
 use crate::hostkeys::{ConnectSecurity, HostKeyVerifier, VerifyingHandler};
+use crate::jump::JumpHop;
 use crate::ssh::{AuthContext, SshAuth};
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -29,12 +30,6 @@ impl TunnelState {
 
 // ── Auth / params ─────────────────────────────────────────────────────────────
 
-pub struct TunnelAuth {
-    pub kind: String,
-    pub value: String,
-    pub passphrase: Option<String>,
-}
-
 pub enum TunnelKind {
     Local   { local_port: u32, dest_host: String, dest_port: u32 },
     Remote  { remote_port: u32, dest_host: String, dest_port: u32 },
@@ -47,9 +42,11 @@ pub struct TunnelParams {
     pub ssh_host: String,
     pub ssh_port: u16,
     pub ssh_username: String,
-    pub auth: TunnelAuth,
+    pub auth: SshAuth,
     pub sec: ConnectSecurity,
     pub keepalive_secs: u32,
+    /// Jump hosts to reach the SSH host through, outermost first.
+    pub jumps: Vec<JumpHop>,
 }
 
 struct TunnelBase {
@@ -57,9 +54,10 @@ struct TunnelBase {
     ssh_host: String,
     ssh_port: u16,
     ssh_username: String,
-    auth: TunnelAuth,
+    auth: SshAuth,
     sec: ConnectSecurity,
     keepalive_secs: u32,
+    jumps: Vec<JumpHop>,
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
@@ -100,28 +98,23 @@ impl client::Handler for RemoteForwardHandler {
 
 // ── SSH connect helpers ───────────────────────────────────────────────────────
 
-impl TunnelAuth {
-    fn to_ssh_auth(&self) -> SshAuth {
-        match self.kind.as_str() {
-            "keyboard-interactive" => SshAuth::KeyboardInteractive,
-            "agent" => SshAuth::Agent {
-                fingerprint: (!self.value.is_empty()).then(|| self.value.clone()),
-            },
-            "password" => SshAuth::Password(self.value.clone()),
-            _ => SshAuth::KeyData {
-                key_pem: self.value.clone(),
-                passphrase: self.passphrase.clone(),
-            },
-        }
-    }
-}
-
 async fn authenticate_handle<H: client::Handler>(
     handle: &mut client::Handle<H>,
     base: &TunnelBase,
 ) -> Result<()> {
     let ctx = AuthContext::new(base.sec.clone(), &base.ssh_username).with_host(&base.ssh_host);
-    crate::ssh::authenticate(handle, &base.auth.to_ssh_auth(), &ctx).await
+    crate::ssh::authenticate(handle, &base.auth, &ctx).await
+}
+
+async fn transport_for(base: &TunnelBase) -> Result<crate::jump::BoxedTransport> {
+    crate::jump::open_transport(
+        &base.jumps,
+        &base.ssh_host,
+        base.ssh_port,
+        &base.sec,
+        crate::ssh::keepalive_interval(base.keepalive_secs),
+    )
+    .await
 }
 
 fn tunnel_verifier(base: &TunnelBase) -> HostKeyVerifier {
@@ -140,12 +133,9 @@ async fn connect_basic(base: &TunnelBase) -> Result<client::Handle<VerifyingHand
         keepalive_interval: crate::ssh::keepalive_interval(base.keepalive_secs),
         ..Default::default()
     });
-    let addr = tokio::net::lookup_host(format!("{}:{}", base.ssh_host, base.ssh_port))
-        .await?
-        .next()
-        .ok_or_else(|| anyhow!("Cannot resolve {}", base.ssh_host))?;
+    let transport = transport_for(base).await?;
     let verifier = tunnel_verifier(base);
-    let mut handle = match client::connect(config, addr, VerifyingHandler { v: verifier.clone() }).await {
+    let mut handle = match client::connect_stream(config, transport, VerifyingHandler { v: verifier.clone() }).await {
         Ok(h) => h,
         Err(e) => return Err(crate::ssh::host_key_error(&verifier, e)),
     };
@@ -164,13 +154,10 @@ async fn connect_remote_fwd(
         keepalive_interval: crate::ssh::keepalive_interval(base.keepalive_secs),
         ..Default::default()
     });
-    let addr = tokio::net::lookup_host(format!("{}:{}", base.ssh_host, base.ssh_port))
-        .await?
-        .next()
-        .ok_or_else(|| anyhow!("Cannot resolve {}", base.ssh_host))?;
+    let transport = transport_for(base).await?;
     let verifier = tunnel_verifier(base);
     let handler = RemoteForwardHandler { v: verifier.clone(), dest_host, dest_port };
-    let mut handle = match client::connect(config, addr, handler).await {
+    let mut handle = match client::connect_stream(config, transport, handler).await {
         Ok(h) => h,
         Err(e) => return Err(crate::ssh::host_key_error(&verifier, e)),
     };
@@ -251,8 +238,8 @@ async fn socks5_handshake(stream: &mut TcpStream) -> Result<(String, u16)> {
 // ── Tunnel starters ───────────────────────────────────────────────────────────
 
 pub async fn start_tunnel(pf_id: String, params: TunnelParams, state: Arc<TunnelState>) -> Result<()> {
-    let TunnelParams { kind, bind_address, ssh_host, ssh_port, ssh_username, auth, sec, keepalive_secs } = params;
-    let base = TunnelBase { bind_address, ssh_host, ssh_port, ssh_username, auth, sec, keepalive_secs };
+    let TunnelParams { kind, bind_address, ssh_host, ssh_port, ssh_username, auth, sec, keepalive_secs, jumps } = params;
+    let base = TunnelBase { bind_address, ssh_host, ssh_port, ssh_username, auth, sec, keepalive_secs, jumps };
     match kind {
         TunnelKind::Local { local_port, dest_host, dest_port } =>
             local_tunnel(pf_id, base, local_port, dest_host, dest_port, state).await,

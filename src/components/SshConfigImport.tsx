@@ -72,6 +72,7 @@ export default function SshConfigImport({ onClose }: Props) {
             <p className="hostkey-body">
               Imported {result.imported} host{result.imported === 1 ? '' : 's'}.
               {result.keys_linked > 0 && ` Linked ${result.keys_linked} key file${result.keys_linked === 1 ? '' : 's'}.`}
+              {result.jumps_linked > 0 && ` Linked ${result.jumps_linked} jump host${result.jumps_linked === 1 ? '' : 's'}.`}
               {result.skipped_existing > 0 && ` Skipped ${result.skipped_existing} already saved.`}
             </p>
             <div className="modal-actions">
@@ -109,8 +110,8 @@ export default function SshConfigImport({ onClose }: Props) {
                   {h.identity_file && <span className="sshconfig-tag">key</span>}
                   {h.proxy_jump && (
                     <span
-                      className="sshconfig-tag sshconfig-tag-warn"
-                      title="ProxyJump is not supported yet, so this host will not connect as configured"
+                      className="sshconfig-tag"
+                      title={`Reached through ${h.proxy_jump}. Import that host too for the link to be made.`}
                     >
                       jump
                     </span>
@@ -121,7 +122,8 @@ export default function SshConfigImport({ onClose }: Props) {
 
             <p className="form-hint">
               Key files are referenced where they are, not copied into the keychain. Hosts that
-              already exist are skipped.
+              already exist are skipped. A jump host is linked only when it is imported in the
+              same run.
             </p>
 
             <div className="modal-actions">

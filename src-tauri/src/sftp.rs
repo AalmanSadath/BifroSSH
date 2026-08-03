@@ -13,6 +13,7 @@ use tokio::sync::Mutex;
 use tokio::time::Duration;
 
 use crate::hostkeys::{ConnectSecurity, HostKeyVerifier, VerifyingHandler};
+use crate::jump::JumpHop;
 use crate::ssh::{AuthContext, SshAuth};
 
 const CHUNK: usize = 128 * 1024; // 128 KB
@@ -191,11 +192,12 @@ pub async fn connect_sftp(
     auth: SshAuth,
     inactivity_timeout_secs: u32,
     sec: ConnectSecurity,
+    jumps: Vec<JumpHop>,
 ) -> Result<(), String> {
     // The countdown pauses while a host key or auth prompt is on screen.
     let waiting = Arc::clone(&sec.waiting);
     crate::commands::timeout_pausable(
-        connect_sftp_inner(sftp_state, session_id, host, port, username, auth, inactivity_timeout_secs, sec),
+        connect_sftp_inner(sftp_state, session_id, host, port, username, auth, inactivity_timeout_secs, sec, jumps),
         30,
         waiting,
     )
@@ -212,6 +214,7 @@ async fn connect_sftp_inner(
     auth: SshAuth,
     inactivity_timeout_secs: u32,
     sec: ConnectSecurity,
+    jumps: Vec<JumpHop>,
 ) -> Result<(), String> {
     let config = Arc::new(client::Config {
         inactivity_timeout: Some(Duration::from_secs(inactivity_timeout_secs as u64)),
@@ -219,28 +222,24 @@ async fn connect_sftp_inner(
     });
 
     sec.log("auth", &format!("Starting SFTP connection to \"{}\" port \"{}\"", host, port));
-    sec.log("network", &format!("Starting address resolution of \"{}\"", host));
-    let mut addrs = tokio::net::lookup_host(format!("{}:{}", host, port)).await
-        .map_err(|e| {
-            sec.log("error", &format!("Address resolution failed: {}", e));
-            e.to_string()
-        })?;
-    let addr = addrs.next().ok_or_else(|| {
-        sec.log("error", "Cannot resolve host");
-        "Cannot resolve host".to_string()
-    })?;
-    sec.log("network", "Address resolution finished");
 
-    sec.log("network", &format!("Connecting to \"{}\" port \"{}\"", host, port));
+    // Resolution, the TCP connect, and every jump host in between.
+    let transport = crate::jump::open_transport(&jumps, host, port, &sec, None)
+        .await
+        .map_err(|e| {
+            let message = e.to_string();
+            sec.log("error", &message);
+            message
+        })?;
+
     let verifier = HostKeyVerifier::new(sec.clone(), host, port, Some(username.to_string()));
-    let mut handle = client::connect(config, addr, VerifyingHandler { v: verifier.clone() })
+    let mut handle = client::connect_stream(config, transport, VerifyingHandler { v: verifier.clone() })
         .await
         .map_err(|e| {
             let message = crate::ssh::host_key_error(&verifier, e).to_string();
             sec.log("error", &message);
             message
         })?;
-    sec.log("network", "TCP connection established");
 
     sec.log("auth", &format!("Authenticating to \"{}\":\"{}\" as \"{}\"", host, port, username));
     crate::ssh::authenticate(&mut handle, &auth, &AuthContext::new(sec.clone(), username).with_host(host))

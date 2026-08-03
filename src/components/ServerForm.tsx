@@ -15,7 +15,7 @@ interface Props {
 }
 
 export default function ServerForm({ server, onClose, onDelete }: Props) {
-  const { identities, keys, saveServer, customThemes, setActiveTab } = useAppStore();
+  const { servers, identities, keys, saveServer, customThemes, setActiveTab } = useAppStore();
 
   const [name, setName] = useState(server?.name ?? '');
   const [host, setHost] = useState(server?.host ?? '');
@@ -42,6 +42,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
   const keyBtnRef = useRef<HTMLButtonElement>(null);
   const [themeOverride, setThemeOverride] = useState<string>(server?.theme ?? 'bifrossh-dark');
   const [timeoutSecs, setTimeoutSecs] = useState<string>(server?.connection_timeout != null ? String(server.connection_timeout) : '');
+  const [proxyJump, setProxyJump] = useState(server?.proxy_jump ?? '');
   const [themeExpanded, setThemeExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -97,6 +98,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
           connection_timeout: timeoutSecs.trim() === '' || isNaN(parsed) ? null : Math.max(1, parsed),
           // Set on the identity, not here; preserved so editing a host does not clear it.
           auth_kind: server?.auth_kind ?? null,
+          proxy_jump: proxyJump || null,
         },
         (!identityId && !keyId && password.trim()) ? password.trim() : undefined,
       );
@@ -106,6 +108,24 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
       setSaving(false);
     }
   }
+
+  // Offering a host that already reaches this one through its own chain would
+  // build a loop the connection could never resolve, so those are left out
+  // rather than allowed and rejected at connect time.
+  const jumpCandidates = servers.filter((candidate) => {
+    if (candidate.id === server?.id) return false;
+    // A host being created has nothing pointing at it yet, so no chain
+    // through it can exist to loop back.
+    if (!server) return true;
+    const seen = new Set<string>();
+    let hop: Server | undefined = candidate;
+    while (hop?.proxy_jump && !seen.has(hop.id)) {
+      seen.add(hop.id);
+      if (hop.proxy_jump === server.id) return false;
+      hop = servers.find((s) => s.id === hop!.proxy_jump);
+    }
+    return true;
+  });
 
   return (
     <>
@@ -273,6 +293,23 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
                 })()}
               </>
             )}
+
+            <div className="form-group">
+              <label>Jump Host</label>
+              <select value={proxyJump} onChange={(e) => setProxyJump(e.target.value)}>
+                <option value="">Connect directly</option>
+                {jumpCandidates.map((candidate) => (
+                  <option key={candidate.id} value={candidate.id}>
+                    {candidate.name} ({candidate.host})
+                  </option>
+                ))}
+              </select>
+              <p className="form-hint">
+                Reach this host through another saved host, the way ssh does with
+                ProxyJump. The jump host connects with its own credentials, and its
+                own jump host is followed too.
+              </p>
+            </div>
 
             <div className="form-group">
               <label>Connection Attempt Timeout (seconds)</label>

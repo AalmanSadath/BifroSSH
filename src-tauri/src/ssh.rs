@@ -13,6 +13,7 @@ use tokio::sync::oneshot;
 use tokio::time::timeout;
 
 use crate::hostkeys::{ConnectSecurity, HostKeyVerifier, VerifyingHandler};
+use crate::jump::{self, JumpHop};
 use crate::prompts::{AuthPromptEvent, AuthPromptField, PromptCancelEvent};
 
 pub enum SshCommand {
@@ -332,6 +333,9 @@ pub struct SshConnectParams {
     pub initial_rows: u32,
     /// Seconds between keepalives; 0 disables them.
     pub keepalive_secs: u32,
+    /// Jump hosts to reach this server through, outermost first. Empty for a
+    /// direct connection.
+    pub jumps: Vec<JumpHop>,
 }
 
 /// russh sends a keepalive every interval and gives up after `keepalive_max`
@@ -359,17 +363,17 @@ pub async fn exec_ssh_command(
     auth: SshAuth,
     command: &str,
     sec: ConnectSecurity,
+    jumps: &[JumpHop],
 ) -> Result<String> {
     let config = Arc::new(client::Config {
         inactivity_timeout: Some(Duration::from_secs(15)),
         ..Default::default()
     });
 
-    let mut addrs = tokio::net::lookup_host(format!("{}:{}", host, port)).await?;
-    let addr = addrs.next().ok_or_else(|| anyhow!("Cannot resolve host: {}", host))?;
+    let transport = jump::open_transport(jumps, host, port, &sec, None).await?;
 
     let verifier = HostKeyVerifier::new(sec.clone(), host, port, Some(username.to_string()));
-    let mut handle = match client::connect(config, addr, VerifyingHandler { v: verifier.clone() }).await {
+    let mut handle = match client::connect_stream(config, transport, VerifyingHandler { v: verifier.clone() }).await {
         Ok(h) => h,
         Err(e) => return Err(host_key_error(&verifier, e)),
     };
@@ -414,18 +418,23 @@ pub async fn connect_ssh(
     });
 
     emit_log(&app, &connect_id, "auth", &format!("Starting a new connection to: \"{}\" port \"{}\"", params.host, params.port));
-    emit_log(&app, &connect_id, "network", &format!("Starting address resolution of \"{}\"", params.host));
-    let mut addrs = tokio::net::lookup_host(format!("{}:{}", params.host, params.port)).await?;
-    let addr = addrs.next().ok_or_else(|| anyhow!("Cannot resolve host: {}", params.host))?;
-    emit_log(&app, &connect_id, "network", "Address resolution finished");
 
-    emit_log(&app, &connect_id, "network", &format!("Connecting to \"{}\" port \"{}\"", params.host, params.port));
+    // Resolution, the TCP connect, and every jump host in between. With no
+    // jump hosts this is exactly the direct connection it always was.
+    let transport = jump::open_transport(
+        &params.jumps,
+        &params.host,
+        params.port,
+        &sec,
+        keepalive_interval(params.keepalive_secs),
+    )
+    .await?;
+
     let verifier = HostKeyVerifier::new(sec.clone(), &params.host, params.port, Some(params.username.clone()));
-    let mut handle = match client::connect(config, addr, VerifyingHandler { v: verifier.clone() }).await {
+    let mut handle = match client::connect_stream(config, transport, VerifyingHandler { v: verifier.clone() }).await {
         Ok(h) => h,
         Err(e) => return Err(host_key_error(&verifier, e)),
     };
-    emit_log(&app, &connect_id, "network", "TCP connection established");
 
     emit_log(&app, &connect_id, "auth", &format!("Authenticating to \"{}\":\"{}\" as \"{}\"", params.host, params.port, params.username));
     authenticate(&mut handle, &params.auth, &AuthContext::new(sec, &params.username).with_host(&params.host)).await?;

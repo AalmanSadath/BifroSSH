@@ -11,6 +11,25 @@ export interface Server {
   os: string;
   connection_timeout: number | null;
   auth_kind: AuthKind | null;
+  /**
+   * Id of another saved server to reach this one through, the equivalent of
+   * OpenSSH's ProxyJump. That server's own proxy_jump is followed too, so a
+   * chain of bastions is expressed one link at a time.
+   */
+  proxy_jump: string | null;
+}
+
+/**
+ * One jump host as the backend expects it. The chain is walked and its
+ * credentials resolved on this side; a key here is still just an id, and the
+ * backend goes to the keychain for the material.
+ */
+export interface JumpHopParams {
+  host: string;
+  port: number;
+  username: string;
+  auth_type: string;
+  auth_value: string;
 }
 
 /**
@@ -73,6 +92,8 @@ export interface HostKeyPromptEvent {
   existing_fingerprint: string | null;
   source: string | null;
   line: number | null;
+  /** A jump host on the way to the requested server, not the server itself. */
+  is_jump: boolean;
 }
 
 /** Result of a recursive SFTP transfer. */
@@ -103,6 +124,7 @@ export interface SshConfigImportResult {
   imported: number;
   skipped_existing: number;
   keys_linked: number;
+  jumps_linked: number;
 }
 
 export interface AgentKeyInfo {

@@ -17,8 +17,8 @@ pub struct SshConfigHost {
     pub port: Option<u16>,
     /// `IdentityFile`, expanded but not read.
     pub identity_file: Option<String>,
-    /// The config named a jump host. Not supported yet, so the connection
-    /// would not work as configured and the UI should say so.
+    /// The config's `ProxyJump` value, verbatim. Linked to a saved server on
+    /// import when it names another host being imported alongside it.
     pub proxy_jump: Option<String>,
 }
 
@@ -122,6 +122,29 @@ pub fn parse(content: &str) -> SshConfigScan {
     SshConfigScan { hosts, has_includes }
 }
 
+/// The host part of a `ProxyJump` value, which OpenSSH allows to be written
+/// as `[user@]host[:port]`. Only the host is of use here: the import links a
+/// jump to a saved server, and that server already carries its own username
+/// and port.
+///
+/// A comma-separated multi-hop value gives back the first hop only, which is
+/// the one the connection is made through first.
+pub fn jump_alias(proxy_jump: &str) -> Option<&str> {
+    let first = proxy_jump.split(',').next()?.trim();
+    if first.is_empty() || first.eq_ignore_ascii_case("none") {
+        return None;
+    }
+    let after_user = first.rsplit('@').next()?;
+    // A bracketed IPv6 literal keeps its colons; anything else splits on the
+    // last colon to drop a port.
+    let host = if after_user.starts_with('[') {
+        after_user.split(']').next()?.trim_start_matches('[')
+    } else {
+        after_user.rsplit_once(':').map_or(after_user, |(host, _)| host)
+    };
+    (!host.is_empty()).then_some(host)
+}
+
 pub fn scan() -> Result<SshConfigScan, String> {
     let Some(path) = config_path() else {
         return Ok(SshConfigScan { hosts: Vec::new(), has_includes: false });
@@ -209,9 +232,42 @@ mod tests {
     }
 
     #[test]
-    fn proxy_jump_is_recorded_so_it_can_be_flagged() {
+    fn proxy_jump_is_recorded_so_it_can_be_linked() {
         let scan = parse("Host inner\n  HostName 10.0.0.5\n  ProxyJump bastion\n");
         assert_eq!(scan.hosts[0].proxy_jump.as_deref(), Some("bastion"));
+    }
+
+    #[test]
+    fn a_bare_jump_alias_is_its_own_host() {
+        assert_eq!(jump_alias("bastion"), Some("bastion"));
+    }
+
+    #[test]
+    fn a_jump_alias_drops_the_user_and_port_around_it() {
+        assert_eq!(jump_alias("jane@bastion"), Some("bastion"));
+        assert_eq!(jump_alias("bastion:2222"), Some("bastion"));
+        assert_eq!(jump_alias("jane@bastion:2222"), Some("bastion"));
+    }
+
+    /// A bracketed IPv6 literal is full of colons that are not a port.
+    #[test]
+    fn a_jump_alias_keeps_an_ipv6_literal_intact() {
+        assert_eq!(jump_alias("[2001:db8::1]:2222"), Some("2001:db8::1"));
+        assert_eq!(jump_alias("[2001:db8::1]"), Some("2001:db8::1"));
+    }
+
+    /// Multi-hop chains are written `a,b,c`; the first is what is dialled first.
+    #[test]
+    fn a_multi_hop_jump_alias_gives_back_the_first_hop() {
+        assert_eq!(jump_alias("outer,inner"), Some("outer"));
+    }
+
+    /// `ProxyJump none` is how a later block cancels an inherited jump host.
+    #[test]
+    fn a_jump_alias_of_none_is_not_a_host() {
+        assert_eq!(jump_alias("none"), None);
+        assert_eq!(jump_alias("None"), None);
+        assert_eq!(jump_alias("  "), None);
     }
 
     #[test]

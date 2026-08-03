@@ -1,6 +1,7 @@
 mod commands;
 mod crypto;
 mod hostkeys;
+mod jump;
 mod models;
 mod ppk;
 mod prompts;

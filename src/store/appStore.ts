@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { Codeprint, Identity, KeyEntry, LogEntry, PortForwarding, Server, SessionTab, Settings } from '../types';
+import type { Codeprint, Identity, JumpHopParams, KeyEntry, LogEntry, PortForwarding, Server, SessionTab, Settings } from '../types';
 import type { NamedTheme } from '../styles/themes';
 
 // These three collections used to live here. They are now kept in the Rust
@@ -102,7 +102,7 @@ interface AppStore {
 
   saveServer: (server: Partial<Server> & { name: string; host: string; port: number }, password?: string) => Promise<void>;
   deleteServer: (id: string) => Promise<void>;
-  detectServerOs: (serverId: string, username: string, authType: string, authValue: string) => Promise<void>;
+  detectServerOs: (serverId: string, username: string, authType: string, authValue: string, jumps?: JumpHopParams[]) => Promise<void>;
 
   importKey: (name: string, path: string, passphrase: string | null, storeContent: boolean) => Promise<void>;
   saveKeyFromContent: (name: string, content: string, passphrase: string | null) => Promise<void>;
@@ -213,6 +213,63 @@ export async function resolveServerAuth(
   return null;
 }
 
+/**
+ * Matches MAX_HOPS in src-tauri/src/jump.rs. Checked here as well so a loop is
+ * caught before any connection is attempted, and named in a message that says
+ * which hosts are involved.
+ */
+const MAX_JUMP_HOPS = 8;
+
+/**
+ * Walks a server's chain of jump hosts and resolves each one's credentials.
+ *
+ * Returns the hops in the order they are connected in: the first is reached
+ * over TCP, and each later one through the hop before it. `proxy_jump` points
+ * from a server to the host it is reached *through*, so the chain is walked
+ * inwards and then reversed.
+ *
+ * A jump host that has no usable credentials is an error rather than a silent
+ * direct connection, which would bypass the bastion the user asked for.
+ */
+export async function buildJumpChain(
+  server: Server,
+  servers: Server[],
+  identities: Identity[],
+): Promise<JumpHopParams[]> {
+  const hops: JumpHopParams[] = [];
+  const seen = new Set<string>([server.id]);
+
+  let current = server;
+  while (current.proxy_jump) {
+    const jump = servers.find((s) => s.id === current.proxy_jump);
+    if (!jump) {
+      throw new Error(`The jump host configured for "${current.name}" no longer exists`);
+    }
+    if (seen.has(jump.id)) {
+      throw new Error(`"${jump.name}" is part of a loop of jump hosts`);
+    }
+    if (hops.length >= MAX_JUMP_HOPS) {
+      throw new Error(`More than ${MAX_JUMP_HOPS} jump hosts chained from "${server.name}"`);
+    }
+    seen.add(jump.id);
+
+    const resolved = await resolveServerAuth(jump, identities);
+    if (!resolved) {
+      throw new Error(`No credentials configured for the jump host "${jump.name}"`);
+    }
+    hops.push({
+      host: jump.host,
+      port: jump.port,
+      username: resolved.username,
+      auth_type: resolved.authType,
+      auth_value: resolved.authValue,
+    });
+    current = jump;
+  }
+
+  return hops.reverse();
+}
+
 export const useAppStore = create<AppStore>((set, get) => ({
   servers: [],
   identities: [],
@@ -270,10 +327,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set((s) => ({ servers: s.servers.filter((x) => x.id !== id) }));
   },
 
-  detectServerOs: async (serverId, username, authType, authValue) => {
+  detectServerOs: async (serverId, username, authType, authValue, jumps) => {
     try {
       const detectedOs = await invoke<string>('detect_server_os', {
-        serverId, username, authType, authValue,
+        serverId, username, authType, authValue, jumps,
       });
       set((s) => ({
         servers: s.servers.map((srv) =>
@@ -421,6 +478,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       username,
       authType,
       authValue,
+      jumps: await buildJumpChain(server, servers, identities),
     });
     set((s) => ({ activeTunnelIds: new Set([...s.activeTunnelIds, pf.id]) }));
   },
@@ -546,6 +604,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }));
 
     try {
+      // A broken jump chain surfaces in the session's own error view, the
+      // same as any other reason the connection could not be made.
+      const jumps = await buildJumpChain(server, servers, identities);
       const sessionId = await invoke<string>('ssh_connect', {
         request: {
           server_id: serverId,
@@ -555,6 +616,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
           cols: 80,
           rows: 24,
           connect_id: connectId,
+          jumps,
         },
       });
       // The backend's last log lines are emitted just before ssh_connect
@@ -562,7 +624,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       // moment later so the stored transcript is complete.
       setTimeout(unlisten, 1000);
       get().updateSessionConnected(connectId, sessionId);
-      if (server.os === '') detectServerOs(serverId, username, authType, authValue);
+      if (server.os === '') detectServerOs(serverId, username, authType, authValue, jumps);
     } catch (err) {
       unlisten();
       get().updateSessionError(connectId, String(err));

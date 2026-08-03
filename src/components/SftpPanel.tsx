@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { useAppStore, resolveServerAuth } from '../store/appStore';
+import { useAppStore, buildJumpChain, resolveServerAuth } from '../store/appStore';
 import OsIcon from './OsIcon';
 import type { LogEntry, Server } from '../types';
 import ConnectingView from './ConnectingView';
@@ -780,6 +780,7 @@ export default function SftpPanel() {
         authType,
         authValue,
         connectId,
+        jumps: await buildJumpChain(server, servers, identities),
       });
       setLeftSid(sid);
       setLeftServerId(server.id);
@@ -853,6 +854,7 @@ export default function SftpPanel() {
         authType,
         authValue,
         connectId,
+        jumps: await buildJumpChain(server, servers, identities),
       });
 
       setRemoteSid(sid);
