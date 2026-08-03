@@ -1,10 +1,14 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
 use crate::crypto::{decrypt, encrypt};
+use crate::hostkeys::{self, ConnectSecurity, KnownHostEntry};
 use crate::models::*;
 use crate::ppk;
+use crate::prompts::{HostKeyDecision, PromptState};
 use crate::sftp::SftpClientState;
 use crate::ssh::{connect_ssh, ConnectLogEvent, SshAuth, SshCommand, SshConnectParams, SshState};
 use crate::store::save_app_data;
@@ -16,6 +20,55 @@ pub struct AppState {
     pub ssh_state: Arc<SshState>,
     pub sftp_state: Arc<SftpClientState>,
     pub tunnel_state: Arc<TunnelState>,
+    pub prompts: Arc<PromptState>,
+}
+
+/// Like `tokio::time::timeout`, but the countdown stops while `paused` is set.
+///
+/// A host key prompt blocks the connect on a human, who may take a minute to
+/// compare a fingerprint. Plain `timeout` would kill the connection underneath
+/// them and leave the modal pointing at a dead session.
+pub(crate) async fn timeout_pausable<F: std::future::Future>(
+    fut: F,
+    secs: u64,
+    paused: Arc<AtomicBool>,
+) -> Result<F::Output, ()> {
+    tokio::pin!(fut);
+    let tick = Duration::from_millis(250);
+    let budget = Duration::from_secs(secs);
+    let mut elapsed = Duration::ZERO;
+    loop {
+        tokio::select! {
+            out = &mut fut => return Ok(out),
+            _ = tokio::time::sleep(tick) => {
+                if !paused.load(Ordering::Relaxed) {
+                    elapsed += tick;
+                    if elapsed >= budget { return Err(()); }
+                }
+            }
+        }
+    }
+}
+
+/// Builds the per-connect host key context. Never call this while holding
+/// `state.data` across an await — see `ssh_connect`.
+async fn connect_security(
+    state: &State<'_, AppState>,
+    app: &AppHandle,
+    connect_id: Option<String>,
+    interactive: bool,
+) -> ConnectSecurity {
+    let policy = {
+        let data = state.data.lock().await;
+        data.settings.host_key_policy.clone()
+    };
+    ConnectSecurity::new(
+        app.clone(),
+        Arc::clone(&state.prompts),
+        &policy,
+        connect_id,
+        interactive,
+    )
 }
 
 // ── Servers ──────────────────────────────────────────────────────────────────
@@ -465,6 +518,40 @@ pub async fn save_settings(
     save_app_data(&*data).map_err(|e| e.to_string())
 }
 
+// ── Host keys ────────────────────────────────────────────────────────────────
+
+/// Completes a host key prompt. The connect is parked on the matching oneshot.
+#[tauri::command]
+pub async fn respond_host_key(
+    state: State<'_, AppState>,
+    request_id: String,
+    decision: String,
+) -> Result<(), String> {
+    let decision = HostKeyDecision::from_str(&decision)
+        .ok_or_else(|| format!("Unknown host key decision: {}", decision))?;
+
+    let sender = state.prompts.host_keys.lock().await.remove(&request_id);
+    // A missing entry means the connect already gave up (timeout, or the user
+    // closed the session). Nothing to answer, and not an error worth surfacing.
+    if let Some(sender) = sender {
+        let _ = sender.send(decision);
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn list_known_hosts() -> Result<Vec<KnownHostEntry>, String> {
+    hostkeys::list_known_hosts().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn forget_known_host(host: String, port: u16) -> Result<(), String> {
+    hostkeys::forget_host(&host, port)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 // ── OS detection ─────────────────────────────────────────────────────────────
 
 fn map_distro_id(id: &str) -> &'static str {
@@ -518,6 +605,7 @@ fn parse_os_release(output: &str) -> String {
 #[tauri::command]
 pub async fn detect_server_os(
     state: State<'_, AppState>,
+    app: AppHandle,
     server_id: String,
     username: String,
     auth_type: String,
@@ -553,9 +641,14 @@ pub async fn detect_server_os(
         (server.host.clone(), server.port, auth)
     };
 
+    // Non-interactive: this runs in the background with no UI to prompt from,
+    // so an unknown host key fails rather than silently trusting.
+    let sec = connect_security(&state, &app, None, false).await;
+
     let output = crate::ssh::exec_ssh_command(
         &host, port, &username, auth,
         "cat /etc/os-release 2>/dev/null; cat /proc/device-tree/model 2>/dev/null; echo; uname -s",
+        sec,
     )
     .await
     .map_err(|e| e.to_string())?;
@@ -653,9 +746,13 @@ pub async fn ssh_connect(
         host_timeout.unwrap_or(data.settings.connection_timeout_secs) as u64
     };
 
-    let connect_result = tokio::time::timeout(
-        std::time::Duration::from_secs(timeout_secs),
-        connect_ssh(session_id.clone(), params, request.connect_id.clone(), app.clone(), Arc::clone(&state.ssh_state)),
+    let sec = connect_security(&state, &app, Some(request.connect_id.clone()), true).await;
+    let waiting = Arc::clone(&sec.waiting);
+
+    let connect_result = timeout_pausable(
+        connect_ssh(session_id.clone(), params, request.connect_id.clone(), app.clone(), Arc::clone(&state.ssh_state), sec),
+        timeout_secs,
+        waiting,
     )
     .await;
 
@@ -736,9 +833,13 @@ pub async fn ssh_connect_quick(
         initial_rows: request.rows,
     };
 
-    let connect_result = tokio::time::timeout(
-        std::time::Duration::from_secs(timeout_secs),
-        connect_ssh(session_id.clone(), params, request.connect_id.clone(), app.clone(), Arc::clone(&state.ssh_state)),
+    let sec = connect_security(&state, &app, Some(request.connect_id.clone()), true).await;
+    let waiting = Arc::clone(&sec.waiting);
+
+    let connect_result = timeout_pausable(
+        connect_ssh(session_id.clone(), params, request.connect_id.clone(), app.clone(), Arc::clone(&state.ssh_state), sec),
+        timeout_secs,
+        waiting,
     ).await;
 
     let err_msg = match connect_result {
@@ -816,6 +917,7 @@ pub async fn sftp_list_local(path: String) -> Result<Vec<crate::sftp::FileEntry>
 #[tauri::command]
 pub async fn sftp_connect_remote(
     state: State<'_, AppState>,
+    app: AppHandle,
     server_id: String,
     username: String,
     auth_type: String,
@@ -860,6 +962,8 @@ pub async fn sftp_connect_remote(
         data.settings.sftp_inactivity_timeout_secs
     };
 
+    let sec = connect_security(&state, &app, None, true).await;
+
     if auth_type == "key" {
         let pem = key_pem.ok_or_else(|| "Key not found or could not be read".to_string())?;
         crate::sftp::connect_sftp(
@@ -872,6 +976,7 @@ pub async fn sftp_connect_remote(
             passphrase.as_deref(),
             None,
             inactivity_timeout_secs,
+            sec,
         ).await?;
     } else {
         crate::sftp::connect_sftp(
@@ -884,6 +989,7 @@ pub async fn sftp_connect_remote(
             None,
             Some(&auth_value),
             inactivity_timeout_secs,
+            sec,
         ).await?;
     }
 
@@ -1031,6 +1137,7 @@ fn resolve_tunnel_auth(
 #[tauri::command]
 pub async fn tunnel_start(
     state: State<'_, AppState>,
+    app: AppHandle,
     pf_id: String,
     pf_type: String,
     bind_address: String,
@@ -1076,7 +1183,8 @@ pub async fn tunnel_start(
         t => return Err(format!("Unknown tunnel type: {}", t)),
     };
 
-    let params = TunnelParams { kind, bind_address, ssh_host, ssh_port, ssh_username: username, auth };
+    let sec = connect_security(&state, &app, None, true).await;
+    let params = TunnelParams { kind, bind_address, ssh_host, ssh_port, ssh_username: username, auth, sec };
 
     crate::tunnel::start_tunnel(pf_id, params, Arc::clone(&state.tunnel_state))
         .await

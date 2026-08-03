@@ -5,7 +5,6 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use anyhow::Result;
-use async_trait::async_trait;
 use russh::*;
 use russh_keys::key::KeyPair;
 use russh_sftp::client::SftpSession;
@@ -13,6 +12,8 @@ use serde::Serialize;
 use tauri::Emitter;
 use tokio::sync::Mutex;
 use tokio::time::Duration;
+
+use crate::hostkeys::{ConnectSecurity, HostKeyVerifier, VerifyingHandler};
 
 const CHUNK: usize = 128 * 1024; // 128 KB
 
@@ -41,19 +42,6 @@ pub struct SftpClientState {
 impl SftpClientState {
     pub fn new() -> Self {
         Self { sessions: Mutex::new(HashMap::new()) }
-    }
-}
-
-struct SftpClientHandler;
-
-#[async_trait]
-impl client::Handler for SftpClientHandler {
-    type Error = russh::Error;
-    async fn check_server_key(
-        &mut self,
-        _key: &russh_keys::key::PublicKey,
-    ) -> Result<bool, Self::Error> {
-        Ok(true)
     }
 }
 
@@ -171,10 +159,14 @@ pub async fn connect_sftp(
     passphrase: Option<&str>,
     password: Option<&str>,
     inactivity_timeout_secs: u32,
+    sec: ConnectSecurity,
 ) -> Result<(), String> {
-    tokio::time::timeout(
-        Duration::from_secs(30),
-        connect_sftp_inner(sftp_state, session_id, host, port, username, key_pem, passphrase, password, inactivity_timeout_secs),
+    // The countdown pauses while a host key prompt is on screen.
+    let waiting = Arc::clone(&sec.waiting);
+    crate::commands::timeout_pausable(
+        connect_sftp_inner(sftp_state, session_id, host, port, username, key_pem, passphrase, password, inactivity_timeout_secs, sec),
+        30,
+        waiting,
     )
     .await
     .map_err(|_| "Connection timed out after 30 seconds".to_string())?
@@ -190,6 +182,7 @@ async fn connect_sftp_inner(
     passphrase: Option<&str>,
     password: Option<&str>,
     inactivity_timeout_secs: u32,
+    sec: ConnectSecurity,
 ) -> Result<(), String> {
     let config = Arc::new(client::Config {
         inactivity_timeout: Some(Duration::from_secs(inactivity_timeout_secs as u64)),
@@ -200,8 +193,10 @@ async fn connect_sftp_inner(
         .map_err(|e| e.to_string())?;
     let addr = addrs.next().ok_or_else(|| "Cannot resolve host".to_string())?;
 
-    let mut handle = client::connect(config, addr, SftpClientHandler).await
-        .map_err(|e| e.to_string())?;
+    let verifier = HostKeyVerifier::new(sec, host, port, Some(username.to_string()));
+    let mut handle = client::connect(config, addr, VerifyingHandler { v: verifier.clone() })
+        .await
+        .map_err(|e| crate::ssh::host_key_error(&verifier, e).to_string())?;
 
     let authenticated = if let Some(pw) = password {
         handle.authenticate_password(username, pw).await.map_err(|e| e.to_string())?

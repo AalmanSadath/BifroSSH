@@ -1,7 +1,9 @@
 mod commands;
 mod crypto;
+mod hostkeys;
 mod models;
 mod ppk;
+mod prompts;
 mod sftp;
 mod ssh;
 mod store;
@@ -9,6 +11,7 @@ mod tunnel;
 
 use std::sync::Arc;
 use commands::AppState;
+use prompts::PromptState;
 use sftp::SftpClientState;
 use ssh::SshState;
 use store::{load_app_data, load_secret_key};
@@ -27,6 +30,7 @@ pub fn run() {
             ssh_state: Arc::new(SshState::new()),
             sftp_state: Arc::new(SftpClientState::new()),
             tunnel_state: Arc::new(TunnelState::new()),
+            prompts: Arc::new(PromptState::new()),
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_servers,
@@ -46,6 +50,9 @@ pub fn run() {
             commands::get_identity_password,
             commands::get_settings,
             commands::save_settings,
+            commands::respond_host_key,
+            commands::list_known_hosts,
+            commands::forget_known_host,
             commands::convert_ppk,
             commands::detect_server_os,
             commands::ssh_connect,

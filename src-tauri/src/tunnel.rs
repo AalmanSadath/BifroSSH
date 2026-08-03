@@ -9,6 +9,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{oneshot, Mutex};
 
+use crate::hostkeys::{ConnectSecurity, HostKeyVerifier, VerifyingHandler};
+
 // ── State ─────────────────────────────────────────────────────────────────────
 
 pub struct TunnelHandle {
@@ -46,6 +48,7 @@ pub struct TunnelParams {
     pub ssh_port: u16,
     pub ssh_username: String,
     pub auth: TunnelAuth,
+    pub sec: ConnectSecurity,
 }
 
 struct TunnelBase {
@@ -54,21 +57,13 @@ struct TunnelBase {
     ssh_port: u16,
     ssh_username: String,
     auth: TunnelAuth,
+    sec: ConnectSecurity,
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
-struct BasicHandler;
-
-#[async_trait]
-impl client::Handler for BasicHandler {
-    type Error = russh::Error;
-    async fn check_server_key(&mut self, _: &russh_keys::key::PublicKey) -> Result<bool, Self::Error> {
-        Ok(true)
-    }
-}
-
 struct RemoteForwardHandler {
+    v: HostKeyVerifier,
     dest_host: String,
     dest_port: u32,
 }
@@ -77,8 +72,8 @@ struct RemoteForwardHandler {
 impl client::Handler for RemoteForwardHandler {
     type Error = russh::Error;
 
-    async fn check_server_key(&mut self, _: &russh_keys::key::PublicKey) -> Result<bool, Self::Error> {
-        Ok(true)
+    async fn check_server_key(&mut self, key: &russh_keys::key::PublicKey) -> Result<bool, Self::Error> {
+        Ok(self.v.verify(key).await)
     }
 
     async fn server_channel_open_forwarded_tcpip(
@@ -118,13 +113,26 @@ async fn authenticate_handle<H: client::Handler>(
     Ok(())
 }
 
-async fn connect_basic(base: &TunnelBase) -> Result<client::Handle<BasicHandler>> {
+fn tunnel_verifier(base: &TunnelBase) -> HostKeyVerifier {
+    HostKeyVerifier::new(
+        base.sec.clone(),
+        &base.ssh_host,
+        base.ssh_port,
+        Some(base.ssh_username.clone()),
+    )
+}
+
+async fn connect_basic(base: &TunnelBase) -> Result<client::Handle<VerifyingHandler>> {
     let config = Arc::new(client::Config::default());
     let addr = tokio::net::lookup_host(format!("{}:{}", base.ssh_host, base.ssh_port))
         .await?
         .next()
         .ok_or_else(|| anyhow!("Cannot resolve {}", base.ssh_host))?;
-    let mut handle = client::connect(config, addr, BasicHandler).await?;
+    let verifier = tunnel_verifier(base);
+    let mut handle = match client::connect(config, addr, VerifyingHandler { v: verifier.clone() }).await {
+        Ok(h) => h,
+        Err(e) => return Err(crate::ssh::host_key_error(&verifier, e)),
+    };
     authenticate_handle(&mut handle, &base.ssh_username, &base.auth).await?;
     Ok(handle)
 }
@@ -139,8 +147,12 @@ async fn connect_remote_fwd(
         .await?
         .next()
         .ok_or_else(|| anyhow!("Cannot resolve {}", base.ssh_host))?;
-    let handler = RemoteForwardHandler { dest_host, dest_port };
-    let mut handle = client::connect(config, addr, handler).await?;
+    let verifier = tunnel_verifier(base);
+    let handler = RemoteForwardHandler { v: verifier.clone(), dest_host, dest_port };
+    let mut handle = match client::connect(config, addr, handler).await {
+        Ok(h) => h,
+        Err(e) => return Err(crate::ssh::host_key_error(&verifier, e)),
+    };
     authenticate_handle(&mut handle, &base.ssh_username, &base.auth).await?;
     Ok(handle)
 }
@@ -218,8 +230,8 @@ async fn socks5_handshake(stream: &mut TcpStream) -> Result<(String, u16)> {
 // ── Tunnel starters ───────────────────────────────────────────────────────────
 
 pub async fn start_tunnel(pf_id: String, params: TunnelParams, state: Arc<TunnelState>) -> Result<()> {
-    let TunnelParams { kind, bind_address, ssh_host, ssh_port, ssh_username, auth } = params;
-    let base = TunnelBase { bind_address, ssh_host, ssh_port, ssh_username, auth };
+    let TunnelParams { kind, bind_address, ssh_host, ssh_port, ssh_username, auth, sec } = params;
+    let base = TunnelBase { bind_address, ssh_host, ssh_port, ssh_username, auth, sec };
     match kind {
         TunnelKind::Local { local_port, dest_host, dest_port } =>
             local_tunnel(pf_id, base, local_port, dest_host, dest_port, state).await,

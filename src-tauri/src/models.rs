@@ -66,6 +66,9 @@ pub struct Settings {
     pub show_hover_hints: bool,
     #[serde(default = "Settings::default_sftp_inactivity_timeout")]
     pub sftp_inactivity_timeout_secs: u32,
+    /// "ask" | "accept-new" | "strict". A mismatch is blocked under all three.
+    #[serde(default = "Settings::default_host_key_policy")]
+    pub host_key_policy: String,
 }
 
 impl Default for Settings {
@@ -80,6 +83,7 @@ impl Default for Settings {
             connection_timeout_secs: 60,
             show_hover_hints: true,
             sftp_inactivity_timeout_secs: 300,
+            host_key_policy: "ask".to_string(),
         }
     }
 }
@@ -89,6 +93,7 @@ impl Settings {
     fn default_connection_timeout() -> u32 { 60 }
     fn default_show_hover_hints() -> bool { true }
     fn default_sftp_inactivity_timeout() -> u32 { 300 }
+    fn default_host_key_policy() -> String { "ask".to_string() }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

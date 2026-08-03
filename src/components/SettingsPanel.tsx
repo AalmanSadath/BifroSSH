@@ -50,7 +50,7 @@ function CursorStylePicker({ value, onChange }: { value: string; onChange: (v: s
 }
 
 export default function SettingsPanel() {
-  const { settings, saveSettings } = useAppStore();
+  const { settings, saveSettings, setActiveTab } = useAppStore();
   const [connTimeoutStr, setConnTimeoutStr] = useState(String(settings.connection_timeout_secs));
   const [sftpTimeoutStr, setSftpTimeoutStr] = useState(String(settings.sftp_inactivity_timeout_secs));
 
@@ -173,6 +173,17 @@ export default function SettingsPanel() {
           />
         </div>
         <p className="form-hint">How long an idle SFTP session is kept alive.</p>
+      </section>
+
+      <section className="panel-section">
+        <h3>Host keys</h3>
+        <p className="form-hint" style={{ marginTop: 0 }}>
+          Server fingerprints and how new servers are trusted are managed on the{' '}
+          <button type="button" className="link-btn" onClick={() => setActiveTab('knownhosts')}>
+            Known Hosts
+          </button>{' '}
+          page.
+        </p>
       </section>
 
       <section className="panel-section">

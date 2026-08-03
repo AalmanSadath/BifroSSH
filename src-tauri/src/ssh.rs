@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use anyhow::{anyhow, Result};
-use async_trait::async_trait;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use russh::*;
 use russh_keys::key::KeyPair;
 use tokio::sync::{mpsc, Mutex};
 use tokio::time::{interval, Duration};
 use tauri::{AppHandle, Emitter};
+
+use crate::hostkeys::{ConnectSecurity, HostKeyVerifier, VerifyingHandler};
 
 pub enum SshCommand {
     Data(Vec<u8>),
@@ -37,42 +38,11 @@ pub struct ConnectLogEvent {
     pub kind: String,
 }
 
-fn emit_log(app: &AppHandle, connect_id: &str, kind: &str, message: &str) {
+pub(crate) fn emit_log(app: &AppHandle, connect_id: &str, kind: &str, message: &str) {
     let _ = app.emit(&format!("ssh-connect-log:{}", connect_id), ConnectLogEvent {
         message: message.to_string(),
         kind: kind.to_string(),
     });
-}
-
-struct BasicClientHandler;
-
-#[async_trait]
-impl client::Handler for BasicClientHandler {
-    type Error = russh::Error;
-    async fn check_server_key(
-        &mut self,
-        _server_public_key: &russh_keys::key::PublicKey,
-    ) -> Result<bool, Self::Error> {
-        Ok(true)
-    }
-}
-
-struct LoggingClientHandler {
-    app: AppHandle,
-    connect_id: String,
-}
-
-#[async_trait]
-impl client::Handler for LoggingClientHandler {
-    type Error = russh::Error;
-    async fn check_server_key(
-        &mut self,
-        _server_public_key: &russh_keys::key::PublicKey,
-    ) -> Result<bool, Self::Error> {
-        emit_log(&self.app, &self.connect_id, "auth", "Checking host key...");
-        emit_log(&self.app, &self.connect_id, "auth", "Host key accepted");
-        Ok(true)
-    }
 }
 
 pub enum SshAuth {
@@ -89,12 +59,24 @@ pub struct SshConnectParams {
     pub initial_rows: u32,
 }
 
+/// russh discards why a handler rejected a key: `Session::run` matches the
+/// error arm, calls `disconnected(..)` and returns `Ok(())` with the
+/// propagation commented out, so the caller only ever sees "Disconnected".
+/// Prefer the reason the verifier recorded out-of-band.
+pub(crate) fn host_key_error(verifier: &HostKeyVerifier, fallback: impl Into<anyhow::Error>) -> anyhow::Error {
+    match verifier.failure() {
+        Some(message) => anyhow!(message),
+        None => fallback.into(),
+    }
+}
+
 pub async fn exec_ssh_command(
     host: &str,
     port: u16,
     username: &str,
     auth: SshAuth,
     command: &str,
+    sec: ConnectSecurity,
 ) -> Result<String> {
     let config = Arc::new(client::Config {
         inactivity_timeout: Some(Duration::from_secs(15)),
@@ -104,7 +86,11 @@ pub async fn exec_ssh_command(
     let mut addrs = tokio::net::lookup_host(format!("{}:{}", host, port)).await?;
     let addr = addrs.next().ok_or_else(|| anyhow!("Cannot resolve host: {}", host))?;
 
-    let mut handle = client::connect(config, addr, BasicClientHandler).await?;
+    let verifier = HostKeyVerifier::new(sec, host, port, Some(username.to_string()));
+    let mut handle = match client::connect(config, addr, VerifyingHandler { v: verifier.clone() }).await {
+        Ok(h) => h,
+        Err(e) => return Err(host_key_error(&verifier, e)),
+    };
 
     let authenticated = match &auth {
         SshAuth::Password(password) => handle.authenticate_password(username, password).await?,
@@ -146,6 +132,7 @@ pub async fn connect_ssh(
     connect_id: String,
     app: AppHandle,
     ssh_state: Arc<SshState>,
+    sec: ConnectSecurity,
 ) -> Result<()> {
     let config = Arc::new(client::Config {
         window_size: 4 * 1024 * 1024,
@@ -160,8 +147,11 @@ pub async fn connect_ssh(
     emit_log(&app, &connect_id, "network", "Address resolution finished");
 
     emit_log(&app, &connect_id, "network", &format!("Connecting to \"{}\" port \"{}\"", params.host, params.port));
-    let handler = LoggingClientHandler { app: app.clone(), connect_id: connect_id.clone() };
-    let mut handle = client::connect(config, addr, handler).await?;
+    let verifier = HostKeyVerifier::new(sec, &params.host, params.port, Some(params.username.clone()));
+    let mut handle = match client::connect(config, addr, VerifyingHandler { v: verifier.clone() }).await {
+        Ok(h) => h,
+        Err(e) => return Err(host_key_error(&verifier, e)),
+    };
     emit_log(&app, &connect_id, "network", "TCP connection established");
 
     emit_log(&app, &connect_id, "auth", &format!("Authenticating to \"{}\":\"{}\" as \"{}\"", params.host, params.port, params.username));

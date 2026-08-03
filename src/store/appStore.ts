@@ -39,6 +39,7 @@ const DEFAULT_SETTINGS: Settings = {
   connection_timeout_secs: 60,
   show_hover_hints: true,
   sftp_inactivity_timeout_secs: 300,
+  host_key_policy: 'ask',
 };
 
 interface AppStore {

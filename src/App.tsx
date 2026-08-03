@@ -1,12 +1,15 @@
 import { useEffect, useState, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { useAppStore } from './store/appStore';
-import type { SessionTab } from './types';
+import type { HostKeyPromptEvent, SessionTab } from './types';
+import HostKeyPrompt from './components/HostKeyPrompt';
 import Sidebar from './components/Sidebar';
 import TerminalView from './components/TerminalView';
 import ConnectingView from './components/ConnectingView';
 import HostsPanel from './components/HostsPanel';
 import KeychainPanel from './components/KeychainPanel';
+import KnownHostsPanel from './components/KnownHostsPanel';
 import SettingsPanel from './components/SettingsPanel';
 import ThemeEditorPanel from './components/ThemeEditorPanel';
 import SftpPanel from './components/SftpPanel';
@@ -67,7 +70,31 @@ export default function App() {
   const tabCtxRef = useRef<HTMLDivElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
 
+  const [hostKeyPrompts, setHostKeyPrompts] = useState<HostKeyPromptEvent[]>([]);
+
   useEffect(() => { loadAll(); }, []);
+
+  // Host key prompts are emitted globally rather than per-connect, so this one
+  // modal serves terminal sessions, SFTP, tunnels and OS detection alike.
+  useEffect(() => {
+    const dismiss = (requestId: string) =>
+      setHostKeyPrompts((q) => q.filter((p) => p.request_id !== requestId));
+
+    const unlisten = Promise.all([
+      listen<HostKeyPromptEvent>('host-key-prompt', (e) => {
+        setHostKeyPrompts((q) =>
+          q.some((p) => p.request_id === e.payload.request_id) ? q : [...q, e.payload],
+        );
+      }),
+      // The connect gave up (timed out, or was cancelled) before the user
+      // answered — retract the modal instead of leaving it pointing at nothing.
+      listen<{ request_id: string }>('host-key-prompt-cancel', (e) => dismiss(e.payload.request_id)),
+    ]);
+
+    return () => {
+      unlisten.then((fns) => fns.forEach((fn) => fn()));
+    };
+  }, []);
 
   useEffect(() => {
     const body = document.body;
@@ -229,6 +256,7 @@ export default function App() {
           {(activeTabId === 'hosts' || activeTabId === null) && <HostsPanel />}
           {activeTabId === 'keychain' && <KeychainPanel />}
           <div style={{ display: activeTabId === 'sftp' ? 'contents' : 'none' }}><SftpPanel /></div>
+          {activeTabId === 'knownhosts' && <KnownHostsPanel />}
           {activeTabId === 'portforwarding' && <PortForwardingPanel />}
           {activeTabId === 'settings' && <SettingsPanel />}
           {activeTabId === 'theme-editor' && <ThemeEditorPanel />}
@@ -243,6 +271,16 @@ export default function App() {
         <ServerForm
           server={servers.find((s) => s.id === editServerId) ?? null}
           onClose={() => setEditServerId(null)}
+        />
+      )}
+
+      {hostKeyPrompts.length > 0 && (
+        <HostKeyPrompt
+          key={hostKeyPrompts[0].request_id}
+          event={hostKeyPrompts[0]}
+          onResolved={(id) =>
+            setHostKeyPrompts((q) => q.filter((p) => p.request_id !== id))
+          }
         />
       )}
 

@@ -39,6 +39,36 @@ export interface Settings {
   connection_timeout_secs: number;
   show_hover_hints: boolean;
   sftp_inactivity_timeout_secs: number;
+  host_key_policy: HostKeyPolicy;
+}
+
+/** A mismatched key is blocked under all three policies. */
+export type HostKeyPolicy = 'ask' | 'accept-new' | 'strict';
+
+export type HostKeyDecision = 'trust' | 'once' | 'replace' | 'reject';
+
+export interface HostKeyPromptEvent {
+  request_id: string;
+  connect_id: string | null;
+  host: string;
+  port: number;
+  username: string | null;
+  status: 'unknown' | 'mismatch' | 'revoked';
+  key_type: string;
+  fingerprint: string;
+  existing_key_type: string | null;
+  existing_fingerprint: string | null;
+  source: string | null;
+  line: number | null;
+}
+
+export interface KnownHostEntry {
+  host: string;
+  port: number;
+  key_type: string;
+  fingerprint: string;
+  source: string;
+  line: number;
 }
 
 export interface LogEntry {

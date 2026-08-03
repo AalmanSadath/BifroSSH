@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useAppStore } from '../store/appStore';
 
 
-const PANELS = ['hosts', 'sftp', 'keychain', 'portforwarding', 'settings', 'theme-editor'];
+const PANELS = ['hosts', 'sftp', 'keychain', 'knownhosts', 'portforwarding', 'settings', 'theme-editor'];
 
 export default function Sidebar() {
   const { activeTabId, setActiveTab, settings } = useAppStore();
@@ -76,6 +76,19 @@ export default function Sidebar() {
             </svg>
           </span>
           {!collapsed && 'Keychain'}
+        </button>
+        <button
+          className={`nav-btn ${activePanel === 'knownhosts' ? 'active' : ''}`}
+          onClick={() => setActiveTab('knownhosts')}
+          title={collapsed ? 'Known Hosts' : undefined}
+        >
+          <span className="nav-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 3l7 3v5.5c0 4.2-2.9 7.6-7 8.5-4.1-.9-7-4.3-7-8.5V6z"/>
+              <path d="M9 12l2 2 4-4"/>
+            </svg>
+          </span>
+          {!collapsed && 'Known Hosts'}
         </button>
         <button
           className={`nav-btn ${activePanel === 'portforwarding' ? 'active' : ''}`}
