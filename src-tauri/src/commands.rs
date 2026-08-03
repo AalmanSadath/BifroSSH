@@ -998,6 +998,8 @@ pub async fn sftp_connect_remote(
     username: String,
     auth_type: String,
     auth_value: String,
+    // Channel the connection log is narrated on.
+    connect_id: Option<String>,
 ) -> Result<String, String> {
     let (host, port, key_pem, passphrase) = {
         let data = state.data.lock().await;
@@ -1038,7 +1040,7 @@ pub async fn sftp_connect_remote(
         data.settings.sftp_inactivity_timeout_secs
     };
 
-    let sec = connect_security(&state, &app, None, true).await;
+    let sec = connect_security(&state, &app, connect_id, true).await;
 
     let auth = match auth_type.as_str() {
         "keyboard-interactive" => SshAuth::KeyboardInteractive,

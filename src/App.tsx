@@ -255,10 +255,11 @@ export default function App() {
               return (
                 <div key={s.session_id} style={{ display: activeTabId === s.session_id ? 'contents' : 'none' }}>
                   <ConnectingView
-                    tabId={s.session_id}
                     server={server}
+                    logs={s.logs ?? []}
                     error={s.error}
-                    onRetry={s.quick_info ? undefined : () => openSession(s.server_id)}
+                    onClose={() => removeSession(s.session_id)}
+                    onRetry={s.quick_info ? undefined : () => { removeSession(s.session_id); openSession(s.server_id); }}
                     onEditHost={s.quick_info ? undefined : () => setEditServerId(server.id)}
                   />
                 </div>

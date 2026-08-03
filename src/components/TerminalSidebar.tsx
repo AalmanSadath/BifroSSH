@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '../store/appStore';
+import ConnectLog, { formatLogs } from './ConnectLog';
 import { THEMES } from '../styles/themes';
 
 interface Props {
@@ -9,14 +10,18 @@ interface Props {
 
 export default function TerminalSidebar({ activeSessionId }: Props) {
   const {
-    settings, customThemes, codeprints,
+    settings, customThemes, codeprints, sessions,
     addCodeprint, deleteCodeprint,
     sessionThemeOverrides, setSessionTheme,
   } = useAppStore();
 
   const hint = (t: string) => settings.show_hover_hints ? t : undefined;
 
-  const [section, setSection] = useState<'codeprints' | 'theme'>('codeprints');
+  const [section, setSection] = useState<'codeprints' | 'theme' | 'log'>('codeprints');
+
+  // The connection transcript is kept on the session after it connects, so it
+  // stays reviewable instead of vanishing with the connecting view.
+  const logs = sessions.find((s) => s.session_id === activeSessionId)?.logs ?? [];
   const [showNewForm, setShowNewForm] = useState(false);
   const [newName, setNewName] = useState('');
   const [newCommand, setNewCommand] = useState('');
@@ -62,7 +67,34 @@ export default function TerminalSidebar({ activeSessionId }: Props) {
         >
           Theme
         </button>
+        <button
+          className={`term-sidebar-tab${section === 'log' ? ' active' : ''}`}
+          onClick={() => setSection('log')}
+        >
+          Log
+        </button>
       </div>
+
+      {section === 'log' && (
+        <div className="term-sidebar-body">
+          <div className="term-sidebar-log-head">
+            <span>Connection log</span>
+            <button
+              className="btn-secondary btn-sm"
+              disabled={logs.length === 0}
+              onClick={() => navigator.clipboard.writeText(formatLogs(logs)).catch(() => {})}
+              title={hint('Copy the connection log')}
+            >
+              Copy
+            </button>
+          </div>
+          <ConnectLog
+            logs={logs}
+            emptyText="No connection log for this session."
+            autoScroll={false}
+          />
+        </div>
+      )}
 
       {section === 'codeprints' && (
         <div className="term-sidebar-body">

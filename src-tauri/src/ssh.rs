@@ -108,9 +108,7 @@ impl AuthContext {
     }
 
     fn log(&self, kind: &str, message: &str) {
-        if let Some(connect_id) = &self.sec.connect_id {
-            emit_log(&self.sec.app, connect_id, kind, message);
-        }
+        self.sec.log(kind, message);
     }
 
     /// Puts one round of prompts to the user. `None` means they cancelled, or

@@ -929,6 +929,61 @@ button { cursor: pointer; font-family: inherit; }
   padding: 1px 6px;
 }
 
+/* The connecting screen also runs inside an SFTP pane, which is much narrower
+   than the terminal area, so the card has to shrink to fit. */
+.sftp-file-panel .connecting-page {
+  padding: 12px;
+  /* `align-items: center` would clip the top of a card taller than the pane
+     and make it unreachable, so centre with auto margins instead. */
+  align-items: normal;
+  justify-content: normal;
+  overflow-y: auto;
+  min-width: 0;
+}
+
+.sftp-file-panel .connecting-card {
+  width: 100%;
+  max-width: 480px;
+  min-width: 0;
+  margin: auto;
+}
+
+.sftp-file-panel .connecting-logs {
+  max-height: 220px;
+}
+
+.sftp-file-panel .connecting-log-line {
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.term-sidebar-log-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+
+/* In the sidebar the log fills the panel rather than being a drop-down inside
+   a card, and scrolls itself so the header stays put. min-height is required
+   for a scrolling flex child. */
+.term-sidebar-body .connecting-logs {
+  max-height: none;
+  flex: 1;
+  min-height: 0;
+}
+
+/* The sidebar is narrow, so long lines have to wrap instead of overflowing. */
+.term-sidebar-body .connecting-log-line {
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
 /* ── ssh-agent key picker ──────────────────────────────────── */
 
 .agentkey-list {

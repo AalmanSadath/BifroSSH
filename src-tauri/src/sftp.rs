@@ -185,23 +185,53 @@ async fn connect_sftp_inner(
         ..Default::default()
     });
 
+    sec.log("auth", &format!("Starting SFTP connection to \"{}\" port \"{}\"", host, port));
+    sec.log("network", &format!("Starting address resolution of \"{}\"", host));
     let mut addrs = tokio::net::lookup_host(format!("{}:{}", host, port)).await
-        .map_err(|e| e.to_string())?;
-    let addr = addrs.next().ok_or_else(|| "Cannot resolve host".to_string())?;
+        .map_err(|e| {
+            sec.log("error", &format!("Address resolution failed: {}", e));
+            e.to_string()
+        })?;
+    let addr = addrs.next().ok_or_else(|| {
+        sec.log("error", "Cannot resolve host");
+        "Cannot resolve host".to_string()
+    })?;
+    sec.log("network", "Address resolution finished");
 
+    sec.log("network", &format!("Connecting to \"{}\" port \"{}\"", host, port));
     let verifier = HostKeyVerifier::new(sec.clone(), host, port, Some(username.to_string()));
     let mut handle = client::connect(config, addr, VerifyingHandler { v: verifier.clone() })
         .await
-        .map_err(|e| crate::ssh::host_key_error(&verifier, e).to_string())?;
+        .map_err(|e| {
+            let message = crate::ssh::host_key_error(&verifier, e).to_string();
+            sec.log("error", &message);
+            message
+        })?;
+    sec.log("network", "TCP connection established");
 
-    crate::ssh::authenticate(&mut handle, &auth, &AuthContext::new(sec, username).with_host(host))
+    sec.log("auth", &format!("Authenticating to \"{}\":\"{}\" as \"{}\"", host, port, username));
+    crate::ssh::authenticate(&mut handle, &auth, &AuthContext::new(sec.clone(), username).with_host(host))
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            sec.log("error", &e.to_string());
+            e.to_string()
+        })?;
+    sec.log("auth", "Authentication succeeded");
 
+    sec.log("network", "Opening session channel...");
     let channel = handle.channel_open_session().await.map_err(|e| e.to_string())?;
-    channel.request_subsystem(true, "sftp").await.map_err(|e| e.to_string())?;
 
-    let sftp = SftpSession::new(channel.into_stream()).await.map_err(|e| e.to_string())?;
+    sec.log("network", "Requesting SFTP subsystem...");
+    channel.request_subsystem(true, "sftp").await.map_err(|e| {
+        sec.log("error", &format!("SFTP subsystem request failed: {}", e));
+        e.to_string()
+    })?;
+
+    let sftp = SftpSession::new(channel.into_stream()).await.map_err(|e| {
+        sec.log("error", &format!("SFTP session failed to start: {}", e));
+        e.to_string()
+    })?;
+    sec.log("auth", "SFTP ready");
 
     sftp_state.sessions.lock().await
         .insert(session_id.to_string(), Arc::new(Mutex::new(sftp)));

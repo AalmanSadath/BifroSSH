@@ -495,7 +495,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
           connect_id: connectId,
         },
       });
-      unlisten();
+      // The backend's last log lines are emitted just before ssh_connect
+      // returns, and race the response over the same IPC bridge. Unlisten a
+      // moment later so the stored transcript is complete.
+      setTimeout(unlisten, 1000);
       get().updateSessionConnected(connectId, sessionId);
       if (server.os === '') detectServerOs(serverId, username, authType, authValue);
     } catch (err) {
@@ -525,7 +528,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const sessionId = await invoke<string>('ssh_connect_quick', {
         request: { host, port, username, auth_type: authType, auth_value: authValue, cols: 80, rows: 24, connect_id: connectId },
       });
-      unlisten();
+      setTimeout(unlisten, 1000);
       get().updateSessionConnected(connectId, sessionId);
     } catch (err) {
       unlisten();

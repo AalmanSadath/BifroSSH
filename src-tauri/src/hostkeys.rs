@@ -485,6 +485,14 @@ pub struct ConnectSecurity {
 }
 
 impl ConnectSecurity {
+    /// Narrates a step into the connection log. A connect with no `connect_id`
+    /// (background OS detection) has nowhere to show it, so this is a no-op.
+    pub fn log(&self, kind: &str, message: &str) {
+        if let Some(connect_id) = &self.connect_id {
+            crate::ssh::emit_log(&self.app, connect_id, kind, message);
+        }
+    }
+
     pub fn new(
         app: AppHandle,
         prompts: Arc<PromptState>,
@@ -540,9 +548,7 @@ impl HostKeyVerifier {
     }
 
     fn log(&self, kind: &str, message: &str) {
-        if let Some(connect_id) = &self.sec.connect_id {
-            crate::ssh::emit_log(&self.sec.app, connect_id, kind, message);
-        }
+        self.sec.log(kind, message);
     }
 
     fn target(&self) -> String {

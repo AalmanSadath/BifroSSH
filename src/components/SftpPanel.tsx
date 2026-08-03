@@ -3,7 +3,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useAppStore, resolveServerAuth } from '../store/appStore';
 import OsIcon from './OsIcon';
-import type { Server } from '../types';
+import type { LogEntry, Server } from '../types';
+import ConnectingView from './ConnectingView';
 
 interface TransferProgress {
   file_name: string;
@@ -607,7 +608,7 @@ export default function SftpPanel() {
   const [localError, setLocalError] = useState('');
 
   // Left panel (local by default, can connect to remote)
-  type LeftState = 'local' | 'idle' | 'picking' | 'connected';
+  type LeftState = 'local' | 'idle' | 'picking' | 'connecting' | 'connected';
   const [leftState, setLeftState] = useState<LeftState>('local');
   const [leftPath, setLeftPath] = useState('');
   const [leftEntries, setLeftEntries] = useState<FileEntry[]>([]);
@@ -618,6 +619,8 @@ export default function SftpPanel() {
   const [leftServerName, setLeftServerName] = useState('');
   const [leftConnectingId, setLeftConnectingId] = useState<string | null>(null);
   const [leftConnectError, setLeftConnectError] = useState('');
+  const [leftConnectLogs, setLeftConnectLogs] = useState<LogEntry[]>([]);
+  const [leftConnectServer, setLeftConnectServer] = useState<Server | null>(null);
 
   // Right local filesystem (when right panel shows local)
   const [rightLocalPath, setRightLocalPath] = useState('');
@@ -626,7 +629,7 @@ export default function SftpPanel() {
   const [rightLocalError, setRightLocalError] = useState('');
 
   // Right panel (idle | local | picking | connected)
-  type RemoteState = 'idle' | 'local' | 'picking' | 'connected';
+  type RemoteState = 'idle' | 'local' | 'picking' | 'connecting' | 'connected';
   const [remoteState, setRemoteState] = useState<RemoteState>('picking');
   const [remotePath, setRemotePath] = useState('');
   const [remoteEntries, setRemoteEntries] = useState<FileEntry[]>([]);
@@ -637,6 +640,8 @@ export default function SftpPanel() {
   const [remoteServerName, setRemoteServerName] = useState('');
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [connectError, setConnectError] = useState('');
+  const [connectLogs, setConnectLogs] = useState<LogEntry[]>([]);
+  const [connectServer, setConnectServer] = useState<Server | null>(null);
 
   // Unexpected disconnect flags (set when navigate/list fails while connected)
   const [leftDisconnected, setLeftDisconnected] = useState(false);
@@ -754,12 +759,24 @@ export default function SftpPanel() {
 
     setLeftConnectingId(server.id);
     setLeftConnectError('');
+    setLeftConnectLogs([]);
+    setLeftConnectServer(server);
+    setLeftState('connecting');
+
+    // Narrate the connect the same way a terminal session does, so a stall or
+    // rejection is visible instead of leaving a bare spinner.
+    const connectId = crypto.randomUUID();
+    const unlisten = await listen<LogEntry>(`ssh-connect-log:${connectId}`, (event) => {
+      setLeftConnectLogs((prev) => [...prev, event.payload]);
+    });
+
     try {
       const sid = await invoke<string>('sftp_connect_remote', {
         serverId: server.id,
         username,
         authType,
         authValue,
+        connectId,
       });
       setLeftSid(sid);
       setLeftServerId(server.id);
@@ -773,9 +790,12 @@ export default function SftpPanel() {
       const entries = await invoke<FileEntry[]>('sftp_list_remote', { sessionId: sid, path: homePath });
       setLeftEntries(entries);
     } catch (e) {
+      // Stay on the connecting screen so the log explaining the failure, and
+      // the retry button, are both still there.
       setLeftConnectError(String(e));
-      setLeftState('picking');
     } finally {
+      // Trailing log lines race the invoke response over the same bridge.
+      setTimeout(unlisten, 1000);
       setLeftConnectingId(null);
       setLeftLoading(false);
     }
@@ -814,6 +834,14 @@ export default function SftpPanel() {
 
     setConnectingId(server.id);
     setConnectError('');
+    setConnectLogs([]);
+    setConnectServer(server);
+    setRemoteState('connecting');
+
+    const connectId = crypto.randomUUID();
+    const unlisten = await listen<LogEntry>(`ssh-connect-log:${connectId}`, (event) => {
+      setConnectLogs((prev) => [...prev, event.payload]);
+    });
 
     try {
       const sid = await invoke<string>('sftp_connect_remote', {
@@ -821,6 +849,7 @@ export default function SftpPanel() {
         username,
         authType,
         authValue,
+        connectId,
       });
 
       setRemoteSid(sid);
@@ -837,8 +866,8 @@ export default function SftpPanel() {
       setRemoteEntries(entries);
     } catch (e) {
       setConnectError(String(e));
-      setRemoteState('picking');
     } finally {
+      setTimeout(unlisten, 1000);
       setConnectingId(null);
       setRemoteLoading(false);
     }
@@ -1079,6 +1108,17 @@ export default function SftpPanel() {
           />
         )}
 
+        {leftState === 'connecting' && leftConnectServer && (
+          <ConnectingView
+            server={leftConnectServer}
+            logs={leftConnectLogs}
+            error={leftConnectError || undefined}
+            onClose={() => { setLeftState('picking'); setLeftConnectError(''); }}
+            onRetry={() => handleLeftSftpConnect(leftConnectServer)}
+            retryLabel="Retry"
+          />
+        )}
+
         {leftState === 'picking' && (
           <HostPicker
             servers={servers}
@@ -1159,6 +1199,17 @@ export default function SftpPanel() {
             onDragEnter={() => setDropTarget('right')}
             onDragLeave={() => setDropTarget(p => p === 'right' ? null : p)}
             onFileDrop={(entry) => handleDrop('right', entry)}
+          />
+        )}
+
+        {remoteState === 'connecting' && connectServer && (
+          <ConnectingView
+            server={connectServer}
+            logs={connectLogs}
+            error={connectError || undefined}
+            onClose={() => { setRemoteState('picking'); setConnectError(''); }}
+            onRetry={() => handleSftpConnect(connectServer)}
+            retryLabel="Retry"
           />
         )}
 
