@@ -13,6 +13,19 @@ Browse, upload, download, rename, delete, and create folders on remote servers w
 ### SSH key management
 Generate Ed25519, RSA, and ECDSA keys directly in the app. Import existing keys. All private keys are stored in an encrypted local keychain and are never written to disk unencrypted. Assign a key to a server or identity; the app decrypts and uses it at connect time.
 
+### Known hosts
+Every connection verifies the server's host key before authenticating, the same way OpenSSH does. The first time you connect to a server, its fingerprint is shown for you to confirm; once trusted, it is remembered and checked on every later connection. If a server ever presents a different key than the one stored, the connection is refused and you are warned — this is what a man-in-the-middle attack looks like.
+
+Trusted keys are kept in `~/.local/share/bifrossh/known_hosts` in standard OpenSSH format. Your existing `~/.ssh/known_hosts` is also read, so servers you have already connected to from a terminal are trusted automatically and never prompt. That file is only ever read, never modified.
+
+Three policies are available for servers you have not seen before:
+
+- **Ask** (default): shows the fingerprint and waits for you to confirm.
+- **Accept new**: trusts an unknown server automatically on first connection.
+- **Strict**: refuses any server that is not already trusted.
+
+A key that does not match the one already stored is refused under all three. Stored keys can be reviewed, searched, and individually forgotten from the Known Hosts panel.
+
 ### Port forwarding
 Create and manage SSH port forwarding rules. Three forwarding types are supported:
 
