@@ -57,13 +57,16 @@ impl Drop for SocketDirGuard {
 async fn spawn_agent(
     identities: Vec<(Vec<u8>, &'static str)>,
 ) -> (std::path::PathBuf, SocketDirGuard) {
+    // A counter rather than a timestamp: these tests run in parallel and two
+    // of them starting within the same nanosecond would share a directory,
+    // leaving the second to fail binding the socket with AddrInUse.
+    static NEXT_ID: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
     let dir = std::env::temp_dir().join(format!(
-        "bifrossh-agent-{}-{:?}",
+        "bifrossh-agent-{}-{}",
         std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
+        id
     ));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("agent.sock");
