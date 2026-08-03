@@ -43,6 +43,9 @@ pub struct Identity {
     pub encrypted_password: Option<String>,
     #[serde(default)]
     pub auth_kind: Option<String>,
+    /// Pins one ssh-agent key by fingerprint; None tries every key it offers.
+    #[serde(default)]
+    pub agent_fingerprint: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

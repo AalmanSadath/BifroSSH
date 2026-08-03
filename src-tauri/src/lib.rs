@@ -57,6 +57,7 @@ pub fn run() {
             commands::respond_host_key,
             commands::respond_auth_prompt,
             commands::list_known_hosts,
+            commands::list_agent_keys,
             commands::forget_known_host,
             commands::convert_ppk,
             commands::detect_server_os,

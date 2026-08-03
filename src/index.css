@@ -929,6 +929,43 @@ button { cursor: pointer; font-family: inherit; }
   padding: 1px 6px;
 }
 
+/* ── ssh-agent key picker ──────────────────────────────────── */
+
+.agentkey-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.agentkey {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  background: var(--bg-mid);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.1s, background 0.1s;
+}
+
+.agentkey:hover { background: var(--bg-hover); }
+.agentkey.active { border-color: var(--accent); }
+
+.agentkey-name { font-size: 13px; color: var(--text-primary); }
+
+.agentkey-meta {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
 .authprompt-passcode-toggle {
   align-self: flex-start;
   font-size: 12px;

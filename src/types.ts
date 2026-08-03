@@ -13,8 +13,12 @@ export interface Server {
   auth_kind: AuthKind | null;
 }
 
-/** 'keyboard-interactive' selects PAM/2FA challenge-response. */
-export type AuthKind = 'keyboard-interactive';
+/**
+ * Auth modes that are not expressed by a stored credential.
+ * 'keyboard-interactive' is PAM/2FA challenge-response; 'agent' uses keys held
+ * by a running ssh-agent.
+ */
+export type AuthKind = 'keyboard-interactive' | 'agent';
 
 export interface Identity {
   id: string;
@@ -23,6 +27,8 @@ export interface Identity {
   key_id: string | null;
   encrypted_password: string | null;
   auth_kind: AuthKind | null;
+  /** Pins one ssh-agent key by fingerprint; null tries every key it offers. */
+  agent_fingerprint: string | null;
 }
 
 export interface KeyEntry {
@@ -65,6 +71,12 @@ export interface HostKeyPromptEvent {
   existing_fingerprint: string | null;
   source: string | null;
   line: number | null;
+}
+
+export interface AgentKeyInfo {
+  algorithm: string;
+  /** No comment field: russh-keys discards it while parsing agent identities. */
+  fingerprint: string;
 }
 
 export interface AuthPromptField {

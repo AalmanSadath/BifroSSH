@@ -101,7 +101,7 @@ interface AppStore {
 /** How a server's credentials resolve for a connect. */
 export interface ResolvedAuth {
   username: string;
-  authType: 'key' | 'password' | 'keyboard-interactive';
+  authType: 'key' | 'password' | 'keyboard-interactive' | 'agent';
   authValue: string;
 }
 
@@ -123,6 +123,14 @@ export async function resolveServerAuth(
       // Nothing stored: the server asks and the user answers at connect time.
       return { username: identity.username, authType: 'keyboard-interactive', authValue: '' };
     }
+    if (identity.auth_kind === 'agent') {
+      // The agent holds the key; authValue optionally pins one by fingerprint.
+      return {
+        username: identity.username,
+        authType: 'agent',
+        authValue: identity.agent_fingerprint ?? '',
+      };
+    }
     if (identity.encrypted_password === '[stored]') {
       return {
         username: identity.username,
@@ -140,6 +148,9 @@ export async function resolveServerAuth(
 
   if (server.auth_kind === 'keyboard-interactive') {
     return { username: server.username, authType: 'keyboard-interactive', authValue: '' };
+  }
+  if (server.auth_kind === 'agent') {
+    return { username: server.username, authType: 'agent', authValue: '' };
   }
   if (server.key_id) {
     return { username: server.username, authType: 'key', authValue: server.key_id };

@@ -563,6 +563,45 @@ pub async fn respond_auth_prompt(
     Ok(())
 }
 
+#[derive(serde::Serialize)]
+pub struct AgentKeyInfo {
+    pub algorithm: String,
+    pub fingerprint: String,
+}
+
+/// Keys currently held by the running ssh-agent.
+///
+/// No comment field: the agent protocol carries one, but russh-keys discards it
+/// while parsing, so there is no `user@host` label to show.
+#[tauri::command]
+pub async fn list_agent_keys() -> Result<Vec<AgentKeyInfo>, String> {
+    #[cfg(unix)]
+    {
+        use russh_keys::agent::client::AgentClient;
+
+        let mut agent = AgentClient::connect_env().await.map_err(|e| {
+            format!("Could not reach ssh-agent ({}). Check that an agent is running and SSH_AUTH_SOCK is set.", e)
+        })?;
+
+        let identities = agent
+            .request_identities()
+            .await
+            .map_err(|e| format!("Could not list ssh-agent keys: {}", e))?;
+
+        Ok(identities
+            .iter()
+            .map(|key| AgentKeyInfo {
+                algorithm: key.name().to_string(),
+                fingerprint: hostkeys::fingerprint(key),
+            })
+            .collect())
+    }
+    #[cfg(not(unix))]
+    {
+        Err("ssh-agent is only supported on Unix".to_string())
+    }
+}
+
 #[tauri::command]
 pub async fn list_known_hosts() -> Result<Vec<KnownHostEntry>, String> {
     hostkeys::list_known_hosts().map_err(|e| e.to_string())
@@ -721,6 +760,11 @@ pub async fn ssh_connect(
 
     let auth = if request.auth_type == "keyboard-interactive" {
         SshAuth::KeyboardInteractive
+    } else if request.auth_type == "agent" {
+        // auth_value optionally pins one agent key by fingerprint.
+        SshAuth::Agent {
+            fingerprint: (!request.auth_value.is_empty()).then(|| request.auth_value.clone()),
+        }
     } else if request.auth_type == "password" {
         SshAuth::Password(request.auth_value.clone())
     } else {
@@ -820,6 +864,11 @@ pub async fn ssh_connect_quick(
 
     let auth = if request.auth_type == "keyboard-interactive" {
         SshAuth::KeyboardInteractive
+    } else if request.auth_type == "agent" {
+        // auth_value optionally pins one agent key by fingerprint.
+        SshAuth::Agent {
+            fingerprint: (!request.auth_value.is_empty()).then(|| request.auth_value.clone()),
+        }
     } else if request.auth_type == "password" {
         SshAuth::Password(request.auth_value.clone())
     } else {
@@ -993,6 +1042,9 @@ pub async fn sftp_connect_remote(
 
     let auth = match auth_type.as_str() {
         "keyboard-interactive" => SshAuth::KeyboardInteractive,
+        "agent" => SshAuth::Agent {
+            fingerprint: (!auth_value.is_empty()).then(|| auth_value.clone()),
+        },
         "key" => {
             let key_pem = key_pem.ok_or_else(|| "Key not found or could not be read".to_string())?;
             SshAuth::KeyData { key_pem, passphrase }
@@ -1126,6 +1178,13 @@ fn resolve_tunnel_auth(
     auth_type: &str,
     auth_value: &str,
 ) -> Result<TunnelAuth, String> {
+    if auth_type == "agent" {
+        return Ok(TunnelAuth {
+            kind: "agent".to_string(),
+            value: auth_value.to_string(),
+            passphrase: None,
+        });
+    }
     if auth_type == "keyboard-interactive" {
         // Nothing to resolve: the server asks and the user answers at connect time.
         return Ok(TunnelAuth {

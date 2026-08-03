@@ -261,7 +261,9 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
                           <span className="host-suggestion-type">
                             {i.auth_kind === 'keyboard-interactive'
                               ? 'prompt'
-                              : i.encrypted_password === '[stored]' ? 'password' : 'key'}
+                              : i.auth_kind === 'agent'
+                                ? 'ssh-agent'
+                                : i.encrypted_password === '[stored]' ? 'password' : 'key'}
                           </span>
                         </button>
                       ))}

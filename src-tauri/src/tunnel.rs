@@ -102,6 +102,9 @@ impl TunnelAuth {
     fn to_ssh_auth(&self) -> SshAuth {
         match self.kind.as_str() {
             "keyboard-interactive" => SshAuth::KeyboardInteractive,
+            "agent" => SshAuth::Agent {
+                fingerprint: (!self.value.is_empty()).then(|| self.value.clone()),
+            },
             "password" => SshAuth::Password(self.value.clone()),
             _ => SshAuth::KeyData {
                 key_pem: self.value.clone(),

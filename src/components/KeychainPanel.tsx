@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '../store/appStore';
-import type { Identity } from '../types';
+import type { AgentKeyInfo, Identity } from '../types';
 
 const KEY_ALGORITHMS = [
   { value: 'ed25519', label: 'ED25519' },
@@ -42,7 +42,10 @@ export default function KeychainPanel() {
   const [editId, setEditId] = useState<Identity | null>(null);
   const [idName, setIdName] = useState('');
   const [idUsername, setIdUsername] = useState('');
-  const [idAuthType, setIdAuthType] = useState<'key' | 'password' | 'keyboard-interactive'>('key');
+  const [idAuthType, setIdAuthType] = useState<'key' | 'password' | 'keyboard-interactive' | 'agent'>('key');
+  const [idAgentFingerprint, setIdAgentFingerprint] = useState('');
+  const [agentKeys, setAgentKeys] = useState<AgentKeyInfo[] | null>(null);
+  const [agentError, setAgentError] = useState('');
   const [idKeyId, setIdKeyId] = useState('');
   const [idPassword, setIdPassword] = useState('');
   const [idKeyDropdownOpen, setIdKeyDropdownOpen] = useState(false);
@@ -57,6 +60,18 @@ export default function KeychainPanel() {
   type KcCtx = { x: number; y: number; kind: 'key'; id: string } | { x: number; y: number; kind: 'identity'; id: string } | { x: number; y: number; kind: 'panel' };
   const [ctxMenu, setCtxMenu] = useState<KcCtx | null>(null);
   const ctxRef = useRef<HTMLDivElement>(null);
+
+  // Only queried when the user picks Agent, so a missing agent costs nothing
+  // for everyone else.
+  useEffect(() => {
+    if (idAuthType !== 'agent' || !showIdForm) return;
+    let cancelled = false;
+    setAgentError('');
+    invoke<AgentKeyInfo[]>('list_agent_keys')
+      .then((k) => { if (!cancelled) setAgentKeys(k); })
+      .catch((e) => { if (!cancelled) { setAgentKeys([]); setAgentError(String(e)); } });
+    return () => { cancelled = true; };
+  }, [idAuthType, showIdForm]);
 
   useEffect(() => {
     if (!ctxMenu) return;
@@ -207,6 +222,7 @@ export default function KeychainPanel() {
   function openAddIdentity() {
     setEditId(null);
     setIdName(''); setIdUsername(''); setIdAuthType('key'); setIdKeyId(''); setIdPassword(''); setIdError(''); setShowIdPassword(false);
+    setIdAgentFingerprint('');
     setShowIdForm(true);
   }
 
@@ -214,9 +230,12 @@ export default function KeychainPanel() {
     setEditId(id);
     const authType = id.auth_kind === 'keyboard-interactive'
       ? 'keyboard-interactive' as const
-      : id.encrypted_password === '[stored]' ? 'password' as const : 'key' as const;
+      : id.auth_kind === 'agent'
+        ? 'agent' as const
+        : id.encrypted_password === '[stored]' ? 'password' as const : 'key' as const;
     setIdName(id.name); setIdUsername(id.username);
     setIdAuthType(authType); setIdKeyId(id.key_id ?? ''); setIdPassword(''); setIdError(''); setShowIdPassword(false);
+    setIdAgentFingerprint(id.agent_fingerprint ?? '');
     setShowIdForm(true);
   }
 
@@ -237,7 +256,8 @@ export default function KeychainPanel() {
           username: idUsername.trim(),
           key_id: idAuthType === 'key' ? idKeyId : null,
           encrypted_password: null,
-          auth_kind: idAuthType === 'keyboard-interactive' ? 'keyboard-interactive' : null,
+          auth_kind: idAuthType === 'keyboard-interactive' || idAuthType === 'agent' ? idAuthType : null,
+          agent_fingerprint: idAuthType === 'agent' && idAgentFingerprint ? idAgentFingerprint : null,
         },
         idAuthType === 'password' && idPassword ? idPassword : undefined,
       );
@@ -536,6 +556,7 @@ export default function KeychainPanel() {
                     <button type="button" className={`toggle-btn${idAuthType === 'key' ? ' active' : ''}`} onClick={() => setIdAuthType('key')}>Key</button>
                     <button type="button" className={`toggle-btn${idAuthType === 'password' ? ' active' : ''}`} onClick={() => setIdAuthType('password')}>Password</button>
                     <button type="button" className={`toggle-btn${idAuthType === 'keyboard-interactive' ? ' active' : ''}`} onClick={() => setIdAuthType('keyboard-interactive')}>Prompt</button>
+                    <button type="button" className={`toggle-btn${idAuthType === 'agent' ? ' active' : ''}`} onClick={() => setIdAuthType('agent')}>Agent</button>
                   </div>
                   {idAuthType === 'keyboard-interactive' && (
                     <p className="form-hint">
@@ -544,7 +565,46 @@ export default function KeychainPanel() {
                     </p>
                   )}
                 </div>
-                {idAuthType === 'keyboard-interactive' ? null : idAuthType === 'key' ? (
+                {idAuthType === 'agent' ? (
+                  <div className="form-group">
+                    {agentError ? (
+                      <p className="form-hint" style={{ color: 'var(--danger)' }}>{agentError}</p>
+                    ) : agentKeys === null ? (
+                      <p className="form-hint">Reading ssh-agent…</p>
+                    ) : agentKeys.length === 0 ? (
+                      <p className="form-hint">
+                        ssh-agent is running but holds no usable keys. Add one with <code>ssh-add</code>.
+                      </p>
+                    ) : (
+                      <>
+                        <div className="agentkey-list">
+                          <button
+                            type="button"
+                            className={`agentkey${idAgentFingerprint === '' ? ' active' : ''}`}
+                            onClick={() => setIdAgentFingerprint('')}
+                          >
+                            <span className="agentkey-name">Any key the agent offers</span>
+                            <span className="agentkey-meta">tries each in turn</span>
+                          </button>
+                          {agentKeys.map((k) => (
+                            <button
+                              type="button"
+                              key={k.fingerprint}
+                              className={`agentkey${idAgentFingerprint === k.fingerprint ? ' active' : ''}`}
+                              onClick={() => setIdAgentFingerprint(k.fingerprint)}
+                            >
+                              <span className="agentkey-name">{k.algorithm}</span>
+                              <span className="agentkey-meta">{k.fingerprint}</span>
+                            </button>
+                          ))}
+                        </div>
+                        <p className="form-hint">
+                          The agent signs on your behalf; the private key never reaches BifroSSH.
+                        </p>
+                      </>
+                    )}
+                  </div>
+                ) : idAuthType === 'keyboard-interactive' ? null : idAuthType === 'key' ? (
                   <div className="form-group">
                     <div className="picker" style={{ position: 'relative' }}>
                       <button
@@ -639,16 +699,18 @@ export default function KeychainPanel() {
                 // A prompt identity stores neither a key nor a password, so it
                 // must be checked first or it looks like a key that went missing.
                 const isPromptAuth = id.auth_kind === 'keyboard-interactive';
-                const isPasswordAuth = !isPromptAuth && id.encrypted_password === '[stored]';
-                const key = isPromptAuth || isPasswordAuth ? null : keys.find((k) => k.id === id.key_id);
-                const keyMissing = !isPromptAuth && !isPasswordAuth && !key;
+                const isAgentAuth = id.auth_kind === 'agent';
+                const storedless = isPromptAuth || isAgentAuth;
+                const isPasswordAuth = !storedless && id.encrypted_password === '[stored]';
+                const key = storedless || isPasswordAuth ? null : keys.find((k) => k.id === id.key_id);
+                const keyMissing = !storedless && !isPasswordAuth && !key;
                 return (
                   <div key={id.id} className={`kc-card kc-card--clickable${keyMissing ? ' warn' : ''}`} onClick={() => openEditIdentity(id)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, kind: 'identity', id: id.id }); }}>
                     <div className="kc-card-info">
                       <span className="kc-card-name">{id.name}</span>
                       <span className="kc-card-detail">{id.username}</span>
                       <span className="kc-card-detail">
-                        {isPromptAuth ? 'prompt' : isPasswordAuth ? 'password' : key ? key.name : <span className="warn-text">key deleted</span>}
+                        {isPromptAuth ? 'prompt' : isAgentAuth ? 'ssh-agent' : isPasswordAuth ? 'password' : key ? key.name : <span className="warn-text">key deleted</span>}
                       </span>
                     </div>
                     <button className="kc-card-edit-btn" onClick={(e) => { e.stopPropagation(); openEditIdentity(id); }} title={hint('Edit')}>

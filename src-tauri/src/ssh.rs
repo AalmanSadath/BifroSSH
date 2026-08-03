@@ -55,6 +55,9 @@ pub enum SshAuth {
     KeyData { key_pem: String, passphrase: Option<String> },
     /// PAM-style challenge/response, and the transport for most 2FA setups.
     KeyboardInteractive,
+    /// Keys held by a running ssh-agent. The private key never enters this
+    /// process. `fingerprint` pins one specific key; None tries each in turn.
+    Agent { fingerprint: Option<String> },
 }
 
 /// What `authenticate` needs beyond the credential itself: who we are, and
@@ -154,6 +157,68 @@ impl AuthContext {
     }
 }
 
+/// Authenticates with keys held by a running ssh-agent.
+///
+/// The agent does the signing, so the private key never enters this process.
+/// That is the only way to use hardware-backed keys, which cannot be exported.
+#[cfg(unix)]
+pub(crate) async fn agent_auth<H: client::Handler>(
+    handle: &mut client::Handle<H>,
+    username: &str,
+    want_fingerprint: Option<&str>,
+    ctx: &dyn AuthPrompter,
+) -> Result<bool> {
+    use russh_keys::agent::client::AgentClient;
+
+    let mut agent = AgentClient::connect_env().await.map_err(|e| {
+        anyhow!("Could not reach ssh-agent ({}). Check that an agent is running and SSH_AUTH_SOCK is set.", e)
+    })?;
+
+    // Identities this build cannot parse are skipped rather than aborting the
+    // listing; see the russh-keys patch under patches/.
+    let identities = agent
+        .request_identities()
+        .await
+        .map_err(|e| anyhow!("Could not list ssh-agent keys: {}", e))?;
+
+    if identities.is_empty() {
+        return Err(anyhow!(
+            "ssh-agent is running but holds no usable keys. Add one with `ssh-add`."
+        ));
+    }
+    ctx.log("auth", &format!("ssh-agent offered {} key(s)", identities.len()));
+
+    let mut tried = 0usize;
+    for key in identities {
+        let fingerprint = crate::hostkeys::fingerprint(&key);
+        if let Some(want) = want_fingerprint {
+            if fingerprint != want {
+                continue;
+            }
+        }
+        tried += 1;
+        ctx.log("auth", &format!("Trying agent key {} {}", key.name(), fingerprint));
+
+        // Returns a tuple rather than a Result, and hands the signer back --
+        // it must be reassigned or the next key cannot be attempted.
+        let (returned, result) = handle.authenticate_future(username, key, agent).await;
+        agent = returned;
+
+        match result {
+            Ok(true) => return Ok(true),
+            Ok(false) => {}
+            Err(e) => ctx.log("auth", &format!("Agent key rejected: {}", e)),
+        }
+    }
+
+    if tried == 0 {
+        return Err(anyhow!(
+            "The selected key is no longer in ssh-agent. Add it back with `ssh-add`, or choose a different key."
+        ));
+    }
+    Ok(false)
+}
+
 /// Server-driven challenge/response. Each round may carry any number of
 /// prompts, including none.
 pub(crate) async fn keyboard_interactive<H: client::Handler>(
@@ -229,6 +294,13 @@ pub async fn authenticate<H: client::Handler>(
                 false => Err(anyhow!("Authentication failed")),
             };
         }
+        #[cfg(unix)]
+        SshAuth::Agent { fingerprint } => {
+            ctx.log("network", "Authenticating using ssh-agent");
+            agent_auth(handle, &ctx.username, fingerprint.as_deref(), ctx).await?
+        }
+        #[cfg(not(unix))]
+        SshAuth::Agent { .. } => return Err(anyhow!("ssh-agent is only supported on Unix")),
     };
 
     if authenticated {
