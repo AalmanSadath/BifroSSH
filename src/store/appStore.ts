@@ -4,29 +4,76 @@ import { listen } from '@tauri-apps/api/event';
 import type { Codeprint, Identity, KeyEntry, LogEntry, PortForwarding, Server, SessionTab, Settings } from '../types';
 import type { NamedTheme } from '../styles/themes';
 
+// These three collections used to live here. They are now kept in the Rust
+// store alongside servers and keys; the keys remain only so existing data can
+// be migrated across once.
 const CUSTOM_THEMES_KEY = 'bifrossh_custom_themes';
 const CODEPRINTS_KEY = 'bifrossh_codeprints';
 const PORT_FORWARDINGS_KEY = 'bifrossh_port_forwardings';
 
-function loadPortForwardingsFromStorage(): PortForwarding[] {
-  try {
-    const raw = localStorage.getItem(PORT_FORWARDINGS_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch { return []; }
+/**
+ * Persists a collection to the backing store.
+ *
+ * Deliberately fire-and-forget: these are edited far more often than they fail
+ * to save, and blocking the UI on a disk write would be worse than logging it.
+ */
+function persist(command: string, items: unknown) {
+  invoke(command, { items }).catch((e) =>
+    console.error(`Could not save ${command}`, e),
+  );
 }
 
-function loadCodeprintsFromStorage(): Codeprint[] {
+function readLegacy<T>(key: string, fallback: T): T {
   try {
-    const raw = localStorage.getItem(CODEPRINTS_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch { return []; }
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
-function loadCustomThemesFromStorage(): Record<string, NamedTheme> {
-  try {
-    const raw = localStorage.getItem(CUSTOM_THEMES_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch { return {}; }
+/**
+ * Moves anything still in localStorage into the backing store, once.
+ *
+ * Only runs when the store side is empty, so it cannot overwrite newer data,
+ * and the localStorage key is removed only after the save has succeeded, so a
+ * failure here leaves the original data untouched to be retried next launch.
+ */
+async function migrateLegacyStorage(current: {
+  portForwardings: PortForwarding[];
+  codeprints: Codeprint[];
+  customThemes: Record<string, NamedTheme>;
+}): Promise<typeof current> {
+  const result = { ...current };
+
+  const legacyPfs = readLegacy<PortForwarding[]>(PORT_FORWARDINGS_KEY, []);
+  if (legacyPfs.length > 0 && current.portForwardings.length === 0) {
+    await invoke('save_port_forwardings', { items: legacyPfs });
+    result.portForwardings = legacyPfs;
+  }
+  if (legacyPfs.length === 0 || result.portForwardings === legacyPfs) {
+    localStorage.removeItem(PORT_FORWARDINGS_KEY);
+  }
+
+  const legacyCps = readLegacy<Codeprint[]>(CODEPRINTS_KEY, []);
+  if (legacyCps.length > 0 && current.codeprints.length === 0) {
+    await invoke('save_codeprints', { items: legacyCps });
+    result.codeprints = legacyCps;
+  }
+  if (legacyCps.length === 0 || result.codeprints === legacyCps) {
+    localStorage.removeItem(CODEPRINTS_KEY);
+  }
+
+  const legacyThemes = readLegacy<Record<string, NamedTheme>>(CUSTOM_THEMES_KEY, {});
+  if (Object.keys(legacyThemes).length > 0 && Object.keys(current.customThemes).length === 0) {
+    await invoke('save_custom_themes', { items: legacyThemes });
+    result.customThemes = legacyThemes;
+  }
+  if (Object.keys(legacyThemes).length === 0 || result.customThemes === legacyThemes) {
+    localStorage.removeItem(CUSTOM_THEMES_KEY);
+  }
+
+  return result;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -169,10 +216,10 @@ export async function resolveServerAuth(
 export const useAppStore = create<AppStore>((set, get) => ({
   servers: [],
   identities: [],
-  customThemes: loadCustomThemesFromStorage(),
-  portForwardings: loadPortForwardingsFromStorage(),
+  customThemes: {},
+  portForwardings: [],
   activeTunnelIds: new Set<string>(),
-  codeprints: loadCodeprintsFromStorage(),
+  codeprints: [],
   sessionThemeOverrides: {},
   keys: [],
   settings: DEFAULT_SETTINGS,
@@ -180,13 +227,27 @@ export const useAppStore = create<AppStore>((set, get) => ({
   activeTabId: 'hosts',
 
   loadAll: async () => {
-    const [servers, identities, keys, settings] = await Promise.all([
-      invoke<Server[]>('list_servers'),
-      invoke<Identity[]>('list_identities'),
-      invoke<KeyEntry[]>('list_keys'),
-      invoke<Settings>('get_settings'),
-    ]);
-    set({ servers, identities, keys, settings });
+    const [servers, identities, keys, settings, portForwardings, codeprints, customThemes] =
+      await Promise.all([
+        invoke<Server[]>('list_servers'),
+        invoke<Identity[]>('list_identities'),
+        invoke<KeyEntry[]>('list_keys'),
+        invoke<Settings>('get_settings'),
+        invoke<PortForwarding[]>('get_port_forwardings'),
+        invoke<Codeprint[]>('get_codeprints'),
+        invoke<Record<string, NamedTheme>>('get_custom_themes'),
+      ]);
+
+    let collections = { portForwardings, codeprints, customThemes };
+    try {
+      collections = await migrateLegacyStorage(collections);
+    } catch (e) {
+      // Leave localStorage intact so the next launch can retry rather than
+      // losing the user's rules.
+      console.error('Could not migrate saved data out of localStorage', e);
+    }
+
+    set({ servers, identities, keys, settings, ...collections });
   },
 
   saveServer: async (server, password) => {
@@ -298,7 +359,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   saveCustomTheme: (id, theme) => {
     set((s) => {
       const next = { ...s.customThemes, [id]: theme };
-      localStorage.setItem(CUSTOM_THEMES_KEY, JSON.stringify(next));
+      persist('save_custom_themes', next);
       return { customThemes: next };
     });
   },
@@ -307,7 +368,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set((s) => {
       const next = { ...s.customThemes };
       delete next[id];
-      localStorage.setItem(CUSTOM_THEMES_KEY, JSON.stringify(next));
+      persist('save_custom_themes', next);
       return { customThemes: next };
     });
   },
@@ -320,7 +381,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const next = exists
         ? s.portForwardings.map((x) => (x.id === id ? entry : x))
         : [...s.portForwardings, entry];
-      localStorage.setItem(PORT_FORWARDINGS_KEY, JSON.stringify(next));
+      persist('save_port_forwardings', next);
       return { portForwardings: next };
     });
   },
@@ -328,7 +389,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   deletePortForwarding: (id) => {
     set((s) => {
       const next = s.portForwardings.filter((x) => x.id !== id);
-      localStorage.setItem(PORT_FORWARDINGS_KEY, JSON.stringify(next));
+      persist('save_port_forwardings', next);
       return { portForwardings: next };
     });
   },
@@ -372,7 +433,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   addCodeprint: (cp) => {
     set((s) => {
       const next = [...s.codeprints, { id: crypto.randomUUID(), ...cp }];
-      localStorage.setItem(CODEPRINTS_KEY, JSON.stringify(next));
+      persist('save_codeprints', next);
       return { codeprints: next };
     });
   },
@@ -380,7 +441,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   updateCodeprint: (id, cp) => {
     set((s) => {
       const next = s.codeprints.map((c) => c.id === id ? { ...c, ...cp } : c);
-      localStorage.setItem(CODEPRINTS_KEY, JSON.stringify(next));
+      persist('save_codeprints', next);
       return { codeprints: next };
     });
   },
@@ -388,7 +449,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   deleteCodeprint: (id) => {
     set((s) => {
       const next = s.codeprints.filter((c) => c.id !== id);
-      localStorage.setItem(CODEPRINTS_KEY, JSON.stringify(next));
+      persist('save_codeprints', next);
       return { codeprints: next };
     });
   },

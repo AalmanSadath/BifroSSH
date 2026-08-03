@@ -115,10 +115,42 @@ impl Settings {
     fn default_keepalive_interval() -> u32 { 30 }
 }
 
+/// A saved port forwarding rule. Started on demand; never auto-connected.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PortForwarding {
+    pub id: String,
+    pub label: String,
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub bind_address: String,
+    pub local_port: Option<u32>,
+    pub intermediate_host_id: Option<String>,
+    pub remote_host_id: Option<String>,
+    pub remote_port: Option<u32>,
+    pub dest_address: String,
+    pub dest_port: Option<u32>,
+}
+
+/// A named shell command the user can paste or run in any session.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Codeprint {
+    pub id: String,
+    pub name: String,
+    pub command: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppData {
     pub servers: Vec<Server>,
     pub identities: Vec<Identity>,
     pub keys: Vec<KeyEntry>,
     pub settings: Settings,
+    #[serde(default)]
+    pub port_forwardings: Vec<PortForwarding>,
+    #[serde(default)]
+    pub codeprints: Vec<Codeprint>,
+    /// Kept opaque: these are xterm themes with many optional colour fields,
+    /// and nothing in the backend needs to interpret them.
+    #[serde(default)]
+    pub custom_themes: std::collections::HashMap<String, serde_json::Value>,
 }
