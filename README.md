@@ -13,6 +13,13 @@ Browse, upload, download, rename, delete, and create folders on remote servers w
 ### SSH key management
 Generate Ed25519, RSA, and ECDSA keys directly in the app. Import existing keys. All private keys are stored in an encrypted local keychain and are never written to disk unencrypted. Assign a key to a server or identity; the app decrypts and uses it at connect time.
 
+### ssh-agent
+Set an identity's auth mode to **Agent** to authenticate with keys held by a running ssh-agent, rather than importing the private key into BifroSSH. The agent signs the challenge, so the key never enters the app.
+
+This is the way to use keys you have already loaded with `ssh-add` or that your desktop keyring holds, and the only way to use PIV smartcards and YubiKeys in PIV mode, whose keys cannot be exported. Pick a specific key by fingerprint, or let BifroSSH try each key the agent offers.
+
+FIDO security keys (`ed25519-sk`, `ecdsa-sk`) are not supported yet. They are ignored rather than breaking the rest of the agent, so other keys still work when one is loaded.
+
 ### Two-factor and keyboard-interactive login
 Supports servers that ask challenge questions at login instead of accepting a stored credential, including PAM setups where `PasswordAuthentication` is turned off, and two-factor providers such as Duo, TOTP authenticator apps, and hardware tokens.
 

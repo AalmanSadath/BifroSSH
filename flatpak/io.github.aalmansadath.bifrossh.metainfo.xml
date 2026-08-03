@@ -65,6 +65,23 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.4.0" date="2026-08-04">
+      <description>
+        <p>
+          Identities can now authenticate using keys held by a running ssh-agent instead
+          of importing the private key into BifroSSH. The agent signs the challenge, so
+          the key never enters the app.
+        </p>
+        <p>
+          This covers keys already loaded with ssh-add or held by a desktop keyring, and
+          PIV smartcards and YubiKeys in PIV mode, whose keys cannot be exported and so
+          could not be used at all before. Pick a specific key by fingerprint, or let
+          BifroSSH try each key the agent offers. FIDO security keys are not supported
+          yet, but are ignored rather than preventing the other keys in the agent from
+          working.
+        </p>
+      </description>
+    </release>
     <release version="0.3.0" date="2026-08-04">
       <description>
         <p>
