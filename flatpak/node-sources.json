@@ -734,6 +734,13 @@
     },
     {
         "type": "file",
+        "url": "https://registry.npmjs.org/@xterm/addon-search/-/addon-search-0.16.0.tgz",
+        "sha512": "f4e7ae045bb4fee6493eefbd007298ea0ff0d02cf26ff52dd00e6defd23850ba14e087d4e411293c55464313f8cd34cc75f6446245484586c7057d715b08de48",
+        "dest-filename": "ae045bb4fee6493eefbd007298ea0ff0d02cf26ff52dd00e6defd23850ba14e087d4e411293c55464313f8cd34cc75f6446245484586c7057d715b08de48",
+        "dest": "flatpak-node/npm-cache/_cacache/content-v2/sha512/f4/e7"
+    },
+    {
+        "type": "file",
         "url": "https://registry.npmjs.org/@xterm/addon-web-links/-/addon-web-links-0.12.0.tgz",
         "sha512": "e129a89b744fc95a7b64c60e603a02ffd78624926a6219cf2c61aa27ac0e05f07c5713d588935229d81161bf0da5a33a6127a510a6c0d924ad0fb946caa6a86f",
         "dest-filename": "a89b744fc95a7b64c60e603a02ffd78624926a6219cf2c61aa27ac0e05f07c5713d588935229d81161bf0da5a33a6127a510a6c0d924ad0fb946caa6a86f",
@@ -1801,6 +1808,12 @@
     },
     {
         "type": "inline",
+        "contents": "e9b3c1e8fa56078609f0ac4a68313a789df98a58\t{\"key\": \"make-fetch-happen:request-cache:https://registry.npmjs.org/@xterm/addon-search/-/addon-search-0.16.0.tgz\", \"integrity\": \"sha512-9OeuBFu0/uZJPu+9AHKY6g/w0Czyb/Ut0A5t79I4ULoU4IfU5BEpPFVGQxP4zTTMdfZEYkVIRYbHBX1xWwjeSA==\", \"time\": 0, \"size\": 213325, \"metadata\": {\"url\": \"https://registry.npmjs.org/@xterm/addon-search/-/addon-search-0.16.0.tgz\", \"reqHeaders\": {}, \"resHeaders\": {}}}",
+        "dest-filename": "75471575a8fea1a5ebce181dd20e2ca44495f2162c76df2cd5b6457ded64",
+        "dest": "flatpak-node/npm-cache/_cacache/index-v5/cf/db"
+    },
+    {
+        "type": "inline",
         "contents": "ea12aaf02baeeeec57c016102e93f9e43560c17d\t{\"key\": \"make-fetch-happen:request-cache:https://registry.npmjs.org/@tauri-apps/cli-linux-x64-musl/-/cli-linux-x64-musl-2.11.2.tgz\", \"integrity\": \"sha512-eUm7T6clN1MMmNSRQ9gaWsQdyehQx2Gmn5hht/QUlqZQI/qcP2OJK5dnaxqwFzCr2HdsEo9ydxaqcS1oJzMvUw==\", \"time\": 0, \"size\": 8662084, \"metadata\": {\"url\": \"https://registry.npmjs.org/@tauri-apps/cli-linux-x64-musl/-/cli-linux-x64-musl-2.11.2.tgz\", \"reqHeaders\": {}, \"resHeaders\": {}}}",
         "dest-filename": "98dfff9d46b6fc8f45513a8172865aeed4bb1f47eef3b69a3935ac4bf365",
         "dest": "flatpak-node/npm-cache/_cacache/index-v5/53/c5"
@@ -1861,12 +1874,26 @@
     },
     {
         "type": "script",
+        "commands": [],
+        "dest-filename": "patch.sh",
+        "dest": "flatpak-node"
+    },
+    {
+        "type": "script",
+        "commands": [
+            "$FLATPAK_BUILDER_BUILDDIR/flatpak-node/patch.sh"
+        ],
+        "dest-filename": "patch-all.sh",
+        "dest": "flatpak-node"
+    },
+    {
+        "type": "script",
         "commands": [
             "version=$(node --version | sed \"s/^v//\")",
             "nodedir=$(dirname \"$(dirname \"$(which node)\")\")",
             "mkdir -p \"flatpak-node/cache/node-gyp/$version\"",
             "ln -s \"$nodedir/include\" \"flatpak-node/cache/node-gyp/$version/include\"",
-            "echo 11 > \"flatpak-node/cache/node-gyp/$version/installVersion\""
+            "echo 9 > \"flatpak-node/cache/node-gyp/$version/installVersion\""
         ],
         "dest-filename": "setup_sdk_node_headers.sh",
         "dest": "flatpak-node"
@@ -1874,6 +1901,7 @@
     {
         "type": "shell",
         "commands": [
+            "FLATPAK_BUILDER_BUILDDIR=$PWD flatpak-node/patch-all.sh",
             "bash flatpak-node/setup_sdk_node_headers.sh"
         ]
     },
@@ -1882,7 +1910,7 @@
         "commands": [
             "mkdir -p \"bin/@esbuild\"",
             "cp \".package/@esbuild/linux-arm64@0.27.7/bin/esbuild\" \"bin/@esbuild/linux-arm64@0.27.7\"",
-            "ln -sf \"@esbuild/linux-arm64@0.27.7\" \"bin/esbuild-current\""
+            "ln -sf \"linux-arm64@0.27.7\" \"bin/esbuild-current\""
         ],
         "dest": "flatpak-node/cache/esbuild",
         "only-arches": [
@@ -1894,7 +1922,7 @@
         "commands": [
             "mkdir -p \"bin/@esbuild\"",
             "cp \".package/@esbuild/linux-arm@0.27.7/bin/esbuild\" \"bin/@esbuild/linux-arm@0.27.7\"",
-            "ln -sf \"@esbuild/linux-arm@0.27.7\" \"bin/esbuild-current\""
+            "ln -sf \"linux-arm@0.27.7\" \"bin/esbuild-current\""
         ],
         "dest": "flatpak-node/cache/esbuild",
         "only-arches": [
@@ -1906,7 +1934,7 @@
         "commands": [
             "mkdir -p \"bin/@esbuild\"",
             "cp \".package/@esbuild/linux-ia32@0.27.7/bin/esbuild\" \"bin/@esbuild/linux-ia32@0.27.7\"",
-            "ln -sf \"@esbuild/linux-ia32@0.27.7\" \"bin/esbuild-current\""
+            "ln -sf \"linux-ia32@0.27.7\" \"bin/esbuild-current\""
         ],
         "dest": "flatpak-node/cache/esbuild",
         "only-arches": [
@@ -1918,7 +1946,7 @@
         "commands": [
             "mkdir -p \"bin/@esbuild\"",
             "cp \".package/@esbuild/linux-x64@0.27.7/bin/esbuild\" \"bin/@esbuild/linux-x64@0.27.7\"",
-            "ln -sf \"@esbuild/linux-x64@0.27.7\" \"bin/esbuild-current\""
+            "ln -sf \"linux-x64@0.27.7\" \"bin/esbuild-current\""
         ],
         "dest": "flatpak-node/cache/esbuild",
         "only-arches": [

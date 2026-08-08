@@ -54,6 +54,75 @@ jobs:
             echo "run=true" >> "$GITHUB_OUTPUT"
           fi
 
+  vendored:
+    name: Vendored sources
+    needs: decide
+    if: needs.decide.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The Flatpak build runs with no network, so a dependency added since the
+      # vendor manifests were last generated fails deep inside the sandbox with
+      # an npm ENOTCACHED or a cargo offline error, several minutes in and
+      # naming only the first package it happened to want. It is checked here
+      # rather than in the release workflow so the push that introduced it
+      # fails, instead of the tag weeks later.
+      - name: Check vendored sources cover the lockfiles
+        run: |
+          python3 - <<'PY'
+          import json, re, sys
+
+          stale = []
+
+          # Matched on the exact tarball URL the lockfile resolved to, so a
+          # dependency that merely changed version is caught as well as one
+          # that is absent entirely.
+          lock = json.load(open('package-lock.json'))
+          node_sources = open('flatpak/node-sources.json').read()
+          missing = sorted(
+              f"{path.split('node_modules/')[-1]}@{pkg['version']}"
+              for path, pkg in lock['packages'].items()
+              if path.startswith('node_modules/')
+              and pkg.get('resolved', '').endswith('.tgz')
+              and pkg['resolved'] not in node_sources
+          )
+          if missing:
+              stale.append(('flatpak/node-sources.json', 'package-lock.json', missing,
+                            './flatpak/regen-node-sources.sh'))
+
+          # Every vendored crate gets a "cargo/vendor/<name>-<version>" dest.
+          cargo_sources = open('flatpak/cargo-sources.json').read()
+          # The crate being built and anything under [patch.crates-io] come from
+          # the source tree rather than the registry, so they are never vendored.
+          local = set(re.findall(r'^([\w-]+)\s*=\s*\{\s*path\s*=',
+                                 open('src-tauri/Cargo.toml').read(), re.M)) | {'bifrossh'}
+          missing = sorted(
+              f'{name}-{version}'
+              for name, version in re.findall(
+                  r'\nname = "([^"]+)"\nversion = "([^"]+)"',
+                  open('src-tauri/Cargo.lock').read())
+              if name not in local
+              and f'"cargo/vendor/{name}-{version}"' not in cargo_sources
+          )
+          if missing:
+              stale.append(('flatpak/cargo-sources.json', 'src-tauri/Cargo.lock', missing,
+                            'python3 flatpak/flatpak-cargo-generator.py '
+                            'src-tauri/Cargo.lock -o flatpak/cargo-sources.json'))
+
+          for sources, lockfile, names, fix in stale:
+              print(f'::error::{sources} is missing {len(names)} package(s) '
+                    f'present in {lockfile}. Regenerate it with: {fix}')
+              for name in names[:20]:
+                  print(f'  {name}')
+              if len(names) > 20:
+                  print(f'  ... and {len(names) - 20} more')
+
+          if stale:
+              sys.exit(1)
+          print('vendored sources cover both lockfiles')
+          PY
+
   frontend:
     name: Frontend
     needs: decide

@@ -2,6 +2,8 @@
 
 A GUI SSH client built with Tauri 2, React, and Rust.
 
+Linux only. Built, tested and distributed as a Flatpak; the ssh-agent and desktop keyring integration are Unix-specific and no other platform is currently built or supported.
+
 ## Features
 
 ### Host profiles
@@ -85,6 +87,8 @@ Ships with dark and light themes. The built-in theme editor lets you customise e
 
 ### Terminal emulator
 Full xterm.js terminal with configurable font family, font size, cursor style, and colour scheme. Supports 10 000-line scrollback, copy/paste, and standard terminal escape sequences. Each session runs in its own tab and stays alive while you switch between tabs.
+
+**Ctrl+Shift+F** searches the scrollback. Matches are highlighted as you type with a running count, Enter and Shift+Enter step forward and back, and case sensitivity, whole word and regular expression can each be toggled. Escape closes it. The shortcut takes Shift because a bare Ctrl+F is a control character that the remote shell, `less` and vim all expect to receive. The bar floats over the terminal rather than taking a row, so opening it does not resize the remote pty and make full-screen programs redraw.
 
 ### Multiple sessions
 Open any number of servers at once in tabs. Sessions are independent, so running a long command on one server does not block interaction with another. Closing a tab disconnects cleanly.
@@ -229,12 +233,14 @@ python3 flatpak/flatpak-cargo-generator.py src-tauri/Cargo.lock -o flatpak/cargo
 
 ### Adding new npm dependencies
 
-After updating `package-lock.json`, regenerate the node sources. The generator is upstream's, and is a Python package rather than a single script:
+After updating `package-lock.json`, regenerate the node sources:
 
 ```bash
 pipx install "git+https://github.com/flatpak/flatpak-builder-tools#subdirectory=node"
-flatpak-node-generator npm package-lock.json -o flatpak/node-sources.json
+./flatpak/regen-node-sources.sh
 ```
+
+Use the script rather than calling `flatpak-node-generator` directly. Run against a tree with `node_modules` present, the generator quietly drops every package that is installed and writes a manifest holding only the platform-specific dependencies for other systems, reporting success as it does so. The script runs it against a copy of the two manifests on their own, which avoids the misdetection, and then checks its own output against the lockfile.
 
 Then rebuild with `./install.sh flatpak`.
 
