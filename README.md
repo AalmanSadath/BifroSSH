@@ -31,9 +31,9 @@ On first launch you choose between three arrangements, and all three remain reac
 - **Passphrase only.** Asked at every launch. The key exists nowhere until you type it. This is the only option that protects your saved keys from something already running as your user, and the only one where forgetting the passphrase loses them for good.
 - **A file, no passphrase.** Nothing to remember. The key sits beside your data, readable only by your account, which means anything copying your home directory copies both.
 
-Where a passphrase is involved, the dice button generates an eight word phrase (about 83 bits before Argon2id). Words rather than random characters because this is typed back from paper, possibly years later, and words survive that; capitalisation and how you space them are ignored when you type one back. A passphrase you write yourself is taken exactly as typed.
+Where a passphrase is involved, the dice button generates an eight word phrase (88 bits before Argon2id). Words rather than random characters because this is typed back from paper, possibly years later, and words survive that; capitalisation and how you space them are ignored when you type one back. A passphrase you write yourself is taken exactly as typed.
 
-Generated passphrases use the EFF short wordlist, © Electronic Frontier Foundation, [CC BY 3.0 US](https://www.eff.org/dice), with one entry removed.
+Generated passphrases use the [BIP-39](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki) English wordlist, under that specification's MIT licence.
 
 None of this defends against malware running as you while the app is unlocked. On Linux nothing can: the Secret Service has no per-application access control for host processes. What it does buy is that copying your home directory no longer copies the key along with the data.
 

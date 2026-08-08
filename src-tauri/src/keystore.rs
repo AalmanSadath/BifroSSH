@@ -124,9 +124,9 @@ fn prepare(passphrase: &str, form: PassphraseForm) -> String {
     }
 }
 
-/// Default length for a generated phrase. Eight words is about 83 bits, which
-/// is far past what Argon2id needs to make guessing hopeless, and short enough
-/// that people actually write it down.
+/// Default length for a generated phrase. Eight words is 88 bits, far past
+/// what Argon2id needs to make guessing hopeless, and short enough that people
+/// actually write it down.
 pub const GENERATED_WORDS: usize = 8;
 
 /// A fresh word phrase, drawn without modulo bias.
@@ -1129,6 +1129,33 @@ mod tests {
     }
 
     #[test]
+    fn the_wordlist_keeps_the_properties_the_design_leans_on() {
+        use std::collections::HashSet;
+        let words = crate::wordlist::WORDS;
+
+        // A power of two means every word carries a whole number of bits and
+        // the draw below needs no rejection sampling to stay unbiased.
+        assert_eq!(words.len(), 2048);
+        assert_eq!(words.iter().collect::<HashSet<_>>().len(), words.len(), "duplicate word");
+
+        for w in words {
+            // A word with a space, hyphen or capital in it could not survive
+            // the separator collapsing that makes a written down phrase
+            // forgiving to type back.
+            assert!(w.chars().all(|c| c.is_ascii_lowercase()), "{w} is not plain lowercase");
+            assert!((3..=8).contains(&w.len()), "{w} is an awkward length");
+        }
+
+        // Unique four letter prefixes: a word stays recoverable when the tail
+        // of it is illegible on paper, which is the failure this list is for.
+        assert_eq!(
+            words.iter().map(|w| &w[..4.min(w.len())]).collect::<HashSet<_>>().len(),
+            words.len(),
+            "two words share their first four letters"
+        );
+    }
+
+    #[test]
     fn a_generated_phrase_is_eight_words_from_the_list() {
         let phrase = generate_passphrase();
         let words: Vec<&str> = phrase.split(' ').collect();
@@ -1316,3 +1343,4 @@ mod tests {
         assert_eq!(kek_from_secret(b"one"), kek_from_secret(b"one"));
     }
 }
+
