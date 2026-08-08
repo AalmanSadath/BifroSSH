@@ -38,6 +38,9 @@ aes = "0.8"
 cbc = "0.1"
 argon2 = "0.5"
 
+[target.'cfg(unix)'.dependencies]
+zbus = { version = "5", default-features = false, features = ["blocking-api", "tokio"] }
+
 [profile.dev]
 opt-level = 1
 codegen-units = 1

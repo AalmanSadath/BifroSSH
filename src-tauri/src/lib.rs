@@ -2,6 +2,7 @@ mod commands;
 mod crypto;
 mod hostkeys;
 mod jump;
+mod keystore;
 mod models;
 mod ppk;
 mod prompts;
@@ -20,7 +21,7 @@ use commands::AppState;
 use prompts::PromptState;
 use sftp::SftpClientState;
 use ssh::SshState;
-use store::{load_app_data, load_secret_key};
+use store::load_app_data;
 use tunnel::TunnelState;
 
 /// The webview keeps its storage in a directory named after the app
@@ -60,8 +61,20 @@ pub fn run() {
     #[cfg(target_os = "linux")]
     migrate_webview_data_dir();
 
-    let secret_key = load_secret_key().expect("Failed to load/generate secret key");
-    let app_data = load_app_data().expect("Failed to load app data");
+    let data_dir = store::get_data_dir().expect("Failed to open the data directory");
+
+    // Keyring first, .secret second, and a new key only when there is nothing
+    // to lose. See keystore::unlock_or_init for why that last part matters.
+    let unlocked = keystore::unlock_or_init(&data_dir)
+        .unwrap_or_else(|e| panic!("Cannot open the keystore: {e:#}"));
+    let secret_key = unlocked.key;
+
+    // Best effort, and repeated on every launch so that a keyring which
+    // appears later (a desktop installed, a login keyring unlocked) starts
+    // being used without the user doing anything.
+    let _ = keystore::store_keyring_wrapper(&data_dir, &secret_key);
+
+    let app_data = load_app_data(&secret_key).expect("Failed to load app data");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
