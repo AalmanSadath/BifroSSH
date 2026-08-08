@@ -1,0 +1,272 @@
+name: Build and publish flatpak repo
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+# Only one publish at a time: the ostree repo on the Pages branch is mutable
+# shared state, and concurrent writers would corrupt it.
+concurrency:
+  group: flatpak-repo
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  APP_ID: io.github.aalmansadath.bifrossh
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      # gnome-50 matches `runtime-version: '50'` in the manifest. Bumping one
+      # without the other means the SDK that builds the app is not the runtime
+      # it runs against.
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
+      options: --privileged
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          # The ostree repo is assembled at the workspace root, so the source
+          # tree gets its own directory. The manifest's `type: dir, path: ..`
+          # copies everything under here, and pulling gh-pages in alongside it
+          # would drag the whole published repo into the build.
+          path: bifrossh
+
+      - name: Check versions agree
+        # Runs before the expensive steps so a mistake costs seconds, not a full
+        # build. AppStream takes the version from the metainfo, not the git tag,
+        # so tagging without adding a <release> entry ships an app that updates
+        # correctly and then reports the wrong version: a quiet failure that is
+        # easy to make and annoying to diagnose.
+        working-directory: bifrossh
+        run: |
+          META="flatpak/${APP_ID}.metainfo.xml"
+
+          # AppStream orders <releases> newest first and every entry here shares
+          # the same date, so document order is the only usable signal. Taking
+          # the first entry matches how the file is written and maintained.
+          meta_ver=$(grep -o '<release version="[^"]*"' "$META" \
+            | head -1 | sed -E 's/.*version="([^"]*)".*/\1/')
+          cargo_ver=$(awk -F'"' '/^\[package\]/{p=1} p && /^version[[:space:]]*=/{print $2; exit}' src-tauri/Cargo.toml)
+          tauri_ver=$(grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' src-tauri/tauri.conf.json \
+            | head -1 | sed -E 's/.*"([^"]*)"$/\1/')
+          npm_ver=$(grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' package.json \
+            | head -1 | sed -E 's/.*"([^"]*)"$/\1/')
+
+          echo "metainfo (newest release): $meta_ver"
+          echo "src-tauri/Cargo.toml:      $cargo_ver"
+          echo "src-tauri/tauri.conf.json: $tauri_ver"
+          echo "package.json:              $npm_ver"
+
+          fail=0
+          for v in "$cargo_ver" "$tauri_ver" "$npm_ver"; do
+            if [ "$v" != "$meta_ver" ]; then
+              echo "::error::Version mismatch between metainfo, Cargo.toml, tauri.conf.json and package.json"
+              fail=1
+              break
+            fi
+          done
+
+          # workflow_dispatch has no tag, so only the internal check applies.
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            tag_ver="${GITHUB_REF_NAME#v}"
+            echo "git tag:                   $tag_ver"
+            if [ "$tag_ver" != "$meta_ver" ]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match version $meta_ver. A release needs a <release> entry in $META, not just a tag."
+              fail=1
+            fi
+          fi
+
+          [ "$fail" -eq 0 ] && echo "versions agree"
+          exit $fail
+
+      - name: Fetch existing repo so updates are incremental
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # The published ostree repo lives at the *root* of gh-pages, not in a
+          # subdirectory, because that is the URL already baked into every
+          # installed client's remote. Do not move it.
+          url="https://github.com/${{ github.repository }}.git"
+          if git ls-remote --exit-code --heads "$url" gh-pages >/dev/null 2>&1; then
+            echo "gh-pages exists, fetching so the publish is incremental"
+            git clone --branch gh-pages --single-branch --depth 1 \
+              "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" \
+              pages
+
+            # This job publishes the exact contents of pages/ and deletes what
+            # is not there, so pruning actually shrinks the branch. That only
+            # holds if the clone really produced the existing repo; a partial
+            # clone here would otherwise wipe every published object.
+            if [ ! -f pages/config ]; then
+              echo "::error::gh-pages exists but the clone has no ostree config. Refusing to publish over it."
+              exit 1
+            fi
+            # git cannot store empty directories, so a cloned ostree repo comes
+            # back missing several of them and build-update-repo then fails with
+            # "Listing refs: opendir(refs/remotes): No such file or directory".
+            # Recreating them is enough; ostree only needs them to exist.
+            mkdir -p pages/refs/heads pages/refs/mirrors pages/refs/remotes \
+                     pages/objects pages/tmp/cache pages/state pages/extensions
+
+            # A stale lock from a previous run makes ostree refuse to write.
+            rm -f pages/.lock
+          else
+            echo "gh-pages does not exist yet, starting a fresh ostree repo"
+            mkdir -p pages
+          fi
+
+      - name: Import signing key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.FLATPAK_GPG_PASSPHRASE }}
+        run: |
+          if [ -z "$GPG_PRIVATE_KEY" ]; then
+            echo "::error::FLATPAK_GPG_PRIVATE_KEY secret is not set."
+            echo "It must be the same key already published in bifrossh.flatpakrepo;"
+            echo "signing with a different one locks out every existing install."
+            exit 1
+          fi
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          key_id=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec:/{print $5; exit}')
+          echo "GPG_KEY_ID=$key_id" >> "$GITHUB_ENV"
+
+          # A passphrase-protected key cannot be used unattended without this;
+          # a passphrase-free key ignores it, so the same config covers both.
+          mkdir -p ~/.gnupg
+          echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
+          echo "pinentry-mode loopback" >> ~/.gnupg/gpg.conf
+          gpgconf --reload gpg-agent || true
+          if [ -n "$GPG_PASSPHRASE" ]; then
+            # Prime the agent cache so ostree's own gpg invocations, which take
+            # no passphrase arguments, find the key already unlocked.
+            echo test | gpg --batch --yes --pinentry-mode loopback \
+              --passphrase "$GPG_PASSPHRASE" --local-user "$key_id" \
+              --sign --output /dev/null
+          fi
+
+          # Verify the key can actually sign before spending a build on it.
+          echo test | gpg --batch --yes --local-user "$key_id" --sign --output /dev/null
+          echo "signing key $key_id ready"
+
+      - name: Build and export into the ostree repo
+        run: |
+          # The container has no flathub remote at user scope, and
+          # --install-deps-from=flathub resolves against user remotes, so
+          # without this it fails with "No remote refs found for 'flathub'".
+          flatpak remote-add --user --if-not-exists flathub \
+            https://dl.flathub.org/repo/flathub.flatpakrepo
+
+          # npm and cargo both run inside the sandbox against the pre-vendored
+          # flatpak/node-sources.json and flatpak/cargo-sources.json, so there
+          # is no host pre-build. A Cargo.lock that has drifted from
+          # cargo-sources.json fails here with a cargo offline error.
+          flatpak-builder --user --disable-rofiles-fuse --force-clean \
+            --install-deps-from=flathub \
+            --repo=pages \
+            --gpg-sign="$GPG_KEY_ID" \
+            build "bifrossh/flatpak/${APP_ID}.yml"
+
+      - name: Update repo metadata and prune old objects
+        run: |
+          # Without pruning, every release keeps its objects forever and the
+          # Pages branch grows without bound.
+          flatpak build-update-repo \
+            --generate-static-deltas \
+            --prune --prune-depth=3 \
+            --gpg-sign="$GPG_KEY_ID" \
+            pages
+
+      - name: Verify the signed repo installs
+        run: |
+          # The one failure this pipeline cannot afford is publishing a repo
+          # whose signatures do not verify: it breaks updates for everyone
+          # already installed, and it is only visible on a client. Installing
+          # from the repo here, with GPG verification on, catches it while the
+          # bad artefact is still local.
+          gpg --export "$GPG_KEY_ID" > /tmp/pub.gpg
+          flatpak remote-add --user --gpg-import=/tmp/pub.gpg \
+            verify-repo "file://$PWD/pages"
+          flatpak install --user --assumeyes verify-repo "$APP_ID"
+          flatpak remote-delete --user --force verify-repo
+          echo "signatures verify and the app installs"
+
+      - name: Build single-file bundle
+        run: |
+          # A bundle installs without adding a remote first, but embedding the
+          # repo URL and public key means flatpak registers the origin anyway,
+          # so a bundle install still receives updates instead of going stale.
+          # --runtime-repo lets flatpak fetch org.gnome.Platform for anyone who
+          # does not already have it; the bundle contains only the app.
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          flatpak build-bundle pages bifrossh.flatpak "$APP_ID" \
+            --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
+            --repo-url="https://${OWNER}.github.io/${{ github.event.repository.name }}/" \
+            --gpg-keys=/tmp/pub.gpg
+          ls -lh bifrossh.flatpak
+
+      - name: Attach bundle to the GitHub release
+        # Only tags produce releases; workflow_dispatch runs still build the
+        # bundle above, which keeps the step honest without publishing anything.
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: bifrossh.flatpak
+          generate_release_notes: true
+
+      - name: Write repo description file
+        run: |
+          # bifrossh.flatpakrepo carries the GPG key that existing clients
+          # pinned when they added the remote. Regenerating it from a `gpg
+          # --export` that is byte-different, even for the same key, is a risk
+          # with no upside, so an already-published file is left alone.
+          if [ -f pages/bifrossh.flatpakrepo ]; then
+            echo "keeping the published bifrossh.flatpakrepo"
+          else
+            gpg --export "$GPG_KEY_ID" | base64 -w0 > /tmp/key.b64
+            # github.repository_owner keeps the account's original casing, but
+            # Pages is always served from the lowercase host. Both resolve,
+            # since hostnames are case-insensitive, but only the lowercase form
+            # matches the URL documented in the README.
+            OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+            cat > pages/bifrossh.flatpakrepo <<EOF
+          [Flatpak Repo]
+          Title=BifroSSH
+          Url=https://${OWNER}.github.io/${{ github.event.repository.name }}
+          Homepage=https://github.com/${{ github.repository }}
+          Comment=GUI SSH client with built-in SFTP and keychain management
+          Description=Self-hosted Flatpak repository for BifroSSH
+          Icon=https://raw.githubusercontent.com/${{ github.repository }}/main/src-tauri/icons/128x128.png
+          GPGKey=$(cat /tmp/key.b64)
+          EOF
+          fi
+
+          gpg --export "$GPG_KEY_ID" > pages/bifrossh.gpg
+
+          # Jekyll would otherwise skip ostree paths that begin with an underscore.
+          touch pages/.nojekyll
+
+          # An ostree lock has no meaning once the repo is served over HTTP.
+          rm -f pages/.lock
+
+          # The clone's own history is not part of what gets published, and the
+          # publish action reconstructs the branch from this directory.
+          rm -rf pages/.git
+
+      - name: Publish to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: pages
+          publish_branch: gh-pages
+          # Deliberately NOT keep_files. The existing repo was cloned into
+          # pages/ at the start of the job, so nothing is lost, and mirroring
+          # the directory exactly is what lets --prune actually remove objects
+          # instead of leaving them in git history forever.
+          force_orphan: false
+          commit_message: "Publish ${{ github.ref_name }}"
