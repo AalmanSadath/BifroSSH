@@ -129,10 +129,16 @@ function MasterKeySection() {
       return 'The passphrase is only needed if the keyring is ever lost.';
     }
     if (s.source === 'passphrase') {
-      return s.always_ask ? '' : 'No desktop keyring answered here, so the passphrase is what opens it.';
+      if (s.always_ask) return '';
+      return s.keyring_locked
+        ? 'Your keyring is locked, so the passphrase is what opens it until you unlock the keyring.'
+        : 'No desktop keyring answered here, so the passphrase is what opens it.';
     }
-    return s.keyring_available
-      ? 'Anything that copies your home directory copies the key too. Set a passphrase to move it into your keyring.'
+    if (s.keyring_available) {
+      return 'Anything that copies your home directory copies the key too. Set a passphrase to move it into your keyring.';
+    }
+    return s.keyring_locked
+      ? 'Anything that copies your home directory copies the key too. Your keyring is locked, so unlock it to have it hold the key instead.'
       : 'Anything that copies your home directory copies the key too. No keyring answered here, so a passphrase is the only way off disk.';
   }
 

@@ -80,6 +80,8 @@ export interface VaultStatus {
   /** No key has ever been made here, so the user chooses how to keep it. */
   setup_required: boolean;
   keyring_available: boolean;
+  /** Keyring is present and holds the key, but is locked. */
+  keyring_locked: boolean;
   /** Set when the keystore cannot be opened at all; no passphrase helps. */
   error: string | null;
 }
@@ -92,6 +94,8 @@ export interface KeystoreStatus {
   always_ask: boolean;
   /** Whether a keyring answered just now, which can differ from `source`. */
   keyring_available: boolean;
+  /** Present but locked, which the user can undo by unlocking it. */
+  keyring_locked: boolean;
 }
 
 /** A mismatched key is blocked under all three policies. */

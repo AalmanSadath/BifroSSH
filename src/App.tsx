@@ -87,11 +87,11 @@ export default function App() {
         setVault(v);
         if (!v.locked) loadAll();
       })
-      .catch(() => setVault({ locked: false, setup_required: false, keyring_available: false, error: null }));
+      .catch(() => setVault({ locked: false, setup_required: false, keyring_available: false, keyring_locked: false, error: null }));
   }, []);
 
   const opened = () => {
-    setVault({ locked: false, setup_required: false, keyring_available: false, error: null });
+    setVault({ locked: false, setup_required: false, keyring_available: false, keyring_locked: false, error: null });
     loadAll();
   };
 
@@ -216,7 +216,7 @@ export default function App() {
         {vault.setup_required ? (
           <FirstRunSetup keyringAvailable={vault.keyring_available} onReady={opened} />
         ) : (
-          <UnlockScreen fatal={vault.error} onUnlocked={opened} />
+          <UnlockScreen fatal={vault.error} keyringLocked={vault.keyring_locked} onUnlocked={opened} />
         )}
       </div>
     );

@@ -5,6 +5,8 @@ import PassphraseInput from './PassphraseInput';
 interface Props {
   /** Set when the keystore cannot be opened at all, so no passphrase helps. */
   fatal: string | null;
+  /** The keyring would normally have opened this, but it is locked. */
+  keyringLocked: boolean;
   onUnlocked: () => void;
 }
 
@@ -16,7 +18,7 @@ interface Props {
  * vault. That is deliberate, and it is what stops anything overwriting the
  * real file with the empty state sitting in memory.
  */
-export default function UnlockScreen({ fatal, onUnlocked }: Props) {
+export default function UnlockScreen({ fatal, keyringLocked, onUnlocked }: Props) {
   const [passphrase, setPassphrase] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -58,7 +60,9 @@ export default function UnlockScreen({ fatal, onUnlocked }: Props) {
         ) : (
           <>
             <p className="unlock-prompt">
-              Enter your master passphrase to unlock your saved servers and keys.
+              {keyringLocked
+                ? 'Your desktop keyring is locked, so it cannot open BifroSSH. Enter your master passphrase instead, or unlock the keyring and restart.'
+                : 'Enter your master passphrase to unlock your saved servers and keys.'}
             </p>
 
             {/* The generated phrase is eight words read back off paper, which

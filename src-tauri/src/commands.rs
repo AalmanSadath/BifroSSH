@@ -1428,6 +1428,10 @@ pub struct VaultStatus {
     /// Whether a keyring answered, which decides if the keyring option can be
     /// offered at all.
     pub keyring_available: bool,
+    /// The keyring is there and holds our key, but will not open. Distinct
+    /// from unavailable: the passphrase is being asked for because of
+    /// something the user can undo by unlocking their keyring.
+    pub keyring_locked: bool,
     /// Set when the keystore could not be opened at all, in which case no
     /// passphrase will help and the message says why.
     pub error: Option<String>,
@@ -1435,16 +1439,25 @@ pub struct VaultStatus {
 
 #[tauri::command]
 pub async fn vault_status(state: State<'_, AppState>) -> Result<VaultStatus, String> {
-    let setup_required = state.secret_key.get().is_none()
+    let locked = state.secret_key.get().is_none();
+    let setup_required = locked
         && state.startup_error.is_none()
         && crate::store::get_data_dir()
             .map(|dir| crate::keystore::is_first_run(&dir))
             .unwrap_or(false);
+
+    // Only worth the D-Bus round trip while something is going to be said
+    // about it, which is the setup screen and the unlock screen.
+    let keyring = if locked {
+        crate::keystore::keyring_status()
+    } else {
+        crate::keystore::KeyringStatus::Missing
+    };
     Ok(VaultStatus {
-        locked: state.secret_key.get().is_none(),
+        locked,
         setup_required,
-        // Only worth the D-Bus round trip when the answer is going to be shown.
-        keyring_available: setup_required && crate::keystore::keyring_kek().is_some(),
+        keyring_available: matches!(keyring, crate::keystore::KeyringStatus::Ready(_)),
+        keyring_locked: matches!(keyring, crate::keystore::KeyringStatus::Locked),
         error: state.startup_error.clone(),
     })
 }
@@ -1505,14 +1518,18 @@ pub struct KeystoreStatus {
     /// how the key was found at startup: a keyring can appear or disappear
     /// between launches.
     pub keyring_available: bool,
+    /// Present but locked, which is the user's to fix and not a fault here.
+    pub keyring_locked: bool,
 }
 
 #[tauri::command]
 pub async fn keystore_status(_state: State<'_, AppState>) -> Result<KeystoreStatus, String> {
     let dir = crate::store::get_data_dir().map_err(|e| e.to_string())?;
-    let keyring_available = crate::keystore::keyring_kek().is_some();
+    let keyring = crate::keystore::keyring_status();
+    let keyring_available = matches!(keyring, crate::keystore::KeyringStatus::Ready(_));
     Ok(KeystoreStatus {
         source: crate::keystore::current_source(&dir, keyring_available),
+        keyring_locked: matches!(keyring, crate::keystore::KeyringStatus::Locked),
         passphrase_set: crate::keystore::has_passphrase(&dir),
         always_ask: crate::keystore::always_asks(&dir),
         keyring_available,

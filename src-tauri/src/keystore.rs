@@ -238,18 +238,65 @@ fn with_timeout<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Op
     rx.recv_timeout(KEYRING_TIMEOUT).ok()
 }
 
-pub fn keyring_kek() -> Option<[u8; 32]> {
-    let secret = with_timeout(|| {
+/// Why the keyring did or did not produce a key, which is not the same
+/// question as whether it produced one.
+///
+/// A locked keyring and a keyring that has lost our key look identical from
+/// the outside and want opposite handling. Locked is temporary: the secret is
+/// still in there, the wrapper written against it is still good, and the cure
+/// is for the user to unlock it. Lost is permanent: the wrapper will never
+/// open again and has to be rewritten. Treating locked as lost would rewrite a
+/// perfectly good wrapper against whatever the keyring hands back later, and
+/// telling the user their key is gone when it is merely asleep sends them
+/// looking for a problem they do not have.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum KeyringStatus {
+    Ready(Box<[u8; 32]>),
+    /// Our item exists but the collection holding it will not open.
+    Locked,
+    /// The service answered and has nothing of ours, so one can be made.
+    Missing,
+    /// No keyring at all, or it failed in a way worth neither of the above.
+    Unavailable(String),
+}
+
+pub fn keyring_status() -> KeyringStatus {
+    let Some(result) = with_timeout(|| {
         if in_flatpak() {
-            portal_secret()
+            // The portal gives no way to tell these apart, so anything other
+            // than a secret is reported as simply unavailable.
+            portal_secret().map(Outcome::Secret)
         } else {
             secret_service_secret()
         }
-    })?;
-    match secret {
-        Ok(bytes) => Some(kek_from_secret(&bytes)),
-        Err(e) => {
-            eprintln!("Desktop keyring unavailable, falling back to {SECRET_FILE}: {e:#}");
+    }) else {
+        return KeyringStatus::Unavailable("the keyring did not answer in time".to_string());
+    };
+
+    match result {
+        Ok(Outcome::Secret(bytes)) => KeyringStatus::Ready(Box::new(kek_from_secret(&bytes))),
+        Ok(Outcome::Locked) => KeyringStatus::Locked,
+        Ok(Outcome::Missing) => KeyringStatus::Missing,
+        Err(e) => KeyringStatus::Unavailable(format!("{e:#}")),
+    }
+}
+
+pub(crate) enum Outcome {
+    Secret(Vec<u8>),
+    Locked,
+    Missing,
+}
+
+pub fn keyring_kek() -> Option<[u8; 32]> {
+    match keyring_status() {
+        KeyringStatus::Ready(kek) => Some(*kek),
+        KeyringStatus::Locked => {
+            eprintln!("The desktop keyring is locked, so it cannot open BifroSSH right now.");
+            None
+        }
+        KeyringStatus::Missing => None,
+        KeyringStatus::Unavailable(why) => {
+            eprintln!("Desktop keyring unavailable: {why}");
             None
         }
     }
@@ -326,7 +373,7 @@ fn portal_secret() -> Result<Vec<u8>> {
 /// attacker who can already read your session bus, which is to say one who has
 /// already lost you the game.
 #[cfg(unix)]
-fn secret_service_secret() -> Result<Vec<u8>> {
+fn secret_service_secret() -> Result<Outcome> {
     use std::collections::HashMap;
     use zbus::blocking::{Connection, Proxy};
     use zbus::zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Type, Value};
@@ -351,20 +398,33 @@ fn secret_service_secret() -> Result<Vec<u8>> {
     let attributes: HashMap<&str, &str> =
         [("application", APP_ID), ("xdg:schema", APP_ID)].into_iter().collect();
 
-    let (unlocked, _locked): (Vec<OwnedObjectPath>, Vec<OwnedObjectPath>) =
+    let (unlocked, locked): (Vec<OwnedObjectPath>, Vec<OwnedObjectPath>) =
         service.call("SearchItems", &(&attributes,))?;
 
     if let Some(path) = unlocked.first() {
         let item = Proxy::new(&conn, SERVICE, path.as_ref(), "org.freedesktop.Secret.Item")?;
         let secret: SecretValue = item.call("GetSecret", &(&session,))?;
         if !secret.value.is_empty() {
-            return Ok(secret.value);
+            return Ok(Outcome::Secret(secret.value));
         }
     }
 
-    // Nothing stored yet, so make one. A locked default collection would need
-    // a prompt to write into, and rather than drive the prompt dance this
-    // gives up and lets the caller fall back to the file.
+    // Our key is in there; the collection holding it just will not open, which
+    // happens whenever the login keyring is not unlocked at login, as with
+    // autologin or a keyring password that differs from the login one.
+    //
+    // Reported rather than treated as missing, and emphatically not replaced.
+    // Creating an item with these attributes would overwrite the one that is
+    // sitting there perfectly intact, and every wrapper written against it
+    // would stop opening. A keyring the user only has to unlock must never
+    // become a key they have permanently lost.
+    if !locked.is_empty() || !unlocked.is_empty() {
+        return Ok(Outcome::Locked);
+    }
+
+    // Genuinely nothing stored yet, so make one. A locked default collection
+    // would need a prompt to write into, and rather than drive the prompt
+    // dance this gives up and lets the caller fall back.
     let mut fresh = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut fresh);
 
@@ -392,7 +452,7 @@ fn secret_service_secret() -> Result<Vec<u8>> {
             "the keyring wants to prompt before storing (prompt {prompt}), which is not handled here"
         ));
     }
-    Ok(fresh.to_vec())
+    Ok(Outcome::Secret(fresh.to_vec()))
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -663,9 +723,27 @@ pub fn unlock_with_passphrase(dir: &Path, passphrase: &str) -> Result<[u8; 32]> 
     let store = load_keystore(dir)?;
     let wrapper = store
         .passphrase
+        .clone()
         .ok_or_else(|| anyhow!("No passphrase is set on this keystore"))?;
     let kek = derive_passphrase_kek(passphrase, &wrapper)?;
-    unwrap_key(&wrapper.blob, &kek).map_err(|_| anyhow!("Wrong passphrase"))
+    let master = unwrap_key(&wrapper.blob, &kek).map_err(|_| anyhow!("Wrong passphrase"))?;
+
+    // Being asked for the passphrase when the keyring was supposed to handle
+    // it means something is wrong with the keyring wrapper, and this is the
+    // only moment the master key is in hand to fix it. Nothing else repairs
+    // it: the launch path refreshes the wrapper only once the keyring already
+    // works, so a dead one would stay dead and prompt on every launch.
+    let status = if store.always_ask { KeyringStatus::Missing } else { keyring_status() };
+    let wrapper_opens = match (&store.keyring, &status) {
+        (Some(blob), KeyringStatus::Ready(kek)) => unwrap_key(blob, kek).is_ok(),
+        _ => false,
+    };
+    if should_repair_keyring(&status, store.always_ask, wrapper_opens) {
+        if let Ok(true) = store_keyring_wrapper(dir, &master) {
+            eprintln!("Repaired the keyring copy of the master key.");
+        }
+    }
+    Ok(master)
 }
 
 pub fn has_passphrase(dir: &Path) -> bool {
@@ -674,6 +752,30 @@ pub fn has_passphrase(dir: &Path) -> bool {
 
 pub fn always_asks(dir: &Path) -> bool {
     load_keystore(dir).map(|s| s.always_ask).unwrap_or(false)
+}
+
+/// Whether an unopenable keyring wrapper should be rewritten now.
+///
+/// The distinction this exists for: a locked keyring still holds the secret
+/// the current wrapper was written against, so the wrapper is good and the fix
+/// belongs to the user, who unlocks their keyring. Rewriting it here would
+/// throw away something that works in favour of whatever a future unlock
+/// happens to return.
+fn should_repair_keyring(status: &KeyringStatus, always_ask: bool, wrapper_opens: bool) -> bool {
+    if always_ask || wrapper_opens {
+        return false;
+    }
+    match status {
+        // Answered, but the wrapper did not open, so the secret behind it
+        // changed and the wrapper is dead.
+        KeyringStatus::Ready(_) => true,
+        // Nothing of ours stored; one can be made.
+        KeyringStatus::Missing => true,
+        // Temporary. Leave the wrapper alone.
+        KeyringStatus::Locked => false,
+        // No keyring to write to anyway.
+        KeyringStatus::Unavailable(_) => false,
+    }
 }
 
 /// Adds or refreshes the keyring wrapper for `master`. Best effort: a machine
@@ -1140,6 +1242,72 @@ mod tests {
 
         clear_passphrase(&dir, &master).unwrap();
         assert_eq!(current_source(&dir, false), KeySource::File);
+    }
+
+    #[test]
+    fn a_locked_keyring_is_never_treated_as_a_lost_one() {
+        // The whole point of telling them apart. A locked keyring still holds
+        // the secret the wrapper was written against, so the wrapper is fine
+        // and rewriting it would discard something that works.
+        let ready = KeyringStatus::Ready(Box::new(key(3)));
+
+        assert!(!should_repair_keyring(&KeyringStatus::Locked, false, false),
+                "rewrote a good wrapper because the keyring was merely locked");
+        assert!(!should_repair_keyring(&KeyringStatus::Unavailable("no bus".into()), false, false),
+                "tried to write to a keyring that is not there");
+
+        // Answered, and the wrapper still did not open: the secret behind it
+        // was replaced, so the wrapper really is dead.
+        assert!(should_repair_keyring(&ready, false, false));
+        // Nothing of ours stored yet, so there is one to make.
+        assert!(should_repair_keyring(&KeyringStatus::Missing, false, false));
+
+        // Never touch a wrapper that works, and never hand the keyring a way
+        // in when the user asked to always be prompted.
+        assert!(!should_repair_keyring(&ready, false, true));
+        assert!(!should_repair_keyring(&ready, true, false));
+        assert!(!should_repair_keyring(&KeyringStatus::Missing, true, false));
+    }
+
+    #[test]
+    fn a_dead_keyring_wrapper_is_repaired_by_unlocking_with_the_passphrase() {
+        // The keyring secret can be replaced out from under a wrapper, leaving
+        // it unopenable. Before, the launch path only refreshed the wrapper
+        // once the keyring already worked, so a dead one stayed dead and the
+        // passphrase was demanded at every launch for good.
+        let dir = temp_dir();
+        let master = key(1);
+        crate::store::write_private(&secret_file_path(&dir), &master).unwrap();
+        set_passphrase(&dir, &master, "hunter2", false, PassphraseForm::Verbatim).unwrap();
+
+        // Stand in for a wrapper written against a keyring secret that is gone.
+        let mut store = load_keystore(&dir).unwrap();
+        store.keyring = Some(wrap(&master, &key(99)).unwrap());
+        save_keystore(&dir, &store).unwrap();
+        assert!(unlock(&dir).unwrap().needs_passphrase, "the dead wrapper should not open it");
+
+        assert_eq!(unlock_with_passphrase(&dir, "hunter2").unwrap(), master);
+
+        // Only meaningful where a keyring actually answers, which is not
+        // guaranteed on a build machine.
+        if keyring_kek().is_some() {
+            assert!(!unlock(&dir).unwrap().needs_passphrase, "still asking after the repair");
+            assert_eq!(unlock(&dir).unwrap().source, KeySource::Keyring);
+        }
+    }
+
+    #[test]
+    fn always_ask_is_not_undone_by_a_passphrase_unlock() {
+        let dir = temp_dir();
+        let master = key(1);
+        crate::store::write_private(&secret_file_path(&dir), &master).unwrap();
+        set_passphrase(&dir, &master, "hunter2", true, PassphraseForm::Verbatim).unwrap();
+
+        unlock_with_passphrase(&dir, "hunter2").unwrap();
+
+        // The repair above must not quietly hand the keyring a way in again.
+        assert!(load_keystore(&dir).unwrap().keyring.is_none());
+        assert!(unlock(&dir).unwrap().needs_passphrase);
     }
 
     #[test]
