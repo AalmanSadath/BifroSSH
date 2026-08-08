@@ -19,8 +19,45 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # A release pushes the commit and its tag together, which GitHub reports as
+  # two events for one commit: the branch push lands here, and the tag push
+  # lands in the release workflow, which calls this one. Without this the same
+  # SHA is built and tested twice, side by side, for no extra information.
+  #
+  # The branch push is the copy to drop, because the release run is the one
+  # whose result actually gates publishing. If the tag is not visible yet when
+  # this looks, both runs happen, which is exactly what happened before this
+  # job existed: the failure direction is a wasted run, never a skipped check.
+  decide:
+    name: Decide
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - id: check
+        env:
+          # Under workflow_call these describe the caller, so a release reads
+          # as ref_type=tag and is never the copy that gets dropped.
+          EVENT: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          tags=$(git tag --points-at HEAD)
+          if [ "$EVENT" = "push" ] && [ "$REF_TYPE" = "branch" ] && [ -n "$tags" ]; then
+            echo "Commit is tagged ($(echo "$tags" | tr '\n' ' ')); the release run covers it."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
   frontend:
     name: Frontend
+    needs: decide
+    if: needs.decide.outputs.run == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -38,6 +75,8 @@ jobs:
 
   backend:
     name: Backend
+    needs: decide
+    if: needs.decide.outputs.run == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
