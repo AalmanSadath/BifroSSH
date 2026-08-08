@@ -18,7 +18,19 @@ env:
   APP_ID: io.github.aalmansadath.bifrossh
 
 jobs:
+  # The publish below builds in a sandbox and never runs the test suite, so
+  # without this a tag could ship code that CI would have failed. Same checks
+  # as an ordinary push, reached from here so that publishing depends on them.
+  check:
+    uses: ./.github/workflows/ci.yml
+    # This workflow needs contents: write to publish, and a called workflow
+    # inherits the caller's permissions unless told otherwise. Running the
+    # tests does not need to be able to write anything.
+    permissions:
+      contents: read
+
   build:
+    needs: check
     runs-on: ubuntu-latest
     container:
       # gnome-50 matches `runtime-version: '50'` in the manifest. Bumping one

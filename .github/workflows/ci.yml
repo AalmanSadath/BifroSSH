@@ -5,8 +5,15 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # Called by the release workflow, so a tag cannot publish something these
+  # checks would have rejected. Nothing in here is release specific; it is the
+  # same run, reached from a different door.
+  workflow_call:
 
-# A newer push makes an in-flight run redundant.
+# A newer push makes an in-flight run redundant. Called from the release
+# workflow this still keys on the caller's ref, which for a tag is
+# refs/tags/vX.Y.Z, so a release and the branch push beside it land in
+# different groups and cannot cancel one another.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
