@@ -76,13 +76,38 @@ async function migrateLegacyStorage(current: {
   return result;
 }
 
+/**
+ * The chosen app theme, mirrored outside the encrypted store.
+ *
+ * Settings live in data.json, which cannot be read until the master key is
+ * available, so with a passphrase set the unlock screen would render before
+ * its own theme was knowable and always came up dark. The theme is not a
+ * secret, and this is only a cache: data.json stays authoritative, and the
+ * worst a stale or missing value can do is show one screen in the wrong
+ * colours before the real settings load over it.
+ */
+const APP_THEME_CACHE = 'bifrossh_app_theme';
+
+function cachedAppTheme(): Settings['app_theme'] {
+  const saved = localStorage.getItem(APP_THEME_CACHE);
+  return saved === 'light' || saved === 'amoled' || saved === 'dark' ? saved : 'dark';
+}
+
+function cacheAppTheme(theme: Settings['app_theme']) {
+  try {
+    localStorage.setItem(APP_THEME_CACHE, theme);
+  } catch {
+    // Storage can be unavailable or full. Nothing here is worth failing over.
+  }
+}
+
 const DEFAULT_SETTINGS: Settings = {
   theme: 'bifrossh-dark',
   font_size: 14,
   font_family: 'monospace',
   cursor_style: 'block',
   cursor_blink: true,
-  app_theme: 'dark',
+  app_theme: cachedAppTheme(),
   connection_timeout_secs: 60,
   show_hover_hints: true,
   sftp_inactivity_timeout_secs: 300,
@@ -295,6 +320,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
         invoke<Record<string, NamedTheme>>('get_custom_themes'),
       ]);
 
+    cacheAppTheme(settings.app_theme);
+
     let collections = { portForwardings, codeprints, customThemes };
     try {
       collections = await migrateLegacyStorage(collections);
@@ -410,6 +437,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   saveSettings: async (settings) => {
     await invoke('save_settings', { settings });
+    cacheAppTheme(settings.app_theme);
     set({ settings });
   },
 
