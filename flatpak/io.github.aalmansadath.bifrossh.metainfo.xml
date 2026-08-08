@@ -65,6 +65,20 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.7.1" date="2026-08-09">
+      <description>
+        <p>
+          Passphrase boxes can now be revealed while typing, which matters most
+          for the generated word phrase, since that one is read back off paper
+          and was the hardest thing here to type unseen.
+        </p>
+        <p>
+          The unlock screen follows the theme you chose. It could not before,
+          because the theme is kept with the rest of your settings and those
+          cannot be read until the passphrase has been entered.
+        </p>
+      </description>
+    </release>
     <release version="0.7.0" date="2026-08-09">
       <description>
         <p>
