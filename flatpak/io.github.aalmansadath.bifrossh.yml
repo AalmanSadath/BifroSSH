@@ -36,6 +36,11 @@ build-options:
   env:
     CARGO_HOME: /run/build/bifrossh/cargo-home
     CARGO_NET_OFFLINE: 'true'
+    # esbuild's install script downloads a platform binary unless it is told
+    # where one already is. node-sources.json stages the right one for this
+    # architecture at this path; without the variable the build reaches for
+    # the network and fails, because there is none.
+    ESBUILD_BINARY_PATH: /run/build/bifrossh/flatpak-node/cache/esbuild/bin/esbuild-current
 
 modules:
   - name: bifrossh
@@ -58,8 +63,15 @@ modules:
         directory = "cargo/vendor"
         CARGO_EOF
 
-      # Build frontend using offline npm cache
-      - npm install --cache=$PWD/flatpak-node/npm-cache --offline
+      # Build frontend using offline npm cache.
+      #
+      # `ci` rather than `install`: it deletes node_modules first. The source
+      # here is a `type: dir` copy of the working tree, so on a developer
+      # machine that directory arrives already populated and `npm install`
+      # finds nothing to do -- which silently hides a node-sources.json that
+      # has drifted from package-lock.json, right up until CI builds from a
+      # clean checkout and cannot fetch the missing tarballs.
+      - npm ci --cache=$PWD/flatpak-node/npm-cache --offline
       - npm run build
 
       # Build the Tauri binary; custom-protocol embeds dist/ as assets

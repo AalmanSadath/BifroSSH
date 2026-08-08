@@ -205,14 +205,16 @@ python3 flatpak/flatpak-cargo-generator.py src-tauri/Cargo.lock -o flatpak/cargo
 
 ### Adding new npm dependencies
 
-After updating `package-lock.json`, regenerate the node sources:
+After updating `package-lock.json`, regenerate the node sources. The generator is upstream's, and is a Python package rather than a single script:
 
 ```bash
-pip install aiohttp
-python3 flatpak/flatpak-node-generator.py npm package-lock.json -o flatpak/node-sources.json
+pipx install "git+https://github.com/flatpak/flatpak-builder-tools#subdirectory=node"
+flatpak-node-generator npm package-lock.json -o flatpak/node-sources.json
 ```
 
 Then rebuild with `./install.sh flatpak`.
+
+Forgetting either regeneration fails the build inside the sandbox, which has no network. The release workflow checks both files against their lockfiles before it builds anything, so the error names what is stale instead of surfacing as a missing tarball several minutes in.
 
 ---
 
