@@ -65,6 +65,16 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.6.1" date="2026-08-08">
+      <description>
+        <p>
+          Packaging only, with no changes to the application itself. Releases
+          are now built, signed and published from a clean checkout rather than
+          from a developer machine, so what is published is reproducible from
+          the tagged source alone.
+        </p>
+      </description>
+    </release>
     <release version="0.6.0" date="2026-08-04">
       <description>
         <p>
