@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { invoke } from '@tauri-apps/api/core';
+import PassphraseInput from './PassphraseInput';
 import { useAppStore } from '../store/appStore';
 import type { KeystoreStatus, Settings } from '../types';
 
@@ -237,24 +238,21 @@ function MasterKeySection() {
               <label htmlFor="master-pass">
                 {mode === 'set' ? 'New passphrase' : 'Current passphrase'}
               </label>
-              <input
+              <PassphraseInput
                 id="master-pass"
-                type="password"
                 value={pass}
                 autoFocus
-                autoComplete="new-password"
-                onChange={(e) => setPass(e.target.value)}
+                autoComplete={mode === 'remove' ? 'current-password' : 'new-password'}
+                onChange={setPass}
               />
 
               {mode === 'set' && (
                 <>
                   <label htmlFor="master-pass-confirm">Confirm passphrase</label>
-                  <input
+                  <PassphraseInput
                     id="master-pass-confirm"
-                    type="password"
                     value={confirm}
-                    autoComplete="new-password"
-                    onChange={(e) => setConfirm(e.target.value)}
+                    onChange={setConfirm}
                   />
                   <label className="checkbox-row">
                     <input

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import PassphraseInput from './PassphraseInput';
 
 interface Props {
   /** Set when the keystore cannot be opened at all, so no passphrase helps. */
@@ -60,14 +61,16 @@ export default function UnlockScreen({ fatal, onUnlocked }: Props) {
               Enter your master passphrase to unlock your saved servers and keys.
             </p>
 
-            <input
-              type="password"
+            {/* The generated phrase is eight words read back off paper, which
+                is the hardest thing in the app to type blind, so this is the
+                one place the reveal matters most. */}
+            <PassphraseInput
               value={passphrase}
               autoFocus
               disabled={busy}
               autoComplete="current-password"
               placeholder="Master passphrase"
-              onChange={(e) => setPassphrase(e.target.value)}
+              onChange={setPassphrase}
             />
 
             {error && <p className="unlock-error">{error}</p>}

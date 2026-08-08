@@ -4200,3 +4200,8 @@ button { cursor: pointer; font-family: inherit; }
    for the toggle, so it needs to read as a separate thing rather than as the
    toggle's caption. */
 .master-key-toggle { margin-top: 14px; }
+
+/* The eye sits inside the box, so in a row that also holds the dice the
+   wrapper is what stretches, not the bare input. */
+.setup-pass-row .input-with-eye { flex: 1; }
+.unlock-card .input-with-eye input { width: 100%; }

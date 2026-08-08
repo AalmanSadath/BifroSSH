@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import PassphraseInput from './PassphraseInput';
 
 type Mode = 'secret-file' | 'passphrase-only' | 'keyring-and-passphrase';
 
@@ -145,14 +146,11 @@ export default function FirstRunSetup({ keyringAvailable, onReady }: Props) {
                   onFocus={(e) => e.currentTarget.select()}
                 />
               ) : (
-                <input
-                  type="password"
+                <PassphraseInput
                   value={passphrase}
                   placeholder="Passphrase"
-                  autoComplete="new-password"
-                  spellCheck={false}
-                  onChange={(e) => {
-                    setPassphrase(e.target.value);
+                  onChange={(v) => {
+                    setPassphrase(v);
                     setSaved(false);
                   }}
                 />
