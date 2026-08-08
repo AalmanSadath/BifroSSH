@@ -65,6 +65,22 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.7.2" date="2026-08-09">
+      <description>
+        <p>
+          A desktop keyring that is locked is no longer mistaken for one that
+          has lost the key. The two look the same from outside and want
+          opposite handling: a locked keyring still holds your key and only
+          needs unlocking, so BifroSSH now says so and leaves it alone, where
+          before it could have replaced a perfectly good copy.
+        </p>
+        <p>
+          Where the keyring copy really has stopped working, entering your
+          master passphrase repairs it, instead of the passphrase being asked
+          for at every launch from then on with no way back.
+        </p>
+      </description>
+    </release>
     <release version="0.7.1" date="2026-08-09">
       <description>
         <p>
