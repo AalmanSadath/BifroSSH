@@ -14,6 +14,7 @@ mod agent_tests;
 #[cfg(test)]
 mod ssh_auth_tests;
 mod store;
+mod transfer;
 mod tunnel;
 mod wordlist;
 
@@ -135,6 +136,10 @@ pub fn run() {
             commands::save_settings,
             commands::scan_ssh_config,
             commands::import_ssh_config_hosts,
+            commands::default_export_dir,
+            commands::export_data,
+            commands::preview_import,
+            commands::import_data,
             commands::get_port_forwardings,
             commands::save_port_forwardings,
             commands::get_codeprints,

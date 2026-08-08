@@ -442,6 +442,131 @@ pub fn list_known_hosts() -> Result<Vec<KnownHostEntry>> {
     Ok(out)
 }
 
+/// What an import did, so the user can be told rather than guess.
+#[derive(Debug, Default, serde::Serialize, Clone)]
+pub struct ImportedHosts {
+    pub added: usize,
+    /// Already held, byte for byte.
+    pub skipped: usize,
+    /// Host specs we already hold a *different* key for. Left alone.
+    pub conflicts: Vec<String>,
+}
+
+/// BifroSSH's own known_hosts, as raw lines, for putting in an export.
+///
+/// `~/.ssh/known_hosts` is deliberately not included: it is not ours to carry
+/// to another machine, and anything from it that BifroSSH has actually used
+/// has already been mirrored into our own file by `check_host`.
+pub fn export_lines() -> Result<Vec<String>> {
+    let path = bifrossh_known_hosts_path()?;
+    let Ok(content) = fs::read_to_string(&path) else {
+        return Ok(Vec::new());
+    };
+    Ok(content
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(str::to_string)
+        .collect())
+}
+
+/// Splits a known_hosts line into (marker, hosts, algorithm, base64).
+///
+/// The algorithm is taken from the blob rather than the line's own third
+/// field, for the reason `algo_from_blob` documents.
+fn parse_line(line: &str) -> Option<(Option<String>, String, String, String)> {
+    let mut fields = line.split_whitespace();
+    let mut first = fields.next()?;
+    let mut marker = None;
+    if first.starts_with('@') {
+        marker = Some(first.to_string());
+        first = fields.next()?;
+    }
+    let _stated_algo = fields.next()?;
+    let b64 = fields.next()?;
+    let blob = B64.decode(b64.as_bytes()).ok()?;
+    let algo = algo_from_blob(&blob)?;
+    Some((marker, first.to_string(), algo, b64.to_string()))
+}
+
+/// Decides what an import would append, given the file as it stands.
+///
+/// Split out from the writing so the rule can be tested without a real
+/// known_hosts underneath it.
+fn merge_lines(existing: &str, incoming: &[String]) -> (ImportedHosts, Vec<String>) {
+    // Grows as lines are accepted, so a file listing the same host twice is
+    // judged against what the earlier line already put in.
+    let mut held: Vec<(Option<String>, String, String, String)> = existing
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .filter_map(parse_line)
+        .collect();
+
+    let mut report = ImportedHosts::default();
+    let mut pending: Vec<String> = Vec::new();
+
+    for raw in incoming {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some(entry) = parse_line(line) else {
+            report.skipped += 1;
+            continue;
+        };
+        let (marker, hosts, algo, b64) = entry;
+
+        match held
+            .iter()
+            .find(|e| e.0 == marker && e.1 == hosts && e.2 == algo)
+        {
+            Some(e) if e.3 == b64 => report.skipped += 1,
+            Some(_) => report.conflicts.push(hosts),
+            None => {
+                held.push((marker, hosts, algo, b64));
+                pending.push(line.to_string());
+                report.added += 1;
+            }
+        }
+    }
+
+    (report, pending)
+}
+
+/// Merges known_hosts lines from an export into BifroSSH's file.
+///
+/// A host we already hold a different key for is reported, never replaced.
+/// Trusting a new identity for a known host is exactly the decision the
+/// mismatch prompt exists to put in front of the user, and a file import is
+/// not that prompt.
+pub fn import_lines(lines: &[String]) -> Result<ImportedHosts> {
+    let path = bifrossh_known_hosts_path()?;
+    let _guard = WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+    let (report, pending) = merge_lines(&fs::read_to_string(&path).unwrap_or_default(), lines);
+
+    if pending.is_empty() {
+        return Ok(report);
+    }
+
+    let needs_newline = fs::read(&path)
+        .ok()
+        .and_then(|b| b.last().copied())
+        .is_some_and(|b| b != b'\n');
+
+    let mut file = OpenOptions::new().append(true).create(true).open(&path)?;
+    if needs_newline {
+        file.write_all(b"\n")?;
+    }
+    for line in &pending {
+        writeln!(file, "{}", line)?;
+    }
+    drop(file);
+    set_owner_only(&path)?;
+    Ok(report)
+}
+
 /// `[host]:port` back to its parts. Hashed entries stay opaque.
 fn split_host_spec(spec: &str) -> (String, u16) {
     if let Some(rest) = spec.strip_prefix('[') {
@@ -1012,6 +1137,39 @@ mod tests {
             "the OpenSSH entry should have been mirrored across"
         );
 
+        // Export and re-import against the real file: what comes out must go
+        // back in as a no-op, and only our own file may travel.
+        let exported = export_lines().unwrap();
+        assert!(
+            exported.iter().any(|l| l.contains("legacy.example.com")),
+            "the mirrored entry should be in the export"
+        );
+        assert!(
+            !exported.iter().any(|l| l.contains("ssh-dss")),
+            "~/.ssh/known_hosts must not be carried into an export"
+        );
+
+        let before = fs::read_to_string(bifrossh_known_hosts_path().unwrap()).unwrap();
+        let again = import_lines(&exported).unwrap();
+        assert_eq!(again.added, 0);
+        assert_eq!(again.skipped, exported.len());
+        assert_eq!(
+            fs::read_to_string(bifrossh_known_hosts_path().unwrap()).unwrap(),
+            before,
+            "re-importing an export of ourselves must not touch the file"
+        );
+
+        let fresh = import_lines(&[format!(
+            "imported.example ssh-ed25519 {}",
+            ED25519_B64
+        )])
+        .unwrap();
+        assert_eq!(fresh.added, 1);
+        assert!(matches!(
+            check_host("imported.example", 22, &key),
+            KnownHostStatus::Match { .. }
+        ));
+
         fs::remove_dir_all(&home).ok();
     }
 
@@ -1027,5 +1185,87 @@ mod tests {
             ("::1".into(), 2222),
             "IPv6 literals keep their inner brackets stripped correctly"
         );
+    }
+
+    /// The same algorithm, different key material.
+    fn other_key_b64() -> String {
+        let mut blob = B64.decode(ED25519_B64).unwrap();
+        *blob.last_mut().unwrap() ^= 0xff;
+        B64.encode(blob)
+    }
+
+    fn line(host: &str, b64: &str) -> String {
+        format!("{host} ssh-ed25519 {b64}")
+    }
+
+    #[test]
+    fn importing_hosts_adds_only_what_is_new() {
+        let existing = format!("{}\n", line("alpha.example", ED25519_B64));
+        let incoming = vec![
+            line("alpha.example", ED25519_B64),
+            line("beta.example", ED25519_B64),
+        ];
+
+        let (report, pending) = merge_lines(&existing, &incoming);
+        assert_eq!(report.added, 1);
+        assert_eq!(report.skipped, 1);
+        assert!(report.conflicts.is_empty());
+        assert_eq!(pending, vec![line("beta.example", ED25519_B64)]);
+    }
+
+    #[test]
+    fn a_different_key_for_a_known_host_is_a_conflict_not_a_replacement() {
+        let existing = format!("{}\n", line("alpha.example", ED25519_B64));
+        let incoming = vec![line("alpha.example", &other_key_b64())];
+
+        let (report, pending) = merge_lines(&existing, &incoming);
+        assert_eq!(report.added, 0);
+        assert_eq!(report.conflicts, vec!["alpha.example".to_string()]);
+        assert!(
+            pending.is_empty(),
+            "a conflicting identity must never be written"
+        );
+    }
+
+    #[test]
+    fn a_file_repeating_a_host_only_takes_the_first() {
+        let incoming = vec![
+            line("alpha.example", ED25519_B64),
+            line("alpha.example", ED25519_B64),
+            line("alpha.example", &other_key_b64()),
+        ];
+
+        let (report, pending) = merge_lines("", &incoming);
+        assert_eq!(report.added, 1);
+        assert_eq!(report.skipped, 1);
+        assert_eq!(report.conflicts.len(), 1);
+        assert_eq!(pending.len(), 1);
+    }
+
+    #[test]
+    fn unreadable_lines_are_skipped_rather_than_written_through() {
+        let incoming = vec![
+            "this is not a known_hosts line".to_string(),
+            "alpha.example ssh-ed25519 !!!notbase64".to_string(),
+            "# a comment".to_string(),
+            String::new(),
+        ];
+
+        let (report, pending) = merge_lines("", &incoming);
+        assert_eq!(report.added, 0);
+        assert_eq!(report.skipped, 2, "the comment and blank do not count");
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn the_same_host_on_two_ports_is_two_entries() {
+        let incoming = vec![
+            line("alpha.example", ED25519_B64),
+            line("[alpha.example]:2222", ED25519_B64),
+        ];
+
+        let (report, pending) = merge_lines("", &incoming);
+        assert_eq!(report.added, 2);
+        assert_eq!(pending.len(), 2);
     }
 }

@@ -73,6 +73,13 @@ Create and manage SSH port forwarding rules. Three forwarding types are supporte
 
 Rules are created with a step-by-step wizard or directly via the edit form. Double-click a card (or right-click and select Activate) to start the tunnel. Multiple tunnels can run simultaneously and are stopped individually or all at once via right-click and Kill all active tunnels.
 
+### Export and import
+Move a whole setup to another machine, or keep a backup of one. **Settings → Backup and transfer** writes a single `.bfx` file holding hosts, identities, keys, tunnels, codeprints, themes, settings and known hosts.
+
+The file is encrypted under a passphrase you choose for it, not your master key. That is what makes it portable: passwords and private keys are unwrapped from the local key and rewrapped under the export passphrase, so the file opens on a machine that has never seen this keystore. The passphrase is not stored anywhere and cannot be recovered, and the same eight-word generator the master passphrase offers is available here. Secrets can be left out entirely, though hostnames and usernames travel either way, which is why the file is always encrypted.
+
+Importing only ever adds. Anything already present is kept and reported as skipped, matched by id and then by what it is (a host by address, port and user; an identity by name and user; a key by path or name), so importing the same file twice does nothing and a stale export cannot undo newer edits. Each category is ticked individually, links between imported records are repointed at whatever they resolve to locally, and settings are the one wholesale overwrite, off by default. Known hosts are merged the same way: a host the file disagrees with you about is reported, never replaced, because trusting a changed host key is a decision for the mismatch prompt and not for a file.
+
 ### Themes and per-session colours
 Ships with dark and light themes. The built-in theme editor lets you customise every colour: background, foreground, cursor, selection, and all 16 ANSI colours. Theme changes can be applied per-session without changing the server's default theme.
 

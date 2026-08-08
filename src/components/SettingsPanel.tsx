@@ -2,6 +2,8 @@ import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { invoke } from '@tauri-apps/api/core';
 import PassphraseInput from './PassphraseInput';
+import ExportDataModal from './ExportDataModal';
+import ImportDataModal from './ImportDataModal';
 import { useAppStore } from '../store/appStore';
 import type { KeystoreStatus, Settings } from '../types';
 
@@ -308,6 +310,8 @@ export default function SettingsPanel() {
   const [connTimeoutStr, setConnTimeoutStr] = useState(String(settings.connection_timeout_secs));
   const [sftpTimeoutStr, setSftpTimeoutStr] = useState(String(settings.sftp_inactivity_timeout_secs));
   const [keepaliveStr, setKeepaliveStr] = useState(String(settings.keepalive_interval_secs));
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   useEffect(() => { setConnTimeoutStr(String(settings.connection_timeout_secs)); }, [settings.connection_timeout_secs]);
   useEffect(() => { setSftpTimeoutStr(String(settings.sftp_inactivity_timeout_secs)); }, [settings.sftp_inactivity_timeout_secs]);
@@ -466,6 +470,23 @@ export default function SettingsPanel() {
       </section>
 
       <MasterKeySection />
+
+      <section className="panel-section">
+        <h3>Backup and transfer</h3>
+        <p className="form-hint" style={{ marginTop: 0 }}>
+          Everything saved here goes into one file: hosts, identities, keys, tunnels, codeprints,
+          themes, settings and known hosts. It is encrypted under a passphrase you choose for it,
+          separate from your master key, which is what lets it open on another machine. Importing
+          only adds; anything already here is kept.
+        </p>
+        <div className="transfer-buttons">
+          <button className="btn-secondary" onClick={() => setExporting(true)}>Export…</button>
+          <button className="btn-secondary" onClick={() => setImporting(true)}>Import…</button>
+        </div>
+      </section>
+
+      {exporting && <ExportDataModal onClose={() => setExporting(false)} />}
+      {importing && <ImportDataModal onClose={() => setImporting(false)} />}
 
       <section className="panel-section">
         <h3>Interface</h3>

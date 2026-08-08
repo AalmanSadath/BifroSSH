@@ -225,3 +225,63 @@ export interface ConnectRequest {
   cols: number;
   rows: number;
 }
+
+/** A local file or directory, as `sftp_list_local` reports it. */
+export interface FileEntry {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  size: number;
+  modified: number | null;
+  permissions: string;
+  kind: string;
+}
+
+/** Per-collection tallies, shared by every export and import result. */
+export interface TransferCounts {
+  servers: number;
+  identities: number;
+  keys: number;
+  port_forwardings: number;
+  codeprints: number;
+  custom_themes: number;
+  known_hosts: number;
+}
+
+export interface ExportResult {
+  path: string;
+  bytes: number;
+  counts: TransferCounts;
+  secrets_included: boolean;
+}
+
+/** What an import would do, worked out before anything is changed. */
+export interface MergePlan {
+  created: number;
+  app_version: string;
+  secrets_included: boolean;
+  incoming: TransferCounts;
+  duplicates: TransferCounts;
+  missing_key_paths: string[];
+  host_key_conflicts: string[];
+  has_settings: boolean;
+}
+
+export interface ImportOptions {
+  servers: boolean;
+  identities: boolean;
+  keys: boolean;
+  port_forwardings: boolean;
+  codeprints: boolean;
+  custom_themes: boolean;
+  settings: boolean;
+  known_hosts: boolean;
+}
+
+export interface ImportReport {
+  added: TransferCounts;
+  skipped: TransferCounts;
+  unresolved_refs: number;
+  settings_replaced: boolean;
+  host_key_conflicts: string[];
+}

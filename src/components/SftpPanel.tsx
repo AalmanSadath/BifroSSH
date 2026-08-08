@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useAppStore, buildJumpChain, resolveServerAuth } from '../store/appStore';
 import OsIcon from './OsIcon';
-import type { LogEntry, Server } from '../types';
+import type { FileEntry, LogEntry, Server } from '../types';
 import ConnectingView from './ConnectingView';
 
 interface TransferProgress {
@@ -13,16 +13,6 @@ interface TransferProgress {
   /** 1-based position within a batch; 1/1 for a single file. */
   file_index: number;
   file_count: number;
-}
-
-interface FileEntry {
-  name: string;
-  path: string;
-  is_dir: boolean;
-  size: number;
-  modified: number | null;
-  permissions: string;
-  kind: string;
 }
 
 function formatSize(bytes: number, isDir: boolean): string {
