@@ -23,8 +23,43 @@ use ssh::SshState;
 use store::{load_app_data, load_secret_key};
 use tunnel::TunnelState;
 
+/// The webview keeps its storage in a directory named after the app
+/// identifier, so renaming the identifier strands whatever WebKit had put
+/// under the old name. That matters because localStorage is in there, and
+/// appStore.ts still migrates port forwardings, codeprints and custom themes
+/// out of localStorage for anyone upgrading from a version before 0.5.0. A
+/// fresh directory would leave the migration nothing to find and quietly lose
+/// all three.
+///
+/// Renaming the directory has to happen before the webview opens it, so this
+/// runs first thing. Linux only: the identifier is not what names this
+/// directory on the other platforms, and BifroSSH only ships for Linux.
+#[cfg(target_os = "linux")]
+fn migrate_webview_data_dir() {
+    const OLD_IDENTIFIER: &str = "com.bifrossh.app";
+    const NEW_IDENTIFIER: &str = "io.github.aalmansadath.bifrossh";
+
+    let Some(base) = dirs::data_dir() else { return };
+    let (old, new) = (base.join(OLD_IDENTIFIER), base.join(NEW_IDENTIFIER));
+
+    // An existing new directory means this already ran, or the user has never
+    // been on an older version. Either way the old one is not ours to touch.
+    if !old.is_dir() || new.exists() {
+        return;
+    }
+    if let Err(e) = std::fs::rename(&old, &new) {
+        // Not fatal. The cost is a webview that starts out empty, which loses
+        // the pre-0.5.0 localStorage migration but nothing that is already in
+        // data.json, so carrying on beats refusing to launch.
+        eprintln!("Could not move webview data from {OLD_IDENTIFIER} to {NEW_IDENTIFIER}: {e}");
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    migrate_webview_data_dir();
+
     let secret_key = load_secret_key().expect("Failed to load/generate secret key");
     let app_data = load_app_data().expect("Failed to load app data");
 
