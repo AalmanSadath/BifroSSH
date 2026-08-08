@@ -462,6 +462,31 @@ pub fn unlock(dir: &Path) -> Result<Unlocked> {
     ))
 }
 
+/// Where the key effectively lives right now, read off the disk rather than
+/// remembered from startup.
+///
+/// Reported from the current state because the arrangement can change while
+/// the app is running, and a status captured at launch would keep describing
+/// the old one.
+///
+/// The weakest location wins. A profile can hold a keyring wrapper and
+/// .secret at the same time, and calling that "in your keyring" would be a
+/// flattering description of a key that is still sitting in the file tree
+/// where any copy of the home directory picks it up.
+pub fn current_source(dir: &Path, keyring_available: bool) -> KeySource {
+    if secret_file_path(dir).exists() {
+        return KeySource::File;
+    }
+    let store = load_keystore(dir).unwrap_or_default();
+    if store.keyring.is_some() && keyring_available {
+        return KeySource::Keyring;
+    }
+    if store.passphrase.is_some() {
+        return KeySource::Passphrase;
+    }
+    KeySource::File
+}
+
 /// Recognises a phrase this app generated, which is the only kind whose
 /// spacing is normalised.
 ///
@@ -1074,6 +1099,47 @@ mod tests {
         assert_eq!(detect_form("My dog's name is Rex!"), PassphraseForm::Verbatim);
         assert_eq!(detect_form("acid acorn acre"), PassphraseForm::Verbatim);
         assert_eq!(detect_form(""), PassphraseForm::Verbatim);
+    }
+
+    #[test]
+    fn the_reported_location_names_the_weakest_one() {
+        let dir = temp_dir();
+        let master = key(1);
+
+        // A keyring wrapper alongside .secret is not "in your keyring": the
+        // file alone opens everything and travels with any copy of the home
+        // directory, so calling it protected would be a lie.
+        crate::store::write_private(&secret_file_path(&dir), &master).unwrap();
+        save_keystore(&dir, &KeyStore {
+            version: 1,
+            keyring: Some(wrap(&master, &key(2)).unwrap()),
+            passphrase: None,
+            always_ask: false,
+        }).unwrap();
+        assert_eq!(current_source(&dir, true), KeySource::File);
+
+        // Once the file is gone the keyring is the honest answer.
+        std::fs::remove_file(secret_file_path(&dir)).unwrap();
+        assert_eq!(current_source(&dir, true), KeySource::Keyring);
+
+        // And it stops being the answer the moment no keyring replies.
+        assert_eq!(current_source(&dir, false), KeySource::File);
+    }
+
+    #[test]
+    fn the_reported_location_follows_a_change_rather_than_the_startup_state() {
+        // Removing a passphrase and setting one again used to keep reporting
+        // whatever was true when the process started.
+        let dir = temp_dir();
+        let master = key(1);
+        crate::store::write_private(&secret_file_path(&dir), &master).unwrap();
+        assert_eq!(current_source(&dir, false), KeySource::File);
+
+        set_passphrase(&dir, &master, "hunter2", true, PassphraseForm::Verbatim).unwrap();
+        assert_eq!(current_source(&dir, false), KeySource::Passphrase);
+
+        clear_passphrase(&dir, &master).unwrap();
+        assert_eq!(current_source(&dir, false), KeySource::File);
     }
 
     #[test]

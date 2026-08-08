@@ -70,15 +70,15 @@ pub fn run() {
     // passphrase cannot be asked for before the UI exists, and a keystore that
     // will not open at all needs to say so somewhere the user is looking
     // rather than on a terminal nobody opened.
-    let (secret_key, key_source, startup_error) = if keystore::is_first_run(&data_dir) {
+    let (secret_key, startup_error) = if keystore::is_first_run(&data_dir) {
         // Nothing has ever been written here. The user chooses how the key
         // should be kept before one exists, rather than having a file on disk
         // picked for them and having to undo it.
-        (std::sync::OnceLock::new(), keystore::KeySource::File, None)
+        (std::sync::OnceLock::new(), None)
     } else {
         match keystore::unlock(&data_dir) {
         Ok(unlocked) if unlocked.needs_passphrase => {
-            (std::sync::OnceLock::new(), keystore::KeySource::Passphrase, None)
+            (std::sync::OnceLock::new(), None)
         }
         Ok(unlocked) => {
             // Repeated on every launch so a keyring that appears later, a
@@ -87,12 +87,12 @@ pub fn run() {
             let _ = keystore::store_keyring_wrapper(&data_dir, &unlocked.key);
             let cell = std::sync::OnceLock::new();
             let _ = cell.set(unlocked.key);
-            (cell, unlocked.source, None)
+            (cell, None)
         }
         Err(e) => {
             let message = format!("{e:#}");
             eprintln!("Cannot open the keystore: {message}");
-            (std::sync::OnceLock::new(), keystore::KeySource::File, Some(message))
+            (std::sync::OnceLock::new(), Some(message))
         }
         }
     };
@@ -109,7 +109,6 @@ pub fn run() {
         .manage(AppState {
             data: tokio::sync::Mutex::new(app_data),
             secret_key,
-            key_source,
             startup_error,
             ssh_state: Arc::new(SshState::new()),
             sftp_state: Arc::new(SftpClientState::new()),

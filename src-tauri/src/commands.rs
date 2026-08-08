@@ -25,9 +25,6 @@ pub struct AppState {
     /// before unlock fails on the missing key instead of quietly operating on
     /// an empty AppData and saving it over the real one.
     pub secret_key: std::sync::OnceLock<[u8; 32]>,
-    /// How the master key was obtained at startup, so the UI can say which
-    /// protection is actually in force rather than implying the best case.
-    pub key_source: crate::keystore::KeySource,
     /// Set when the keystore could not be opened at all, to be shown on the
     /// unlock screen rather than lost to a terminal nobody is watching.
     pub startup_error: Option<String>,
@@ -1511,13 +1508,14 @@ pub struct KeystoreStatus {
 }
 
 #[tauri::command]
-pub async fn keystore_status(state: State<'_, AppState>) -> Result<KeystoreStatus, String> {
+pub async fn keystore_status(_state: State<'_, AppState>) -> Result<KeystoreStatus, String> {
     let dir = crate::store::get_data_dir().map_err(|e| e.to_string())?;
+    let keyring_available = crate::keystore::keyring_kek().is_some();
     Ok(KeystoreStatus {
-        source: state.key_source,
+        source: crate::keystore::current_source(&dir, keyring_available),
         passphrase_set: crate::keystore::has_passphrase(&dir),
         always_ask: crate::keystore::always_asks(&dir),
-        keyring_available: crate::keystore::keyring_kek().is_some(),
+        keyring_available,
     })
 }
 

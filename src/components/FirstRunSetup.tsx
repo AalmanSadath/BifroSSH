@@ -132,19 +132,37 @@ export default function FirstRunSetup({ keyringAvailable, onReady }: Props) {
         {needsPassphrase && (
           <>
             <div className="setup-pass-row">
-              <input
-                type={generated ? 'text' : 'password'}
-                value={passphrase}
-                placeholder="Passphrase"
-                autoComplete="new-password"
-                spellCheck={false}
-                onChange={(e) => {
-                  setPassphrase(e.target.value);
-                  setGenerated(false);
-                  setSaved(false);
-                }}
-              />
-              <button type="button" className="btn-secondary" title="Generate one" onClick={roll}>
+              {generated ? (
+                // Shown in full rather than on one scrolling line: this is
+                // meant to be copied down by hand, and a phrase you cannot see
+                // all of at once is one you transcribe wrong.
+                <textarea
+                  className="setup-phrase"
+                  value={passphrase}
+                  readOnly
+                  rows={2}
+                  spellCheck={false}
+                  onFocus={(e) => e.currentTarget.select()}
+                />
+              ) : (
+                <input
+                  type="password"
+                  value={passphrase}
+                  placeholder="Passphrase"
+                  autoComplete="new-password"
+                  spellCheck={false}
+                  onChange={(e) => {
+                    setPassphrase(e.target.value);
+                    setSaved(false);
+                  }}
+                />
+              )}
+              <button
+                type="button"
+                className="btn-secondary"
+                title={generated ? 'Generate a different one' : 'Generate one'}
+                onClick={roll}
+              >
                 🎲
               </button>
             </div>
@@ -159,12 +177,19 @@ export default function FirstRunSetup({ keyringAvailable, onReady }: Props) {
                     : 'It is asked for every launch, and nothing else can open your data.'}{' '}
                   Capitals and how you space it do not matter when you type it back.
                 </p>
-                <div className="modal-actions" style={{ justifyContent: 'flex-start' }}>
+                <div className="setup-phrase-actions">
                   <button type="button" className="btn-secondary" onClick={copy}>
                     {copied ? 'Copied' : 'Copy'}
                   </button>
+                  <button
+                    type="button"
+                    className="link-btn"
+                    onClick={() => { setPassphrase(''); setGenerated(false); setSaved(false); setCopied(false); }}
+                  >
+                    Type my own instead
+                  </button>
                 </div>
-                <label className="checkbox-row">
+                <label className="checkbox-row setup-saved-row">
                   <input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} />
                   <span>I have saved this somewhere safe</span>
                 </label>

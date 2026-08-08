@@ -113,10 +113,27 @@ function MasterKeySection() {
   }
 
   const where = {
-    keyring: 'In your desktop keyring.',
-    file: 'In a file next to your data.',
-    passphrase: 'Unlocked with your master passphrase.',
+    keyring: 'in your desktop keyring',
+    file: 'in a file next to your data',
+    passphrase: 'behind your master passphrase',
   };
+
+  /**
+   * One sentence, and only when it adds something the status line does not.
+   * The checkbox below explains itself, so repeating its effect here was three
+   * paragraphs saying the same thing.
+   */
+  function detail(s: KeystoreStatus) {
+    if (s.source === 'keyring') {
+      return 'The passphrase is only needed if the keyring is ever lost.';
+    }
+    if (s.source === 'passphrase') {
+      return s.always_ask ? '' : 'No desktop keyring answered here, so the passphrase is what opens it.';
+    }
+    return s.keyring_available
+      ? 'Anything that copies your home directory copies the key too. Set a passphrase to move it into your keyring.'
+      : 'Anything that copies your home directory copies the key too. No keyring answered here, so a passphrase is the only way off disk.';
+  }
 
   return (
     <section className="panel-section">
@@ -127,19 +144,9 @@ function MasterKeySection() {
       ) : (
         <>
           <p className="form-hint" style={{ marginTop: 0 }}>
-            Your saved passwords and private keys are encrypted with one key.{' '}
-            <strong>{where[status.source]}</strong>
+            Your saved passwords and private keys are encrypted with one key, held{' '}
+            <strong>{where[status.source]}</strong>. {detail(status)}
           </p>
-
-          {status.source === 'file' && (
-            <p className="form-hint">
-              {status.keyring_available
-                ? 'A keyring is available and will be used from the next launch.'
-                : 'No desktop keyring answered, so the key is stored beside the data it protects. ' +
-                  'Anything that copies your home directory copies both. Setting a passphrase below ' +
-                  'is the only way to change that on this system.'}
-            </p>
-          )}
 
           {note && <p className="form-hint">{note}</p>}
 
@@ -147,7 +154,7 @@ function MasterKeySection() {
             <>
               {status.passphrase_set && (
                 <>
-                  <label className="checkbox-row">
+                  <label className="checkbox-row master-key-toggle">
                     <input
                       type="checkbox"
                       checked={status.always_ask}
@@ -168,11 +175,11 @@ function MasterKeySection() {
                     />
                     <span>Always ask for the passphrase, even when the keyring could unlock it</span>
                   </label>
-                  <p className="form-hint">
-                    {status.always_ask
-                      ? 'The keyring cannot open BifroSSH. Only this passphrase can, and it cannot be recovered.'
-                      : 'Your keyring unlocks BifroSSH without asking. The passphrase is there for when it cannot.'}
-                  </p>
+                  {status.always_ask && (
+                    <p className="form-hint">
+                      Nothing else can open your data, and a forgotten passphrase cannot be recovered.
+                    </p>
+                  )}
                 </>
               )}
               {error && <p className="form-hint" style={{ color: 'var(--danger)' }}>{error}</p>}
@@ -210,6 +217,20 @@ function MasterKeySection() {
                       the keyring or this passphrase will open it.
                     </p>
                   )}
+                </div>
+              )}
+
+              {mode === 'remove' && (
+                <div className="hostkey-warn">
+                  <strong>This puts the key back in a file on disk.</strong>
+                  <p>
+                    Without a passphrase there has to be something that can still open your data,
+                    so removing it writes the key to <code>.secret</code> next to that data. From
+                    then on anything that copies your home directory, a backup or a synced folder,
+                    copies the key along with it{status.always_ask
+                      ? ', and BifroSSH will stop asking you for anything at startup'
+                      : ''}.
+                  </p>
                 </div>
               )}
 

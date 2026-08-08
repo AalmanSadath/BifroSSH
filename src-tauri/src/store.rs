@@ -2,7 +2,6 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
-use rand::RngCore;
 
 use crate::models::AppData;
 

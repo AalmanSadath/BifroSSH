@@ -544,6 +544,8 @@ select option {
   width: 15px;
   height: 15px;
   min-width: 15px;
+  /* Never squeezed by a long label beside it in a flex row. */
+  flex: none;
   border: 1.5px solid var(--border);
   border-radius: 3px;
   background: var(--bg-mid);
@@ -555,17 +557,21 @@ select option {
   background: var(--accent);
   border-color: var(--accent);
 }
+/* Centred by transform rather than by fixed offsets, which were tuned for one
+   font size and sat visibly high and left everywhere else. The nudge below
+   centre is deliberate: a rotated tick's visual weight is lower than its
+   bounding box. */
 .checkbox-row input[type="checkbox"]:checked::after {
   content: '';
   position: absolute;
-  left: 3px;
-  top: 0px;
-  width: 5px;
-  height: 9px;
+  left: 50%;
+  top: 45%;
+  width: 4px;
+  height: 8px;
   border: 2px solid #fff;
   border-top: none;
   border-left: none;
-  transform: rotate(45deg);
+  transform: translate(-50%, -50%) rotate(45deg);
 }
 .checkbox-row input[type="checkbox"]:focus-visible {
   outline: 2px solid var(--accent);
@@ -4161,3 +4167,36 @@ button { cursor: pointer; font-family: inherit; }
 }
 
 .setup-pass-row .btn-secondary { padding: 0 12px; font-size: 15px; line-height: 1; }
+
+/* The generated phrase, sized so all eight words are visible without
+   scrolling: it gets copied down by hand, and a phrase you cannot see all of
+   is one you transcribe wrong. */
+.setup-phrase {
+  flex: 1;
+  background: var(--bg-darkest);
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  padding: 8px 11px;
+  color: var(--text-primary);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: none;
+  overflow: hidden;
+}
+
+.setup-phrase:focus { outline: none; }
+
+.setup-phrase-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.setup-saved-row { margin-top: 14px; }
+
+/* The paragraph above this is a description of the current state, not a label
+   for the toggle, so it needs to read as a separate thing rather than as the
+   toggle's caption. */
+.master-key-toggle { margin-top: 14px; }
