@@ -65,6 +65,36 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.7.0" date="2026-08-09">
+      <description>
+        <p>
+          The key that encrypts your saved passwords and private keys no longer
+          has to sit in a file beside them. On first launch you choose where it
+          is kept: in your desktop keyring with a passphrase to fall back on, or
+          behind a passphrase alone, or in a file as before. All three remain
+          reachable from Settings, which now reports where the key actually is
+          rather than the best place it could be.
+        </p>
+        <p>
+          Where a passphrase is used, one can be generated for you as eight
+          words. Capitalisation and spacing are ignored when it is typed back,
+          because it is written on paper and read back later, and that is when
+          transcription goes wrong.
+        </p>
+        <p>
+          The whole of the stored data is encrypted now, not only the
+          credentials, so hostnames, usernames, jump host chains, forwarding
+          rules and saved commands are no longer readable in the file. That file
+          is also written so an interrupted save cannot destroy it, is readable
+          only by your own account, and keeps the previous version alongside it
+          to recover from.
+        </p>
+        <p>
+          The window is served a Content Security Policy, and the application
+          identifier now matches the one everything else already used.
+        </p>
+      </description>
+    </release>
     <release version="0.6.1" date="2026-08-08">
       <description>
         <p>
