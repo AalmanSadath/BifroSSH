@@ -166,7 +166,7 @@ interface AppStore {
   updateSessionConnected: (connectId: string, sessionId: string) => void;
   updateSessionError: (connectId: string, error: string) => void;
   appendSessionLog: (connectId: string, entry: LogEntry) => void;
-  openSession: (serverId: string, fallback?: (serverId: string) => void) => Promise<void>;
+  openSession: (serverId: string) => Promise<void>;
   quickConnect: (host: string, port: number, username: string, authType: string, authValue: string) => Promise<void>;
   setActiveTab: (id: string | null) => void;
 }
@@ -597,7 +597,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       ),
     })),
 
-  openSession: async (serverId, fallback) => {
+  openSession: async (serverId) => {
     const { servers, identities, sessions, detectServerOs } = get();
     const server = servers.find((s) => s.id === serverId);
     if (!server) return;
@@ -607,13 +607,38 @@ export const useAppStore = create<AppStore>((set, get) => ({
     let authType: string;
     let authValue: string;
 
-    const resolved = await resolveServerAuth(server, identities);
-    if (!resolved) { fallback?.(serverId); return; }
-    ({ username, authType, authValue } = resolved);
-
     const connectId = crypto.randomUUID();
     const existing = sessions.filter((s) => s.server_id === serverId).length;
     const tabName = existing === 0 ? server.name : `${server.name} (${existing})`;
+
+    const resolved = await resolveServerAuth(server, identities);
+    if (!resolved) {
+      // A host with nothing to authenticate with used to fail silently here:
+      // the caller could pass a fallback, none ever did, and double-clicking
+      // the card simply did nothing. It opens a failed tab instead, the same
+      // as any other reason a connection could not be made.
+      //
+      // The reason is written as a log entry rather than only onto the tab,
+      // because that transcript is where every other failure explains itself
+      // and it is what Copy logs hands over.
+      const reason =
+        server.identity_id && !identities.some((i) => i.id === server.identity_id)
+          ? `"${server.name}" uses an identity that no longer exists. Pick another one in its settings.`
+          : `No authentication is configured for "${server.name}". Add a key, password or prompt auth in its settings.`;
+      set((s) => ({
+        sessions: [...s.sessions, {
+          session_id: connectId,
+          server_name: tabName,
+          server_id: serverId,
+          status: 'error',
+          error: reason,
+          logs: [{ kind: 'error', message: reason }],
+        }],
+        activeTabId: connectId,
+      }));
+      return;
+    }
+    ({ username, authType, authValue } = resolved);
 
     const unlisten = await listen<LogEntry>(`ssh-connect-log:${connectId}`, (event) => {
       get().appendSessionLog(connectId, event.payload);

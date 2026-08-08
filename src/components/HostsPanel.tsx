@@ -134,8 +134,11 @@ export default function HostsPanel() {
                       <div className="host-ctx-divider" />
                     </>
                   )}
+                  {/* Same action either way, but the word has to match what
+                      it does: with nothing open there is nothing to duplicate,
+                      and "Duplicate" read as though it would copy the host. */}
                   <button className="host-ctx-item" onClick={() => { setContextMenu(null); openSession(contextMenu.server.id); }}>
-                    Duplicate
+                    {activeSessions.length > 0 ? 'Duplicate' : 'Connect'}
                   </button>
                   <button className="host-ctx-item" onClick={() => { setContextMenu(null); setEditServer(contextMenu.server); setShowServerForm(true); }}>
                     Edit
