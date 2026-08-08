@@ -65,6 +65,31 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.8.0" date="2026-08-09">
+      <description>
+        <p>
+          A setup can now be carried to another machine. Settings writes a
+          single encrypted file holding your hosts, identities, keys, tunnels,
+          codeprints, themes, settings and known hosts, and importing it
+          elsewhere brings all of it across. Copying the data file by hand
+          never worked for this, because it is sealed with a key belonging to
+          the machine it was made on.
+        </p>
+        <p>
+          The file is protected by a passphrase you choose for it rather than
+          your master key, which is what lets it open somewhere that has never
+          seen this installation. That passphrase is stored nowhere and cannot
+          be recovered, and passwords and private keys can be left out of the
+          file entirely.
+        </p>
+        <p>
+          Importing only ever adds. Anything already on the machine is kept and
+          reported as skipped, so the same file can be imported twice with no
+          effect and an old export cannot undo newer changes. A server whose
+          host key the file disagrees with is reported and left alone.
+        </p>
+      </description>
+    </release>
     <release version="0.7.2" date="2026-08-09">
       <description>
         <p>
