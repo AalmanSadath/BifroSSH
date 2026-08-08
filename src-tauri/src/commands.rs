@@ -18,11 +18,35 @@ use crate::tunnel::{TunnelKind, TunnelParams, TunnelState};
 
 pub struct AppState {
     pub data: tokio::sync::Mutex<AppData>,
-    pub secret_key: [u8; 32],
+    /// Empty until the vault is open.
+    ///
+    /// This is what makes the locked state safe rather than merely gated:
+    /// every read and every write needs the key, so a command that runs
+    /// before unlock fails on the missing key instead of quietly operating on
+    /// an empty AppData and saving it over the real one.
+    pub secret_key: std::sync::OnceLock<[u8; 32]>,
+    /// How the master key was obtained at startup, so the UI can say which
+    /// protection is actually in force rather than implying the best case.
+    pub key_source: crate::keystore::KeySource,
+    /// Set when the keystore could not be opened at all, to be shown on the
+    /// unlock screen rather than lost to a terminal nobody is watching.
+    pub startup_error: Option<String>,
     pub ssh_state: Arc<SshState>,
     pub sftp_state: Arc<SftpClientState>,
     pub tunnel_state: Arc<TunnelState>,
     pub prompts: Arc<PromptState>,
+}
+
+impl AppState {
+    /// The master key, or an error while the vault is still locked. Returning
+    /// an error rather than panicking means a stray command during unlock is a
+    /// message, not a crash.
+    pub fn key(&self) -> Result<[u8; 32], String> {
+        self.secret_key
+            .get()
+            .copied()
+            .ok_or_else(|| "BifroSSH is locked. Enter your master passphrase first.".to_string())
+    }
 }
 
 /// Like `tokio::time::timeout`, but the countdown stops while `paused` is set.
@@ -94,7 +118,7 @@ pub async fn save_server(
     let mut data = state.data.lock().await;
 
     let encrypted_password = if let Some(pw) = password.filter(|p| !p.is_empty()) {
-        Some(encrypt(pw.as_bytes(), &state.secret_key).map_err(|e| e.to_string())?)
+        Some(encrypt(pw.as_bytes(), &state.key()?).map_err(|e| e.to_string())?)
     } else if !server.id.is_empty() {
         data.servers.iter().find(|s| s.id == server.id).and_then(|s| s.encrypted_password.clone())
     } else {
@@ -116,7 +140,7 @@ pub async fn save_server(
         Some(idx) => data.servers[idx] = server.clone(),
         None => data.servers.push(server.clone()),
     }
-    save_app_data(&*data, &state.secret_key).map_err(|e| e.to_string())?;
+    save_app_data(&*data, &state.key()?).map_err(|e| e.to_string())?;
 
     Ok(Server {
         encrypted_password: server.encrypted_password.as_ref().map(|_| "[stored]".to_string()),
@@ -132,7 +156,7 @@ pub async fn get_server_password(
     let data = state.data.lock().await;
     let server = data.servers.iter().find(|s| s.id == server_id).ok_or("Server not found")?;
     let enc = server.encrypted_password.as_ref().ok_or("No password stored for this server")?;
-    let bytes = decrypt(enc, &state.secret_key).map_err(|e| e.to_string())?;
+    let bytes = decrypt(enc, &state.key()?).map_err(|e| e.to_string())?;
     String::from_utf8(bytes).map_err(|e| e.to_string())
 }
 
@@ -140,7 +164,7 @@ pub async fn get_server_password(
 pub async fn delete_server(state: State<'_, AppState>, server_id: String) -> Result<(), String> {
     let mut data = state.data.lock().await;
     data.servers.retain(|s| s.id != server_id);
-    save_app_data(&*data, &state.secret_key).map_err(|e| e.to_string())
+    save_app_data(&*data, &state.key()?).map_err(|e| e.to_string())
 }
 
 // ── Keys ─────────────────────────────────────────────────────────────────────
@@ -152,7 +176,7 @@ pub async fn list_keys(state: State<'_, AppState>) -> Result<Vec<KeyEntry>, Stri
     for key in data.keys.iter_mut() {
         if key.algorithm.is_none() {
             let pem = if let Some(ref enc) = key.encrypted_key {
-                decrypt(enc, &state.secret_key).ok().and_then(|b| String::from_utf8(b).ok())
+                decrypt(enc, &state.key()?).ok().and_then(|b| String::from_utf8(b).ok())
             } else if let Some(ref path) = key.key_path {
                 std::fs::read_to_string(path).ok()
             } else {
@@ -164,7 +188,7 @@ pub async fn list_keys(state: State<'_, AppState>) -> Result<Vec<KeyEntry>, Stri
             }
         }
     }
-    if updated { let _ = save_app_data(&*data, &state.secret_key); }
+    if updated { let _ = save_app_data(&*data, &state.key()?); }
     let safe: Vec<KeyEntry> = data.keys.iter().map(|k| KeyEntry {
         id: k.id.clone(),
         name: k.name.clone(),
@@ -189,7 +213,7 @@ pub async fn import_key_from_path(
     let (encrypted_key, algorithm) = if store_content {
         let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
         let alg = detect_algorithm(&content);
-        let enc = encrypt(content.as_bytes(), &state.secret_key).map_err(|e| e.to_string())?;
+        let enc = encrypt(content.as_bytes(), &state.key()?).map_err(|e| e.to_string())?;
         (Some(enc), alg)
     } else {
         let content = std::fs::read_to_string(&path).ok();
@@ -199,7 +223,7 @@ pub async fn import_key_from_path(
 
     let encrypted_passphrase = match passphrase {
         Some(ref p) if !p.is_empty() => {
-            Some(encrypt(p.as_bytes(), &state.secret_key).map_err(|e| e.to_string())?)
+            Some(encrypt(p.as_bytes(), &state.key()?).map_err(|e| e.to_string())?)
         }
         _ => None,
     };
@@ -213,7 +237,7 @@ pub async fn import_key_from_path(
         algorithm,
     };
     data.keys.push(key.clone());
-    save_app_data(&*data, &state.secret_key).map_err(|e| e.to_string())?;
+    save_app_data(&*data, &state.key()?).map_err(|e| e.to_string())?;
 
     Ok(KeyEntry {
         id: key.id,
@@ -235,11 +259,11 @@ pub async fn save_key_from_content(
     let mut data = state.data.lock().await;
 
     let algorithm = detect_algorithm(&content);
-    let encrypted_key = encrypt(content.as_bytes(), &state.secret_key).map_err(|e| e.to_string())?;
+    let encrypted_key = encrypt(content.as_bytes(), &state.key()?).map_err(|e| e.to_string())?;
 
     let encrypted_passphrase = match passphrase {
         Some(ref p) if !p.is_empty() => {
-            Some(encrypt(p.as_bytes(), &state.secret_key).map_err(|e| e.to_string())?)
+            Some(encrypt(p.as_bytes(), &state.key()?).map_err(|e| e.to_string())?)
         }
         _ => None,
     };
@@ -253,7 +277,7 @@ pub async fn save_key_from_content(
         algorithm,
     };
     data.keys.push(key.clone());
-    save_app_data(&*data, &state.secret_key).map_err(|e| e.to_string())?;
+    save_app_data(&*data, &state.key()?).map_err(|e| e.to_string())?;
 
     Ok(KeyEntry {
         id: key.id,
@@ -269,7 +293,7 @@ pub async fn save_key_from_content(
 pub async fn delete_key(state: State<'_, AppState>, key_id: String) -> Result<(), String> {
     let mut data = state.data.lock().await;
     data.keys.retain(|k| k.id != key_id);
-    save_app_data(&*data, &state.secret_key).map_err(|e| e.to_string())
+    save_app_data(&*data, &state.key()?).map_err(|e| e.to_string())
 }
 
 fn detect_algorithm(pem: &str) -> Option<String> {
@@ -345,7 +369,7 @@ pub async fn get_key_content(
         .ok_or("Key not found")?;
 
     let private_pem = if let Some(ref enc) = key.encrypted_key {
-        let bytes = decrypt(enc, &state.secret_key).map_err(|e| e.to_string())?;
+        let bytes = decrypt(enc, &state.key()?).map_err(|e| e.to_string())?;
         String::from_utf8(bytes).map_err(|e| e.to_string())?
     } else if let Some(ref path) = key.key_path {
         std::fs::read_to_string(path).map_err(|e| e.to_string())?
@@ -353,8 +377,9 @@ pub async fn get_key_content(
         return Err("Key has no content or path".to_string());
     };
 
+    let master = state.key()?;
     let passphrase = key.encrypted_passphrase.as_ref()
-        .and_then(|enc| decrypt(enc, &state.secret_key).ok())
+        .and_then(|enc| decrypt(enc, &master).ok())
         .and_then(|b| String::from_utf8(b).ok());
     let public_openssh = pem_to_public_openssh(&private_pem, passphrase.as_deref());
 
@@ -374,14 +399,14 @@ pub async fn update_key(
         .ok_or("Key not found")?;
     key.name = name;
     key.algorithm = detect_algorithm(&content);
-    key.encrypted_key = Some(encrypt(content.as_bytes(), &state.secret_key).map_err(|e| e.to_string())?);
+    key.encrypted_key = Some(encrypt(content.as_bytes(), &state.key()?).map_err(|e| e.to_string())?);
     key.key_path = None;
     key.encrypted_passphrase = match passphrase {
         Some(ref p) if !p.is_empty() =>
-            Some(encrypt(p.as_bytes(), &state.secret_key).map_err(|e| e.to_string())?),
+            Some(encrypt(p.as_bytes(), &state.key()?).map_err(|e| e.to_string())?),
         _ => key.encrypted_passphrase.clone(),
     };
-    save_app_data(&*data, &state.secret_key).map_err(|e| e.to_string())
+    save_app_data(&*data, &state.key()?).map_err(|e| e.to_string())
 }
 
 // ── Key generation ───────────────────────────────────────────────────────────
@@ -463,7 +488,7 @@ pub async fn save_identity(
         identity.encrypted_password = None;
         identity.key_id = None;
     } else if let Some(ref pw) = password {
-        identity.encrypted_password = Some(encrypt(pw.as_bytes(), &state.secret_key).map_err(|e| e.to_string())?);
+        identity.encrypted_password = Some(encrypt(pw.as_bytes(), &state.key()?).map_err(|e| e.to_string())?);
     } else if identity.key_id.is_some() {
         identity.encrypted_password = None;
     } else {
@@ -476,7 +501,7 @@ pub async fn save_identity(
         Some(idx) => data.identities[idx] = identity.clone(),
         None => data.identities.push(identity.clone()),
     }
-    save_app_data(&*data, &state.secret_key).map_err(|e| e.to_string())?;
+    save_app_data(&*data, &state.key()?).map_err(|e| e.to_string())?;
     Ok(Identity {
         encrypted_password: identity.encrypted_password.map(|_| "[stored]".to_string()),
         ..identity
@@ -492,7 +517,7 @@ pub async fn get_identity_password(
     let identity = data.identities.iter().find(|i| i.id == identity_id)
         .ok_or("Identity not found")?;
     let enc = identity.encrypted_password.as_ref().ok_or("No password stored for this identity")?;
-    let bytes = decrypt(enc, &state.secret_key).map_err(|e| e.to_string())?;
+    let bytes = decrypt(enc, &state.key()?).map_err(|e| e.to_string())?;
     String::from_utf8(bytes).map_err(|e| e.to_string())
 }
 
@@ -508,7 +533,7 @@ pub async fn delete_identity(
             server.identity_id = None;
         }
     }
-    save_app_data(&*data, &state.secret_key).map_err(|e| e.to_string())
+    save_app_data(&*data, &state.key()?).map_err(|e| e.to_string())
 }
 
 // ── Settings ─────────────────────────────────────────────────────────────────
@@ -525,7 +550,7 @@ pub async fn save_settings(
 ) -> Result<(), String> {
     let mut data = state.data.lock().await;
     data.settings = settings;
-    save_app_data(&*data, &state.secret_key).map_err(|e| e.to_string())
+    save_app_data(&*data, &state.key()?).map_err(|e| e.to_string())
 }
 
 // ── ssh_config import ────────────────────────────────────────────────────────
@@ -641,7 +666,7 @@ pub async fn import_ssh_config_hosts(
         }
     }
 
-    save_app_data(&*data, &state.secret_key).map_err(|e| e.to_string())?;
+    save_app_data(&*data, &state.key()?).map_err(|e| e.to_string())?;
     Ok(result)
 }
 
@@ -664,7 +689,7 @@ pub async fn save_port_forwardings(
 ) -> Result<(), String> {
     let mut data = state.data.lock().await;
     data.port_forwardings = items;
-    save_app_data(&*data, &state.secret_key).map_err(|e| e.to_string())
+    save_app_data(&*data, &state.key()?).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -679,7 +704,7 @@ pub async fn save_codeprints(
 ) -> Result<(), String> {
     let mut data = state.data.lock().await;
     data.codeprints = items;
-    save_app_data(&*data, &state.secret_key).map_err(|e| e.to_string())
+    save_app_data(&*data, &state.key()?).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -696,7 +721,7 @@ pub async fn save_custom_themes(
 ) -> Result<(), String> {
     let mut data = state.data.lock().await;
     data.custom_themes = items;
-    save_app_data(&*data, &state.secret_key).map_err(|e| e.to_string())
+    save_app_data(&*data, &state.key()?).map_err(|e| e.to_string())
 }
 
 // ── Host keys ────────────────────────────────────────────────────────────────
@@ -851,8 +876,8 @@ pub async fn detect_server_os(
         let data = state.data.lock().await;
         let server = data.servers.iter().find(|s| s.id == server_id)
             .ok_or("Server not found")?;
-        let auth = resolve_auth(&data, &state.secret_key, &auth_type, &auth_value)?;
-        let jumps = resolve_jumps(&data, &state.secret_key, jumps.as_deref().unwrap_or(&[]))?;
+        let auth = resolve_auth(&data, &state.key()?, &auth_type, &auth_value)?;
+        let jumps = resolve_jumps(&data, &state.key()?, jumps.as_deref().unwrap_or(&[]))?;
         (server.host.clone(), server.port, auth, jumps)
     };
 
@@ -876,7 +901,7 @@ pub async fn detect_server_os(
         if let Some(server) = data.servers.iter_mut().find(|s| s.id == server_id) {
             server.os = detected.clone();
         }
-        save_app_data(&*data, &state.secret_key).map_err(|e| e.to_string())?;
+        save_app_data(&*data, &state.key()?).map_err(|e| e.to_string())?;
     }
 
     Ok(detected)
@@ -997,8 +1022,8 @@ pub async fn ssh_connect(
 
     let (auth, jumps, timeout_secs, keepalive_secs) = {
         let data = state.data.lock().await;
-        let auth = resolve_auth(&data, &state.secret_key, &request.auth_type, &request.auth_value)?;
-        let jumps = resolve_jumps(&data, &state.secret_key, &request.jumps)?;
+        let auth = resolve_auth(&data, &state.key()?, &request.auth_type, &request.auth_value)?;
+        let jumps = resolve_jumps(&data, &state.key()?, &request.jumps)?;
         let host_timeout = data.servers.iter()
             .find(|s| s.id == request.server_id)
             .and_then(|s| s.connection_timeout);
@@ -1073,8 +1098,8 @@ pub async fn ssh_connect_quick(
     let (auth, jumps, timeout_secs, keepalive_secs) = {
         let data = state.data.lock().await;
         (
-            resolve_auth(&data, &state.secret_key, &request.auth_type, &request.auth_value)?,
-            resolve_jumps(&data, &state.secret_key, &request.jumps)?,
+            resolve_auth(&data, &state.key()?, &request.auth_type, &request.auth_value)?,
+            resolve_jumps(&data, &state.key()?, &request.jumps)?,
             data.settings.connection_timeout_secs as u64,
             data.settings.keepalive_interval_secs,
         )
@@ -1192,8 +1217,8 @@ pub async fn sftp_connect_remote(
         let host = server.host.clone();
         let port = server.port as u16;
 
-        let auth = resolve_auth(&data, &state.secret_key, &auth_type, &auth_value)?;
-        let jumps = resolve_jumps(&data, &state.secret_key, jumps.as_deref().unwrap_or(&[]))?;
+        let auth = resolve_auth(&data, &state.key()?, &auth_type, &auth_value)?;
+        let jumps = resolve_jumps(&data, &state.key()?, jumps.as_deref().unwrap_or(&[]))?;
 
         (host, port, auth, jumps, data.settings.sftp_inactivity_timeout_secs)
     };
@@ -1343,8 +1368,8 @@ pub async fn tunnel_start(
         let data = state.data.lock().await;
         let server = data.servers.iter().find(|s| s.id == server_id)
             .ok_or("Server not found")?;
-        let auth = resolve_auth(&data, &state.secret_key, &auth_type, &auth_value)?;
-        let jumps = resolve_jumps(&data, &state.secret_key, jumps.as_deref().unwrap_or(&[]))?;
+        let auth = resolve_auth(&data, &state.key()?, &auth_type, &auth_value)?;
+        let jumps = resolve_jumps(&data, &state.key()?, jumps.as_deref().unwrap_or(&[]))?;
         (server.host.clone(), server.port as u16, auth, jumps)
     };
 
@@ -1392,4 +1417,149 @@ pub async fn tunnel_stop(
         let _ = handle.stop_tx.send(());
     }
     Ok(())
+}
+
+
+// ── Master key ──────────────────────────────────────────────────────────────
+
+#[derive(serde::Serialize)]
+pub struct VaultStatus {
+    pub locked: bool,
+    /// No key has ever been made for this profile, so the user picks how it
+    /// should be kept before anything is written.
+    pub setup_required: bool,
+    /// Whether a keyring answered, which decides if the keyring option can be
+    /// offered at all.
+    pub keyring_available: bool,
+    /// Set when the keystore could not be opened at all, in which case no
+    /// passphrase will help and the message says why.
+    pub error: Option<String>,
+}
+
+#[tauri::command]
+pub async fn vault_status(state: State<'_, AppState>) -> Result<VaultStatus, String> {
+    let setup_required = state.secret_key.get().is_none()
+        && state.startup_error.is_none()
+        && crate::store::get_data_dir()
+            .map(|dir| crate::keystore::is_first_run(&dir))
+            .unwrap_or(false);
+    Ok(VaultStatus {
+        locked: state.secret_key.get().is_none(),
+        setup_required,
+        // Only worth the D-Bus round trip when the answer is going to be shown.
+        keyring_available: setup_required && crate::keystore::keyring_kek().is_some(),
+        error: state.startup_error.clone(),
+    })
+}
+
+/// A fresh word phrase for the dice button. Generated in the backend so the
+/// randomness comes from the same source as the keys themselves.
+#[tauri::command]
+pub async fn generate_passphrase() -> Result<String, String> {
+    Ok(crate::keystore::generate_passphrase())
+}
+
+/// Creates the master key the way the first run screen asked for.
+#[tauri::command]
+pub async fn initialize_vault(
+    mode: crate::keystore::InitMode,
+    passphrase: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    if state.secret_key.get().is_some() {
+        return Err("This profile already has a key".to_string());
+    }
+    let dir = crate::store::get_data_dir().map_err(|e| e.to_string())?;
+    if !crate::keystore::is_first_run(&dir) {
+        return Err("This profile already has a key".to_string());
+    }
+    let key = crate::keystore::initialize(&dir, mode, &passphrase).map_err(|e| format!("{e:#}"))?;
+    let _ = state.secret_key.set(key);
+    Ok(())
+}
+
+/// Opens the vault and loads the data that could not be read until now.
+#[tauri::command]
+pub async fn unlock_vault(passphrase: String, state: State<'_, AppState>) -> Result<(), String> {
+    if state.secret_key.get().is_some() {
+        return Ok(());
+    }
+    let dir = crate::store::get_data_dir().map_err(|e| e.to_string())?;
+    let key = crate::keystore::unlock_with_passphrase(&dir, &passphrase)
+        .map_err(|e| format!("{e:#}"))?;
+
+    // Load before publishing the key, so a data file that will not open leaves
+    // the app locked rather than half started with an empty AppData that the
+    // next save would write over the real one.
+    let loaded = crate::store::load_app_data(&key).map_err(|e| format!("{e:#}"))?;
+    *state.data.lock().await = loaded;
+    let _ = state.secret_key.set(key);
+    Ok(())
+}
+
+#[derive(serde::Serialize)]
+pub struct KeystoreStatus {
+    pub source: crate::keystore::KeySource,
+    pub passphrase_set: bool,
+    /// When set, the keyring is not allowed to open the vault and the
+    /// passphrase is demanded at every launch.
+    pub always_ask: bool,
+    /// Whether a keyring answered just now. Distinct from `source`, which is
+    /// how the key was found at startup: a keyring can appear or disappear
+    /// between launches.
+    pub keyring_available: bool,
+}
+
+#[tauri::command]
+pub async fn keystore_status(state: State<'_, AppState>) -> Result<KeystoreStatus, String> {
+    let dir = crate::store::get_data_dir().map_err(|e| e.to_string())?;
+    Ok(KeystoreStatus {
+        source: state.key_source,
+        passphrase_set: crate::keystore::has_passphrase(&dir),
+        always_ask: crate::keystore::always_asks(&dir),
+        keyring_available: crate::keystore::keyring_kek().is_some(),
+    })
+}
+
+/// Adds a passphrase and removes .secret. With `always_ask` the keyring copy
+/// goes too. Takes effect at the next launch, since the key is already in
+/// memory for this one.
+#[tauri::command]
+pub async fn set_master_passphrase(
+    passphrase: String,
+    always_ask: bool,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let dir = crate::store::get_data_dir().map_err(|e| e.to_string())?;
+    let form = crate::keystore::detect_form(&passphrase);
+    crate::keystore::set_passphrase(&dir, &state.key()?, &passphrase, always_ask, form)
+        .map_err(|e| format!("{e:#}"))
+}
+
+/// Switches between the keyring being allowed to open the vault and the
+/// passphrase being required every time.
+#[tauri::command]
+pub async fn set_always_ask(
+    always_ask: bool,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let dir = crate::store::get_data_dir().map_err(|e| e.to_string())?;
+    crate::keystore::set_always_ask(&dir, &state.key()?, always_ask)
+        .map_err(|e| format!("{e:#}"))
+}
+
+/// Requires the current passphrase, so that someone at an unlocked screen
+/// cannot quietly turn the protection off.
+#[tauri::command]
+pub async fn remove_master_passphrase(
+    passphrase: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let dir = crate::store::get_data_dir().map_err(|e| e.to_string())?;
+    let key = crate::keystore::unlock_with_passphrase(&dir, &passphrase)
+        .map_err(|e| format!("{e:#}"))?;
+    if key != state.key()? {
+        return Err("That passphrase does not match this keystore".to_string());
+    }
+    crate::keystore::clear_passphrase(&dir, &state.key()?).map_err(|e| format!("{e:#}"))
 }

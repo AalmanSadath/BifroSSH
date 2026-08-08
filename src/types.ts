@@ -74,6 +74,26 @@ export interface Settings {
   keepalive_interval_secs: number;
 }
 
+/** State of the master key at startup. */
+export interface VaultStatus {
+  locked: boolean;
+  /** No key has ever been made here, so the user chooses how to keep it. */
+  setup_required: boolean;
+  keyring_available: boolean;
+  /** Set when the keystore cannot be opened at all; no passphrase helps. */
+  error: string | null;
+}
+
+/** Where the key that encrypts data.json is kept. */
+export interface KeystoreStatus {
+  source: 'keyring' | 'file' | 'passphrase';
+  passphrase_set: boolean;
+  /** Keyring is not allowed to open the vault; the passphrase is required. */
+  always_ask: boolean;
+  /** Whether a keyring answered just now, which can differ from `source`. */
+  keyring_available: boolean;
+}
+
 /** A mismatched key is blocked under all three policies. */
 export type HostKeyPolicy = 'ask' | 'accept-new' | 'strict';
 

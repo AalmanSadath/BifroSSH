@@ -64,6 +64,13 @@ pub struct KeyStore {
     pub keyring: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub passphrase: Option<PassphraseWrapper>,
+    /// Whether to drop the keyring wrapper so the passphrase is always
+    /// demanded. Off by default: with it off the passphrase is a way back in
+    /// when the keyring is gone, and there is no way to be locked out. On, it
+    /// is the only way in, which is the only setting that keeps anything from
+    /// a process already running as this user.
+    #[serde(default)]
+    pub always_ask: bool,
 }
 
 /// Argon2id parameters are stored alongside the wrapped key rather than being
@@ -76,6 +83,60 @@ pub struct PassphraseWrapper {
     pub t_cost: u32,
     pub p_cost: u32,
     pub blob: String,
+    /// How the typed text is treated before it is hashed. Stored rather than
+    /// assumed for the same reason the Argon2 parameters are: changing the
+    /// rule later must not make existing keystores unopenable.
+    #[serde(default)]
+    pub form: PassphraseForm,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PassphraseForm {
+    /// Exactly the bytes the user typed. Anything they chose themselves is
+    /// treated this way: stripping punctuation from "My dog's name is Rex!"
+    /// would both surprise them and throw away entropy they meant to have.
+    #[default]
+    Verbatim,
+    /// A generated word phrase, compared with its separators normalised.
+    ///
+    /// This one is typed back from paper, possibly years later, so the ways it
+    /// gets mangled are predictable: a trailing space from a paste, a newline
+    /// where the display wrapped, hyphens instead of spaces, a capitalised
+    /// first word. All of those are the same phrase and must open the vault.
+    Words,
+}
+
+/// Lowercase, every run of non-alphanumerics becomes one space, ends trimmed.
+fn canonical_words(input: &str) -> String {
+    input
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|part| !part.is_empty())
+        .map(|part| part.to_lowercase())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn prepare(passphrase: &str, form: PassphraseForm) -> String {
+    match form {
+        PassphraseForm::Verbatim => passphrase.to_string(),
+        PassphraseForm::Words => canonical_words(passphrase),
+    }
+}
+
+/// Default length for a generated phrase. Eight words is about 83 bits, which
+/// is far past what Argon2id needs to make guessing hopeless, and short enough
+/// that people actually write it down.
+pub const GENERATED_WORDS: usize = 8;
+
+/// A fresh word phrase, drawn without modulo bias.
+pub fn generate_passphrase() -> String {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+    (0..GENERATED_WORDS)
+        .map(|_| crate::wordlist::WORDS[rng.gen_range(0..crate::wordlist::WORDS.len())])
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 // ── Envelope ────────────────────────────────────────────────────────────────
@@ -109,16 +170,21 @@ pub fn derive_passphrase_kek(passphrase: &str, w: &PassphraseWrapper) -> Result<
     let params = Params::new(w.m_cost, w.t_cost, w.p_cost, Some(32))
         .map_err(|e| anyhow!("Bad Argon2 parameters: {e}"))?;
     let argon = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+    let prepared = prepare(passphrase, w.form);
     let mut kek = [0u8; 32];
     argon
-        .hash_password_into(passphrase.as_bytes(), &salt, &mut kek)
+        .hash_password_into(prepared.as_bytes(), &salt, &mut kek)
         .map_err(|e| anyhow!("Could not derive key from passphrase: {e}"))?;
     Ok(kek)
 }
 
 /// OWASP's second recommended Argon2id profile: 19 MiB, 2 passes. Chosen over
 /// the heavier ones because this runs on the UI thread at unlock.
-pub fn new_passphrase_wrapper(passphrase: &str, master: &[u8; 32]) -> Result<PassphraseWrapper> {
+pub fn new_passphrase_wrapper(
+    passphrase: &str,
+    master: &[u8; 32],
+    form: PassphraseForm,
+) -> Result<PassphraseWrapper> {
     let mut salt = [0u8; 16];
     rand::thread_rng().fill_bytes(&mut salt);
     let mut wrapper = PassphraseWrapper {
@@ -127,6 +193,7 @@ pub fn new_passphrase_wrapper(passphrase: &str, master: &[u8; 32]) -> Result<Pas
         t_cost: 2,
         p_cost: 1,
         blob: String::new(),
+        form,
     };
     let kek = derive_passphrase_kek(passphrase, &wrapper)?;
     wrapper.blob = wrap(master, &kek)?;
@@ -395,40 +462,209 @@ pub fn unlock(dir: &Path) -> Result<Unlocked> {
     ))
 }
 
-/// [`unlock`], falling back to generating a key only when there is genuinely
-/// nothing to lose.
+/// Recognises a phrase this app generated, which is the only kind whose
+/// spacing is normalised.
 ///
-/// The distinction matters more than it looks. Generating a fresh master key
-/// whenever the old one cannot be found would turn any temporary problem, a
-/// keyring that has not started yet, a home directory restored without its
-/// dotfiles, into permanent loss of every stored credential: the new key
-/// silently replaces the old one and data.json can never be read again. So an
-/// existing data file with no reachable key is an error, and refusing to start
-/// is the correct outcome, because it is the only one that is recoverable.
-pub fn unlock_or_init(dir: &Path) -> Result<Unlocked> {
-    match unlock(dir) {
-        Ok(unlocked) => Ok(unlocked),
-        Err(e) => {
-            if dir.join(crate::store::DATA_FILE).exists() {
-                return Err(e).context(
-                    "There is saved data here but no key that can open it. Refusing to start \
-                     rather than replace the key, which would make the data unreadable for good",
-                );
-            }
-            Ok(Unlocked {
-                key: crate::store::create_secret_file(dir)?,
-                source: KeySource::File,
-                needs_passphrase: false,
-            })
-        }
+/// Detected rather than passed in, so that pasting a generated phrase into the
+/// Settings box gets the forgiving treatment too, and so a user who happens to
+/// type eight of these words gets it as well, which costs them nothing.
+pub fn detect_form(passphrase: &str) -> PassphraseForm {
+    let words: Vec<&str> = passphrase.split_whitespace().collect();
+    let all_from_list = words
+        .iter()
+        .all(|w| crate::wordlist::WORDS.contains(&w.to_lowercase().as_str()));
+    if words.len() >= GENERATED_WORDS && all_from_list {
+        PassphraseForm::Words
+    } else {
+        PassphraseForm::Verbatim
     }
+}
+
+/// Whether this profile has never been set up: no key anywhere, and no data
+/// that would have needed one.
+pub fn is_first_run(dir: &Path) -> bool {
+    !secret_file_path(dir).exists()
+        && !dir.join(crate::store::DATA_FILE).exists()
+        && load_keystore(dir).map(|s| s.keyring.is_none() && s.passphrase.is_none()).unwrap_or(false)
+}
+
+/// What the user picked on the first run screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum InitMode {
+    /// Key in .secret beside the data. No passphrase, nothing to forget, and
+    /// no protection beyond the file being unreadable by other accounts.
+    SecretFile,
+    /// Passphrase only, demanded at every launch.
+    PassphraseOnly,
+    /// Keyring opens it silently, passphrase is the way back if it is lost.
+    KeyringAndPassphrase,
+}
+
+/// Creates the master key the way the user asked for on first run.
+///
+/// The key is generated here and never leaves; what differs is only which
+/// wrappers get written. Nothing is returned until the arrangement has been
+/// read back from disk and shown to produce the same key, because a keystore
+/// that cannot be reopened is not discovered until the next launch, by which
+/// point whatever was saved in between is unreachable.
+pub fn initialize(dir: &Path, mode: InitMode, passphrase: &str) -> Result<[u8; 32]> {
+    let mut master = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut master);
+
+    let needs_passphrase = mode != InitMode::SecretFile;
+    if needs_passphrase && passphrase.is_empty() {
+        return Err(anyhow!("A passphrase is required for this option"));
+    }
+
+    let form = detect_form(passphrase);
+
+    let mut store = KeyStore { version: 1, ..Default::default() };
+    if mode == InitMode::KeyringAndPassphrase {
+        let kek = keyring_kek()
+            .ok_or_else(|| anyhow!("No desktop keyring answered, so it cannot hold the key"))?;
+        store.keyring = Some(wrap(&master, &kek)?);
+    }
+    if needs_passphrase {
+        store.passphrase = Some(new_passphrase_wrapper(passphrase, &master, form)?);
+        store.always_ask = mode == InitMode::PassphraseOnly;
+    }
+    save_keystore(dir, &store)?;
+
+    if mode == InitMode::SecretFile {
+        crate::store::write_private(&secret_file_path(dir), &master)?;
+    }
+
+    // Read it back the way a later launch would, and check every route that
+    // was just written actually opens.
+    if needs_passphrase && unlock_with_passphrase(dir, passphrase)? != master {
+        return Err(anyhow!("The passphrase did not open the keystore it just created"));
+    }
+    let reopened = unlock(dir).context("reopening the keystore that was just written")?;
+    if !reopened.needs_passphrase && reopened.key != master {
+        return Err(anyhow!("The keystore that was just written does not open to the same key"));
+    }
+    Ok(master)
+}
+
+/// Adds a passphrase and takes the key off the disk.
+///
+/// .secret always goes: the passphrase is what replaces it, and leaving it
+/// would mean the key is still in the file tree next to the data, which is the
+/// thing being avoided.
+///
+/// What happens to the keyring depends on `always_ask`. Left off, the keyring
+/// still opens the vault without a prompt and the passphrase is the way back
+/// in when the keyring is not there, so nothing can lock the owner out. Turned
+/// on, the keyring wrapper is dropped and the passphrase is demanded every
+/// time, which is the only arrangement that keeps anything from something
+/// already running as this user, and the only one where forgetting it loses
+/// the data for good.
+pub fn set_passphrase(
+    dir: &Path,
+    master: &[u8; 32],
+    passphrase: &str,
+    always_ask: bool,
+    form: PassphraseForm,
+) -> Result<()> {
+    if passphrase.is_empty() {
+        return Err(anyhow!("The passphrase cannot be empty"));
+    }
+    let wrapper = new_passphrase_wrapper(passphrase, master, form)?;
+
+    // Prove it opens before anything that currently works is taken away.
+    let check = derive_passphrase_kek(passphrase, &wrapper)?;
+    if unwrap_key(&wrapper.blob, &check)? != *master {
+        return Err(anyhow!("The new passphrase did not verify; nothing was changed"));
+    }
+
+    let mut store = load_keystore(dir)?;
+    store.version = 1;
+    store.passphrase = Some(wrapper);
+    store.always_ask = always_ask;
+    if always_ask {
+        store.keyring = None;
+    }
+    save_keystore(dir, &store)?;
+
+    // Establish the keyring route if there is not one yet, so that removing
+    // .secret below does not leave the passphrase as the only way in on a
+    // machine that has a keyring. An existing wrapper is left exactly as it
+    // is: rewriting one that already opens gains nothing and can only fail.
+    if !always_ask && store.keyring.is_none() {
+        let _ = store_keyring_wrapper(dir, master);
+    }
+    let secret = secret_file_path(dir);
+    if secret.exists() {
+        std::fs::remove_file(&secret)
+            .with_context(|| format!("removing {}", secret.display()))?;
+    }
+    Ok(())
+}
+
+/// Switches between the keyring being allowed to open the vault and the
+/// passphrase being demanded every time. Only meaningful once a passphrase
+/// exists, since otherwise there would be nothing left to unlock with.
+pub fn set_always_ask(dir: &Path, master: &[u8; 32], always_ask: bool) -> Result<()> {
+    let mut store = load_keystore(dir)?;
+    if store.passphrase.is_none() {
+        return Err(anyhow!("Set a passphrase before asking for it to be required"));
+    }
+    store.always_ask = always_ask;
+    store.keyring = None;
+    save_keystore(dir, &store)?;
+    if !always_ask {
+        let _ = store_keyring_wrapper(dir, master);
+    }
+    Ok(())
+}
+
+/// Puts things back the way they were: the key returns to the keyring and to
+/// .secret, and no passphrase is asked for again.
+pub fn clear_passphrase(dir: &Path, master: &[u8; 32]) -> Result<()> {
+    // Written before the wrapper is dropped, so an interruption leaves a
+    // keystore that can still be opened rather than one that cannot.
+    crate::store::write_private(&secret_file_path(dir), master)?;
+    let mut store = load_keystore(dir)?;
+    store.passphrase = None;
+    store.always_ask = false;
+    save_keystore(dir, &store)?;
+    let _ = store_keyring_wrapper(dir, master);
+    Ok(())
+}
+
+/// Unwraps the master key with a passphrase the user typed.
+pub fn unlock_with_passphrase(dir: &Path, passphrase: &str) -> Result<[u8; 32]> {
+    let store = load_keystore(dir)?;
+    let wrapper = store
+        .passphrase
+        .ok_or_else(|| anyhow!("No passphrase is set on this keystore"))?;
+    let kek = derive_passphrase_kek(passphrase, &wrapper)?;
+    unwrap_key(&wrapper.blob, &kek).map_err(|_| anyhow!("Wrong passphrase"))
+}
+
+pub fn has_passphrase(dir: &Path) -> bool {
+    load_keystore(dir).map(|s| s.passphrase.is_some()).unwrap_or(false)
+}
+
+pub fn always_asks(dir: &Path) -> bool {
+    load_keystore(dir).map(|s| s.always_ask).unwrap_or(false)
 }
 
 /// Adds or refreshes the keyring wrapper for `master`. Best effort: a machine
 /// with no keyring keeps working from the file.
 pub fn store_keyring_wrapper(dir: &Path, master: &[u8; 32]) -> Result<bool> {
-    let Some(kek) = keyring_kek() else { return Ok(false) };
     let mut store = load_keystore(dir)?;
+
+    // This runs on every launch so that a keyring appearing later starts being
+    // used on its own. When the user has asked to always be prompted, putting
+    // a wrapper back would stop the passphrase ever being demanded again and
+    // silently undo the setting, so leave it alone.
+    if store.always_ask {
+        return Ok(false);
+    }
+
+    let Some(kek) = keyring_kek() else { return Ok(false) };
     store.version = 1;
     store.keyring = Some(wrap(master, &kek)?);
     save_keystore(dir, &store)?;
@@ -466,22 +702,22 @@ mod tests {
     #[test]
     fn a_passphrase_wrapper_round_trips() {
         let master = key(3);
-        let w = new_passphrase_wrapper("correct horse battery staple", &master).unwrap();
+        let w = new_passphrase_wrapper("correct horse battery staple", &master, PassphraseForm::Verbatim).unwrap();
         let kek = derive_passphrase_kek("correct horse battery staple", &w).unwrap();
         assert_eq!(unwrap_key(&w.blob, &kek).unwrap(), master);
     }
 
     #[test]
     fn the_wrong_passphrase_is_rejected() {
-        let w = new_passphrase_wrapper("right", &key(3)).unwrap();
+        let w = new_passphrase_wrapper("right", &key(3), PassphraseForm::Verbatim).unwrap();
         let kek = derive_passphrase_kek("wrong", &w).unwrap();
         assert!(unwrap_key(&w.blob, &kek).is_err());
     }
 
     #[test]
     fn each_passphrase_wrapper_gets_its_own_salt() {
-        let a = new_passphrase_wrapper("same", &key(3)).unwrap();
-        let b = new_passphrase_wrapper("same", &key(3)).unwrap();
+        let a = new_passphrase_wrapper("same", &key(3), PassphraseForm::Verbatim).unwrap();
+        let b = new_passphrase_wrapper("same", &key(3), PassphraseForm::Verbatim).unwrap();
         assert_ne!(a.salt, b.salt);
     }
 
@@ -491,7 +727,7 @@ mod tests {
         // accidentally succeed, or raising the cost later would lock users out
         // silently rather than loudly.
         let master = key(3);
-        let w = new_passphrase_wrapper("pass", &master).unwrap();
+        let w = new_passphrase_wrapper("pass", &master, PassphraseForm::Verbatim).unwrap();
         let mut altered = w.clone();
         altered.t_cost = w.t_cost + 1;
         let kek = derive_passphrase_kek("pass", &altered).unwrap();
@@ -512,24 +748,58 @@ mod tests {
     }
 
     #[test]
-    fn a_first_run_with_nothing_on_disk_generates_a_key() {
-        let dir = temp_dir();
-        let unlocked = unlock_or_init(&dir).unwrap();
-        assert_eq!(unlocked.source, KeySource::File);
-        assert!(secret_file_path(&dir).exists());
-        // And it is stable from then on.
-        assert_eq!(unlock_or_init(&dir).unwrap().key, unlocked.key);
+    fn an_empty_profile_is_a_first_run() {
+        assert!(is_first_run(&temp_dir()));
     }
 
     #[test]
-    fn saved_data_with_no_reachable_key_refuses_rather_than_rekeying() {
+    fn saved_data_with_no_reachable_key_is_not_mistaken_for_a_first_run() {
+        // Treating it as one would offer to make a new key, and the file that
+        // is already there would never be readable again.
         let dir = temp_dir();
         std::fs::write(dir.join(crate::store::DATA_FILE), "{\"ciphertext\":\"x\",\"version\":1}").unwrap();
-
-        // Generating a fresh key here would orphan the file for good, so this
-        // has to fail and it must not leave a new key behind.
-        assert!(unlock_or_init(&dir).is_err());
+        assert!(!is_first_run(&dir));
+        assert!(unlock(&dir).is_err());
         assert!(!secret_file_path(&dir).exists());
+    }
+
+    #[test]
+    fn a_profile_that_has_a_key_is_not_a_first_run() {
+        let dir = temp_dir();
+        crate::store::write_private(&secret_file_path(&dir), &key(1)).unwrap();
+        assert!(!is_first_run(&dir));
+    }
+
+    #[test]
+    fn each_option_on_the_first_run_screen_produces_a_keystore_that_reopens() {
+        for mode in [InitMode::SecretFile, InitMode::PassphraseOnly] {
+            let dir = temp_dir();
+            let master = initialize(&dir, mode, "eight word phrase goes right here now").unwrap();
+            let reopened = unlock(&dir).unwrap();
+            match mode {
+                InitMode::SecretFile => {
+                    assert!(secret_file_path(&dir).exists());
+                    assert_eq!(reopened.key, master);
+                }
+                _ => {
+                    assert!(!secret_file_path(&dir).exists(), "{mode:?} left the key on disk");
+                    assert!(reopened.needs_passphrase);
+                    assert_eq!(
+                        unlock_with_passphrase(&dir, "eight word phrase goes right here now").unwrap(),
+                        master
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_passphrase_options_refuse_an_empty_passphrase() {
+        for mode in [InitMode::PassphraseOnly, InitMode::KeyringAndPassphrase] {
+            let dir = temp_dir();
+            assert!(initialize(&dir, mode, "").is_err(), "{mode:?} accepted nothing");
+            assert!(is_first_run(&dir), "{mode:?} left the profile half made");
+        }
     }
 
     #[test]
@@ -544,12 +814,266 @@ mod tests {
             version: 1,
             keyring: Some(wrap(&key(2), &key(3)).unwrap()),
             passphrase: None,
+            always_ask: false,
         };
         save_keystore(&dir, &stale).unwrap();
 
         let unlocked = unlock(&dir).unwrap();
         assert_eq!(unlocked.key, file_key);
         assert_eq!(unlocked.source, KeySource::File);
+    }
+
+    #[test]
+    fn always_ask_takes_away_every_other_way_in() {
+        let dir = temp_dir();
+        let master = key(5);
+        crate::store::write_private(&secret_file_path(&dir), &master).unwrap();
+        save_keystore(&dir, &KeyStore {
+            version: 1,
+            keyring: Some(wrap(&master, &key(6)).unwrap()),
+            passphrase: None,
+            always_ask: false,
+        }).unwrap();
+
+        set_passphrase(&dir, &master, "hunter2", true, PassphraseForm::Verbatim).unwrap();
+
+        // Both are gone on purpose: a keyring wrapper would mean unlock never
+        // asks, and .secret would mean the key is still in the file tree.
+        assert!(!secret_file_path(&dir).exists(), ".secret still there");
+        assert!(load_keystore(&dir).unwrap().keyring.is_none(), "keyring wrapper still there");
+        assert_eq!(unlock_with_passphrase(&dir, "hunter2").unwrap(), master);
+    }
+
+    #[test]
+    fn an_empty_passphrase_is_refused_before_anything_is_removed() {
+        let dir = temp_dir();
+        let master = key(5);
+        crate::store::write_private(&secret_file_path(&dir), &master).unwrap();
+
+        assert!(set_passphrase(&dir, &master, "", true, PassphraseForm::Verbatim).is_err());
+        assert!(secret_file_path(&dir).exists(), ".secret was removed anyway");
+    }
+
+    #[test]
+    fn a_keystore_with_only_a_passphrase_asks_for_one() {
+        let dir = temp_dir();
+        let master = key(5);
+        crate::store::write_private(&secret_file_path(&dir), &master).unwrap();
+        set_passphrase(&dir, &master, "hunter2", true, PassphraseForm::Verbatim).unwrap();
+
+        let unlocked = unlock(&dir).unwrap();
+        assert!(unlocked.needs_passphrase);
+        assert_eq!(unlocked.source, KeySource::Passphrase);
+    }
+
+    #[test]
+    fn refreshing_the_keyring_wrapper_cannot_undo_a_passphrase() {
+        // store_keyring_wrapper runs on every launch. If it re-added a wrapper
+        // the keyring would unlock first and the passphrase would never be
+        // asked for again, silently turning the protection off.
+        let dir = temp_dir();
+        let master = key(5);
+        crate::store::write_private(&secret_file_path(&dir), &master).unwrap();
+        set_passphrase(&dir, &master, "hunter2", true, PassphraseForm::Verbatim).unwrap();
+
+        assert!(!store_keyring_wrapper(&dir, &master).unwrap());
+        assert!(load_keystore(&dir).unwrap().keyring.is_none());
+    }
+
+    #[test]
+    fn a_passphrase_opens_data_that_was_saved_before_it_was_set() {
+        // The whole chain unlock_vault runs: derive the key from the
+        // passphrase, then read the file that was encrypted with the master
+        // key that passphrase wraps.
+        let dir = temp_dir();
+        let master = { let k = key(9); crate::store::write_private(&secret_file_path(&dir), &k).unwrap(); k };
+
+        let mut data = crate::models::AppData::default();
+        data.codeprints.push(crate::models::Codeprint {
+            id: "id".into(), name: "before".into(), command: "true".into(),
+        });
+        crate::store::save_app_data_in(&dir, &data, &master).unwrap();
+
+        set_passphrase(&dir, &master, "hunter2", true, PassphraseForm::Verbatim).unwrap();
+
+        let key = unlock_with_passphrase(&dir, "hunter2").unwrap();
+        let loaded = crate::store::load_app_data_in(&dir, &key).unwrap();
+        assert_eq!(loaded.codeprints[0].name, "before");
+    }
+
+    #[test]
+    fn a_wrong_passphrase_yields_no_key_at_all() {
+        let dir = temp_dir();
+        let master = { let k = key(9); crate::store::write_private(&secret_file_path(&dir), &k).unwrap(); k };
+        set_passphrase(&dir, &master, "right", true, PassphraseForm::Verbatim).unwrap();
+        // Must be an error, not some other key: a key that is merely wrong
+        // would decrypt nothing and could be published as if the vault were
+        // open.
+        assert!(unlock_with_passphrase(&dir, "wrong").is_err());
+    }
+
+    #[test]
+    fn without_always_ask_the_keyring_still_opens_it_and_the_key_leaves_the_disk() {
+        let dir = temp_dir();
+        let master = key(5);
+        crate::store::write_private(&secret_file_path(&dir), &master).unwrap();
+        // Stand in for a keyring wrapper, since there may be no keyring here.
+        save_keystore(&dir, &KeyStore {
+            version: 1,
+            keyring: Some(wrap(&master, &key(6)).unwrap()),
+            passphrase: None,
+            always_ask: false,
+        }).unwrap();
+
+        set_passphrase(&dir, &master, "hunter2", false, PassphraseForm::Verbatim).unwrap();
+
+        let store = load_keystore(&dir).unwrap();
+        assert!(store.keyring.is_some(), "the keyring route was removed anyway");
+        assert!(store.passphrase.is_some());
+        assert!(!store.always_ask);
+        // The point of setting one: the key is no longer beside the data.
+        assert!(!secret_file_path(&dir).exists(), ".secret survived");
+    }
+
+    #[test]
+    fn without_always_ask_there_are_two_ways_in_so_nobody_is_locked_out() {
+        let dir = temp_dir();
+        let master = key(5);
+        crate::store::write_private(&secret_file_path(&dir), &master).unwrap();
+        let kek = key(6);
+        save_keystore(&dir, &KeyStore {
+            version: 1,
+            keyring: Some(wrap(&master, &kek).unwrap()),
+            passphrase: None,
+            always_ask: false,
+        }).unwrap();
+        set_passphrase(&dir, &master, "hunter2", false, PassphraseForm::Verbatim).unwrap();
+
+        let store = load_keystore(&dir).unwrap();
+        // Forgetting the passphrase leaves the keyring, and losing the keyring
+        // leaves the passphrase. Either one alone recovers the master key.
+        assert_eq!(unwrap_key(store.keyring.as_deref().unwrap(), &kek).unwrap(), master);
+        assert_eq!(unlock_with_passphrase(&dir, "hunter2").unwrap(), master);
+    }
+
+    #[test]
+    fn turning_always_ask_on_later_drops_the_keyring_route() {
+        let dir = temp_dir();
+        let master = key(5);
+        crate::store::write_private(&secret_file_path(&dir), &master).unwrap();
+        save_keystore(&dir, &KeyStore {
+            version: 1,
+            keyring: Some(wrap(&master, &key(6)).unwrap()),
+            passphrase: None,
+            always_ask: false,
+        }).unwrap();
+        set_passphrase(&dir, &master, "hunter2", false, PassphraseForm::Verbatim).unwrap();
+
+        set_always_ask(&dir, &master, true).unwrap();
+
+        let store = load_keystore(&dir).unwrap();
+        assert!(store.always_ask);
+        assert!(store.keyring.is_none());
+        assert!(unlock(&dir).unwrap().needs_passphrase);
+    }
+
+    #[test]
+    fn always_ask_is_refused_when_there_is_no_passphrase_to_ask_for() {
+        // Otherwise this would remove the keyring wrapper and leave nothing.
+        let dir = temp_dir();
+        let master = key(5);
+        crate::store::write_private(&secret_file_path(&dir), &master).unwrap();
+        assert!(set_always_ask(&dir, &master, true).is_err());
+    }
+
+    #[test]
+    fn clearing_a_passphrase_puts_the_key_back_in_the_file() {
+        let dir = temp_dir();
+        let master = key(5);
+        crate::store::write_private(&secret_file_path(&dir), &master).unwrap();
+        set_passphrase(&dir, &master, "hunter2", true, PassphraseForm::Verbatim).unwrap();
+
+        clear_passphrase(&dir, &master).unwrap();
+
+        assert!(load_keystore(&dir).unwrap().passphrase.is_none());
+        let unlocked = unlock(&dir).unwrap();
+        assert!(!unlocked.needs_passphrase);
+        assert_eq!(unlocked.key, master);
+    }
+
+    #[test]
+    fn a_generated_phrase_is_eight_words_from_the_list() {
+        let phrase = generate_passphrase();
+        let words: Vec<&str> = phrase.split(' ').collect();
+        assert_eq!(words.len(), GENERATED_WORDS);
+        for w in &words {
+            assert!(crate::wordlist::WORDS.contains(w), "{w} is not on the list");
+        }
+        assert_ne!(phrase, generate_passphrase());
+        assert_eq!(detect_form(&phrase), PassphraseForm::Words);
+    }
+
+    #[test]
+    fn a_generated_phrase_survives_being_written_down_and_typed_back() {
+        // Every one of these is how the same phrase comes back from a person:
+        // pasted with a trailing space, wrapped onto two lines, joined with
+        // hyphens because that is what it looked like, first word capitalised
+        // out of habit, an extra space between two words.
+        let dir = temp_dir();
+        let master = key(4);
+        crate::store::write_private(&secret_file_path(&dir), &master).unwrap();
+        let phrase = "acid acorn acre acts afar affix aged agent";
+        set_passphrase(&dir, &master, phrase, true, PassphraseForm::Words).unwrap();
+
+        for typed in [
+            "acid acorn acre acts afar affix aged agent",
+            "acid acorn acre acts afar affix aged agent ",
+            "  acid acorn acre acts afar affix aged agent",
+            "acid-acorn-acre-acts-afar-affix-aged-agent",
+            "acid acorn acre acts\nafar affix aged agent",
+            "Acid Acorn Acre Acts Afar Affix Aged Agent",
+            "acid  acorn   acre acts afar affix aged agent",
+        ] {
+            assert_eq!(
+                unlock_with_passphrase(&dir, typed).unwrap(),
+                master,
+                "did not open with {typed:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn a_different_phrase_is_still_refused_after_normalising() {
+        let dir = temp_dir();
+        let master = key(4);
+        crate::store::write_private(&secret_file_path(&dir), &master).unwrap();
+        set_passphrase(&dir, &master, "acid acorn acre acts afar affix aged agent", true,
+                       PassphraseForm::Words).unwrap();
+        // One word out is still the wrong phrase, normalising or not.
+        assert!(unlock_with_passphrase(&dir, "acid acorn acre acts afar affix aged agile").is_err());
+    }
+
+    #[test]
+    fn a_passphrase_the_user_chose_is_taken_exactly_as_typed() {
+        // Normalising this one would throw away entropy they meant to have and
+        // silently accept variations they did not intend.
+        let dir = temp_dir();
+        let master = key(4);
+        crate::store::write_private(&secret_file_path(&dir), &master).unwrap();
+        let chosen = "My dog's name is Rex!";
+        set_passphrase(&dir, &master, chosen, true, PassphraseForm::Verbatim).unwrap();
+
+        assert_eq!(unlock_with_passphrase(&dir, chosen).unwrap(), master);
+        for near_miss in ["my dog's name is rex!", "My dogs name is Rex", "My dog's name is Rex! "] {
+            assert!(unlock_with_passphrase(&dir, near_miss).is_err(), "{near_miss:?} was accepted");
+        }
+    }
+
+    #[test]
+    fn something_typed_by_hand_is_not_mistaken_for_a_generated_phrase() {
+        assert_eq!(detect_form("My dog's name is Rex!"), PassphraseForm::Verbatim);
+        assert_eq!(detect_form("acid acorn acre"), PassphraseForm::Verbatim);
+        assert_eq!(detect_form(""), PassphraseForm::Verbatim);
     }
 
     #[test]

@@ -2,10 +2,12 @@ import { useEffect, useState, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useAppStore } from './store/appStore';
-import type { AuthPromptEvent, HostKeyPromptEvent, SessionTab } from './types';
+import type { AuthPromptEvent, HostKeyPromptEvent, SessionTab, VaultStatus } from './types';
 import HostKeyPrompt from './components/HostKeyPrompt';
 import AuthPromptModal from './components/AuthPromptModal';
 import Sidebar from './components/Sidebar';
+import UnlockScreen from './components/UnlockScreen';
+import FirstRunSetup from './components/FirstRunSetup';
 import TerminalView from './components/TerminalView';
 import ConnectingView from './components/ConnectingView';
 import HostsPanel from './components/HostsPanel';
@@ -74,7 +76,24 @@ export default function App() {
   const [hostKeyPrompts, setHostKeyPrompts] = useState<HostKeyPromptEvent[]>([]);
   const [authPrompts, setAuthPrompts] = useState<AuthPromptEvent[]>([]);
 
-  useEffect(() => { loadAll(); }, []);
+  // Nothing is loaded until the vault is open. While locked the backend holds
+  // no key, so loadAll would fail on every call anyway; gating it here keeps
+  // the unlock screen from flashing a half populated app behind itself.
+  const [vault, setVault] = useState<VaultStatus | null>(null);
+
+  useEffect(() => {
+    invoke<VaultStatus>('vault_status')
+      .then((v) => {
+        setVault(v);
+        if (!v.locked) loadAll();
+      })
+      .catch(() => setVault({ locked: false, setup_required: false, keyring_available: false, error: null }));
+  }, []);
+
+  const opened = () => {
+    setVault({ locked: false, setup_required: false, keyring_available: false, error: null });
+    loadAll();
+  };
 
   // Host key prompts are emitted globally rather than per-connect, so this one
   // modal serves terminal sessions, SFTP, tunnels and OS detection alike.
@@ -186,6 +205,21 @@ export default function App() {
     const name = renameValue.trim();
     if (name) renameSession(tabCtx.session.session_id, name);
     setTabCtx(null);
+  }
+
+  // Held back until vault_status answers, which is one synchronous read on the
+  // backend, so this is a frame rather than a spinner's worth of waiting.
+  if (!vault) return null;
+  if (vault.locked || vault.error) {
+    return (
+      <div className={`app${settings.app_theme === 'light' ? ' app-light' : settings.app_theme === 'amoled' ? ' app-amoled' : ''}`}>
+        {vault.setup_required ? (
+          <FirstRunSetup keyringAvailable={vault.keyring_available} onReady={opened} />
+        ) : (
+          <UnlockScreen fatal={vault.error} onUnlocked={opened} />
+        )}
+      </div>
+    );
   }
 
   return (

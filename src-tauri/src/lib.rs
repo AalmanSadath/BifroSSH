@@ -15,6 +15,7 @@ mod agent_tests;
 mod ssh_auth_tests;
 mod store;
 mod tunnel;
+mod wordlist;
 
 use std::sync::Arc;
 use commands::AppState;
@@ -65,22 +66,51 @@ pub fn run() {
 
     // Keyring first, .secret second, and a new key only when there is nothing
     // to lose. See keystore::unlock_or_init for why that last part matters.
-    let unlocked = keystore::unlock_or_init(&data_dir)
-        .unwrap_or_else(|e| panic!("Cannot open the keystore: {e:#}"));
-    let secret_key = unlocked.key;
+    // Three ways this can go, and all of them start the window. A master
+    // passphrase cannot be asked for before the UI exists, and a keystore that
+    // will not open at all needs to say so somewhere the user is looking
+    // rather than on a terminal nobody opened.
+    let (secret_key, key_source, startup_error) = if keystore::is_first_run(&data_dir) {
+        // Nothing has ever been written here. The user chooses how the key
+        // should be kept before one exists, rather than having a file on disk
+        // picked for them and having to undo it.
+        (std::sync::OnceLock::new(), keystore::KeySource::File, None)
+    } else {
+        match keystore::unlock(&data_dir) {
+        Ok(unlocked) if unlocked.needs_passphrase => {
+            (std::sync::OnceLock::new(), keystore::KeySource::Passphrase, None)
+        }
+        Ok(unlocked) => {
+            // Repeated on every launch so a keyring that appears later, a
+            // desktop installed or a login keyring unlocked, starts being used
+            // without the user having to do anything.
+            let _ = keystore::store_keyring_wrapper(&data_dir, &unlocked.key);
+            let cell = std::sync::OnceLock::new();
+            let _ = cell.set(unlocked.key);
+            (cell, unlocked.source, None)
+        }
+        Err(e) => {
+            let message = format!("{e:#}");
+            eprintln!("Cannot open the keystore: {message}");
+            (std::sync::OnceLock::new(), keystore::KeySource::File, Some(message))
+        }
+        }
+    };
 
-    // Best effort, and repeated on every launch so that a keyring which
-    // appears later (a desktop installed, a login keyring unlocked) starts
-    // being used without the user doing anything.
-    let _ = keystore::store_keyring_wrapper(&data_dir, &secret_key);
-
-    let app_data = load_app_data(&secret_key).expect("Failed to load app data");
+    // Stays empty while locked. Nothing can overwrite the real file from here,
+    // because every save needs the key and the key is not there yet.
+    let app_data = match secret_key.get() {
+        Some(key) => load_app_data(key).expect("Failed to load app data"),
+        None => Default::default(),
+    };
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(AppState {
             data: tokio::sync::Mutex::new(app_data),
             secret_key,
+            key_source,
+            startup_error,
             ssh_state: Arc::new(SshState::new()),
             sftp_state: Arc::new(SftpClientState::new()),
             tunnel_state: Arc::new(TunnelState::new()),
@@ -112,6 +142,14 @@ pub fn run() {
             commands::save_codeprints,
             commands::get_custom_themes,
             commands::save_custom_themes,
+            commands::vault_status,
+            commands::initialize_vault,
+            commands::generate_passphrase,
+            commands::unlock_vault,
+            commands::keystore_status,
+            commands::set_master_passphrase,
+            commands::set_always_ask,
+            commands::remove_master_passphrase,
             commands::respond_host_key,
             commands::respond_auth_prompt,
             commands::list_known_hosts,

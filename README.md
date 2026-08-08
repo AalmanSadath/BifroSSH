@@ -20,6 +20,23 @@ Browse, upload, download, rename, delete, and create folders on remote servers w
 ### SSH key management
 Generate Ed25519, RSA, and ECDSA keys directly in the app. Import existing keys. All private keys are stored in an encrypted local keychain and are never written to disk unencrypted. Assign a key to a server or identity; the app decrypts and uses it at connect time.
 
+### Where the master key lives
+Everything saved is encrypted with a single key, and `~/.local/share/bifrossh` is readable only by you. The whole of `data.json` is encrypted, not just the credentials, so the hostnames, usernames, jump host chains, forwarding rules and saved commands are not left in the clear either.
+
+That key is kept in your desktop keyring where there is one: through the Secret portal under Flatpak, which scopes the secret to this app so other sandboxed apps cannot ask for it, and through the Secret Service otherwise. Where no keyring answers, such as a bare window manager with nothing providing one, the key falls back to a file beside the data. **Settings shows which of these is actually in use**, because a silent fallback would imply a protection that is not there.
+
+On first launch you choose between three arrangements, and all three remain reachable from Settings afterwards:
+
+- **Desktop keyring, with a passphrase to fall back on.** The keyring unlocks BifroSSH without asking, and the passphrase is only needed if the keyring is ever lost. The key is not kept on disk, and nothing can lock you out, because either one alone opens it.
+- **Passphrase only.** Asked at every launch. The key exists nowhere until you type it. This is the only option that protects your saved keys from something already running as your user, and the only one where forgetting the passphrase loses them for good.
+- **A file, no passphrase.** Nothing to remember. The key sits beside your data, readable only by your account, which means anything copying your home directory copies both.
+
+Where a passphrase is involved, the dice button generates an eight word phrase (about 83 bits before Argon2id). Words rather than random characters because this is typed back from paper, possibly years later, and words survive that; capitalisation and how you space them are ignored when you type one back. A passphrase you write yourself is taken exactly as typed.
+
+Generated passphrases use the EFF short wordlist, © Electronic Frontier Foundation, [CC BY 3.0 US](https://www.eff.org/dice), with one entry removed.
+
+None of this defends against malware running as you while the app is unlocked. On Linux nothing can: the Secret Service has no per-application access control for host processes. What it does buy is that copying your home directory no longer copies the key along with the data.
+
 ### ssh-agent
 Set an identity's auth mode to **Agent** to authenticate with keys held by a running ssh-agent, rather than importing the private key into BifroSSH. The agent signs the challenge, so the key never enters the app.
 

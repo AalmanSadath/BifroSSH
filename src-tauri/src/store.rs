@@ -69,19 +69,6 @@ pub fn get_data_dir() -> Result<PathBuf> {
     Ok(dir)
 }
 
-/// Generates the master key and writes it to .secret.
-///
-/// Only reached on a first run, or after the file was removed without a
-/// passphrase being set to replace it. Everything already encrypted with a
-/// previous key becomes unreadable, which is why nothing calls this when a key
-/// can still be found by any other route.
-pub fn create_secret_file(dir: &Path) -> Result<[u8; 32]> {
-    let mut key = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut key);
-    write_private(&crate::keystore::secret_file_path(dir), &key)?;
-    Ok(key)
-}
-
 /// What data.json holds now: one AES-GCM box around the whole document.
 ///
 /// Only the credential fields used to be encrypted, which left the hostnames,
