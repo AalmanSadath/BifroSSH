@@ -373,11 +373,16 @@ html, body, #root {
   flex-direction: column;
 }
 
+/* The 4px padding around the canvas is part of the terminal as far as anyone
+   looking at it is concerned, so it has to be the session theme's background.
+   This used to be the bifrossh-dark value hardcoded, which matched that one
+   theme and drew a mismatched frame around every other. TerminalView sets the
+   variable; the fallback is only for the moment before it does. */
 .terminal-container {
   flex: 1;
   overflow: hidden;
   padding: 4px;
-  background: #0d1117;
+  background: var(--term-bg, #0d1117);
   min-height: 0;
 }
 

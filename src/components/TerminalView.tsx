@@ -27,7 +27,7 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
   const fitRef = useRef<FitAddon | null>(null);
   const searchRef = useRef<SearchAddon | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const { settings, servers, removeSession, sessionThemeOverrides } = useAppStore();
+  const { settings, servers, removeSession, sessionThemeOverrides, customThemes } = useAppStore();
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -54,6 +54,17 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
   const themeKey = effectiveThemeKey();
 
   /**
+   * The theme to render with, built in or one the user made.
+   *
+   * Custom themes live in their own map rather than being merged into THEMES,
+   * so looking only at THEMES silently fell back to the default: the host form
+   * showed the chosen name while the session ignored it.
+   */
+  function resolveTheme() {
+    return THEMES[themeKey] ?? customThemes[themeKey] ?? THEMES['bifrossh-dark'];
+  }
+
+  /**
    * Highlight colours drawn from the session's own theme.
    *
    * The decoration colours must be `#RRGGBB`: xterm mis-parses an alpha suffix
@@ -62,7 +73,7 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
    * which keeps the highlight legible on light and dark themes alike.
    */
   const decorations = useCallback(() => {
-    const theme = THEMES[themeKey] ?? THEMES['bifrossh-dark'];
+    const theme = resolveTheme();
     // Every colour in ITheme is optional, so a theme that omits these still
     // has to produce something visible.
     const dim = theme.yellow ?? '#d29922';
@@ -91,7 +102,7 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
       activeMatchBorder: bright,
       activeMatchColorOverviewRuler: bright,
     };
-  }, [themeKey]);
+  }, [themeKey, customThemes[themeKey]]);
 
   /**
    * `incremental` is for typing, where the match under the cursor should be
@@ -149,7 +160,7 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
   useEffect(() => {
     if (!containerRef.current) return;
 
-    const theme = THEMES[effectiveThemeKey()] ?? THEMES['bifrossh-dark'];
+    const theme = resolveTheme();
     const term = new Terminal({
       theme,
       fontSize: settings.font_size,
@@ -312,14 +323,18 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;
-    term.options.theme = THEMES[themeKey] ?? THEMES['bifrossh-dark'];
+    term.options.theme = resolveTheme();
     term.options.fontSize = settings.font_size;
     term.options.fontFamily = settings.font_family;
     term.options.cursorStyle = settings.cursor_style as 'block' | 'underline' | 'bar';
     term.options.cursorBlink = settings.cursor_blink;
     fitRef.current?.fit();
+    // customThemes[themeKey] rather than the whole map: it changes identity
+    // when that one theme is edited, so a save in the theme editor repaints
+    // the sessions using it and nothing else.
   }, [
     themeKey,
+    customThemes[themeKey],
     settings.font_size,
     settings.font_family,
     settings.cursor_style,
@@ -453,7 +468,15 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
         </div>
       )}
 
-      <div ref={containerRef} className="terminal-container" />
+      {/* Declarative rather than set from the theme effect, so the padding
+          around the canvas can never be left showing the previous theme. */}
+      <div
+        ref={containerRef}
+        className="terminal-container"
+        style={{
+          '--term-bg': resolveTheme().background,
+        } as React.CSSProperties}
+      />
     </div>
   );
 }
