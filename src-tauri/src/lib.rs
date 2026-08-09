@@ -165,6 +165,7 @@ pub fn run() {
             commands::ssh_connect_quick,
             commands::ssh_send_input,
             commands::ssh_resize,
+            commands::ssh_attach,
             commands::ssh_disconnect,
             commands::sftp_local_home,
             commands::sftp_list_local,

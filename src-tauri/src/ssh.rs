@@ -22,8 +22,54 @@ pub enum SshCommand {
     Close,
 }
 
+/// Output produced before the terminal is listening.
+///
+/// The shell starts writing the moment its channel opens, but the session id
+/// does not reach the frontend until the connect call returns, and only then
+/// does a terminal mount and subscribe. Tauri events are not queued, so
+/// anything emitted across that gap is simply gone: usually the motd and the
+/// first prompt, on a fast host most of what the session has to say.
+///
+/// So the reader holds it here instead, and hands it over when the terminal
+/// says it is ready. The `attached` flag and the buffer live behind one lock
+/// on purpose. Checked separately, output emitted between the drain and the
+/// flag being set belongs to neither path and is lost, which is the bug this
+/// exists to fix.
+#[derive(Default)]
+pub struct Attach {
+    pub attached: bool,
+    pub pending: Vec<u8>,
+}
+
+/// Enough for any plausible login banner. A session whose tab never mounts
+/// stops accumulating rather than growing for as long as the process runs;
+/// the oldest bytes go first, since the recent ones are the useful ones.
+const MAX_PENDING: usize = 256 * 1024;
+
+impl Attach {
+    /// Returns false once the frontend has taken over and output should be
+    /// emitted live instead.
+    pub fn hold(&mut self, data: &[u8]) -> bool {
+        if self.attached {
+            return false;
+        }
+        self.pending.extend_from_slice(data);
+        if self.pending.len() > MAX_PENDING {
+            let excess = self.pending.len() - MAX_PENDING;
+            self.pending.drain(..excess);
+        }
+        true
+    }
+
+    pub fn take(&mut self) -> Vec<u8> {
+        self.attached = true;
+        std::mem::take(&mut self.pending)
+    }
+}
+
 pub struct SshSessionHandle {
     pub cmd_tx: mpsc::Sender<SshCommand>,
+    pub attach: Arc<Mutex<Attach>>,
 }
 
 pub struct SshState {
@@ -466,10 +512,14 @@ pub async fn connect_ssh(
     emit_log(&app, &connect_id, "auth", "Shell ready — connected");
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<SshCommand>(256);
+    let attach = Arc::new(Mutex::new(Attach::default()));
 
     {
         let mut sessions = ssh_state.sessions.lock().await;
-        sessions.insert(session_id.clone(), SshSessionHandle { cmd_tx });
+        sessions.insert(
+            session_id.clone(),
+            SshSessionHandle { cmd_tx, attach: Arc::clone(&attach) },
+        );
     }
 
     let ssh_state_cleanup = Arc::clone(&ssh_state);
@@ -483,8 +533,12 @@ pub async fn connect_ssh(
         macro_rules! flush_outbuf {
             () => {
                 if !outbuf.is_empty() {
-                    let encoded = BASE64.encode(&outbuf);
-                    let _ = app.emit(&format!("ssh-output:{}", sid), encoded);
+                    // Held rather than emitted until a terminal has attached,
+                    // under the same lock the handover takes.
+                    if !attach.lock().await.hold(&outbuf) {
+                        let encoded = BASE64.encode(&outbuf);
+                        let _ = app.emit(&format!("ssh-output:{}", sid), encoded);
+                    }
                     outbuf.clear();
                 }
             };
@@ -544,4 +598,48 @@ pub async fn connect_ssh(
     });
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn output_is_held_until_the_terminal_attaches() {
+        let mut a = Attach::default();
+
+        assert!(a.hold(b"motd line\r\n"), "nothing is listening yet");
+        assert!(a.hold(b"user@host:~$ "));
+
+        assert_eq!(a.take(), b"motd line\r\nuser@host:~$ ");
+        assert!(
+            !a.hold(b"typed later"),
+            "once attached, output belongs to the event stream"
+        );
+        assert!(a.take().is_empty(), "and is not also buffered");
+    }
+
+    #[test]
+    fn a_session_nobody_opens_stops_growing() {
+        let mut a = Attach::default();
+        let chunk = vec![b'x'; 64 * 1024];
+        for _ in 0..8 {
+            a.hold(&chunk);
+        }
+        assert_eq!(a.pending.len(), MAX_PENDING);
+    }
+
+    #[test]
+    fn the_most_recent_output_is_the_part_kept() {
+        let mut a = Attach::default();
+        a.hold(&vec![b'o'; MAX_PENDING]);
+        a.hold(b"the newest bytes");
+
+        let kept = a.take();
+        assert_eq!(kept.len(), MAX_PENDING);
+        assert!(
+            kept.ends_with(b"the newest bytes"),
+            "the oldest output is what gets dropped"
+        );
+    }
 }

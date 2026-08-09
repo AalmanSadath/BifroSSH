@@ -46,6 +46,13 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
     return server?.theme ?? settings.theme;
   }
 
+  // The resolved key, so the effect below can depend on a string. Depending on
+  // `servers` instead re-runs it whenever anything in that array changes, and
+  // OS detection rewrites it a second or two after every first connect, which
+  // reassigns the theme and forces xterm to repaint a terminal that has only
+  // just appeared.
+  const themeKey = effectiveThemeKey();
+
   /**
    * Highlight colours drawn from the session's own theme.
    *
@@ -55,7 +62,7 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
    * which keeps the highlight legible on light and dark themes alike.
    */
   const decorations = useCallback(() => {
-    const theme = THEMES[effectiveThemeKey()] ?? THEMES['bifrossh-dark'];
+    const theme = THEMES[themeKey] ?? THEMES['bifrossh-dark'];
     // Every colour in ITheme is optional, so a theme that omits these still
     // has to produce something visible.
     const dim = theme.yellow ?? '#d29922';
@@ -84,8 +91,7 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
       activeMatchBorder: bright,
       activeMatchColorOverviewRuler: bright,
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.theme, servers, sessionThemeOverrides]);
+  }, [themeKey]);
 
   /**
    * `incremental` is for typing, where the match under the cursor should be
@@ -190,24 +196,30 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
       });
     });
 
+    // Matched on ev.code rather than ev.key: code is the physical key, so
+    // these keep working on a layout where that key does not produce an F.
     term.attachCustomKeyEventHandler((ev) => {
       if (ev.type === 'keydown' && ev.ctrlKey && ev.shiftKey) {
         // Ctrl+Shift+F, not Ctrl+F: a bare Ctrl+F is a control character the
         // remote shell, less and vim all want, and taking it would break them.
-        if (ev.key === 'F') {
+        if (ev.code === 'KeyF') {
           setSearchOpen(true);
           requestAnimationFrame(() => searchInputRef.current?.select());
           return false;
         }
-        if (ev.key === 'C') {
+        if (ev.code === 'KeyC') {
           const sel = term.getSelection();
           if (sel) navigator.clipboard.writeText(sel).catch(() => {});
           return false;
         }
-        if (ev.key === 'V') {
-          navigator.clipboard.readText().then((text) => {
-            if (text) invoke('ssh_send_input', { sessionId, data: Array.from(new TextEncoder().encode(text)) }).catch(() => {});
-          }).catch(() => {});
+        if (ev.code === 'KeyV') {
+          // term.paste rather than sending the bytes ourselves: it wraps the
+          // text in the bracketed paste markers when the remote application
+          // has asked for them, which is what stops a multi-line paste being
+          // run a line at a time by the shell, or auto-indented by vim.
+          navigator.clipboard.readText()
+            .then((text) => { if (text) term.paste(text); })
+            .catch(() => {});
           return false;
         }
       }
@@ -232,17 +244,60 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
       if (pos.end.y > cursorAbsRow) term.clearSelection();
     });
 
+    // Unsubscribing is asynchronous while disposal is not, so an event can
+    // still arrive after the terminal is gone. Writing to a disposed terminal
+    // throws, inside an event callback where nothing would catch it.
+    let disposed = false;
+    const decode = (payload: string) =>
+      Uint8Array.from(atob(payload), (c) => c.charCodeAt(0));
+
+    // Live chunks wait here until the backlog below has been written. The
+    // backend stops holding output the moment ssh_attach returns, so without
+    // this a live chunk delivered before that promise settles would be
+    // written ahead of output that came before it.
+    let replayed = false;
+    const queued: Uint8Array[] = [];
+
     const unlistenOutput = listen<string>(`ssh-output:${sessionId}`, (ev) => {
-      const buf = Uint8Array.from(atob(ev.payload), (c) => c.charCodeAt(0));
-      if (buf.length > 0) term.write(buf);
+      if (disposed) return;
+      const buf = decode(ev.payload);
+      if (buf.length === 0) return;
+      if (replayed) term.write(buf);
+      else queued.push(buf);
     });
 
     const unlistenClose = listen(`ssh-closed:${sessionId}`, () => {
-      term.writeln('\r\n\x1b[31mConnection closed.\x1b[0m');
+      // Nothing is written here: removing the session unmounts this terminal
+      // in the same tick, so any message would be gone before it was read.
       removeSession(sessionId);
     });
 
+    // Collect what the shell said before the listener above existed. The
+    // session id only reaches us once the connect call has returned, by which
+    // point the motd and first prompt have usually already been produced, and
+    // Tauri drops events nobody is listening for. Ordered after the listen so
+    // nothing can arrive between the two and be written out of sequence.
+    unlistenOutput
+      .then(() => invoke<string>('ssh_attach', { sessionId }))
+      .then((pending) => {
+        if (disposed) return;
+        if (pending) {
+          const buf = decode(pending);
+          if (buf.length > 0) term.write(buf);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        // Even if the replay failed, the queue has to drain or the session
+        // shows nothing at all from here on.
+        if (disposed) return;
+        replayed = true;
+        for (const buf of queued) term.write(buf);
+        queued.length = 0;
+      });
+
     return () => {
+      disposed = true;
       unlistenOutput.then((fn) => fn());
       unlistenClose.then((fn) => fn());
       term.dispose();
@@ -257,14 +312,19 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;
-    const theme = THEMES[effectiveThemeKey()] ?? THEMES['bifrossh-dark'];
-    term.options.theme = theme;
+    term.options.theme = THEMES[themeKey] ?? THEMES['bifrossh-dark'];
     term.options.fontSize = settings.font_size;
     term.options.fontFamily = settings.font_family;
     term.options.cursorStyle = settings.cursor_style as 'block' | 'underline' | 'bar';
     term.options.cursorBlink = settings.cursor_blink;
     fitRef.current?.fit();
-  }, [settings, servers, sessionThemeOverrides]);
+  }, [
+    themeKey,
+    settings.font_size,
+    settings.font_family,
+    settings.cursor_style,
+    settings.cursor_blink,
+  ]);
 
   useEffect(() => {
     if (active) {

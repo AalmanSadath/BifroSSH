@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -1248,6 +1249,28 @@ pub async fn ssh_resize(
         .send(SshCommand::Resize { cols, rows })
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Hands over whatever the shell said before the terminal was listening.
+///
+/// Called once, immediately after the terminal subscribes to this session's
+/// output. Everything from here on arrives as events; this is only the part
+/// that would otherwise have been emitted into a void.
+///
+/// A session that has already gone away is not an error: the connection can
+/// close between the terminal mounting and this call, and there is nothing to
+/// replay in that case.
+#[tauri::command]
+pub async fn ssh_attach(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<String, String> {
+    let sessions = state.ssh_state.sessions.lock().await;
+    let Some(handle) = sessions.get(&session_id) else {
+        return Ok(String::new());
+    };
+    let pending = handle.attach.lock().await.take();
+    Ok(BASE64.encode(pending))
 }
 
 #[tauri::command]
