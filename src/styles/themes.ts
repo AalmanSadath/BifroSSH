@@ -81,8 +81,8 @@ export const THEMES: Record<string, NamedTheme> = {
     brightYellow: '#657b83', brightBlue: '#839496', brightMagenta: '#6c71c4',
     brightCyan: '#93a1a1', brightWhite: '#fdf6e3',
   },
-  'homebrew': {
-    name: 'Homebrew',
+  'phosphor': {
+    name: 'Phosphor',
     background: '#000000',
     foreground: '#00ff00',
     cursor: '#00ff00',
@@ -94,8 +94,8 @@ export const THEMES: Record<string, NamedTheme> = {
     brightYellow: '#e5e500', brightBlue: '#0000ff', brightMagenta: '#e500e5',
     brightCyan: '#00e5e5', brightWhite: '#e5e5e5',
   },
-  'pro': {
-    name: 'Pro',
+  'midnight': {
+    name: 'Midnight',
     background: '#000000',
     foreground: '#f2f2f2',
     cursor: '#4d4d4d',
@@ -107,8 +107,8 @@ export const THEMES: Record<string, NamedTheme> = {
     brightYellow: '#fded02', brightBlue: '#0401fd', brightMagenta: '#9e0099',
     brightCyan: '#01a0e4', brightWhite: '#f2f2f2',
   },
-  'ocean': {
-    name: 'Ocean',
+  'deep-slate': {
+    name: 'Deep Slate',
     background: '#1b2b34',
     foreground: '#c0c5ce',
     cursor: '#c0c5ce',
@@ -120,8 +120,8 @@ export const THEMES: Record<string, NamedTheme> = {
     brightYellow: '#fac863', brightBlue: '#6699cc', brightMagenta: '#c594c5',
     brightCyan: '#5fb3b3', brightWhite: '#d8dee9',
   },
-  'man-page': {
-    name: 'Man Page',
+  'legal-pad': {
+    name: 'Legal Pad',
     background: '#fef49c',
     foreground: '#000000',
     cursor: '#000000',
@@ -133,8 +133,8 @@ export const THEMES: Record<string, NamedTheme> = {
     brightYellow: '#cccc00', brightBlue: '#0000cc', brightMagenta: '#9900cc',
     brightCyan: '#0099cc', brightWhite: '#ffffff',
   },
-  'novel': {
-    name: 'Novel',
+  'parchment': {
+    name: 'Parchment',
     background: '#dfdbc3',
     foreground: '#3b2322',
     cursor: '#3b2322',
@@ -146,8 +146,8 @@ export const THEMES: Record<string, NamedTheme> = {
     brightYellow: '#fce94f', brightBlue: '#729fcf', brightMagenta: '#ad7fa8',
     brightCyan: '#34e2e2', brightWhite: '#eeeeec',
   },
-  'red-sands': {
-    name: 'Red Sands',
+  'ember': {
+    name: 'Ember',
     background: '#1a0a00',
     foreground: '#d2a679',
     cursor: '#d2a679',
@@ -159,8 +159,8 @@ export const THEMES: Record<string, NamedTheme> = {
     brightYellow: '#e9c062', brightBlue: '#7aa6da', brightMagenta: '#c397d8',
     brightCyan: '#70c0b1', brightWhite: '#f5deb3',
   },
-  'grass': {
-    name: 'Grass',
+  'moss': {
+    name: 'Moss',
     background: '#1c2b1c',
     foreground: '#d1d5b8',
     cursor: '#8ae234',
@@ -172,34 +172,8 @@ export const THEMES: Record<string, NamedTheme> = {
     brightYellow: '#fce94f', brightBlue: '#729fcf', brightMagenta: '#ad7fa8',
     brightCyan: '#34e2e2', brightWhite: '#eeeeec',
   },
-  'manhattan': {
-    name: 'Manhattan',
-    background: '#1a1a2e',
-    foreground: '#eaeaea',
-    cursor: '#e8b86d',
-    cursorAccent: '#1a1a2e',
-    selectionBackground: '#2d2d44',
-    black: '#1a1a2e', red: '#e06c75', green: '#98c379', yellow: '#e8b86d',
-    blue: '#61aeee', magenta: '#c678dd', cyan: '#56b6c2', white: '#abb2bf',
-    brightBlack: '#5c6370', brightRed: '#e06c75', brightGreen: '#98c379',
-    brightYellow: '#e8b86d', brightBlue: '#61aeee', brightMagenta: '#c678dd',
-    brightCyan: '#56b6c2', brightWhite: '#ffffff',
-  },
-  'plastic-world': {
-    name: 'Plastic World',
-    background: '#0a0a0a',
-    foreground: '#f8f8f8',
-    cursor: '#ff00ff',
-    cursorAccent: '#0a0a0a',
-    selectionBackground: '#2a2a2a',
-    black: '#0a0a0a', red: '#ff0055', green: '#00ff88', yellow: '#ffee00',
-    blue: '#0088ff', magenta: '#ff00ff', cyan: '#00ffff', white: '#f8f8f8',
-    brightBlack: '#555555', brightRed: '#ff4488', brightGreen: '#44ffaa',
-    brightYellow: '#ffff44', brightBlue: '#44aaff', brightMagenta: '#ff44ff',
-    brightCyan: '#44ffff', brightWhite: '#ffffff',
-  },
-  'silver-aerogel': {
-    name: 'Silver Aerogel',
+  'graphite': {
+    name: 'Graphite',
     background: '#e8e8e8',
     foreground: '#2a2a2a',
     cursor: '#2a2a2a',
@@ -211,8 +185,8 @@ export const THEMES: Record<string, NamedTheme> = {
     brightYellow: '#aa8800', brightBlue: '#3355aa', brightMagenta: '#885588',
     brightCyan: '#338888', brightWhite: '#f5f5f5',
   },
-  'basic': {
-    name: 'Basic',
+  'classic-light': {
+    name: 'Classic Light',
     background: '#ffffff',
     foreground: '#000000',
     cursor: '#000000',

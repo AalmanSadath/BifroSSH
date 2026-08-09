@@ -164,3 +164,5 @@ npm run tauri dev
 ## License
 
 [GPL-3.0-or-later](LICENSE): free to use, modify, and distribute; derivatives must also be open source under GPL-3.0 or later.
+
+Bundled content written by other people, and the terms it comes under, is listed in [THIRD_PARTY.md](THIRD_PARTY.md).
