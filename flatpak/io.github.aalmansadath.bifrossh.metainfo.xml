@@ -85,6 +85,24 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.9.3" date="2026-08-10">
+      <description>
+        <p>
+          Nine of the built-in colour schemes have been renamed after what they
+          look like: Phosphor, Midnight, Deep Slate, Legal Pad, Parchment,
+          Ember, Moss, Graphite and Classic Light. Their colours are unchanged.
+          Two others, Manhattan and Plastic World, have been removed.
+        </p>
+        <p>
+          A host set to any of those themes goes back to the default and needs
+          picking again. Themes you made yourself are not affected.
+        </p>
+        <p>
+          The colour schemes contributed by other people are now credited, with
+          their licences, in THIRD_PARTY.md.
+        </p>
+      </description>
+    </release>
     <release version="0.9.2" date="2026-08-10">
       <description>
         <p>
