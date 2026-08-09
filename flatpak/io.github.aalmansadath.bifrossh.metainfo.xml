@@ -65,6 +65,28 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.9.1" date="2026-08-09">
+      <description>
+        <p>
+          A new session no longer loses the first thing it says. The welcome
+          message and opening prompt were being produced before the terminal
+          was ready to receive them, so a connection could look like it had
+          opened to an empty screen until you pressed a key.
+        </p>
+        <p>
+          Pasting several lines at once behaves the way the program you are
+          pasting into expects. In a shell they arrive as one block you can
+          still edit before running, and in an editor they keep their own
+          indentation instead of stepping further right on every line.
+        </p>
+        <p>
+          Terminal search, copy and paste keep working on keyboard layouts
+          that do not produce Latin letters. Closing a busy session no longer
+          risks an error, and a terminal no longer briefly redraws itself a
+          moment after connecting.
+        </p>
+      </description>
+    </release>
     <release version="0.9.0" date="2026-08-09">
       <description>
         <p>
