@@ -29,36 +29,56 @@
       <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/ActiveSession.png</image>
     </screenshot>
     <screenshot>
-      <caption>Terminal session with Codeprints sidebar</caption>
-      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/SessionwithCodePrints.png</image>
+      <caption>Searching the scrollback with Ctrl+Shift+F</caption>
+      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/TerminalSearch.png</image>
     </screenshot>
     <screenshot>
-      <caption>SFTP file browser</caption>
+      <caption>Hosts, with an icon per operating system</caption>
+      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/HostList.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Confirming a server's fingerprint on first connection</caption>
+      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/HostKeyPrompt.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Browsing files over SFTP, local beside remote</caption>
       <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/SFTPSession.png</image>
     </screenshot>
     <screenshot>
-      <caption>SFTP directory listing</caption>
-      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/SFTPList.png</image>
+      <caption>Saved commands in the Codeprints sidebar</caption>
+      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/SessionwithCodePrints.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Local, remote and SOCKS port forwarding</caption>
+      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/PortForwarding.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>SSH keys and identities</caption>
+      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/Keychain.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Generating a key</caption>
+      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/GenerateSSHKey.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Trusted server fingerprints</caption>
+      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/KnownHosts.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Editing a host, including its jump host</caption>
+      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/AddHost.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Exporting a setup to carry to another machine</caption>
+      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/ExportData.png</image>
     </screenshot>
     <screenshot>
       <caption>Theme editor</caption>
       <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/ThemeEditor.png</image>
     </screenshot>
     <screenshot>
-      <caption>Host list</caption>
-      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/HostList.png</image>
-    </screenshot>
-    <screenshot>
-      <caption>Adding a new host</caption>
-      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/AddHost.png</image>
-    </screenshot>
-    <screenshot>
-      <caption>Managing identities</caption>
-      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/AddIdentity.png</image>
-    </screenshot>
-    <screenshot>
-      <caption>SSH key generation</caption>
-      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/GenerateSSHKey.png</image>
+      <caption>Settings</caption>
+      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/Settings.png</image>
     </screenshot>
   </screenshots>
   <provides>
