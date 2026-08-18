@@ -219,6 +219,7 @@ mod ssh;
 mod sftp;
 mod tunnel;
 mod vault;
+mod records;
 mod resolve;
 
 pub use servers::*;

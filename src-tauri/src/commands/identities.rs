@@ -3,6 +3,7 @@ use uuid::Uuid;
 
 use crate::models::*;
 
+use super::records::*;
 use super::CmdResult;
 use super::AppState;
 
@@ -10,10 +11,7 @@ use super::AppState;
 
 #[tauri::command]
 pub async fn list_identities(state: State<'_, AppState>) -> CmdResult<Vec<Identity>> {
-    Ok(state.data.lock().await.identities.iter().map(|i| Identity {
-        encrypted_password: i.encrypted_password.as_ref().map(|_| "[stored]".to_string()),
-        ..i.clone()
-    }).collect())
+    Ok(state.data.lock().await.identities.iter().cloned().map(Redacted::redacted).collect())
 }
 
 #[tauri::command]
@@ -39,20 +37,14 @@ pub async fn save_identity(
     } else if identity.key_id.is_some() {
         identity.encrypted_password = None;
     } else {
-        let existing_pw = data.identities.iter().find(|i| i.id == identity.id)
+        let existing_pw = find_by_id(&data.identities, &identity.id)
             .and_then(|i| i.encrypted_password.clone());
         identity.encrypted_password = existing_pw;
     }
 
-    match data.identities.iter().position(|i| i.id == identity.id) {
-        Some(idx) => data.identities[idx] = identity.clone(),
-        None => data.identities.push(identity.clone()),
-    }
+    upsert_by_id(&mut data.identities, identity.clone());
     state.save(&data)?;
-    Ok(Identity {
-        encrypted_password: identity.encrypted_password.map(|_| "[stored]".to_string()),
-        ..identity
-    })
+    Ok(identity.redacted())
 }
 
 #[tauri::command]
@@ -61,7 +53,7 @@ pub async fn get_identity_password(
     identity_id: String,
 ) -> CmdResult<String> {
     let data = state.data.lock().await;
-    let identity = data.identities.iter().find(|i| i.id == identity_id)
+    let identity = find_by_id(&data.identities, &identity_id)
         .ok_or("Identity not found")?;
     let enc = identity.encrypted_password.as_ref().ok_or("No password stored for this identity")?;
     state.decrypt_str(enc)

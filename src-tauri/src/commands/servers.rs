@@ -3,6 +3,7 @@ use uuid::Uuid;
 
 use crate::models::*;
 
+use super::records::*;
 use super::CmdResult;
 use super::AppState;
 
@@ -11,11 +12,7 @@ use super::AppState;
 #[tauri::command]
 pub async fn list_servers(state: State<'_, AppState>) -> CmdResult<Vec<Server>> {
     let data = state.data.lock().await;
-    let safe = data.servers.iter().map(|s| Server {
-        encrypted_password: s.encrypted_password.as_ref().map(|_| "[stored]".to_string()),
-        ..s.clone()
-    }).collect();
-    Ok(safe)
+    Ok(data.servers.iter().cloned().map(Redacted::redacted).collect())
 }
 
 #[tauri::command]
@@ -29,7 +26,7 @@ pub async fn save_server(
     let encrypted_password = if let Some(pw) = password.filter(|p| !p.is_empty()) {
         Some(state.encrypt(pw.as_bytes())?)
     } else if !server.id.is_empty() {
-        data.servers.iter().find(|s| s.id == server.id).and_then(|s| s.encrypted_password.clone())
+        find_by_id(&data.servers, &server.id).and_then(|s| s.encrypted_password.clone())
     } else {
         None
     };
@@ -45,16 +42,10 @@ pub async fn save_server(
         ..server
     };
 
-    match data.servers.iter().position(|s| s.id == server.id) {
-        Some(idx) => data.servers[idx] = server.clone(),
-        None => data.servers.push(server.clone()),
-    }
+    upsert_by_id(&mut data.servers, server.clone());
     state.save(&data)?;
 
-    Ok(Server {
-        encrypted_password: server.encrypted_password.as_ref().map(|_| "[stored]".to_string()),
-        ..server
-    })
+    Ok(server.redacted())
 }
 
 #[tauri::command]
@@ -63,7 +54,7 @@ pub async fn get_server_password(
     server_id: String,
 ) -> CmdResult<String> {
     let data = state.data.lock().await;
-    let server = data.servers.iter().find(|s| s.id == server_id).ok_or("Server not found")?;
+    let server = find_by_id(&data.servers, &server_id).ok_or("Server not found")?;
     let enc = server.encrypted_password.as_ref().ok_or("No password stored for this server")?;
     state.decrypt_str(enc)
 }

@@ -3,6 +3,7 @@ use tauri::{AppHandle, State};
 
 use crate::tunnel::{TunnelKind, TunnelParams};
 
+use super::records::*;
 use super::{CmdError, CmdResult, connect_security, AppState};
 use super::resolve::{resolve_auth, resolve_jumps, JumpHopRequest};
 
@@ -30,7 +31,7 @@ pub async fn tunnel_start(
 ) -> CmdResult<()> {
     let (ssh_host, ssh_port, auth, jumps) = {
         let data = state.data.lock().await;
-        let server = data.servers.iter().find(|s| s.id == server_id)
+        let server = find_by_id(&data.servers, &server_id)
             .ok_or("Server not found")?;
         let auth = resolve_auth(&data, &state.key()?, &auth_type, &auth_value)?;
         let jumps = resolve_jumps(&data, &state.key()?, jumps.as_deref().unwrap_or(&[]))?;

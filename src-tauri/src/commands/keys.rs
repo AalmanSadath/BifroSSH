@@ -4,6 +4,7 @@ use uuid::Uuid;
 use crate::models::*;
 use crate::ppk;
 
+use super::records::*;
 use super::{CmdError, CmdResult};
 use super::AppState;
 
@@ -29,15 +30,7 @@ pub async fn list_keys(state: State<'_, AppState>) -> CmdResult<Vec<KeyEntry>> {
         }
     }
     if updated { let _ = state.save(&data); }
-    let safe: Vec<KeyEntry> = data.keys.iter().map(|k| KeyEntry {
-        id: k.id.clone(),
-        name: k.name.clone(),
-        key_path: k.key_path.clone(),
-        encrypted_key: k.encrypted_key.as_ref().map(|_| "[stored]".to_string()),
-        encrypted_passphrase: k.encrypted_passphrase.as_ref().map(|_| "[stored]".to_string()),
-        algorithm: k.algorithm.clone(),
-    }).collect();
-    Ok(safe)
+    Ok(data.keys.iter().cloned().map(Redacted::redacted).collect())
 }
 
 #[tauri::command]
@@ -79,14 +72,7 @@ pub async fn import_key_from_path(
     data.keys.push(key.clone());
     state.save(&data)?;
 
-    Ok(KeyEntry {
-        id: key.id,
-        name: key.name,
-        key_path: key.key_path,
-        encrypted_key: key.encrypted_key.as_ref().map(|_| "[stored]".to_string()),
-        encrypted_passphrase: key.encrypted_passphrase.as_ref().map(|_| "[stored]".to_string()),
-        algorithm: key.algorithm,
-    })
+    Ok(key.redacted())
 }
 
 #[tauri::command]
@@ -119,14 +105,7 @@ pub async fn save_key_from_content(
     data.keys.push(key.clone());
     state.save(&data)?;
 
-    Ok(KeyEntry {
-        id: key.id,
-        name: key.name,
-        key_path: None,
-        encrypted_key: Some("[stored]".to_string()),
-        encrypted_passphrase: key.encrypted_passphrase.as_ref().map(|_| "[stored]".to_string()),
-        algorithm: key.algorithm,
-    })
+    Ok(key.redacted())
 }
 
 #[tauri::command]
@@ -205,7 +184,7 @@ pub async fn get_key_content(
     key_id: String,
 ) -> CmdResult<KeyContent> {
     let data = state.data.lock().await;
-    let key = data.keys.iter().find(|k| k.id == key_id)
+    let key = find_by_id(&data.keys, &key_id)
         .ok_or("Key not found")?;
 
     let private_pem = if let Some(ref enc) = key.encrypted_key {
