@@ -13,11 +13,32 @@ const CURSOR_STYLES = [
   { value: 'bar', label: 'Bar' },
 ];
 
-function CursorStylePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+interface PickerOption {
+  value: string;
+  label: string;
+}
+
+/**
+ * One dropdown, shared by the cursor style and font family fields.
+ *
+ * `previewFont` renders each option in the family it names, which is the whole
+ * point of a font list: the names mean little until you can see them.
+ */
+function Picker({
+  value,
+  options,
+  onChange,
+  previewFont = false,
+}: {
+  value: string;
+  options: PickerOption[];
+  onChange: (v: string) => void;
+  previewFont?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
   const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null);
-  const label = CURSOR_STYLES.find((s) => s.value === value)?.label ?? value;
+  const label = options.find((o) => o.value === value)?.label ?? value;
 
   function openPicker() {
     const r = btnRef.current?.getBoundingClientRect();
@@ -34,15 +55,23 @@ function CursorStylePicker({ value, onChange }: { value: string; onChange: (v: s
       {open && rect && createPortal(
         <>
           <div style={{ position: 'fixed', inset: 0, zIndex: 9998 }} onMouseDown={() => setOpen(false)} />
-          <div className="picker-menu" style={{ position: 'fixed', top: rect.top, left: rect.left, width: rect.width, zIndex: 9999 }}>
-            {CURSOR_STYLES.map((s) => (
+          <div
+            className="picker-menu"
+            style={{ position: 'fixed', top: rect.top, left: rect.left, width: rect.width, zIndex: 9999, maxHeight: 280, overflowY: 'auto' }}
+          >
+            {options.map((o) => (
               <button
-                key={s.value}
+                key={o.value}
                 type="button"
-                className={`picker-item${value === s.value ? ' selected' : ''}`}
-                onMouseDown={(e) => { e.preventDefault(); onChange(s.value); setOpen(false); }}
+                className={`picker-item${previewFont ? ' picker-item-font' : ''}${value === o.value ? ' selected' : ''}`}
+                onMouseDown={(e) => { e.preventDefault(); onChange(o.value); setOpen(false); }}
               >
-                {s.label}
+                {previewFont ? (
+                  <>
+                    <span>{o.label}</span>
+                    <span className="picker-font-sample" style={{ fontFamily: o.value }}>AaBb0123</span>
+                  </>
+                ) : o.label}
               </button>
             ))}
           </div>
@@ -310,6 +339,23 @@ export default function SettingsPanel() {
   const [connTimeoutStr, setConnTimeoutStr] = useState(String(settings.connection_timeout_secs));
   const [sftpTimeoutStr, setSftpTimeoutStr] = useState(String(settings.sftp_inactivity_timeout_secs));
   const [keepaliveStr, setKeepaliveStr] = useState(String(settings.keepalive_interval_secs));
+  const [fonts, setFonts] = useState<string[]>([]);
+
+  useEffect(() => {
+    invoke<string[]>('list_fonts').then(setFonts).catch(() => setFonts([]));
+  }, []);
+
+  // `monospace` first because it is the default and the one value guaranteed to
+  // resolve. A family already saved but no longer installed is kept in the list
+  // rather than dropped, so opening Settings cannot silently change the setting
+  // to whatever happened to be first.
+  const fontOptions = [
+    { value: 'monospace', label: 'monospace (system default)' },
+    ...fonts.filter((f) => f !== 'monospace').map((f) => ({ value: f, label: f })),
+    ...(settings.font_family && settings.font_family !== 'monospace' && !fonts.includes(settings.font_family)
+      ? [{ value: settings.font_family, label: `${settings.font_family} (not installed)` }]
+      : []),
+  ];
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
 
@@ -360,10 +406,11 @@ export default function SettingsPanel() {
         <div className="form-row">
           <div className="form-group flex-1">
             <label>Family</label>
-            <input
+            <Picker
               value={settings.font_family}
-              onChange={(e) => patch({ font_family: e.target.value })}
-              placeholder="monospace"
+              options={fontOptions}
+              onChange={(v) => patch({ font_family: v })}
+              previewFont
             />
           </div>
           <div className="form-group port-group">
@@ -383,7 +430,7 @@ export default function SettingsPanel() {
         <h3>Cursor</h3>
         <div className="form-group">
           <label>Style</label>
-          <CursorStylePicker value={settings.cursor_style} onChange={(v) => patch({ cursor_style: v })} />
+          <Picker value={settings.cursor_style} options={CURSOR_STYLES} onChange={(v) => patch({ cursor_style: v })} />
         </div>
         <label className="checkbox-row">
           <input

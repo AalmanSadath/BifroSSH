@@ -134,6 +134,7 @@ pub fn run() {
             commands::get_identity_password,
             commands::get_settings,
             commands::save_settings,
+            commands::list_fonts,
             commands::scan_ssh_config,
             commands::import_ssh_config_hosts,
             commands::default_export_dir,
