@@ -1,23 +1,22 @@
 use tauri::State;
 use uuid::Uuid;
 
-use crate::crypto::{decrypt, encrypt};
 use crate::models::*;
 use crate::ppk;
-use crate::store::save_app_data;
 
+use super::{CmdError, CmdResult};
 use super::AppState;
 
 // ── Keys ─────────────────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn list_keys(state: State<'_, AppState>) -> Result<Vec<KeyEntry>, String> {
+pub async fn list_keys(state: State<'_, AppState>) -> CmdResult<Vec<KeyEntry>> {
     let mut data = state.data.lock().await;
     let mut updated = false;
     for key in data.keys.iter_mut() {
         if key.algorithm.is_none() {
             let pem = if let Some(ref enc) = key.encrypted_key {
-                decrypt(enc, &state.key()?).ok().and_then(|b| String::from_utf8(b).ok())
+                state.decrypt_str(enc).ok()
             } else if let Some(ref path) = key.key_path {
                 std::fs::read_to_string(path).ok()
             } else {
@@ -29,7 +28,7 @@ pub async fn list_keys(state: State<'_, AppState>) -> Result<Vec<KeyEntry>, Stri
             }
         }
     }
-    if updated { let _ = save_app_data(&data, &state.key()?); }
+    if updated { let _ = state.save(&data); }
     let safe: Vec<KeyEntry> = data.keys.iter().map(|k| KeyEntry {
         id: k.id.clone(),
         name: k.name.clone(),
@@ -48,13 +47,13 @@ pub async fn import_key_from_path(
     path: String,
     passphrase: Option<String>,
     store_content: bool,
-) -> Result<KeyEntry, String> {
+) -> CmdResult<KeyEntry> {
     let mut data = state.data.lock().await;
 
     let (encrypted_key, algorithm) = if store_content {
-        let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        let content = std::fs::read_to_string(&path)?;
         let alg = detect_algorithm(&content);
-        let enc = encrypt(content.as_bytes(), &state.key()?).map_err(|e| e.to_string())?;
+        let enc = state.encrypt(content.as_bytes())?;
         (Some(enc), alg)
     } else {
         let content = std::fs::read_to_string(&path).ok();
@@ -64,7 +63,7 @@ pub async fn import_key_from_path(
 
     let encrypted_passphrase = match passphrase {
         Some(ref p) if !p.is_empty() => {
-            Some(encrypt(p.as_bytes(), &state.key()?).map_err(|e| e.to_string())?)
+            Some(state.encrypt(p.as_bytes())?)
         }
         _ => None,
     };
@@ -78,7 +77,7 @@ pub async fn import_key_from_path(
         algorithm,
     };
     data.keys.push(key.clone());
-    save_app_data(&data, &state.key()?).map_err(|e| e.to_string())?;
+    state.save(&data)?;
 
     Ok(KeyEntry {
         id: key.id,
@@ -96,15 +95,15 @@ pub async fn save_key_from_content(
     name: String,
     content: String,
     passphrase: Option<String>,
-) -> Result<KeyEntry, String> {
+) -> CmdResult<KeyEntry> {
     let mut data = state.data.lock().await;
 
     let algorithm = detect_algorithm(&content);
-    let encrypted_key = encrypt(content.as_bytes(), &state.key()?).map_err(|e| e.to_string())?;
+    let encrypted_key = state.encrypt(content.as_bytes())?;
 
     let encrypted_passphrase = match passphrase {
         Some(ref p) if !p.is_empty() => {
-            Some(encrypt(p.as_bytes(), &state.key()?).map_err(|e| e.to_string())?)
+            Some(state.encrypt(p.as_bytes())?)
         }
         _ => None,
     };
@@ -118,7 +117,7 @@ pub async fn save_key_from_content(
         algorithm,
     };
     data.keys.push(key.clone());
-    save_app_data(&data, &state.key()?).map_err(|e| e.to_string())?;
+    state.save(&data)?;
 
     Ok(KeyEntry {
         id: key.id,
@@ -131,10 +130,10 @@ pub async fn save_key_from_content(
 }
 
 #[tauri::command]
-pub async fn delete_key(state: State<'_, AppState>, key_id: String) -> Result<(), String> {
+pub async fn delete_key(state: State<'_, AppState>, key_id: String) -> CmdResult<()> {
     let mut data = state.data.lock().await;
     data.keys.retain(|k| k.id != key_id);
-    save_app_data(&data, &state.key()?).map_err(|e| e.to_string())
+    state.save(&data)
 }
 
 pub(super) fn detect_algorithm(pem: &str) -> Option<String> {
@@ -167,11 +166,11 @@ pub(super) fn detect_algorithm(pem: &str) -> Option<String> {
 }
 
 #[tauri::command]
-pub async fn convert_ppk(content: String, passphrase: Option<String>) -> Result<String, String> {
+pub async fn convert_ppk(content: String, passphrase: Option<String>) -> CmdResult<String> {
     if !ppk::is_ppk(&content) {
         return Err("Not a PPK file".into());
     }
-    ppk::ppk_to_openssh(&content, passphrase.as_deref())
+    ppk::ppk_to_openssh(&content, passphrase.as_deref()).map_err(CmdError::from)
 }
 
 fn pem_to_public_openssh(pem: &str, passphrase: Option<&str>) -> Option<String> {
@@ -204,24 +203,21 @@ pub struct KeyContent {
 pub async fn get_key_content(
     state: State<'_, AppState>,
     key_id: String,
-) -> Result<KeyContent, String> {
+) -> CmdResult<KeyContent> {
     let data = state.data.lock().await;
     let key = data.keys.iter().find(|k| k.id == key_id)
         .ok_or("Key not found")?;
 
     let private_pem = if let Some(ref enc) = key.encrypted_key {
-        let bytes = decrypt(enc, &state.key()?).map_err(|e| e.to_string())?;
-        String::from_utf8(bytes).map_err(|e| e.to_string())?
+        state.decrypt_str(enc)?
     } else if let Some(ref path) = key.key_path {
-        std::fs::read_to_string(path).map_err(|e| e.to_string())?
+        std::fs::read_to_string(path)?
     } else {
-        return Err("Key has no content or path".to_string());
+        return Err("Key has no content or path".to_string().into());
     };
 
-    let master = state.key()?;
     let passphrase = key.encrypted_passphrase.as_ref()
-        .and_then(|enc| decrypt(enc, &master).ok())
-        .and_then(|b| String::from_utf8(b).ok());
+        .and_then(|enc| state.decrypt_str(enc).ok());
     let public_openssh = pem_to_public_openssh(&private_pem, passphrase.as_deref());
 
     Ok(KeyContent { private_pem, public_openssh, passphrase })
@@ -234,20 +230,20 @@ pub async fn update_key(
     name: String,
     content: String,
     passphrase: Option<String>,
-) -> Result<(), String> {
+) -> CmdResult<()> {
     let mut data = state.data.lock().await;
     let key = data.keys.iter_mut().find(|k| k.id == key_id)
         .ok_or("Key not found")?;
     key.name = name;
     key.algorithm = detect_algorithm(&content);
-    key.encrypted_key = Some(encrypt(content.as_bytes(), &state.key()?).map_err(|e| e.to_string())?);
+    key.encrypted_key = Some(state.encrypt(content.as_bytes())?);
     key.key_path = None;
     key.encrypted_passphrase = match passphrase {
         Some(ref p) if !p.is_empty() =>
-            Some(encrypt(p.as_bytes(), &state.key()?).map_err(|e| e.to_string())?),
+            Some(state.encrypt(p.as_bytes())?),
         _ => key.encrypted_passphrase.clone(),
     };
-    save_app_data(&data, &state.key()?).map_err(|e| e.to_string())
+    state.save(&data)
 }
 
 // ── Key generation ───────────────────────────────────────────────────────────
@@ -259,7 +255,7 @@ pub struct GeneratedKey {
 }
 
 #[tauri::command]
-pub async fn generate_key(algorithm: String, passphrase: Option<String>) -> Result<GeneratedKey, String> {
+pub async fn generate_key(algorithm: String, passphrase: Option<String>) -> CmdResult<GeneratedKey> {
     use ssh_key::{Algorithm, EcdsaCurve, LineEnding, PrivateKey};
     use ssh_key::private::{KeypairData, RsaKeypair};
     use rand::rngs::OsRng;
@@ -268,32 +264,32 @@ pub async fn generate_key(algorithm: String, passphrase: Option<String>) -> Resu
 
     let key = match algorithm.as_str() {
         "ed25519" => PrivateKey::random(&mut rng, Algorithm::Ed25519)
-            .map_err(|e| e.to_string())?,
+            ?,
         "ecdsa-p256" => PrivateKey::random(&mut rng, Algorithm::Ecdsa { curve: EcdsaCurve::NistP256 })
-            .map_err(|e| e.to_string())?,
+            ?,
         "rsa-2048" => {
-            let rsa = RsaKeypair::random(&mut rng, 2048).map_err(|e| e.to_string())?;
-            PrivateKey::new(KeypairData::Rsa(rsa), "").map_err(|e| e.to_string())?
+            let rsa = RsaKeypair::random(&mut rng, 2048)?;
+            PrivateKey::new(KeypairData::Rsa(rsa), "")?
         }
         "rsa-4096" => {
-            let rsa = RsaKeypair::random(&mut rng, 4096).map_err(|e| e.to_string())?;
-            PrivateKey::new(KeypairData::Rsa(rsa), "").map_err(|e| e.to_string())?
+            let rsa = RsaKeypair::random(&mut rng, 4096)?;
+            PrivateKey::new(KeypairData::Rsa(rsa), "")?
         }
-        _ => return Err(format!("Unknown algorithm: {}", algorithm)),
+        _ => return Err(format!("Unknown algorithm: {}", algorithm).into()),
     };
 
     let public_openssh = key.public_key()
         .to_openssh()
-        .map_err(|e| e.to_string())?;
+        ?;
 
     let private_pem = match passphrase.as_deref().filter(|p| !p.is_empty()) {
         Some(p) => key.encrypt(&mut rng, p)
-            .map_err(|e| e.to_string())?
+            ?
             .to_openssh(LineEnding::LF)
-            .map_err(|e| e.to_string())?
+            ?
             .to_string(),
         None => key.to_openssh(LineEnding::LF)
-            .map_err(|e| e.to_string())?
+            ?
             .to_string(),
     };
 

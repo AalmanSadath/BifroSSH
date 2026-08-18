@@ -1,16 +1,15 @@
 use tauri::State;
 use uuid::Uuid;
 
-use crate::crypto::{decrypt, encrypt};
 use crate::models::*;
-use crate::store::save_app_data;
 
+use super::CmdResult;
 use super::AppState;
 
 // ── Servers ──────────────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn list_servers(state: State<'_, AppState>) -> Result<Vec<Server>, String> {
+pub async fn list_servers(state: State<'_, AppState>) -> CmdResult<Vec<Server>> {
     let data = state.data.lock().await;
     let safe = data.servers.iter().map(|s| Server {
         encrypted_password: s.encrypted_password.as_ref().map(|_| "[stored]".to_string()),
@@ -24,11 +23,11 @@ pub async fn save_server(
     state: State<'_, AppState>,
     server: Server,
     password: Option<String>,
-) -> Result<Server, String> {
+) -> CmdResult<Server> {
     let mut data = state.data.lock().await;
 
     let encrypted_password = if let Some(pw) = password.filter(|p| !p.is_empty()) {
-        Some(encrypt(pw.as_bytes(), &state.key()?).map_err(|e| e.to_string())?)
+        Some(state.encrypt(pw.as_bytes())?)
     } else if !server.id.is_empty() {
         data.servers.iter().find(|s| s.id == server.id).and_then(|s| s.encrypted_password.clone())
     } else {
@@ -50,7 +49,7 @@ pub async fn save_server(
         Some(idx) => data.servers[idx] = server.clone(),
         None => data.servers.push(server.clone()),
     }
-    save_app_data(&data, &state.key()?).map_err(|e| e.to_string())?;
+    state.save(&data)?;
 
     Ok(Server {
         encrypted_password: server.encrypted_password.as_ref().map(|_| "[stored]".to_string()),
@@ -62,17 +61,16 @@ pub async fn save_server(
 pub async fn get_server_password(
     state: State<'_, AppState>,
     server_id: String,
-) -> Result<String, String> {
+) -> CmdResult<String> {
     let data = state.data.lock().await;
     let server = data.servers.iter().find(|s| s.id == server_id).ok_or("Server not found")?;
     let enc = server.encrypted_password.as_ref().ok_or("No password stored for this server")?;
-    let bytes = decrypt(enc, &state.key()?).map_err(|e| e.to_string())?;
-    String::from_utf8(bytes).map_err(|e| e.to_string())
+    state.decrypt_str(enc)
 }
 
 #[tauri::command]
-pub async fn delete_server(state: State<'_, AppState>, server_id: String) -> Result<(), String> {
+pub async fn delete_server(state: State<'_, AppState>, server_id: String) -> CmdResult<()> {
     let mut data = state.data.lock().await;
     data.servers.retain(|s| s.id != server_id);
-    save_app_data(&data, &state.key()?).map_err(|e| e.to_string())
+    state.save(&data)
 }

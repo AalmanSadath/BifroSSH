@@ -1,8 +1,8 @@
 use tauri::State;
 
 use crate::models::*;
-use crate::store::save_app_data;
 
+use super::CmdResult;
 use super::AppState;
 
 // ── User collections ─────────────────────────────────────────────────────────
@@ -13,7 +13,7 @@ use super::AppState;
 // the UI, so a get/save pair each is enough.
 
 #[tauri::command]
-pub async fn get_port_forwardings(state: State<'_, AppState>) -> Result<Vec<PortForwarding>, String> {
+pub async fn get_port_forwardings(state: State<'_, AppState>) -> CmdResult<Vec<PortForwarding>> {
     Ok(state.data.lock().await.port_forwardings.clone())
 }
 
@@ -21,14 +21,14 @@ pub async fn get_port_forwardings(state: State<'_, AppState>) -> Result<Vec<Port
 pub async fn save_port_forwardings(
     state: State<'_, AppState>,
     items: Vec<PortForwarding>,
-) -> Result<(), String> {
+) -> CmdResult<()> {
     let mut data = state.data.lock().await;
     data.port_forwardings = items;
-    save_app_data(&data, &state.key()?).map_err(|e| e.to_string())
+    state.save(&data)
 }
 
 #[tauri::command]
-pub async fn get_codeprints(state: State<'_, AppState>) -> Result<Vec<Codeprint>, String> {
+pub async fn get_codeprints(state: State<'_, AppState>) -> CmdResult<Vec<Codeprint>> {
     Ok(state.data.lock().await.codeprints.clone())
 }
 
@@ -36,16 +36,16 @@ pub async fn get_codeprints(state: State<'_, AppState>) -> Result<Vec<Codeprint>
 pub async fn save_codeprints(
     state: State<'_, AppState>,
     items: Vec<Codeprint>,
-) -> Result<(), String> {
+) -> CmdResult<()> {
     let mut data = state.data.lock().await;
     data.codeprints = items;
-    save_app_data(&data, &state.key()?).map_err(|e| e.to_string())
+    state.save(&data)
 }
 
 #[tauri::command]
 pub async fn get_custom_themes(
     state: State<'_, AppState>,
-) -> Result<std::collections::HashMap<String, serde_json::Value>, String> {
+) -> CmdResult<std::collections::HashMap<String, serde_json::Value>> {
     Ok(state.data.lock().await.custom_themes.clone())
 }
 
@@ -53,8 +53,8 @@ pub async fn get_custom_themes(
 pub async fn save_custom_themes(
     state: State<'_, AppState>,
     items: std::collections::HashMap<String, serde_json::Value>,
-) -> Result<(), String> {
+) -> CmdResult<()> {
     let mut data = state.data.lock().await;
     data.custom_themes = items;
-    save_app_data(&data, &state.key()?).map_err(|e| e.to_string())
+    state.save(&data)
 }

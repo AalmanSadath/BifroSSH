@@ -20,6 +20,87 @@ use crate::sftp::SftpClientState;
 use crate::ssh::SshState;
 use crate::tunnel::TunnelState;
 
+/// The error every command returns.
+///
+/// Tauri asks only for `Into<InvokeError>` of a command's error type, not
+/// `Serialize`, and `InvokeError` is a newtype over a JSON value with a
+/// `From<String>`. So this stays a plain string underneath and reaches the
+/// frontend as exactly the shape it always did.
+///
+/// The conversions are written out one per type on purpose. A blanket
+/// `impl<E: Display> From<E> for CmdError` collides with the reflexive
+/// `impl<T> From<T> for T` in core and does not compile.
+#[derive(Debug)]
+pub struct CmdError(String);
+
+pub type CmdResult<T> = Result<T, CmdError>;
+
+impl From<CmdError> for tauri::ipc::InvokeError {
+    fn from(e: CmdError) -> Self {
+        e.0.into()
+    }
+}
+
+impl std::fmt::Display for CmdError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl From<String> for CmdError {
+    fn from(s: String) -> Self {
+        CmdError(s)
+    }
+}
+
+impl From<&str> for CmdError {
+    fn from(s: &str) -> Self {
+        CmdError(s.to_string())
+    }
+}
+
+/// `{e:#}` rather than `to_string`, which is what the call sites used to do
+/// individually. The alternate form walks the `.context()` chain, so the
+/// messages `store` and `keystore` attach survive instead of being dropped on
+/// the way out.
+impl From<anyhow::Error> for CmdError {
+    fn from(e: anyhow::Error) -> Self {
+        CmdError(format!("{e:#}"))
+    }
+}
+
+impl From<ssh_key::Error> for CmdError {
+    fn from(e: ssh_key::Error) -> Self {
+        CmdError(e.to_string())
+    }
+}
+
+/// A send failure means the session's reader task is gone, which the caller
+/// reports as a dead session rather than as a channel error.
+impl<T> From<tokio::sync::mpsc::error::SendError<T>> for CmdError {
+    fn from(_: tokio::sync::mpsc::error::SendError<T>) -> Self {
+        CmdError("Session is no longer running".to_string())
+    }
+}
+
+impl From<std::io::Error> for CmdError {
+    fn from(e: std::io::Error) -> Self {
+        CmdError(e.to_string())
+    }
+}
+
+impl From<serde_json::Error> for CmdError {
+    fn from(e: serde_json::Error) -> Self {
+        CmdError(e.to_string())
+    }
+}
+
+impl From<std::string::FromUtf8Error> for CmdError {
+    fn from(e: std::string::FromUtf8Error) -> Self {
+        CmdError(e.to_string())
+    }
+}
+
 pub struct AppState {
     pub data: tokio::sync::Mutex<AppData>,
     /// Empty until the vault is open.
@@ -42,11 +123,36 @@ impl AppState {
     /// The master key, or an error while the vault is still locked. Returning
     /// an error rather than panicking means a stray command during unlock is a
     /// message, not a crash.
-    pub fn key(&self) -> Result<[u8; 32], String> {
+    pub fn key(&self) -> CmdResult<[u8; 32]> {
         self.secret_key
             .get()
             .copied()
-            .ok_or_else(|| "BifroSSH is locked. Enter your master passphrase first.".to_string())
+            .ok_or_else(|| CmdError::from("BifroSSH is locked. Enter your master passphrase first."))
+    }
+
+    /// Encrypt with the master key.
+    ///
+    /// The three wrappers below exist because every caller needs the key first,
+    /// and threading `&self.key()?` through each crypto call put the locked
+    /// check and the error conversion at 44 separate sites.
+    pub fn encrypt(&self, bytes: &[u8]) -> CmdResult<String> {
+        Ok(crate::crypto::encrypt(bytes, &self.key()?)?)
+    }
+
+    pub fn decrypt(&self, blob: &str) -> CmdResult<Vec<u8>> {
+        Ok(crate::crypto::decrypt(blob, &self.key()?)?)
+    }
+
+    /// Decrypt something that was stored as text, which is all of them: keys,
+    /// passwords and passphrases alike.
+    pub fn decrypt_str(&self, blob: &str) -> CmdResult<String> {
+        Ok(String::from_utf8(self.decrypt(blob)?)?)
+    }
+
+    /// Persist the whole document. Takes the guard by reference so callers can
+    /// pass the `MutexGuard` they are already holding.
+    pub fn save(&self, data: &AppData) -> CmdResult<()> {
+        Ok(crate::store::save_app_data(data, &self.key()?)?)
     }
 }
 

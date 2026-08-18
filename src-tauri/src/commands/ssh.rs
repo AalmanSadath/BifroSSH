@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::ssh::{connect_ssh, ConnectLogEvent, SshCommand, SshConnectParams};
 
-use super::{connect_security, timeout_pausable, AppState};
+use super::{CmdError, CmdResult, connect_security, timeout_pausable, AppState};
 use super::resolve::{resolve_auth, resolve_jumps, JumpHopRequest};
 
 // ── SSH ────────────────────────────────────────────────────────
@@ -28,7 +28,7 @@ pub async fn ssh_connect(
     state: State<'_, AppState>,
     app: AppHandle,
     request: ConnectRequest,
-) -> Result<String, String> {
+) -> CmdResult<String> {
     let session_id = Uuid::new_v4().to_string();
 
     let server = {
@@ -87,7 +87,7 @@ pub async fn ssh_connect(
             &format!("ssh-connect-log:{}", request.connect_id),
             ConnectLogEvent { message: format!("Connection failed: {}", msg), kind: "error".to_string() },
         );
-        return Err(msg.clone());
+        return Err(msg.clone().into());
     }
 
     Ok(session_id)
@@ -112,7 +112,7 @@ pub async fn ssh_connect_quick(
     state: State<'_, AppState>,
     app: AppHandle,
     request: QuickConnectRequest,
-) -> Result<String, String> {
+) -> CmdResult<String> {
     let session_id = Uuid::new_v4().to_string();
 
     let (auth, jumps, timeout_secs, keepalive_secs) = {
@@ -156,7 +156,7 @@ pub async fn ssh_connect_quick(
             &format!("ssh-connect-log:{}", request.connect_id),
             ConnectLogEvent { message: format!("Connection failed: {}", msg), kind: "error".to_string() },
         );
-        return Err(msg.clone());
+        return Err(msg.clone().into());
     }
 
     Ok(session_id)
@@ -167,14 +167,14 @@ pub async fn ssh_send_input(
     state: State<'_, AppState>,
     session_id: String,
     data: Vec<u8>,
-) -> Result<(), String> {
+) -> CmdResult<()> {
     let sessions = state.ssh_state.sessions.lock().await;
     let handle = sessions.get(&session_id).ok_or("Session not found")?;
     handle
         .cmd_tx
         .send(SshCommand::Data(data))
         .await
-        .map_err(|e| e.to_string())
+        .map_err(CmdError::from)
 }
 
 #[tauri::command]
@@ -183,14 +183,14 @@ pub async fn ssh_resize(
     session_id: String,
     cols: u32,
     rows: u32,
-) -> Result<(), String> {
+) -> CmdResult<()> {
     let sessions = state.ssh_state.sessions.lock().await;
     let handle = sessions.get(&session_id).ok_or("Session not found")?;
     handle
         .cmd_tx
         .send(SshCommand::Resize { cols, rows })
         .await
-        .map_err(|e| e.to_string())
+        .map_err(CmdError::from)
 }
 
 /// Hands over whatever the shell said before the terminal was listening.
@@ -206,7 +206,7 @@ pub async fn ssh_resize(
 pub async fn ssh_attach(
     state: State<'_, AppState>,
     session_id: String,
-) -> Result<String, String> {
+) -> CmdResult<String> {
     let sessions = state.ssh_state.sessions.lock().await;
     let Some(handle) = sessions.get(&session_id) else {
         return Ok(String::new());
@@ -219,7 +219,7 @@ pub async fn ssh_attach(
 pub async fn ssh_disconnect(
     state: State<'_, AppState>,
     session_id: String,
-) -> Result<(), String> {
+) -> CmdResult<()> {
     let sessions = state.ssh_state.sessions.lock().await;
     if let Some(handle) = sessions.get(&session_id) {
         let _ = handle.cmd_tx.send(SshCommand::Close).await;

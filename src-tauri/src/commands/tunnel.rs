@@ -3,7 +3,7 @@ use tauri::{AppHandle, State};
 
 use crate::tunnel::{TunnelKind, TunnelParams};
 
-use super::{connect_security, AppState};
+use super::{CmdError, CmdResult, connect_security, AppState};
 use super::resolve::{resolve_auth, resolve_jumps, JumpHopRequest};
 
 // ── Tunnel commands ───────────────────────────────────────────────────────────
@@ -27,7 +27,7 @@ pub async fn tunnel_start(
     auth_type: String,
     auth_value: String,
     jumps: Option<Vec<JumpHopRequest>>,
-) -> Result<(), String> {
+) -> CmdResult<()> {
     let (ssh_host, ssh_port, auth, jumps) = {
         let data = state.data.lock().await;
         let server = data.servers.iter().find(|s| s.id == server_id)
@@ -41,7 +41,7 @@ pub async fn tunnel_start(
     {
         let tunnels = state.tunnel_state.tunnels.lock().await;
         if tunnels.contains_key(&pf_id) {
-            return Err("Tunnel already running".to_string());
+            return Err("Tunnel already running".to_string().into());
         }
     }
 
@@ -59,7 +59,7 @@ pub async fn tunnel_start(
         "dynamic" => TunnelKind::Dynamic {
             local_port: local_port.ok_or("local_port required")?,
         },
-        t => return Err(format!("Unknown tunnel type: {}", t)),
+        t => return Err(format!("Unknown tunnel type: {}", t).into()),
     };
 
     let sec = connect_security(&state, &app, None, true).await;
@@ -68,14 +68,14 @@ pub async fn tunnel_start(
 
     crate::tunnel::start_tunnel(pf_id, params, Arc::clone(&state.tunnel_state))
         .await
-        .map_err(|e| e.to_string())
+        .map_err(CmdError::from)
 }
 
 #[tauri::command]
 pub async fn tunnel_stop(
     state: State<'_, AppState>,
     pf_id: String,
-) -> Result<(), String> {
+) -> CmdResult<()> {
     let mut tunnels = state.tunnel_state.tunnels.lock().await;
     if let Some(handle) = tunnels.remove(&pf_id) {
         let _ = handle.stop_tx.send(());

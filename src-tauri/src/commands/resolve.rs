@@ -1,3 +1,4 @@
+use super::CmdResult;
 
 use crate::crypto::decrypt;
 use crate::jump::JumpHop;
@@ -18,7 +19,7 @@ pub(super) fn resolve_auth(
     secret_key: &[u8; 32],
     auth_type: &str,
     auth_value: &str,
-) -> Result<SshAuth, String> {
+) -> CmdResult<SshAuth> {
     match auth_type {
         // Nothing is stored: the server asks and the user answers at connect time.
         "keyboard-interactive" => Ok(SshAuth::KeyboardInteractive),
@@ -35,18 +36,18 @@ pub(super) fn resolve_auth(
                 .ok_or_else(|| "Key not found".to_string())?;
 
             let key_pem = if let Some(enc) = &key.encrypted_key {
-                let bytes = decrypt(enc, secret_key).map_err(|e| e.to_string())?;
-                String::from_utf8(bytes).map_err(|e| e.to_string())?
+                let bytes = decrypt(enc, secret_key)?;
+                String::from_utf8(bytes)?
             } else if let Some(path) = &key.key_path {
-                std::fs::read_to_string(path).map_err(|e| e.to_string())?
+                std::fs::read_to_string(path)?
             } else {
-                return Err("Key has no content or path".to_string());
+                return Err("Key has no content or path".to_string().into());
             };
 
             let passphrase = match &key.encrypted_passphrase {
                 Some(enc) => {
-                    let bytes = decrypt(enc, secret_key).map_err(|e| e.to_string())?;
-                    Some(String::from_utf8(bytes).map_err(|e| e.to_string())?)
+                    let bytes = decrypt(enc, secret_key)?;
+                    Some(String::from_utf8(bytes)?)
                 }
                 None => None,
             };
@@ -73,7 +74,7 @@ pub(super) fn resolve_jumps(
     data: &AppData,
     secret_key: &[u8; 32],
     hops: &[JumpHopRequest],
-) -> Result<Vec<JumpHop>, String> {
+) -> CmdResult<Vec<JumpHop>> {
     hops.iter()
         .map(|hop| {
             let auth = resolve_auth(data, secret_key, &hop.auth_type, &hop.auth_value)

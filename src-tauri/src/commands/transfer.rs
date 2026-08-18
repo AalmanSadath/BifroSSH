@@ -2,6 +2,7 @@ use tauri::State;
 
 use crate::store::save_app_data;
 
+use super::CmdResult;
 use super::AppState;
 
 // ── Export and import ────────────────────────────────────────────────────────
@@ -9,7 +10,7 @@ use super::AppState;
 /// Where an export should land by default. Somewhere the user will find it,
 /// which is Downloads if they have one.
 #[tauri::command]
-pub async fn default_export_dir() -> Result<String, String> {
+pub async fn default_export_dir() -> CmdResult<String> {
     let home = dirs::home_dir().ok_or("Could not find your home directory")?;
     let downloads = home.join("Downloads");
     let dir = if downloads.is_dir() { downloads } else { home };
@@ -23,18 +24,18 @@ pub async fn export_data(
     passphrase: String,
     include_secrets: bool,
     overwrite: bool,
-) -> Result<crate::transfer::ExportResult, String> {
+) -> CmdResult<crate::transfer::ExportResult> {
     // Checked before anything is built, so a refusal costs nothing and cannot
     // be mistaken for a write that half happened.
     if !overwrite && std::path::Path::new(&path).exists() {
-        return Err(format!("{path} already exists"));
+        return Err(format!("{path} already exists").into());
     }
 
     let key = state.key()?;
     let (content, counts) = {
         let data = state.data.lock().await;
         crate::transfer::build_export(&data, &key, &passphrase, include_secrets)
-            .map_err(|e| format!("{e:#}"))?
+            ?
     };
 
     // write_private, so the file is owner-only from the moment it exists
@@ -55,10 +56,10 @@ pub async fn preview_import(
     state: State<'_, AppState>,
     path: String,
     passphrase: String,
-) -> Result<crate::transfer::MergePlan, String> {
-    let content = crate::transfer::read_export_file(&path).map_err(|e| format!("{e:#}"))?;
+) -> CmdResult<crate::transfer::MergePlan> {
+    let content = crate::transfer::read_export_file(&path)?;
     let (file, payload, _) =
-        crate::transfer::open_export(&content, &passphrase).map_err(|e| format!("{e:#}"))?;
+        crate::transfer::open_export(&content, &passphrase)?;
     let data = state.data.lock().await;
     Ok(crate::transfer::plan_merge(&file, &payload, &data))
 }
@@ -69,17 +70,17 @@ pub async fn import_data(
     path: String,
     passphrase: String,
     options: crate::transfer::ImportOptions,
-) -> Result<crate::transfer::ImportReport, String> {
-    let content = crate::transfer::read_export_file(&path).map_err(|e| format!("{e:#}"))?;
+) -> CmdResult<crate::transfer::ImportReport> {
+    let content = crate::transfer::read_export_file(&path)?;
     let (_, payload, export_key) =
-        crate::transfer::open_export(&content, &passphrase).map_err(|e| format!("{e:#}"))?;
+        crate::transfer::open_export(&content, &passphrase)?;
 
     // The key is taken before the lock so a locked vault fails without having
     // merged anything into the copy in memory.
     let master = state.key()?;
     let mut data = state.data.lock().await;
     let report = crate::transfer::apply_merge(payload, &export_key, &master, &mut data, &options)
-        .map_err(|e| format!("{e:#}"))?;
-    save_app_data(&data, &master).map_err(|e| e.to_string())?;
+        ?;
+    save_app_data(&data, &master)?;
     Ok(report)
 }

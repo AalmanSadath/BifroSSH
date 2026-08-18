@@ -1,6 +1,7 @@
 use tauri::State;
 
 
+use super::{CmdError, CmdResult};
 use super::AppState;
 
 // ── Master key ──────────────────────────────────────────────────────────────
@@ -24,7 +25,7 @@ pub struct VaultStatus {
 }
 
 #[tauri::command]
-pub async fn vault_status(state: State<'_, AppState>) -> Result<VaultStatus, String> {
+pub async fn vault_status(state: State<'_, AppState>) -> CmdResult<VaultStatus> {
     let locked = state.secret_key.get().is_none();
     let setup_required = locked
         && state.startup_error.is_none()
@@ -51,7 +52,7 @@ pub async fn vault_status(state: State<'_, AppState>) -> Result<VaultStatus, Str
 /// A fresh word phrase for the dice button. Generated in the backend so the
 /// randomness comes from the same source as the keys themselves.
 #[tauri::command]
-pub async fn generate_passphrase() -> Result<String, String> {
+pub async fn generate_passphrase() -> CmdResult<String> {
     Ok(crate::keystore::generate_passphrase())
 }
 
@@ -61,33 +62,33 @@ pub async fn initialize_vault(
     mode: crate::keystore::InitMode,
     passphrase: String,
     state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> CmdResult<()> {
     if state.secret_key.get().is_some() {
-        return Err("This profile already has a key".to_string());
+        return Err("This profile already has a key".to_string().into());
     }
-    let dir = crate::store::get_data_dir().map_err(|e| e.to_string())?;
+    let dir = crate::store::get_data_dir()?;
     if !crate::keystore::is_first_run(&dir) {
-        return Err("This profile already has a key".to_string());
+        return Err("This profile already has a key".to_string().into());
     }
-    let key = crate::keystore::initialize(&dir, mode, &passphrase).map_err(|e| format!("{e:#}"))?;
+    let key = crate::keystore::initialize(&dir, mode, &passphrase)?;
     let _ = state.secret_key.set(key);
     Ok(())
 }
 
 /// Opens the vault and loads the data that could not be read until now.
 #[tauri::command]
-pub async fn unlock_vault(passphrase: String, state: State<'_, AppState>) -> Result<(), String> {
+pub async fn unlock_vault(passphrase: String, state: State<'_, AppState>) -> CmdResult<()> {
     if state.secret_key.get().is_some() {
         return Ok(());
     }
-    let dir = crate::store::get_data_dir().map_err(|e| e.to_string())?;
+    let dir = crate::store::get_data_dir()?;
     let key = crate::keystore::unlock_with_passphrase(&dir, &passphrase)
-        .map_err(|e| format!("{e:#}"))?;
+        ?;
 
     // Load before publishing the key, so a data file that will not open leaves
     // the app locked rather than half started with an empty AppData that the
     // next save would write over the real one.
-    let loaded = crate::store::load_app_data(&key).map_err(|e| format!("{e:#}"))?;
+    let loaded = crate::store::load_app_data(&key)?;
     *state.data.lock().await = loaded;
     let _ = state.secret_key.set(key);
     Ok(())
@@ -109,8 +110,8 @@ pub struct KeystoreStatus {
 }
 
 #[tauri::command]
-pub async fn keystore_status(_state: State<'_, AppState>) -> Result<KeystoreStatus, String> {
-    let dir = crate::store::get_data_dir().map_err(|e| e.to_string())?;
+pub async fn keystore_status(_state: State<'_, AppState>) -> CmdResult<KeystoreStatus> {
+    let dir = crate::store::get_data_dir()?;
     let keyring = crate::keystore::keyring_status();
     let keyring_available = matches!(keyring, crate::keystore::KeyringStatus::Ready(_));
     Ok(KeystoreStatus {
@@ -130,11 +131,11 @@ pub async fn set_master_passphrase(
     passphrase: String,
     always_ask: bool,
     state: State<'_, AppState>,
-) -> Result<(), String> {
-    let dir = crate::store::get_data_dir().map_err(|e| e.to_string())?;
+) -> CmdResult<()> {
+    let dir = crate::store::get_data_dir()?;
     let form = crate::keystore::detect_form(&passphrase);
     crate::keystore::set_passphrase(&dir, &state.key()?, &passphrase, always_ask, form)
-        .map_err(|e| format!("{e:#}"))
+        .map_err(CmdError::from)
 }
 
 /// Switches between the keyring being allowed to open the vault and the
@@ -143,10 +144,10 @@ pub async fn set_master_passphrase(
 pub async fn set_always_ask(
     always_ask: bool,
     state: State<'_, AppState>,
-) -> Result<(), String> {
-    let dir = crate::store::get_data_dir().map_err(|e| e.to_string())?;
+) -> CmdResult<()> {
+    let dir = crate::store::get_data_dir()?;
     crate::keystore::set_always_ask(&dir, &state.key()?, always_ask)
-        .map_err(|e| format!("{e:#}"))
+        .map_err(CmdError::from)
 }
 
 /// Requires the current passphrase, so that someone at an unlocked screen
@@ -155,12 +156,12 @@ pub async fn set_always_ask(
 pub async fn remove_master_passphrase(
     passphrase: String,
     state: State<'_, AppState>,
-) -> Result<(), String> {
-    let dir = crate::store::get_data_dir().map_err(|e| e.to_string())?;
+) -> CmdResult<()> {
+    let dir = crate::store::get_data_dir()?;
     let key = crate::keystore::unlock_with_passphrase(&dir, &passphrase)
-        .map_err(|e| format!("{e:#}"))?;
+        ?;
     if key != state.key()? {
-        return Err("That passphrase does not match this keystore".to_string());
+        return Err("That passphrase does not match this keystore".to_string().into());
     }
-    crate::keystore::clear_passphrase(&dir, &state.key()?).map_err(|e| format!("{e:#}"))
+    crate::keystore::clear_passphrase(&dir, &state.key()?).map_err(CmdError::from)
 }

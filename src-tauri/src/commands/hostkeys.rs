@@ -3,6 +3,7 @@ use tauri::State;
 use crate::hostkeys::{self, KnownHostEntry};
 use crate::prompts::HostKeyDecision;
 
+use super::{CmdError, CmdResult};
 use super::AppState;
 
 // ── Host keys ────────────────────────────────────────────────────────────────
@@ -13,7 +14,7 @@ pub async fn respond_host_key(
     state: State<'_, AppState>,
     request_id: String,
     decision: String,
-) -> Result<(), String> {
+) -> CmdResult<()> {
     let decision = HostKeyDecision::from_str(&decision)
         .ok_or_else(|| format!("Unknown host key decision: {}", decision))?;
 
@@ -33,7 +34,7 @@ pub async fn respond_auth_prompt(
     state: State<'_, AppState>,
     request_id: String,
     responses: Option<Vec<String>>,
-) -> Result<(), String> {
+) -> CmdResult<()> {
     let sender = state.prompts.auth.lock().await.remove(&request_id);
     // Gone means the connect already gave up; nothing left to answer.
     if let Some(sender) = sender {
@@ -53,7 +54,7 @@ pub struct AgentKeyInfo {
 /// No comment field: the agent protocol carries one, but russh-keys discards it
 /// while parsing, so there is no `user@host` label to show.
 #[tauri::command]
-pub async fn list_agent_keys() -> Result<Vec<AgentKeyInfo>, String> {
+pub async fn list_agent_keys() -> CmdResult<Vec<AgentKeyInfo>> {
     #[cfg(unix)]
     {
         use russh_keys::agent::client::AgentClient;
@@ -77,18 +78,18 @@ pub async fn list_agent_keys() -> Result<Vec<AgentKeyInfo>, String> {
     }
     #[cfg(not(unix))]
     {
-        Err("ssh-agent is only supported on Unix".to_string())
+        Err("ssh-agent is only supported on Unix".to_string().into())
     }
 }
 
 #[tauri::command]
-pub async fn list_known_hosts() -> Result<Vec<KnownHostEntry>, String> {
-    hostkeys::list_known_hosts().map_err(|e| e.to_string())
+pub async fn list_known_hosts() -> CmdResult<Vec<KnownHostEntry>> {
+    hostkeys::list_known_hosts().map_err(CmdError::from)
 }
 
 #[tauri::command]
-pub async fn forget_known_host(host: String, port: u16) -> Result<(), String> {
+pub async fn forget_known_host(host: String, port: u16) -> CmdResult<()> {
     hostkeys::forget_host(&host, port)
         .map(|_| ())
-        .map_err(|e| e.to_string())
+        .map_err(CmdError::from)
 }

@@ -3,16 +3,16 @@ use tauri::State;
 use uuid::Uuid;
 
 use crate::models::*;
-use crate::store::save_app_data;
 
+use super::{CmdError, CmdResult};
 use super::AppState;
 use super::keys::detect_algorithm;
 
 // ── ssh_config import ────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn scan_ssh_config() -> Result<crate::sshconfig::SshConfigScan, String> {
-    crate::sshconfig::scan()
+pub async fn scan_ssh_config() -> CmdResult<crate::sshconfig::SshConfigScan> {
+    crate::sshconfig::scan().map_err(CmdError::from)
 }
 
 #[derive(serde::Serialize)]
@@ -31,7 +31,7 @@ pub struct SshConfigImport {
 pub async fn import_ssh_config_hosts(
     state: State<'_, AppState>,
     aliases: Vec<String>,
-) -> Result<SshConfigImport, String> {
+) -> CmdResult<SshConfigImport> {
     let scan = crate::sshconfig::scan()?;
     let mut data = state.data.lock().await;
     let mut result = SshConfigImport { imported: 0, skipped_existing: 0, keys_linked: 0, jumps_linked: 0 };
@@ -121,6 +121,6 @@ pub async fn import_ssh_config_hosts(
         }
     }
 
-    save_app_data(&data, &state.key()?).map_err(|e| e.to_string())?;
+    state.save(&data)?;
     Ok(result)
 }

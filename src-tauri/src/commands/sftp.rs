@@ -2,7 +2,7 @@ use tauri::{AppHandle, State};
 use uuid::Uuid;
 
 
-use super::{connect_security, AppState};
+use super::{CmdError, CmdResult, connect_security, AppState};
 use super::resolve::{resolve_auth, resolve_jumps, JumpHopRequest};
 
 // ── SFTP ─────────────────────────────────────────────────────────────────────
@@ -13,8 +13,8 @@ pub async fn sftp_local_home() -> String {
 }
 
 #[tauri::command]
-pub async fn sftp_list_local(path: String) -> Result<Vec<crate::sftp::FileEntry>, String> {
-    crate::sftp::list_local(&path)
+pub async fn sftp_list_local(path: String) -> CmdResult<Vec<crate::sftp::FileEntry>> {
+    crate::sftp::list_local(&path).map_err(CmdError::from)
 }
 
 #[tauri::command]
@@ -31,7 +31,7 @@ pub async fn sftp_connect_remote(
     // Channel the connection log is narrated on.
     connect_id: Option<String>,
     jumps: Option<Vec<JumpHopRequest>>,
-) -> Result<String, String> {
+) -> CmdResult<String> {
     let (host, port, auth, jumps, inactivity_timeout_secs) = {
         let data = state.data.lock().await;
         let server = data.servers.iter()
@@ -68,8 +68,8 @@ pub async fn sftp_connect_remote(
 pub async fn sftp_get_home(
     state: State<'_, AppState>,
     session_id: String,
-) -> Result<String, String> {
-    crate::sftp::get_remote_home(&state.sftp_state, &session_id).await
+) -> CmdResult<String> {
+    crate::sftp::get_remote_home(&state.sftp_state, &session_id).await.map_err(CmdError::from)
 }
 
 #[tauri::command]
@@ -77,15 +77,15 @@ pub async fn sftp_list_remote(
     state: State<'_, AppState>,
     session_id: String,
     path: String,
-) -> Result<Vec<crate::sftp::FileEntry>, String> {
-    crate::sftp::list_remote(&state.sftp_state, &session_id, &path).await
+) -> CmdResult<Vec<crate::sftp::FileEntry>> {
+    crate::sftp::list_remote(&state.sftp_state, &session_id, &path).await.map_err(CmdError::from)
 }
 
 #[tauri::command]
 pub async fn sftp_disconnect_remote(
     state: State<'_, AppState>,
     session_id: String,
-) -> Result<(), String> {
+) -> CmdResult<()> {
     crate::sftp::disconnect_sftp(&state.sftp_state, &session_id).await;
     Ok(())
 }
@@ -97,8 +97,8 @@ pub async fn sftp_upload(
     session_id: String,
     local_path: String,
     remote_dir: String,
-) -> Result<crate::sftp::TransferSummary, String> {
-    crate::sftp::upload_path(&app, &state.sftp_state, &session_id, &local_path, &remote_dir).await
+) -> CmdResult<crate::sftp::TransferSummary> {
+    crate::sftp::upload_path(&app, &state.sftp_state, &session_id, &local_path, &remote_dir).await.map_err(CmdError::from)
 }
 
 #[tauri::command]
@@ -108,8 +108,8 @@ pub async fn sftp_download(
     session_id: String,
     remote_path: String,
     local_dir: String,
-) -> Result<crate::sftp::TransferSummary, String> {
-    crate::sftp::download_path(&app, &state.sftp_state, &session_id, &remote_path, &local_dir).await
+) -> CmdResult<crate::sftp::TransferSummary> {
+    crate::sftp::download_path(&app, &state.sftp_state, &session_id, &remote_path, &local_dir).await.map_err(CmdError::from)
 }
 
 #[tauri::command]
@@ -120,13 +120,13 @@ pub async fn sftp_copy_remote_to_remote(
     src_path: String,
     dst_session_id: String,
     dst_dir: String,
-) -> Result<crate::sftp::TransferSummary, String> {
-    crate::sftp::copy_remote_path(&app, &state.sftp_state, &src_session_id, &src_path, &dst_session_id, &dst_dir).await
+) -> CmdResult<crate::sftp::TransferSummary> {
+    crate::sftp::copy_remote_path(&app, &state.sftp_state, &src_session_id, &src_path, &dst_session_id, &dst_dir).await.map_err(CmdError::from)
 }
 
 #[tauri::command]
-pub fn sftp_create_local_dir(path: String) -> Result<(), String> {
-    crate::sftp::create_local_dir(&path)
+pub fn sftp_create_local_dir(path: String) -> CmdResult<()> {
+    crate::sftp::create_local_dir(&path).map_err(CmdError::from)
 }
 
 #[tauri::command]
@@ -134,18 +134,18 @@ pub async fn sftp_mkdir(
     state: State<'_, AppState>,
     session_id: String,
     path: String,
-) -> Result<(), String> {
-    crate::sftp::mkdir(&state.sftp_state, &session_id, &path).await
+) -> CmdResult<()> {
+    crate::sftp::mkdir(&state.sftp_state, &session_id, &path).await.map_err(CmdError::from)
 }
 
 #[tauri::command]
-pub fn sftp_delete_local(path: String) -> Result<(), String> {
-    crate::sftp::delete_local(&path)
+pub fn sftp_delete_local(path: String) -> CmdResult<()> {
+    crate::sftp::delete_local(&path).map_err(CmdError::from)
 }
 
 #[tauri::command]
-pub fn sftp_rename_local(old_path: String, new_path: String) -> Result<(), String> {
-    crate::sftp::rename_local(&old_path, &new_path)
+pub fn sftp_rename_local(old_path: String, new_path: String) -> CmdResult<()> {
+    crate::sftp::rename_local(&old_path, &new_path).map_err(CmdError::from)
 }
 
 #[tauri::command]
@@ -154,8 +154,8 @@ pub async fn sftp_delete_remote(
     session_id: String,
     path: String,
     is_dir: bool,
-) -> Result<(), String> {
-    crate::sftp::delete_remote(&state.sftp_state, &session_id, &path, is_dir).await
+) -> CmdResult<()> {
+    crate::sftp::delete_remote(&state.sftp_state, &session_id, &path, is_dir).await.map_err(CmdError::from)
 }
 
 #[tauri::command]
@@ -164,6 +164,6 @@ pub async fn sftp_rename_remote(
     session_id: String,
     old_path: String,
     new_path: String,
-) -> Result<(), String> {
-    crate::sftp::rename_remote(&state.sftp_state, &session_id, &old_path, &new_path).await
+) -> CmdResult<()> {
+    crate::sftp::rename_remote(&state.sftp_state, &session_id, &old_path, &new_path).await.map_err(CmdError::from)
 }

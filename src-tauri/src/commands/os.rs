@@ -1,8 +1,7 @@
 use tauri::{AppHandle, State};
 
-use crate::store::save_app_data;
 
-use super::{connect_security, AppState};
+use super::{CmdResult, connect_security, AppState};
 use super::resolve::{resolve_auth, resolve_jumps, JumpHopRequest};
 
 // ── OS detection ─────────────────────────────────────────────────────────────
@@ -64,7 +63,7 @@ pub async fn detect_server_os(
     auth_type: String,
     auth_value: String,
     jumps: Option<Vec<JumpHopRequest>>,
-) -> Result<String, String> {
+) -> CmdResult<String> {
     let (host, port, auth, jumps) = {
         let data = state.data.lock().await;
         let server = data.servers.iter().find(|s| s.id == server_id)
@@ -85,7 +84,7 @@ pub async fn detect_server_os(
         &jumps,
     )
     .await
-    .map_err(|e| e.to_string())?;
+    ?;
 
     let detected = parse_os_release(&output);
 
@@ -94,7 +93,7 @@ pub async fn detect_server_os(
         if let Some(server) = data.servers.iter_mut().find(|s| s.id == server_id) {
             server.os = detected.clone();
         }
-        save_app_data(&data, &state.key()?).map_err(|e| e.to_string())?;
+        state.save(&data)?;
     }
 
     Ok(detected)
