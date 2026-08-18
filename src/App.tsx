@@ -370,14 +370,9 @@ export default function App() {
             </div>
             <div className="quick-auth-or">or use a stored key</div>
             <div className="picker" style={{ marginBottom: 14 }}>
-              <button
-                type="button"
-                className="picker-btn"
-                onClick={() => {/* inline list shown below */}}
-                style={{ cursor: 'default' }}
-              >
+              <div className="picker-btn" style={{ cursor: 'default' }}>
                 <span>{keys.find((k) => k.id === quickKeyId)?.name ?? 'Select key…'}</span>
-              </button>
+              </div>
               <div className="picker-menu" style={{ position: 'static', boxShadow: 'none', border: '1px solid var(--border)', marginTop: 4 }}>
                 {keys.map((k) => (
                   <button

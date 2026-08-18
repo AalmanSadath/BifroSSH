@@ -183,6 +183,9 @@ pub fn list_local(path: &str) -> Result<Vec<FileEntry>, String> {
     Ok(entries)
 }
 
+// Threaded straight through from the command layer. Collapsing these into a
+// params struct belongs with the wider connect-path dedup, not here.
+#[allow(clippy::too_many_arguments)]
 pub async fn connect_sftp(
     sftp_state: &SftpClientState,
     session_id: &str,
@@ -205,6 +208,9 @@ pub async fn connect_sftp(
     .map_err(|_| "Connection timed out after 30 seconds".to_string())?
 }
 
+// Threaded straight through from the command layer. Collapsing these into a
+// params struct belongs with the wider connect-path dedup, not here.
+#[allow(clippy::too_many_arguments)]
 async fn connect_sftp_inner(
     sftp_state: &SftpClientState,
     session_id: &str,

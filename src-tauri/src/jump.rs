@@ -125,7 +125,7 @@ pub async fn open_transport(
 
         let verifier =
             HostKeyVerifier::new(sec.clone(), &hop.host, hop.port, Some(hop.username.clone()))
-                .as_jump();
+                .into_jump();
         let mut handle =
             match client::connect_stream(config, stream, VerifyingHandler { v: verifier.clone() }).await {
                 Ok(handle) => handle,

@@ -120,14 +120,6 @@ export interface HostKeyPromptEvent {
   is_jump: boolean;
 }
 
-/** Result of a recursive SFTP transfer. */
-export interface TransferSummary {
-  files: number;
-  directories: number;
-  /** Symlinks are not copied; following them risks an unbounded loop. */
-  skipped_symlinks: number;
-}
-
 export interface SshConfigHost {
   alias: string;
   hostname: string;
@@ -215,15 +207,6 @@ export interface PortForwarding {
   remote_port: number | null;
   dest_address: string;
   dest_port: number | null;
-}
-
-export interface ConnectRequest {
-  server_id: string;
-  username: string;
-  auth_type: 'password' | 'key';
-  auth_value: string;
-  cols: number;
-  rows: number;
 }
 
 /** A local file or directory, as `sftp_list_local` reports it. */

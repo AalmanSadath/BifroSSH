@@ -184,6 +184,14 @@ jobs:
         working-directory: src-tauri
         run: cargo build --lib --locked
 
+      # --all-targets so test code is linted too: a plain `--lib` run does not
+      # expand #[cfg(test)], which is how a field read only by tests still gets
+      # reported as dead. Lint flags after `--` apply to this package alone, so
+      # the vendored crates under patches/ cannot fail the gate.
+      - name: Clippy
+        working-directory: src-tauri
+        run: cargo clippy --all-targets --locked -- -D warnings
+
       - name: Test
         working-directory: src-tauri
         run: cargo test --lib --locked

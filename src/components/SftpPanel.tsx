@@ -93,7 +93,7 @@ interface FileBrowserProps {
 function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
   onRefresh, onNewFolder, extraActions, onLocalBtn,
   canCopyToTarget, onCopyToTarget, onRename, onDelete,
-  side, transferring, onDragEnter: onDragEnterCb, onDragLeave: onDragLeaveCb, onFileDrop, onReconnect
+  side, isDropTarget, transferring, onDragEnter: onDragEnterCb, onDragLeave: onDragLeaveCb, onFileDrop, onReconnect
 }: FileBrowserProps) {
   const { settings } = useAppStore();
   const hint = (t: string) => settings.show_hover_hints ? t : undefined;
@@ -423,6 +423,9 @@ function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
             ))}
           </tbody>
         </table>
+        {isDropTarget && (
+          <div className="sftp-drop-overlay"><span>Drop to copy here</span></div>
+        )}
         {transferring && (
           <div className="sftp-transfer-overlay">
             <span>Transferring…</span>
@@ -1066,10 +1069,7 @@ export default function SftpPanel() {
     <div className="sftp-container">
       <div className="sftp-panels-row">
       {/* Left panel */}
-      <div className={`sftp-file-panel${dropTarget === 'left' ? ' sftp-drop-target' : ''}`}>
-        {dropTarget === 'left' && !transferring && (
-          <div className="sftp-drop-overlay"><span>Drop to copy here</span></div>
-        )}
+      <div className="sftp-file-panel">
         {leftState === 'local' && (
           <FileBrowser
             title="Local"
@@ -1088,7 +1088,7 @@ export default function SftpPanel() {
             onLocalBtn={() => setLeftState('idle')}
             extraActions={closeConnectionActions(() => setLeftState('idle'))}
             side="left"
-            isDropTarget={dropTarget === 'left'}
+            isDropTarget={dropTarget === 'left' && !transferring}
             transferring={transferring && transferTarget === 'left'}
             onDragEnter={() => setDropTarget('left')}
             onDragLeave={() => setDropTarget(p => p === 'left' ? null : p)}
@@ -1144,7 +1144,7 @@ export default function SftpPanel() {
             onLocalBtn={() => setLeftState('idle')}
             extraActions={closeConnectionActions(handleLeftDisconnect)}
             side="left"
-            isDropTarget={dropTarget === 'left'}
+            isDropTarget={dropTarget === 'left' && !transferring}
             transferring={transferring && transferTarget === 'left'}
             onDragEnter={() => setDropTarget('left')}
             onDragLeave={() => setDropTarget(p => p === 'left' ? null : p)}
@@ -1160,10 +1160,7 @@ export default function SftpPanel() {
       <div className="sftp-divider" />
 
       {/* Right panel */}
-      <div className={`sftp-file-panel sftp-remote-panel${dropTarget === 'right' ? ' sftp-drop-target' : ''}`}>
-        {dropTarget === 'right' && !transferring && (
-          <div className="sftp-drop-overlay"><span>Drop to copy here</span></div>
-        )}
+      <div className="sftp-file-panel sftp-remote-panel">
         {remoteState === 'idle' && (
           <ConnectPrompt
             onSelectHost={() => setRemoteState('picking')}
@@ -1189,7 +1186,7 @@ export default function SftpPanel() {
             onLocalBtn={() => setRemoteState('idle')}
             extraActions={closeConnectionActions(() => setRemoteState('idle'))}
             side="right"
-            isDropTarget={dropTarget === 'right'}
+            isDropTarget={dropTarget === 'right' && !transferring}
             transferring={transferring && transferTarget === 'right'}
             onDragEnter={() => setDropTarget('right')}
             onDragLeave={() => setDropTarget(p => p === 'right' ? null : p)}
@@ -1238,7 +1235,7 @@ export default function SftpPanel() {
             onLocalBtn={() => setRemoteState('idle')}
             extraActions={closeConnectionActions(handleDisconnect)}
             side="right"
-            isDropTarget={dropTarget === 'right'}
+            isDropTarget={dropTarget === 'right' && !transferring}
             transferring={transferring && transferTarget === 'right'}
             onDragEnter={() => setDropTarget('right')}
             onDragLeave={() => setDropTarget(p => p === 'right' ? null : p)}

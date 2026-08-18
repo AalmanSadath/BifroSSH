@@ -1,18 +1,5 @@
 import React from 'react';
 
-export const OS_OPTIONS = [
-  { value: 'linux',       label: 'Linux'        },
-  { value: 'ubuntu',      label: 'Ubuntu'       },
-  { value: 'debian',      label: 'Debian'       },
-  { value: 'arch',        label: 'Arch'         },
-  { value: 'fedora',      label: 'Fedora'       },
-  { value: 'macos',       label: 'macOS'        },
-  { value: 'windows',     label: 'Windows'      },
-  { value: 'freebsd',     label: 'FreeBSD'      },
-  { value: 'raspberrypi', label: 'Raspberry Pi' },
-  { value: 'server',      label: 'Server'       },
-];
-
 function Linux() {
   return (
     <svg viewBox="0 0 24 24" width="100%" height="100%" fill="none">

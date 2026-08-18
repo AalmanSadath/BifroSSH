@@ -511,11 +511,11 @@ pub fn apply_merge(
 
     if opts.custom_themes {
         for (name, theme) in payload.custom_themes {
-            if current.custom_themes.contains_key(&name) {
-                report.skipped.custom_themes += 1;
-            } else {
-                current.custom_themes.insert(name, theme);
+            if let std::collections::hash_map::Entry::Vacant(e) = current.custom_themes.entry(name) {
+                e.insert(theme);
                 report.added.custom_themes += 1;
+            } else {
+                report.skipped.custom_themes += 1;
             }
         }
     }
@@ -852,8 +852,7 @@ mod tests {
 
     #[test]
     fn settings_are_only_replaced_when_asked_for() {
-        let mut settings = Settings::default();
-        settings.font_size = 22;
+        let settings = Settings { font_size: 22, ..Default::default() };
         let payload = Payload { settings: Some(settings), ..Default::default() };
         let content = seal(&payload, "phrase");
 

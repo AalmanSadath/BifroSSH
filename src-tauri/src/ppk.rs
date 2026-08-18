@@ -1,7 +1,7 @@
-/// PuTTY Private Key (PPK v2/v3) → OpenSSH PEM converter.
-///
-/// Handles unencrypted and AES-256-CBC/GCM encrypted keys.
-/// Supports ED25519, RSA, and ECDSA (P-256/P-384/P-521).
+//! PuTTY Private Key (PPK v2/v3) → OpenSSH PEM converter.
+//!
+//! Handles unencrypted and AES-256-CBC/GCM encrypted keys.
+//! Supports ED25519, RSA, and ECDSA (P-256/P-384/P-521).
 
 use base64::prelude::*;
 
@@ -157,7 +157,7 @@ fn decrypt_ppk_v2(data: &[u8], passphrase: &str) -> Result<Vec<u8>, String> {
 
     let iv = [0u8; 16];
     let mut buf = data.to_vec();
-    if buf.len() % 16 != 0 {
+    if !buf.len().is_multiple_of(16) {
         buf.resize(buf.len() + (16 - buf.len() % 16), 0);
     }
     cbc::Decryptor::<Aes256>::new(&key.into(), &iv.into())
@@ -198,7 +198,7 @@ fn decrypt_ppk_v3(ppk: &PpkData, passphrase: &str) -> Result<Vec<u8>, String> {
     let iv = &rest[..16];
 
     let mut buf = ppk.private_data.to_vec();
-    if buf.len() % 16 != 0 {
+    if !buf.len().is_multiple_of(16) {
         buf.resize(buf.len() + (16 - buf.len() % 16), 0);
     }
     cbc::Decryptor::<Aes256>::new(aes_key.into(), iv.into())
@@ -369,7 +369,7 @@ fn build_ecdsa(algorithm: &str, public_data: &[u8], private_blob: &[u8], comment
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
 fn from_hex(s: &str) -> Result<Vec<u8>, String> {
-    if s.len() % 2 != 0 { return Err("Odd hex length".into()); }
+    if !s.len().is_multiple_of(2) { return Err("Odd hex length".into()); }
     (0..s.len())
         .step_by(2)
         .map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(|_| "Invalid hex char".to_string()))

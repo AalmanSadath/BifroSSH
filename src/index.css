@@ -56,7 +56,6 @@ input, textarea, select, [contenteditable] {
   --accent:       #2f80ed;
   --accent-hover: #1a6fd4;
   --danger:       #b91c1c;
-  --error:        #b91c1c;
   --text-primary: #111827;
   --text-muted:   #374151;
   --text-dim:     #6b7280;
@@ -247,7 +246,7 @@ html, body, #root {
   border: 1px solid var(--border);
   border-radius: 5px;
   color: var(--text-primary);
-  font-family: var(--font-mono, monospace);
+  font-family: monospace;
   font-size: 12px;
   padding: 4px 9px;
   outline: none;
@@ -271,7 +270,7 @@ html, body, #root {
   box-shadow: 0 8px 32px rgba(0,0,0,0.5);
 }
 .quick-auth-target {
-  font-family: var(--font-mono, monospace);
+  font-family: monospace;
   font-size: 13px;
   color: var(--accent);
   margin-bottom: 14px;
@@ -2217,11 +2216,11 @@ button { cursor: pointer; font-family: inherit; }
 }
 
 .host-ctx-danger {
-  color: var(--error, #e06c75);
+  color: var(--danger);
 }
 
 .host-ctx-danger:hover {
-  background: color-mix(in srgb, var(--error, #e06c75) 12%, transparent);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 
 .host-ctx-divider {
@@ -2272,7 +2271,7 @@ button { cursor: pointer; font-family: inherit; }
 .tab-rename-input {
   width: 100%;
   padding: 5px 8px;
-  background: var(--bg-input, var(--bg-panel));
+  background: var(--bg-mid);
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--text-primary);
@@ -2329,7 +2328,7 @@ button { cursor: pointer; font-family: inherit; }
   text-align: left;
   border-radius: 5px;
   font-size: 13px;
-  color: var(--text);
+  color: var(--text-primary);
   background: none;
   border: none;
   cursor: pointer;
@@ -2986,11 +2985,11 @@ button { cursor: pointer; font-family: inherit; }
 }
 
 .sftp-dropdown-item-danger {
-  color: var(--error, #e06c75);
+  color: var(--danger);
 }
 
 .sftp-dropdown-item-danger:hover {
-  background: color-mix(in srgb, var(--error, #e06c75) 12%, transparent);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 
 .sftp-dropdown-divider {
@@ -3029,11 +3028,11 @@ button { cursor: pointer; font-family: inherit; }
 }
 
 .sftp-ctx-danger {
-  color: var(--error, #e06c75);
+  color: var(--danger);
 }
 
 .sftp-ctx-danger:hover {
-  background: color-mix(in srgb, var(--error, #e06c75) 12%, transparent);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 
 .sftp-ctx-divider {
@@ -3088,7 +3087,7 @@ button { cursor: pointer; font-family: inherit; }
   padding: 6px 14px;
   border-radius: 5px;
   border: none;
-  background: var(--error, #e06c75);
+  background: var(--danger);
   color: #fff;
   font-size: 13px;
   font-weight: 500;
@@ -3100,11 +3099,6 @@ button { cursor: pointer; font-family: inherit; }
 }
 
 /* Drag-and-drop */
-.sftp-drop-target {
-  outline: 2px dashed var(--accent);
-  outline-offset: -2px;
-}
-
 .sftp-drop-overlay,
 .sftp-transfer-overlay {
   position: absolute;
@@ -3121,10 +3115,12 @@ button { cursor: pointer; font-family: inherit; }
 .sftp-drop-overlay {
   background: color-mix(in srgb, var(--accent) 10%, transparent);
   color: var(--accent);
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
 }
 
 .sftp-transfer-overlay {
-  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  background: color-mix(in srgb, var(--bg-darkest) 70%, transparent);
   color: var(--text-dim);
 }
 
@@ -3178,7 +3174,7 @@ button { cursor: pointer; font-family: inherit; }
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg);
+  background: var(--bg-darkest);
 }
 
 .connecting-card {
@@ -3248,8 +3244,8 @@ button { cursor: pointer; font-family: inherit; }
 }
 
 .connecting-spinner-error {
-  border-top-color: var(--error, #e06c75);
-  border-color: color-mix(in srgb, var(--error, #e06c75) 20%, transparent);
+  border-top-color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 20%, transparent);
   animation: none;
 }
 
@@ -3269,7 +3265,7 @@ button { cursor: pointer; font-family: inherit; }
 }
 
 .connecting-line-error {
-  background: var(--error, #e06c75);
+  background: var(--danger);
 }
 
 .connecting-terminal-icon {
@@ -3290,18 +3286,18 @@ button { cursor: pointer; font-family: inherit; }
 }
 
 .connecting-terminal-error {
-  border-color: var(--error, #e06c75);
-  color: var(--error, #e06c75);
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 .connecting-failed-label {
-  color: var(--error, #e06c75);
+  color: var(--danger);
   font-size: 14px;
   font-weight: 600;
 }
 
 .connecting-log-line-error {
-  color: var(--error, #e06c75);
+  color: var(--danger);
 }
 
 .connecting-logs {

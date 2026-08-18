@@ -665,7 +665,7 @@ impl HostKeyVerifier {
 
     /// Marks this as a hop on the way somewhere else, so the prompt can say
     /// which machine it is asking the user to trust.
-    pub fn as_jump(mut self) -> Self {
+    pub fn into_jump(mut self) -> Self {
         self.is_jump = true;
         self
     }

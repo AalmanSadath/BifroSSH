@@ -561,7 +561,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
             ? next[next.length - 1].session_id
             : 'hosts'
           : s.activeTabId;
-      return { sessions: next, activeTabId: nextActive };
+      // The override is keyed on a session id that will never be reused, so
+      // leaving it behind grows the map for the life of the process.
+      const { [sessionId]: _dropped, ...themeOverrides } = s.sessionThemeOverrides;
+      return { sessions: next, activeTabId: nextActive, sessionThemeOverrides: themeOverrides };
     }),
 
   renameSession: (sessionId, name) =>

@@ -276,7 +276,6 @@ pub fn keyring_status() -> KeyringStatus {
     match result {
         Ok(Outcome::Secret(bytes)) => KeyringStatus::Ready(Box::new(kek_from_secret(&bytes))),
         Ok(Outcome::Locked) => KeyringStatus::Locked,
-        Ok(Outcome::Missing) => KeyringStatus::Missing,
         Err(e) => KeyringStatus::Unavailable(format!("{e:#}")),
     }
 }
@@ -284,7 +283,6 @@ pub fn keyring_status() -> KeyringStatus {
 pub(crate) enum Outcome {
     Secret(Vec<u8>),
     Locked,
-    Missing,
 }
 
 pub fn keyring_kek() -> Option<[u8; 32]> {
@@ -461,9 +459,14 @@ fn hex(bytes: &[u8]) -> String {
 
 // ── Resolution ──────────────────────────────────────────────────────────────
 
-/// The master key plus how it was found, so the caller can report it.
+/// The master key plus how it was found.
+///
+/// `source` has no production reader: Settings reports from `current_source`
+/// instead. It is kept because the unlock tests assert on it, and the order the
+/// routes are tried in is the security-relevant part of `unlock`.
 pub struct Unlocked {
     pub key: [u8; 32],
+    #[allow(dead_code)]
     pub source: KeySource,
     /// True when a passphrase is set and neither the keyring nor .secret could
     /// produce the key, meaning the user has to be asked.

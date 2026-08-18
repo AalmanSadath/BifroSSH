@@ -131,7 +131,7 @@ function MasterKeySection() {
       return 'The passphrase is only needed if the keyring is ever lost.';
     }
     if (s.source === 'passphrase') {
-      if (s.always_ask) return '';
+      if (s.always_ask) return null;
       return s.keyring_locked
         ? 'Your keyring is locked, so the passphrase is what opens it until you unlock the keyring.'
         : 'No desktop keyring answered here, so the passphrase is what opens it.';

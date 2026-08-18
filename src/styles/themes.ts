@@ -200,4 +200,3 @@ export const THEMES: Record<string, NamedTheme> = {
   },
 };
 
-export const THEME_LIST = Object.entries(THEMES).map(([id, t]) => ({ id, name: t.name }));

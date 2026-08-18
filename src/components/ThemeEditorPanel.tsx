@@ -72,7 +72,6 @@ function themeToColors(t: NamedTheme): ThemeColors {
   };
 }
 
-const ColorField = ColorPickerField;
 
 function PresetDropdown({ allThemes, customThemes, onSelect }: {
   allThemes: Record<string, NamedTheme>;
@@ -311,7 +310,7 @@ export default function ThemeEditorPanel() {
           {MAIN_FIELDS.map(({ key, label }) => (
             <div key={key} className="te-color-row">
               <span className="te-color-label">{label}</span>
-              <ColorField value={colors[key]} onChange={(v) => setColor(key, v)} />
+              <ColorPickerField value={colors[key]} onChange={(v) => setColor(key, v)} />
             </div>
           ))}
 
@@ -323,8 +322,8 @@ export default function ThemeEditorPanel() {
             {ANSI_PAIRS.map(({ label, normal, bright }) => (
               <Fragment key={label}>
                 <span className="te-ansi-label">{label}</span>
-                <ColorField value={colors[normal]} onChange={(v) => setColor(normal, v)} />
-                <ColorField value={colors[bright]} onChange={(v) => setColor(bright, v)} />
+                <ColorPickerField value={colors[normal]} onChange={(v) => setColor(normal, v)} />
+                <ColorPickerField value={colors[bright]} onChange={(v) => setColor(bright, v)} />
               </Fragment>
             ))}
           </div>

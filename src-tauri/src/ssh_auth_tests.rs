@@ -145,12 +145,15 @@ impl client::Handler for AcceptAnyKey {
 }
 
 /// Stands in for the user. Records what it was asked and replies from a script.
+/// One recorded prompt round: name, instruction, and each prompt with its echo flag.
+type AskedRound = (String, String, Vec<(String, bool)>);
+
 struct MockPrompter {
     answers: Vec<Vec<String>>,
     /// `true` makes every round come back as a cancellation.
     cancel: bool,
     interactive: bool,
-    asked: Mutex<Vec<(String, String, Vec<(String, bool)>)>>,
+    asked: Mutex<Vec<AskedRound>>,
     calls: Mutex<usize>,
 }
 

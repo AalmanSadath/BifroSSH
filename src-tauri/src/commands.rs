@@ -138,7 +138,7 @@ pub async fn save_server(
         Some(idx) => data.servers[idx] = server.clone(),
         None => data.servers.push(server.clone()),
     }
-    save_app_data(&*data, &state.key()?).map_err(|e| e.to_string())?;
+    save_app_data(&data, &state.key()?).map_err(|e| e.to_string())?;
 
     Ok(Server {
         encrypted_password: server.encrypted_password.as_ref().map(|_| "[stored]".to_string()),
@@ -162,7 +162,7 @@ pub async fn get_server_password(
 pub async fn delete_server(state: State<'_, AppState>, server_id: String) -> Result<(), String> {
     let mut data = state.data.lock().await;
     data.servers.retain(|s| s.id != server_id);
-    save_app_data(&*data, &state.key()?).map_err(|e| e.to_string())
+    save_app_data(&data, &state.key()?).map_err(|e| e.to_string())
 }
 
 // ── Keys ─────────────────────────────────────────────────────────────────────
@@ -186,7 +186,7 @@ pub async fn list_keys(state: State<'_, AppState>) -> Result<Vec<KeyEntry>, Stri
             }
         }
     }
-    if updated { let _ = save_app_data(&*data, &state.key()?); }
+    if updated { let _ = save_app_data(&data, &state.key()?); }
     let safe: Vec<KeyEntry> = data.keys.iter().map(|k| KeyEntry {
         id: k.id.clone(),
         name: k.name.clone(),
@@ -235,7 +235,7 @@ pub async fn import_key_from_path(
         algorithm,
     };
     data.keys.push(key.clone());
-    save_app_data(&*data, &state.key()?).map_err(|e| e.to_string())?;
+    save_app_data(&data, &state.key()?).map_err(|e| e.to_string())?;
 
     Ok(KeyEntry {
         id: key.id,
@@ -275,7 +275,7 @@ pub async fn save_key_from_content(
         algorithm,
     };
     data.keys.push(key.clone());
-    save_app_data(&*data, &state.key()?).map_err(|e| e.to_string())?;
+    save_app_data(&data, &state.key()?).map_err(|e| e.to_string())?;
 
     Ok(KeyEntry {
         id: key.id,
@@ -291,7 +291,7 @@ pub async fn save_key_from_content(
 pub async fn delete_key(state: State<'_, AppState>, key_id: String) -> Result<(), String> {
     let mut data = state.data.lock().await;
     data.keys.retain(|k| k.id != key_id);
-    save_app_data(&*data, &state.key()?).map_err(|e| e.to_string())
+    save_app_data(&data, &state.key()?).map_err(|e| e.to_string())
 }
 
 fn detect_algorithm(pem: &str) -> Option<String> {
@@ -404,7 +404,7 @@ pub async fn update_key(
             Some(encrypt(p.as_bytes(), &state.key()?).map_err(|e| e.to_string())?),
         _ => key.encrypted_passphrase.clone(),
     };
-    save_app_data(&*data, &state.key()?).map_err(|e| e.to_string())
+    save_app_data(&data, &state.key()?).map_err(|e| e.to_string())
 }
 
 // ── Key generation ───────────────────────────────────────────────────────────
@@ -499,7 +499,7 @@ pub async fn save_identity(
         Some(idx) => data.identities[idx] = identity.clone(),
         None => data.identities.push(identity.clone()),
     }
-    save_app_data(&*data, &state.key()?).map_err(|e| e.to_string())?;
+    save_app_data(&data, &state.key()?).map_err(|e| e.to_string())?;
     Ok(Identity {
         encrypted_password: identity.encrypted_password.map(|_| "[stored]".to_string()),
         ..identity
@@ -531,7 +531,7 @@ pub async fn delete_identity(
             server.identity_id = None;
         }
     }
-    save_app_data(&*data, &state.key()?).map_err(|e| e.to_string())
+    save_app_data(&data, &state.key()?).map_err(|e| e.to_string())
 }
 
 // ── Settings ─────────────────────────────────────────────────────────────────
@@ -548,7 +548,7 @@ pub async fn save_settings(
 ) -> Result<(), String> {
     let mut data = state.data.lock().await;
     data.settings = settings;
-    save_app_data(&*data, &state.key()?).map_err(|e| e.to_string())
+    save_app_data(&data, &state.key()?).map_err(|e| e.to_string())
 }
 
 // ── ssh_config import ────────────────────────────────────────────────────────
@@ -664,7 +664,7 @@ pub async fn import_ssh_config_hosts(
         }
     }
 
-    save_app_data(&*data, &state.key()?).map_err(|e| e.to_string())?;
+    save_app_data(&data, &state.key()?).map_err(|e| e.to_string())?;
     Ok(result)
 }
 
@@ -744,7 +744,7 @@ pub async fn import_data(
     let mut data = state.data.lock().await;
     let report = crate::transfer::apply_merge(payload, &export_key, &master, &mut data, &options)
         .map_err(|e| format!("{e:#}"))?;
-    save_app_data(&*data, &master).map_err(|e| e.to_string())?;
+    save_app_data(&data, &master).map_err(|e| e.to_string())?;
     Ok(report)
 }
 
@@ -767,7 +767,7 @@ pub async fn save_port_forwardings(
 ) -> Result<(), String> {
     let mut data = state.data.lock().await;
     data.port_forwardings = items;
-    save_app_data(&*data, &state.key()?).map_err(|e| e.to_string())
+    save_app_data(&data, &state.key()?).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -782,7 +782,7 @@ pub async fn save_codeprints(
 ) -> Result<(), String> {
     let mut data = state.data.lock().await;
     data.codeprints = items;
-    save_app_data(&*data, &state.key()?).map_err(|e| e.to_string())
+    save_app_data(&data, &state.key()?).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -799,7 +799,7 @@ pub async fn save_custom_themes(
 ) -> Result<(), String> {
     let mut data = state.data.lock().await;
     data.custom_themes = items;
-    save_app_data(&*data, &state.key()?).map_err(|e| e.to_string())
+    save_app_data(&data, &state.key()?).map_err(|e| e.to_string())
 }
 
 // ── Host keys ────────────────────────────────────────────────────────────────
@@ -979,7 +979,7 @@ pub async fn detect_server_os(
         if let Some(server) = data.servers.iter_mut().find(|s| s.id == server_id) {
             server.os = detected.clone();
         }
-        save_app_data(&*data, &state.key()?).map_err(|e| e.to_string())?;
+        save_app_data(&data, &state.key()?).map_err(|e| e.to_string())?;
     }
 
     Ok(detected)
@@ -1298,6 +1298,9 @@ pub async fn sftp_list_local(path: String) -> Result<Vec<crate::sftp::FileEntry>
 }
 
 #[tauri::command]
+// Tauri commands take their arguments flat off the IPC boundary, so the
+// count follows the request shape rather than a choice made here.
+#[allow(clippy::too_many_arguments)]
 pub async fn sftp_connect_remote(
     state: State<'_, AppState>,
     app: AppHandle,
@@ -1448,6 +1451,9 @@ pub async fn sftp_rename_remote(
 // ── Tunnel commands ───────────────────────────────────────────────────────────
 
 #[tauri::command]
+// Tauri commands take their arguments flat off the IPC boundary, so the
+// count follows the request shape rather than a choice made here.
+#[allow(clippy::too_many_arguments)]
 pub async fn tunnel_start(
     state: State<'_, AppState>,
     app: AppHandle,

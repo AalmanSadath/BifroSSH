@@ -23,7 +23,7 @@
 //! Exactly log2(2048) = 11 bits per word, so the eight word default is 88
 //! bits before Argon2id is applied on top.
 
-pub const WORDS: [&str; 2048] = [
+pub static WORDS: [&str; 2048] = [
     "abandon", "ability", "able", "about", "above", "absent", "absorb", "abstract", "absurd",
     "abuse", "access", "accident", "account", "accuse", "achieve", "acid", "acoustic",
     "acquire", "across", "act", "action", "actor", "actress", "actual", "adapt", "add",
