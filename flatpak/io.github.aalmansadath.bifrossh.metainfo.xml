@@ -85,6 +85,26 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.11.0" date="2026-08-19">
+      <description>
+        <p>
+          A file transfer can now be stopped while it runs. The part that had
+          been written is removed rather than left behind looking like a
+          complete file; anything already copied in a folder transfer stays.
+        </p>
+        <p>
+          The side being copied to is refreshed when a transfer ends, whether
+          it finished, failed or was stopped. It previously only refreshed on
+          success, so a transfer that failed after writing the file left it
+          out of the listing until you refreshed by hand.
+        </p>
+        <p>
+          A transfer that fails now says so. The reason was written only to a
+          log nobody sees, which made a failure look like nothing had
+          happened.
+        </p>
+      </description>
+    </release>
     <release version="0.10.0" date="2026-08-19">
       <description>
         <p>
