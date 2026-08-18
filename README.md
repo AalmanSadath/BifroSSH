@@ -8,7 +8,7 @@ Built with Tauri 2, React and Rust. Distributed as a Flatpak; ssh-agent and desk
 
 ## Install
 
-No Rust, Node.js or build tools needed.
+Install using Flatpak.
 
 ```bash
 flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
