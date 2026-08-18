@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import ContextMenu from './shared/ContextMenu';
 
 function hexToRgb(hex: string) {
   const c = hex.startsWith('#') ? hex.slice(1) : hex;
@@ -56,16 +57,6 @@ function PickerPanel({ value, onChange, onClose, pos }: PanelProps) {
 
   const areaRef = useRef<HTMLDivElement>(null);
   const hueRef = useRef<HTMLDivElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function onDown(e: MouseEvent) {
-      if (!panelRef.current?.contains(e.target as Node)) onClose();
-    }
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [onClose]);
-
   function emit(h: number, s: number, v: number) {
     const { r, g, b } = hsvToRgb(h, s, v);
     const hex = rgbToHex(r, g, b);
@@ -107,13 +98,8 @@ function PickerPanel({ value, onChange, onClose, pos }: PanelProps) {
     setHexVal(hex); onChange(hex);
   }
 
-  const adjustedPos = {
-    top: Math.min(pos.top, window.innerHeight - 260),
-    left: Math.min(pos.left, window.innerWidth - 340),
-  };
-
   return createPortal(
-    <div ref={panelRef} className="cp-panel" style={{ position: 'fixed', top: adjustedPos.top, left: adjustedPos.left, zIndex: 9999 }}>
+    <ContextMenu className="cp-panel" x={pos.left} y={pos.top} onClose={onClose}>
       <div className="cp-main">
         <div
           ref={areaRef}
@@ -163,7 +149,7 @@ function PickerPanel({ value, onChange, onClose, pos }: PanelProps) {
           }}
         />
       </div>
-    </div>,
+    </ContextMenu>,
     document.body,
   );
 }

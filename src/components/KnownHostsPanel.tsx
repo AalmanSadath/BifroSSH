@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '../store/appStore';
 import type { HostKeyPolicy, KnownHostEntry } from '../types';
+import ConfirmModal from './shared/ConfirmModal';
 
 const POLICIES: { value: HostKeyPolicy; label: string; hint: string }[] = [
   { value: 'ask', label: 'Ask', hint: 'Prompts you to confirm a server the first time you connect to it.' },
@@ -182,26 +183,13 @@ export default function KnownHostsPanel() {
       </section>
 
       {confirmForget && (
-        <>
-          <div className="modal-overlay" onClick={() => setConfirmForget(null)} />
-          <div className="kc-confirm-modal">
-            <p>
-              Forget the stored key for <strong>{label(confirmForget)}</strong>?
-            </p>
-            <p className="form-hint" style={{ margin: 0 }}>
-              You&apos;ll be asked to confirm this server&apos;s fingerprint again the next time
-              you connect.
-            </p>
-            <div className="kc-confirm-actions">
-              <button className="btn-secondary btn-sm" onClick={() => setConfirmForget(null)}>
-                Cancel
-              </button>
-              <button className="btn-danger btn-sm" onClick={() => forget(confirmForget)}>
-                Forget
-              </button>
-            </div>
-          </div>
-        </>
+        <ConfirmModal
+          question={<>Forget the stored key for <strong>{label(confirmForget)}</strong>?</>}
+          hint="You'll be asked to confirm this server's fingerprint again the next time you connect."
+          confirmLabel="Forget"
+          onCancel={() => setConfirmForget(null)}
+          onConfirm={() => forget(confirmForget)}
+        />
       )}
     </div>
   );

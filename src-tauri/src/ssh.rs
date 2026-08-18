@@ -6,15 +6,12 @@ use russh::*;
 use russh_keys::key::KeyPair;
 use tokio::sync::{mpsc, Mutex};
 use tokio::time::{interval, Duration};
-use std::sync::atomic::Ordering;
 use russh::client::{KeyboardInteractiveAuthResponse, Prompt};
 use tauri::{AppHandle, Emitter};
-use tokio::sync::oneshot;
-use tokio::time::timeout;
 
 use crate::hostkeys::{ConnectSecurity, HostKeyVerifier, VerifyingHandler};
 use crate::jump::{self, JumpHop};
-use crate::prompts::{AuthPromptEvent, AuthPromptField, PromptCancelEvent};
+use crate::prompts::{self, AuthPromptEvent, AuthPromptField};
 
 pub enum SshCommand {
     Data(Vec<u8>),
@@ -160,45 +157,36 @@ impl AuthContext {
 
     /// Puts one round of prompts to the user. `None` means they cancelled, or
     /// nobody answered in time.
+    ///
+    /// The channel carries `Option<Vec<String>>`, so a delivered "cancel" and a
+    /// missing answer both arrive as `None` and flatten together — which is
+    /// right, because the caller treats them the same.
     async fn ask(
         &self,
         name: &str,
         instructions: &str,
         prompts: &[Prompt],
     ) -> Option<Vec<String>> {
-        let request_id = uuid::Uuid::new_v4().to_string();
-        let (tx, rx) = oneshot::channel();
-        self.sec.prompts.auth.lock().await.insert(request_id.clone(), tx);
-
-        let event = AuthPromptEvent {
-            request_id: request_id.clone(),
-            connect_id: self.sec.connect_id.clone(),
-            host: self.host.clone(),
-            username: self.username.clone(),
-            name: name.to_string(),
-            instructions: instructions.to_string(),
-            prompts: prompts
-                .iter()
-                .map(|p| AuthPromptField { prompt: p.prompt.clone(), echo: p.echo })
-                .collect(),
-        };
-
-        self.sec.waiting.store(true, Ordering::Relaxed);
-        let _ = self.sec.app.emit("auth-prompt", event);
-
-        let answers = match timeout(Duration::from_secs(300), rx).await {
-            Ok(Ok(answers)) => answers,
-            _ => None,
-        };
-
-        self.sec.waiting.store(false, Ordering::Relaxed);
-        self.sec.prompts.auth.lock().await.remove(&request_id);
-        let _ = self
-            .sec
-            .app
-            .emit("auth-prompt-cancel", PromptCancelEvent { request_id });
-
-        answers
+        prompts::request(
+            &self.sec.prompts.auth,
+            &self.sec.app,
+            &self.sec.waiting,
+            "auth-prompt",
+            |request_id| AuthPromptEvent {
+                request_id,
+                connect_id: self.sec.connect_id.clone(),
+                host: self.host.clone(),
+                username: self.username.clone(),
+                name: name.to_string(),
+                instructions: instructions.to_string(),
+                prompts: prompts
+                    .iter()
+                    .map(|p| AuthPromptField { prompt: p.prompt.clone(), echo: p.echo })
+                    .collect(),
+            },
+        )
+        .await
+        .flatten()
     }
 }
 
@@ -402,6 +390,32 @@ pub(crate) fn host_key_error(verifier: &HostKeyVerifier, fallback: impl Into<any
     }
 }
 
+/// Runs the target's own handshake on top of an already-open transport.
+///
+/// Six call sites wrote out the same `match`, only to turn a russh error that
+/// is really a rejected host key into the message the user needs to see. The
+/// verifier holds that message, so it has to outlive the handler that reports
+/// into it.
+///
+/// The handler is built here from the verifier rather than passed in ready
+/// made, because two callers wrap it in something larger: a remote-forward
+/// handler carries its destination, and a jump hop marks itself as one first.
+pub(crate) async fn connect_verified<H>(
+    config: Arc<client::Config>,
+    transport: jump::BoxedTransport,
+    verifier: HostKeyVerifier,
+    handler: impl FnOnce(HostKeyVerifier) -> H,
+) -> Result<client::Handle<H>>
+where
+    H: client::Handler + Send + 'static,
+    H::Error: Into<anyhow::Error>,
+{
+    let handler = handler(verifier.clone());
+    client::connect_stream(config, transport, handler)
+        .await
+        .map_err(|e| host_key_error(&verifier, e))
+}
+
 pub async fn exec_ssh_command(
     host: &str,
     port: u16,
@@ -419,10 +433,7 @@ pub async fn exec_ssh_command(
     let transport = jump::open_transport(jumps, host, port, &sec, None).await?;
 
     let verifier = HostKeyVerifier::new(sec.clone(), host, port, Some(username.to_string()));
-    let mut handle = match client::connect_stream(config, transport, VerifyingHandler { v: verifier.clone() }).await {
-        Ok(h) => h,
-        Err(e) => return Err(host_key_error(&verifier, e)),
-    };
+    let mut handle = connect_verified(config, transport, verifier, |v| VerifyingHandler { v }).await?;
 
     authenticate(&mut handle, &auth, &AuthContext::new(sec, username).with_host(host)).await?;
 
@@ -477,10 +488,7 @@ pub async fn connect_ssh(
     .await?;
 
     let verifier = HostKeyVerifier::new(sec.clone(), &params.host, params.port, Some(params.username.clone()));
-    let mut handle = match client::connect_stream(config, transport, VerifyingHandler { v: verifier.clone() }).await {
-        Ok(h) => h,
-        Err(e) => return Err(host_key_error(&verifier, e)),
-    };
+    let mut handle = connect_verified(config, transport, verifier, |v| VerifyingHandler { v }).await?;
 
     emit_log(&app, &connect_id, "auth", &format!("Authenticating to \"{}\":\"{}\" as \"{}\"", params.host, params.port, params.username));
     authenticate(&mut handle, &params.auth, &AuthContext::new(sec, &params.username).with_host(&params.host)).await?;

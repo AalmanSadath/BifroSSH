@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '../store/appStore';
 import type { SshConfigHost, SshConfigScan, SshConfigImportResult } from '../types';
+import Modal from './shared/Modal';
 
 interface Props {
   onClose: () => void;
@@ -56,89 +57,80 @@ export default function SshConfigImport({ onClose }: Props) {
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal sshconfig-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <div>
-            <h2>Import from ssh config</h2>
-            <div className="modal-subtitle">~/.ssh/config</div>
+    <Modal className="sshconfig-modal" title="Import from ssh config" subtitle="~/.ssh/config" onClose={onClose}>
+      {error && <p className="form-hint" style={{ color: 'var(--danger)' }}>{error}</p>}
+
+      {result ? (
+        <>
+          <p className="hostkey-body">
+            Imported {result.imported} host{result.imported === 1 ? '' : 's'}.
+            {result.keys_linked > 0 && ` Linked ${result.keys_linked} key file${result.keys_linked === 1 ? '' : 's'}.`}
+            {result.jumps_linked > 0 && ` Linked ${result.jumps_linked} jump host${result.jumps_linked === 1 ? '' : 's'}.`}
+            {result.skipped_existing > 0 && ` Skipped ${result.skipped_existing} already saved.`}
+          </p>
+          <div className="modal-actions">
+            <button className="btn-primary" onClick={onClose}>Done</button>
           </div>
-        </div>
-
-        {error && <p className="form-hint" style={{ color: 'var(--danger)' }}>{error}</p>}
-
-        {result ? (
-          <>
-            <p className="hostkey-body">
-              Imported {result.imported} host{result.imported === 1 ? '' : 's'}.
-              {result.keys_linked > 0 && ` Linked ${result.keys_linked} key file${result.keys_linked === 1 ? '' : 's'}.`}
-              {result.jumps_linked > 0 && ` Linked ${result.jumps_linked} jump host${result.jumps_linked === 1 ? '' : 's'}.`}
-              {result.skipped_existing > 0 && ` Skipped ${result.skipped_existing} already saved.`}
-            </p>
-            <div className="modal-actions">
-              <button className="btn-primary" onClick={onClose}>Done</button>
-            </div>
-          </>
-        ) : !scan ? (
-          <p className="form-hint">Reading ~/.ssh/config…</p>
-        ) : scan.hosts.length === 0 ? (
-          <>
-            <p className="hostkey-body">No importable hosts found in ~/.ssh/config.</p>
-            <div className="modal-actions">
-              <button className="btn-secondary" onClick={onClose}>Close</button>
-            </div>
-          </>
-        ) : (
-          <>
-            {scan.has_includes && (
-              <p className="form-hint">
-                This config uses <code>Include</code>, which is not followed. Hosts defined in
-                included files will not appear here.
-              </p>
-            )}
-
-            <div className="sshconfig-list">
-              {scan.hosts.map((h) => (
-                <label className="sshconfig-row" key={h.alias}>
-                  <input
-                    type="checkbox"
-                    checked={selected.has(h.alias)}
-                    onChange={() => toggle(h.alias)}
-                  />
-                  <span className="sshconfig-alias">{h.alias}</span>
-                  <span className="sshconfig-target">{describe(h)}</span>
-                  {h.identity_file && <span className="sshconfig-tag">key</span>}
-                  {h.proxy_jump && (
-                    <span
-                      className="sshconfig-tag"
-                      title={`Reached through ${h.proxy_jump}. Import that host too for the link to be made.`}
-                    >
-                      jump
-                    </span>
-                  )}
-                </label>
-              ))}
-            </div>
-
+        </>
+      ) : !scan ? (
+        <p className="form-hint">Reading ~/.ssh/config…</p>
+      ) : scan.hosts.length === 0 ? (
+        <>
+          <p className="hostkey-body">No importable hosts found in ~/.ssh/config.</p>
+          <div className="modal-actions">
+            <button className="btn-secondary" onClick={onClose}>Close</button>
+          </div>
+        </>
+      ) : (
+        <>
+          {scan.has_includes && (
             <p className="form-hint">
-              Key files are referenced where they are, not copied into the keychain. Hosts that
-              already exist are skipped. A jump host is linked only when it is imported in the
-              same run.
+              This config uses <code>Include</code>, which is not followed. Hosts defined in
+              included files will not appear here.
             </p>
+          )}
 
-            <div className="modal-actions">
-              <button className="btn-secondary" onClick={onClose} disabled={busy}>Cancel</button>
-              <button
-                className="btn-primary"
-                onClick={runImport}
-                disabled={busy || selected.size === 0}
-              >
-                {busy ? 'Importing…' : `Import ${selected.size}`}
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
+          <div className="sshconfig-list">
+            {scan.hosts.map((h) => (
+              <label className="sshconfig-row" key={h.alias}>
+                <input
+                  type="checkbox"
+                  checked={selected.has(h.alias)}
+                  onChange={() => toggle(h.alias)}
+                />
+                <span className="sshconfig-alias">{h.alias}</span>
+                <span className="sshconfig-target">{describe(h)}</span>
+                {h.identity_file && <span className="sshconfig-tag">key</span>}
+                {h.proxy_jump && (
+                  <span
+                    className="sshconfig-tag"
+                    title={`Reached through ${h.proxy_jump}. Import that host too for the link to be made.`}
+                  >
+                    jump
+                  </span>
+                )}
+              </label>
+            ))}
+          </div>
+
+          <p className="form-hint">
+            Key files are referenced where they are, not copied into the keychain. Hosts that
+            already exist are skipped. A jump host is linked only when it is imported in the
+            same run.
+          </p>
+
+          <div className="modal-actions">
+            <button className="btn-secondary" onClick={onClose} disabled={busy}>Cancel</button>
+            <button
+              className="btn-primary"
+              onClick={runImport}
+              disabled={busy || selected.size === 0}
+            >
+              {busy ? 'Importing…' : `Import ${selected.size}`}
+            </button>
+          </div>
+        </>
+      )}
+    </Modal>
   );
 }

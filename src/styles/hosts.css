@@ -1,0 +1,504 @@
+/*
+ * The hosts panel and the key and identity pickers its form opens.
+ */
+
+/* ── Hosts panel ───────────────────────────────────────────── */
+
+.hosts-panel {
+  max-width: 100%;
+}
+
+.panel-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.panel-title-row .panel-title {
+  margin-bottom: 0;
+}
+
+.kc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.kc-card {
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  transition: border-color 0.15s, background 0.15s;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.kc-card * {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.kc-card--clickable {
+  cursor: pointer;
+}
+
+.kc-card--clickable:hover {
+  border-color: var(--text-dim);
+  background: var(--bg-mid);
+}
+
+.kc-card.warn {
+  border-left: 2px solid #d29922;
+}
+
+.kc-card-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.kc-card-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kc-card-edit-btn {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.1s, background 0.1s;
+}
+
+.kc-card--clickable:hover .kc-card-edit-btn {
+  opacity: 1;
+}
+
+.kc-card-edit-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+
+.kc-confirm-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  z-index: 201;
+  font-size: 14px;
+  color: var(--text-primary);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  min-width: 240px;
+}
+
+.kc-confirm-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.btn-danger:hover {
+  opacity: 0.85;
+}
+
+.btn-danger.btn-sm {
+  padding: 4px 10px;
+}
+
+.kc-card-detail {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.hosts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.host-card {
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.host-card * {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.host-card:hover {
+  border-color: var(--text-dim);
+  background: var(--bg-mid);
+}
+
+.host-card-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 10px;
+  background: var(--bg-mid);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.host-card-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.host-card-name-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.host-card-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.host-card-addr {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.host-status {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.host-status-on {
+  color: #3fb950;
+}
+
+.host-context-menu {
+  position: fixed;
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px;
+  min-width: 150px;
+  z-index: 300;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+.host-ctx-item {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.host-ctx-item:hover {
+  background: var(--bg-hover);
+}
+
+.host-ctx-danger {
+  color: var(--danger);
+}
+
+.host-ctx-danger:hover {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+.host-ctx-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+.host-card:hover .kc-card-edit-btn {
+  opacity: 1;
+}
+
+.host-card-edit-btn {
+  opacity: 0;
+  flex-shrink: 0;
+  align-self: center;
+  margin-left: auto;
+  padding: 7px 8px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.host-card:hover .host-card-edit-btn {
+  opacity: 1;
+}
+
+.host-card-edit-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.tab-ctx-rename {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 2px;
+}
+
+.tab-rename-input {
+  width: 100%;
+  padding: 5px 8px;
+  background: var(--bg-mid);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 13px;
+  box-sizing: border-box;
+  outline: none;
+}
+
+.tab-rename-input:focus {
+  border-color: var(--accent, #61afef);
+}
+
+.hosts-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 60px 0;
+  color: var(--text-muted);
+}
+
+/* ── Add Key button ────────────────────────────────────────── */
+
+.add-key-btn-group { display: flex; align-items: stretch; }
+.add-key-btn-main { border-radius: 6px 0 0 6px !important; }
+.add-key-btn-caret {
+  border-radius: 0 6px 6px 0 !important;
+  border-left: 1px solid rgba(255,255,255,0.15) !important;
+  padding: 0 8px !important;
+  display: flex; align-items: center; justify-content: center;
+}
+.key-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  background: var(--bg-mid);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+  z-index: 100;
+  min-width: 140px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+}
+.key-dropdown button {
+  padding: 7px 12px;
+  text-align: left;
+  border-radius: 5px;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.key-dropdown button:hover { background: var(--bg-hover); }
+
+/* ── Identity key picker ───────────────────────────────────── */
+.picker-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-mid);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-primary);
+  padding: 7px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  /* Same reason as .picker-item: without this the control changes height
+     depending on which font is selected. */
+  line-height: 19px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.picker-btn:hover,
+.picker-btn:focus { border-color: var(--accent); outline: none; }
+.picker-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--bg-mid);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+  z-index: 100;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  display: flex;
+  flex-direction: column;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.picker-item {
+  padding: 7px 10px;
+  text-align: left;
+  border-radius: 5px;
+  font-size: 13px;
+  /* Fixed rather than derived from the font. The font picker renders each row
+     in the family it names, and ascent and descent differ enough between
+     families that the rows end up different heights with the text sitting
+     high or low in each. */
+  line-height: 19px;
+  color: var(--text-primary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Only the font picker renders each row in the family it names, and a fixed
+   line-height still leaves the glyphs on their own baseline inside it. Flex
+   centres the line box itself, so every family sits the same. Scoped to this
+   one variant because flex drops text-overflow on the button's own text, which
+   the other picker call sites rely on. */
+.picker-item-font {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* The name stays in the UI font so every row lines up. Font size in px sets
+   the em box, not the optical size, and x-height varies enough between
+   families (Nimbus Mono PS against Source Code Pro, say) that names rendered
+   in their own font come out visibly different sizes at the same setting.
+   The sample carries the preview instead, where uneven metrics read as
+   character rather than as a layout bug. */
+.picker-font-sample {
+  flex-shrink: 0;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.picker-item-font > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-item:hover { background: var(--bg-hover); }
+.picker-item.selected { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+.picker-divider { height: 1px; background: var(--border); margin: 4px 0; }
+.picker-add { color: var(--accent); }
+.picker-add:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+
+/* ── Host credential badge + suggestions ───────────────────── */
+.host-identity-badge {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 6px;
+  color: var(--accent);
+  font-size: 13px;
+}
+.host-identity-badge-name { font-weight: 600; }
+.host-identity-badge-user { opacity: 0.7; flex: 1; }
+.host-identity-badge-remove {
+  background: none;
+  border: none;
+  color: var(--accent);
+  opacity: 0.6;
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 12px;
+  line-height: 1;
+}
+.host-identity-badge-remove:hover { opacity: 1; }
+.host-suggestion-type {
+  margin-left: auto;
+  font-size: 11px;
+  opacity: 0.5;
+  padding-left: 8px;
+}

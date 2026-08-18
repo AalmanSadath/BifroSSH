@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import PassphraseInput from './PassphraseInput';
+import PassphraseInput from './shared/PassphraseInput';
 import FilePickerModal from './FilePickerModal';
 import type { ExportResult } from '../types';
+import Modal from './shared/Modal';
 
 interface Props {
   onClose: () => void;
@@ -116,144 +117,140 @@ export default function ExportDataModal({ onClose }: Props) {
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal transfer-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <div>
-            <h2>Export settings</h2>
-            <div className="modal-subtitle">One encrypted file you can carry to another machine</div>
+    <Modal
+      className="transfer-modal"
+      title="Export settings"
+      subtitle="One encrypted file you can carry to another machine"
+      onClose={onClose}
+    >
+      {result ? (
+        <>
+          <p className="hostkey-body">
+            Wrote {result.counts.servers} host{result.counts.servers === 1 ? '' : 's'},{' '}
+            {result.counts.identities} identit{result.counts.identities === 1 ? 'y' : 'ies'},{' '}
+            {result.counts.keys} key{result.counts.keys === 1 ? '' : 's'},{' '}
+            {result.counts.port_forwardings} tunnel{result.counts.port_forwardings === 1 ? '' : 's'},{' '}
+            {result.counts.codeprints} codeprint{result.counts.codeprints === 1 ? '' : 's'},{' '}
+            {result.counts.custom_themes} theme{result.counts.custom_themes === 1 ? '' : 's'} and{' '}
+            {result.counts.known_hosts} known host{result.counts.known_hosts === 1 ? '' : 's'}.
+          </p>
+          <p className="transfer-path">{result.path}</p>
+          <p className="form-hint">
+            {result.secrets_included
+              ? 'Passwords and private keys are inside, encrypted under the passphrase you chose. Anyone who has both the file and that passphrase has your credentials.'
+              : 'No passwords or private keys are in this file. You will have to enter them again on the other machine.'}
+          </p>
+          <div className="modal-actions">
+            <button className="btn-primary" onClick={onClose}>Done</button>
           </div>
-        </div>
+        </>
+      ) : (
+        <>
+          <div className="transfer-dest">
+            <span className="transfer-path">{path || 'Choosing a folder…'}</span>
+            <button className="btn-secondary btn-sm" onClick={() => setPicking(true)}>
+              Choose…
+            </button>
+          </div>
 
-        {result ? (
-          <>
-            <p className="hostkey-body">
-              Wrote {result.counts.servers} host{result.counts.servers === 1 ? '' : 's'},{' '}
-              {result.counts.identities} identit{result.counts.identities === 1 ? 'y' : 'ies'},{' '}
-              {result.counts.keys} key{result.counts.keys === 1 ? '' : 's'},{' '}
-              {result.counts.port_forwardings} tunnel{result.counts.port_forwardings === 1 ? '' : 's'},{' '}
-              {result.counts.codeprints} codeprint{result.counts.codeprints === 1 ? '' : 's'},{' '}
-              {result.counts.custom_themes} theme{result.counts.custom_themes === 1 ? '' : 's'} and{' '}
-              {result.counts.known_hosts} known host{result.counts.known_hosts === 1 ? '' : 's'}.
-            </p>
-            <p className="transfer-path">{result.path}</p>
+          <label className="checkbox-row transfer-secrets">
+            <input
+              type="checkbox"
+              checked={includeSecrets}
+              onChange={(e) => setIncludeSecrets(e.target.checked)}
+            />
+            <span>Include saved passwords and private keys</span>
+          </label>
+          {!includeSecrets && (
             <p className="form-hint">
-              {result.secrets_included
-                ? 'Passwords and private keys are inside, encrypted under the passphrase you chose. Anyone who has both the file and that passphrase has your credentials.'
-                : 'No passwords or private keys are in this file. You will have to enter them again on the other machine.'}
+              Hosts, identities and key entries still travel, but without their secrets. Keys
+              stored as a path on disk are references either way and are not copied.
             </p>
-            <div className="modal-actions">
-              <button className="btn-primary" onClick={onClose}>Done</button>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="transfer-dest">
-              <span className="transfer-path">{path || 'Choosing a folder…'}</span>
-              <button className="btn-secondary btn-sm" onClick={() => setPicking(true)}>
-                Choose…
-              </button>
-            </div>
+          )}
 
-            <label className="checkbox-row transfer-secrets">
-              <input
-                type="checkbox"
-                checked={includeSecrets}
-                onChange={(e) => setIncludeSecrets(e.target.checked)}
+          <div className="setup-pass-row">
+            {generated ? (
+              <textarea
+                className="setup-phrase"
+                value={passphrase}
+                readOnly
+                rows={2}
+                spellCheck={false}
+                onFocus={(e) => e.currentTarget.select()}
               />
-              <span>Include saved passwords and private keys</span>
-            </label>
-            {!includeSecrets && (
-              <p className="form-hint">
-                Hosts, identities and key entries still travel, but without their secrets. Keys
-                stored as a path on disk are references either way and are not copied.
-              </p>
-            )}
-
-            <div className="setup-pass-row">
-              {generated ? (
-                <textarea
-                  className="setup-phrase"
-                  value={passphrase}
-                  readOnly
-                  rows={2}
-                  spellCheck={false}
-                  onFocus={(e) => e.currentTarget.select()}
-                />
-              ) : (
-                <PassphraseInput
-                  value={passphrase}
-                  placeholder="Passphrase for this file"
-                  onChange={(v) => { setPassphrase(v); setSaved(false); }}
-                />
-              )}
-              <button
-                type="button"
-                className="btn-secondary"
-                title={generated ? 'Generate a different one' : 'Generate one'}
-                onClick={roll}
-              >
-                🎲
-              </button>
-            </div>
-
-            {!generated && (
+            ) : (
               <PassphraseInput
-                value={confirmPass}
-                placeholder="Confirm passphrase"
-                onChange={setConfirmPass}
+                value={passphrase}
+                placeholder="Passphrase for this file"
+                onChange={(v) => { setPassphrase(v); setSaved(false); }}
               />
             )}
+            <button
+              type="button"
+              className="btn-secondary"
+              title={generated ? 'Generate a different one' : 'Generate one'}
+              onClick={roll}
+            >
+              🎲
+            </button>
+          </div>
 
-            {!generated && confirmPass.length > 0 && !matched && (
-              <p className="form-hint" style={{ color: 'var(--danger)' }}>
-                The two do not match.
+          {!generated && (
+            <PassphraseInput
+              value={confirmPass}
+              placeholder="Confirm passphrase"
+              onChange={setConfirmPass}
+            />
+          )}
+
+          {!generated && confirmPass.length > 0 && !matched && (
+            <p className="form-hint" style={{ color: 'var(--danger)' }}>
+              The two do not match.
+            </p>
+          )}
+
+          {generated && (
+            <div className="hostkey-warn">
+              <strong>Write this down before continuing.</strong>
+              <p>
+                It is the only thing that opens the file, it is not stored anywhere, and it
+                cannot be recovered. Capitals and spacing do not matter when you type it back.
               </p>
-            )}
-
-            {generated && (
-              <div className="hostkey-warn">
-                <strong>Write this down before continuing.</strong>
-                <p>
-                  It is the only thing that opens the file, it is not stored anywhere, and it
-                  cannot be recovered. Capitals and spacing do not matter when you type it back.
-                </p>
-                <div className="setup-phrase-actions">
-                  <button type="button" className="btn-secondary" onClick={copy}>
-                    {copied ? 'Copied' : 'Copy'}
-                  </button>
-                  <button
-                    type="button"
-                    className="link-btn"
-                    onClick={() => {
-                      setPassphrase('');
-                      setConfirmPass('');
-                      setGenerated(false);
-                      setCopied(false);
-                      setSaved(false);
-                    }}
-                  >
-                    Type my own instead
-                  </button>
-                </div>
-                <label className="checkbox-row setup-saved-row">
-                  <input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} />
-                  <span>I have saved this somewhere safe</span>
-                </label>
+              <div className="setup-phrase-actions">
+                <button type="button" className="btn-secondary" onClick={copy}>
+                  {copied ? 'Copied' : 'Copy'}
+                </button>
+                <button
+                  type="button"
+                  className="link-btn"
+                  onClick={() => {
+                    setPassphrase('');
+                    setConfirmPass('');
+                    setGenerated(false);
+                    setCopied(false);
+                    setSaved(false);
+                  }}
+                >
+                  Type my own instead
+                </button>
               </div>
-            )}
-
-            {error && <p className="form-hint" style={{ color: 'var(--danger)' }}>{error}</p>}
-
-            <div className="modal-actions">
-              <button className="btn-secondary" onClick={onClose} disabled={busy}>Cancel</button>
-              <button className="btn-primary" onClick={() => run(overwrite)} disabled={!ready}>
-                {busy ? 'Exporting…' : overwrite ? 'Replace file' : 'Export'}
-              </button>
+              <label className="checkbox-row setup-saved-row">
+                <input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} />
+                <span>I have saved this somewhere safe</span>
+              </label>
             </div>
-          </>
-        )}
-      </div>
-    </div>
+          )}
+
+          {error && <p className="form-hint" style={{ color: 'var(--danger)' }}>{error}</p>}
+
+          <div className="modal-actions">
+            <button className="btn-secondary" onClick={onClose} disabled={busy}>Cancel</button>
+            <button className="btn-primary" onClick={() => run(overwrite)} disabled={!ready}>
+              {busy ? 'Exporting…' : overwrite ? 'Replace file' : 'Export'}
+            </button>
+          </div>
+        </>
+      )}
+    </Modal>
   );
 }

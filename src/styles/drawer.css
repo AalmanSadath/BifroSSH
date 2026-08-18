@@ -1,0 +1,293 @@
+/*
+ * The right-hand slide-over and the controls that only appear inside
+ * one: the host form, the key forms, and the theme picker.
+ */
+
+/* ── Key input mode toggle ─────────────────────────────────── */
+
+.toggle-row {
+  display: flex;
+  background: var(--bg-mid);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.toggle-btn {
+  flex: 1;
+  padding: 6px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+
+.toggle-btn.active {
+  background: var(--accent);
+  color: #0d1117;
+  font-weight: 600;
+}
+
+.toggle-btn:not(.active):hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.toggle-btn.disabled,
+.toggle-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Current theme row ─────────────────────────────────────── */
+
+.theme-current-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.theme-current-thumb {
+  width: 100px;
+  flex-shrink: 0;
+  border-radius: 5px;
+  overflow: hidden;
+  border: 2px solid var(--border);
+}
+
+.theme-current-thumb .theme-thumb {
+  height: 60px;
+}
+
+.theme-current-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.theme-show-more-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 8px;
+}
+
+.theme-show-more-btn:hover {
+  color: var(--text-primary);
+}
+
+/* ── Right drawer ──────────────────────────────────────────── */
+
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100vh;
+  width: 360px;
+  z-index: 101;
+  background: var(--bg-dark);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  box-shadow: -4px 0 24px rgba(0,0,0,0.4);
+}
+
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.drawer-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 18px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.drawer-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.drawer-body {
+  flex: 1;
+  overflow-y: hidden;
+  padding: 20px;
+}
+
+.drawer-footer {
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.drawer-body .inline-form {
+  padding: 0;
+  border: none;
+  background: none;
+  height: 100%;
+  overflow-y: auto;
+}
+
+/* ── Key public box ──────────────────────────────────────── */
+
+.key-pub-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: var(--bg-mid);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px;
+}
+
+.key-pub-box code {
+  flex: 1;
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--text-primary);
+  word-break: break-all;
+  line-height: 1.4;
+}
+
+.key-pub-box--tall {
+  align-items: stretch;
+  flex-direction: column;
+}
+
+.key-pub-box--tall .key-paste-area {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+}
+
+.key-paste-area {
+  width: 100%;
+  background: var(--bg-mid);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-family: monospace;
+  font-size: 11px;
+  padding: 8px;
+  resize: vertical;
+  box-sizing: border-box;
+  line-height: 1.4;
+}
+
+.key-paste-area:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.warn-text {
+  color: #d29922;
+  font-style: italic;
+}
+
+.form-hint {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ── Theme picker ──────────────────────────────────────────── */
+
+.theme-picker {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.theme-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  background: none;
+  border: 2px solid var(--border);
+  border-radius: 6px;
+  padding: 6px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+  text-align: left;
+}
+
+.theme-card:hover {
+  border-color: var(--text-muted);
+}
+
+.theme-card.active {
+  border-color: var(--accent);
+}
+
+.theme-thumb {
+  position: relative;
+  width: 100%;
+  height: 54px;
+  border-radius: 4px;
+  overflow: hidden;
+  padding: 7px 8px 6px;
+  box-sizing: border-box;
+}
+
+.theme-thumb-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.theme-thumb-bar {
+  height: 3px;
+  border-radius: 2px;
+  opacity: 0.9;
+}
+
+.theme-thumb-cursor {
+  position: absolute;
+  bottom: 6px;
+  left: 8px;
+  width: 6px;
+  height: 10px;
+  border-radius: 1px;
+  opacity: 0.9;
+}
+
+.theme-card-name {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.theme-card.active .theme-card-name {
+  color: var(--accent);
+}

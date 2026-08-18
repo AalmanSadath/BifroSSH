@@ -19,6 +19,7 @@ import SftpPanel from './components/SftpPanel';
 import ServerForm from './components/ServerForm';
 import TerminalSidebar from './components/TerminalSidebar';
 import PortForwardingPanel from './components/PortForwardingPanel';
+import ContextMenu from './components/shared/ContextMenu';
 
 function parseSSHInput(input: string): { user: string; host: string; port: number; password?: string } | null {
   let s = input.trim();
@@ -70,7 +71,6 @@ export default function App() {
   const [termSidebarOpen, setTermSidebarOpen] = useState(false);
   const [tabCtx, setTabCtx] = useState<{ x: number; y: number; session: SessionTab; mode: TabCtxMode } | null>(null);
   const [renameValue, setRenameValue] = useState('');
-  const tabCtxRef = useRef<HTMLDivElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
 
   const [hostKeyPrompts, setHostKeyPrompts] = useState<HostKeyPromptEvent[]>([]);
@@ -142,15 +142,6 @@ export default function App() {
     if (settings.app_theme === 'light') body.classList.add('app-light');
     else if (settings.app_theme === 'amoled') body.classList.add('app-amoled');
   }, [settings.app_theme]);
-
-  useEffect(() => {
-    if (!tabCtx) return;
-    function onDown(e: MouseEvent) {
-      if (!tabCtxRef.current?.contains(e.target as Node)) setTabCtx(null);
-    }
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [tabCtx]);
 
   useEffect(() => {
     if (tabCtx?.mode === 'rename') renameInputRef.current?.select();
@@ -396,14 +387,7 @@ export default function App() {
       )}
 
       {tabCtx && (
-        <div
-          ref={tabCtxRef}
-          className="host-context-menu"
-          style={{
-            top: Math.min(tabCtx.y, window.innerHeight - 130),
-            left: Math.min(tabCtx.x, window.innerWidth - 170),
-          }}
-        >
+        <ContextMenu x={tabCtx.x} y={tabCtx.y} onClose={() => setTabCtx(null)}>
           {tabCtx.mode === 'menu' ? (
             <>
               <button className="host-ctx-item" onClick={() => handleDuplicate(tabCtx.session)}>
@@ -430,7 +414,7 @@ export default function App() {
               <button className="host-ctx-item" onClick={commitRename}>OK</button>
             </div>
           )}
-        </div>
+        </ContextMenu>
       )}
     </div>
   );

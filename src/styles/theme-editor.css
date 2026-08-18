@@ -1,0 +1,389 @@
+/*
+ * The terminal theme editor and its colour picker.
+ */
+
+/* ─── Theme Editor ─────────────────────────────────────────────── */
+
+.te-panel {
+  max-width: none !important;
+}
+
+.te-editor-layout {
+  display: flex;
+  gap: 32px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.te-preview-col {
+  flex-shrink: 0;
+  width: 360px;
+}
+
+.te-controls-col {
+  flex: 1;
+  min-width: 280px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Terminal preview window */
+.te-preview-window {
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.te-preview-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  background: rgba(128, 128, 128, 0.15);
+  border-bottom: 1px solid var(--border);
+}
+
+.te-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.te-preview-title-text {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.te-preview-terminal {
+  padding: 10px 14px;
+  font-family: 'Menlo', 'Monaco', 'Consolas', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre;
+}
+
+.te-cursor {
+  display: inline;
+}
+
+/* ANSI swatch rows below terminal preview */
+.te-swatches-row {
+  display: flex;
+  gap: 2px;
+  padding: 4px 6px;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.te-swatch {
+  flex: 1;
+  height: 14px;
+  border-radius: 2px;
+}
+
+/* Color field controls */
+.te-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+
+.te-color-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.te-color-label {
+  width: 120px;
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.te-color-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.te-color-swatch {
+  position: relative;
+  width: 32px;
+  height: 28px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.te-color-hex {
+  width: 74px;
+  font-family: monospace;
+  font-size: 12px;
+  background: var(--bg-mid);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  padding: 3px 6px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.te-color-hex:focus { border-color: var(--accent); }
+
+/* Custom color picker */
+.cp-panel {
+  position: fixed;
+  z-index: 9999;
+  background: var(--bg-mid);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 330px;
+  user-select: none;
+}
+
+.cp-main {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.cp-area {
+  flex: 1;
+  height: 160px;
+  border-radius: 5px;
+  position: relative;
+  cursor: crosshair;
+  background:
+    linear-gradient(to bottom, transparent, #000),
+    linear-gradient(to right, #fff, var(--cp-hue));
+  touch-action: none;
+}
+
+.cp-area-cursor {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(0,0,0,0.2);
+}
+
+.cp-hue-bar {
+  width: 14px;
+  border-radius: 5px;
+  position: relative;
+  cursor: pointer;
+  touch-action: none;
+  background: linear-gradient(to bottom,
+    hsl(0,100%,50%), hsl(30,100%,50%), hsl(60,100%,50%),
+    hsl(90,100%,50%), hsl(120,100%,50%), hsl(150,100%,50%),
+    hsl(180,100%,50%), hsl(210,100%,50%), hsl(240,100%,50%),
+    hsl(270,100%,50%), hsl(300,100%,50%), hsl(330,100%,50%),
+    hsl(360,100%,50%));
+}
+
+.cp-hue-thumb {
+  position: absolute;
+  left: -3px;
+  right: -3px;
+  height: 4px;
+  border-radius: 2px;
+  background: #fff;
+  transform: translateY(-50%);
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.5);
+  pointer-events: none;
+}
+
+.cp-channels {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  gap: 6px;
+  min-width: 120px;
+}
+
+.cp-ch-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cp-ch-label {
+  width: 16px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.cp-ch-input {
+  width: 46px !important;
+  padding: 3px 5px !important;
+  font-size: 12px !important;
+  text-align: center;
+  -moz-appearance: textfield;
+}
+.cp-ch-input::-webkit-inner-spin-button,
+.cp-ch-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+.cp-ch-btn {
+  width: 22px;
+  height: 22px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex-shrink: 0;
+}
+.cp-ch-btn:hover { border-color: var(--accent); }
+
+.cp-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cp-preview {
+  width: 28px;
+  height: 28px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.cp-hex-input {
+  flex: 1;
+  font-family: monospace;
+  font-size: 12px;
+  background: var(--bg-mid);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  padding: 4px 8px;
+  outline: none;
+}
+.cp-hex-input:focus { border-color: var(--accent); }
+
+/* ANSI color grid */
+.te-preset-group-label {
+  padding: 4px 10px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.te-ansi-grid {
+  display: grid;
+  grid-template-columns: 64px 1fr 1fr;
+  align-items: center;
+  gap: 5px 10px;
+}
+
+.te-ansi-col-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-align: center;
+  padding-bottom: 2px;
+}
+
+.te-ansi-label {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+/* Save row — sits at bottom of right column */
+.te-save-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 16px;
+}
+
+.te-name-input {
+  width: 100%;
+  font-size: 14px;
+}
+
+/* Saved custom themes list */
+.te-saved-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.te-saved-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  transition: border-color 0.15s;
+}
+
+.te-saved-card-active {
+  border-color: var(--accent);
+}
+
+.te-saved-thumb-wrap {
+  flex-shrink: 0;
+  width: 64px;
+}
+
+.te-saved-name {
+  flex: 1;
+  font-size: 14px;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.te-saved-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+.te-delete-confirm-text {
+  font-size: 12px;
+  color: var(--danger);
+}
+
+/* Theme picker custom divider */
+.theme-picker-divider {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  padding: 4px 2px 0;
+  border-top: 1px solid var(--border);
+  margin-top: 2px;
+}

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import PassphraseInput from './PassphraseInput';
+import PassphraseInput from './shared/PassphraseInput';
 
 type Mode = 'secret-file' | 'passphrase-only' | 'keyring-and-passphrase';
 

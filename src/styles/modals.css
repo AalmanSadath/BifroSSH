@@ -1,0 +1,504 @@
+/*
+ * The centred dialogs, in the order the user meets them.
+ */
+
+/* ── Modals ────────────────────────────────────────────────── */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  backdrop-filter: blur(2px);
+}
+
+.modal {
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 22px 24px;
+  width: 420px;
+  max-width: calc(100vw - 40px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.modal-header h2 {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.modal-subtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 3px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+/* ── Host key verification ─────────────────────────────────── */
+
+.hostkey-modal {
+  width: 520px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.hostkey-modal .modal-header { margin-bottom: 0; }
+
+.hostkey-modal-danger {
+  border-color: var(--danger);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--danger);
+}
+
+.hostkey-body { font-size: 13px; line-height: 1.5; color: var(--text-primary); }
+
+.hostkey-label {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+
+.hostkey-meta { font-size: 11px; color: var(--text-muted); }
+
+.hostkey-fp {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  background: var(--bg-mid);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 7px 9px;
+  color: var(--text-primary);
+  user-select: text;
+  word-break: break-all;
+}
+
+.hostkey-warn {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.hostkey-warn strong { color: var(--danger); display: block; margin-bottom: 5px; }
+.hostkey-warn p { color: var(--text-primary); }
+
+.hostkey-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.hostkey-confirm { display: flex; flex-direction: column; gap: 6px; }
+.hostkey-confirm label { font-size: 12px; color: var(--text-muted); }
+.hostkey-confirm code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--text-primary);
+}
+
+/* ── Keyboard-interactive auth prompt ──────────────────────── */
+
+.authprompt-modal {
+  width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.authprompt-modal .modal-header { margin-bottom: 0; }
+
+.authprompt-instructions {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.authprompt-options { display: flex; flex-direction: column; gap: 6px; }
+
+.authprompt-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  background: var(--bg-mid);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.1s, background 0.1s;
+}
+
+.authprompt-option:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
+.authprompt-option:disabled { opacity: 0.5; cursor: default; }
+
+.authprompt-option-label { min-width: 0; word-break: break-word; }
+
+.authprompt-option-key {
+  flex-shrink: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+/* The connecting screen also runs inside an SFTP pane, which is much narrower
+   than the terminal area, so the card has to shrink to fit. */
+.sftp-file-panel .connecting-page {
+  padding: 12px;
+  /* `align-items: center` would clip the top of a card taller than the pane
+     and make it unreachable, so centre with auto margins instead. */
+  align-items: normal;
+  justify-content: normal;
+  overflow-y: auto;
+  min-width: 0;
+}
+
+.sftp-file-panel .connecting-card {
+  width: 100%;
+  max-width: 480px;
+  min-width: 0;
+  margin: auto;
+}
+
+.sftp-file-panel .connecting-logs {
+  max-height: 220px;
+}
+
+.sftp-file-panel .connecting-log-line {
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.term-sidebar-log-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+
+/* In the sidebar the log fills the panel rather than being a drop-down inside
+   a card, and scrolls itself so the header stays put. min-height is required
+   for a scrolling flex child. */
+.term-sidebar-body .connecting-logs {
+  max-height: none;
+  flex: 1;
+  min-height: 0;
+}
+
+/* The sidebar is narrow, so long lines have to wrap instead of overflowing. */
+.term-sidebar-body .connecting-log-line {
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+/* Batch position shown while a folder transfer is running. */
+.sftp-progress-count {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--bg-mid);
+  border: 1px solid var(--border);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+/* ── ssh_config import ─────────────────────────────────────── */
+
+.sshconfig-modal {
+  width: 520px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sshconfig-modal .modal-header { margin-bottom: 0; }
+
+.sshconfig-list {
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.sshconfig-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  margin: 0;
+}
+
+.sshconfig-row:last-child { border-bottom: none; }
+.sshconfig-row:hover { background: var(--bg-dark); }
+
+.sshconfig-alias {
+  font-weight: 600;
+  color: var(--text-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sshconfig-target {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sshconfig-tag {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+/* ── Export and import ─────────────────────────────────────── */
+
+/* The paragraph above is an explanation of what the file is, not a caption for
+   these buttons, so it needs to sit apart from them. */
+.transfer-buttons { display: flex; gap: 8px; margin-top: 14px; }
+
+.transfer-modal {
+  width: 520px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.transfer-modal .modal-header { margin-bottom: 0; }
+.transfer-modal .form-hint { margin: 0; }
+
+.transfer-dest {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Paths are long and the interesting end is the last one, so it wraps rather
+   than truncating. */
+.transfer-path {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.transfer-secrets { margin: 0; }
+
+.transfer-list {
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.transfer-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  margin: 0;
+}
+
+.transfer-row:last-child { border-bottom: none; }
+.transfer-row:hover { background: var(--bg-dark); }
+.transfer-row-empty { opacity: 0.45; cursor: default; }
+.transfer-row-empty:hover { background: none; }
+
+.transfer-count {
+  min-width: 28px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.transfer-label {
+  flex: 1;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.transfer-note {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.transfer-note-warn { border-color: var(--danger); color: var(--danger); }
+
+.transfer-conflicts {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+/* ── Local file picker ─────────────────────────────────────── */
+
+.picker-modal {
+  width: 520px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.picker-modal .modal-header { margin-bottom: 0; }
+
+.picker-path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.picker-list {
+  height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.picker-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.picker-row:hover { background: var(--bg-dark); }
+.picker-row-selected { background: var(--bg-hover); }
+
+/* Dimmed rather than hidden: seeing that the folder has other things in it is
+   how you know you are in the right one. */
+.picker-row-dim { opacity: 0.4; }
+
+.picker-icon { flex-shrink: 0; font-size: 12px; }
+
+.picker-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.picker-name-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.picker-name-row label { font-size: 12px; color: var(--text-muted); }
+.picker-name-row input { flex: 1; }
+
+/* ── ssh-agent key picker ──────────────────────────────────── */
+
+.agentkey-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.agentkey {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  background: var(--bg-mid);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.1s, background 0.1s;
+}
+
+.agentkey:hover { background: var(--bg-hover); }
+.agentkey.active { border-color: var(--accent); }
+
+.agentkey-name { font-size: 13px; color: var(--text-primary); }
+
+.agentkey-meta {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.authprompt-passcode-toggle {
+  align-self: flex-start;
+  font-size: 12px;
+}
+
+.authprompt-field { display: flex; flex-direction: column; gap: 5px; }
+
+.authprompt-field label {
+  font-size: 12px;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}

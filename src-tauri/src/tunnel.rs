@@ -126,28 +126,19 @@ fn tunnel_verifier(base: &TunnelBase) -> HostKeyVerifier {
     )
 }
 
-async fn connect_basic(base: &TunnelBase) -> Result<client::Handle<VerifyingHandler>> {
-    // A tunnel can sit idle for hours between uses, so keepalives matter more
-    // here than anywhere else.
-    let config = Arc::new(client::Config {
-        keepalive_interval: crate::ssh::keepalive_interval(base.keepalive_secs),
-        ..Default::default()
-    });
-    let transport = transport_for(base).await?;
-    let verifier = tunnel_verifier(base);
-    let mut handle = match client::connect_stream(config, transport, VerifyingHandler { v: verifier.clone() }).await {
-        Ok(h) => h,
-        Err(e) => return Err(crate::ssh::host_key_error(&verifier, e)),
-    };
-    authenticate_handle(&mut handle, base).await?;
-    Ok(handle)
-}
-
-async fn connect_remote_fwd(
+/// Opens an authenticated connection for a tunnel.
+///
+/// The two callers differ only in the handler they want on the far end, so that
+/// is the only thing they pass: a plain forward just verifies the host key, a
+/// remote forward also has to answer the channels the server opens back.
+async fn connect_tunnel<H>(
     base: &TunnelBase,
-    dest_host: String,
-    dest_port: u32,
-) -> Result<client::Handle<RemoteForwardHandler>> {
+    handler: impl FnOnce(HostKeyVerifier) -> H,
+) -> Result<client::Handle<H>>
+where
+    H: client::Handler + Send + 'static,
+    H::Error: Into<anyhow::Error>,
+{
     // A tunnel can sit idle for hours between uses, so keepalives matter more
     // here than anywhere else.
     let config = Arc::new(client::Config {
@@ -155,12 +146,8 @@ async fn connect_remote_fwd(
         ..Default::default()
     });
     let transport = transport_for(base).await?;
-    let verifier = tunnel_verifier(base);
-    let handler = RemoteForwardHandler { v: verifier.clone(), dest_host, dest_port };
-    let mut handle = match client::connect_stream(config, transport, handler).await {
-        Ok(h) => h,
-        Err(e) => return Err(crate::ssh::host_key_error(&verifier, e)),
-    };
+    let mut handle =
+        crate::ssh::connect_verified(config, transport, tunnel_verifier(base), handler).await?;
     authenticate_handle(&mut handle, base).await?;
     Ok(handle)
 }
@@ -260,7 +247,7 @@ async fn local_tunnel(
     dest_port: u32,
     state: Arc<TunnelState>,
 ) -> Result<()> {
-    let handle = Arc::new(Mutex::new(connect_basic(&base).await?));
+    let handle = Arc::new(Mutex::new(connect_tunnel(&base, |v| VerifyingHandler { v }).await?));
     let listener = TcpListener::bind(format!("{}:{}", base.bind_address, local_port)).await?;
     let (stop_tx, stop_rx) = oneshot::channel::<()>();
 
@@ -301,7 +288,7 @@ async fn remote_tunnel(
     dest_port: u32,
     state: Arc<TunnelState>,
 ) -> Result<()> {
-    let mut handle = connect_remote_fwd(&base, dest_host, dest_port).await?;
+    let mut handle = connect_tunnel(&base, |v| RemoteForwardHandler { v, dest_host, dest_port }).await?;
     handle.tcpip_forward(base.bind_address.clone(), remote_port).await
         .map_err(|e| anyhow!("tcpip_forward failed: {:?}", e))?;
 
@@ -324,7 +311,7 @@ async fn dynamic_tunnel(
     local_port: u32,
     state: Arc<TunnelState>,
 ) -> Result<()> {
-    let handle = Arc::new(Mutex::new(connect_basic(&base).await?));
+    let handle = Arc::new(Mutex::new(connect_tunnel(&base, |v| VerifyingHandler { v }).await?));
     let listener = TcpListener::bind(format!("{}:{}", base.bind_address, local_port)).await?;
     let (stop_tx, stop_rx) = oneshot::channel::<()>();
 

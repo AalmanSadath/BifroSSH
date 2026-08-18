@@ -1,0 +1,157 @@
+/*
+ * The xterm surface, its find bar, and the screen shown when a
+ * session dies.
+ */
+
+/* ── Terminal ──────────────────────────────────────────────── */
+
+/* Holds the terminal and floats the search bar over it. The pane carries the
+   flex sizing the container used to, so xterm still gets a settled box to
+   measure itself against. */
+.terminal-pane {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+  flex-direction: column;
+}
+
+/* The 4px padding around the canvas is part of the terminal as far as anyone
+   looking at it is concerned, so it has to be the session theme's background.
+   This used to be the bifrossh-dark value hardcoded, which matched that one
+   theme and drew a mismatched frame around every other. TerminalView sets the
+   variable; the fallback is only for the moment before it does. */
+.terminal-container {
+  flex: 1;
+  overflow: hidden;
+  padding: 4px;
+  background: var(--term-bg, #0d1117);
+  min-height: 0;
+}
+
+/* ── Terminal search ───────────────────────────────────────── */
+
+/* Over the terminal rather than above it: inserting a row would resize the
+   PTY, and a remote full-screen program would redraw every time the bar
+   opened or closed. */
+.term-search {
+  position: absolute;
+  top: 8px;
+  right: 20px;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  max-width: calc(100% - 40px);
+  align-items: center;
+  gap: 4px;
+  padding: 5px 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-dark);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+
+.term-search input {
+  width: 190px;
+  padding: 4px 7px;
+  font-size: 12px;
+}
+
+.term-search-bad { border-color: var(--danger); }
+.term-search-failed { color: var(--danger); }
+
+.term-search-detail {
+  flex-basis: 100%;
+  margin: 2px 2px 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--danger);
+  word-break: break-word;
+  user-select: text;
+}
+
+/* ── Crash screen ──────────────────────────────────────────── */
+
+.crash-screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--bg-darkest);
+}
+
+.crash-card {
+  width: 620px;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 22px 24px;
+  border: 1px solid var(--danger);
+  border-radius: 10px;
+  background: var(--bg-dark);
+}
+
+.crash-card h1 { font-size: 16px; font-weight: 700; color: var(--text-primary); }
+
+.crash-message {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--danger);
+  word-break: break-word;
+}
+
+.crash-stack {
+  height: 200px;
+  resize: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  white-space: pre;
+  overflow: auto;
+}
+
+.crash-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+.term-search-count {
+  min-width: 62px;
+  text-align: center;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.term-search-toggle,
+.term-search-btn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: none;
+  color: var(--text-dim);
+  font-size: 11px;
+  transition: color 0.1s, background 0.1s, border-color 0.1s;
+}
+
+.term-search-toggle:hover,
+.term-search-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.term-search-toggle.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.terminal-container .xterm {
+  height: 100%;
+}
+
+.terminal-container .xterm-viewport {
+  overflow-y: scroll !important;
+}

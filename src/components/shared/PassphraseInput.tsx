@@ -8,6 +8,9 @@ interface Props {
   autoFocus?: boolean;
   disabled?: boolean;
   autoComplete?: string;
+  /** For the one caller that hangs a suggestion list off the field. */
+  onFocus?: () => void;
+  onBlur?: () => void;
 }
 
 const EYE = (
@@ -43,6 +46,8 @@ export default function PassphraseInput({
   autoFocus,
   disabled,
   autoComplete = 'new-password',
+  onFocus,
+  onBlur,
 }: Props) {
   const [shown, setShown] = useState(false);
 
@@ -57,6 +62,8 @@ export default function PassphraseInput({
         disabled={disabled}
         autoComplete={autoComplete}
         spellCheck={false}
+        onFocus={onFocus}
+        onBlur={onBlur}
         onChange={(e) => onChange(e.target.value)}
       />
       <button

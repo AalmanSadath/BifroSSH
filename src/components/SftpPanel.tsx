@@ -5,6 +5,7 @@ import { useAppStore, buildJumpChain, resolveServerAuth } from '../store/appStor
 import OsIcon from './OsIcon';
 import type { FileEntry, LogEntry, Server } from '../types';
 import ConnectingView from './ConnectingView';
+import ContextMenu from './shared/ContextMenu';
 
 interface TransferProgress {
   file_name: string;
@@ -112,7 +113,6 @@ function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
   const [reconnecting, setReconnecting] = useState(false);
   const tableRef = useRef<HTMLTableElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const contextMenuRef = useRef<HTMLDivElement>(null);
   const newFolderInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const dragCountRef = useRef(0);
@@ -135,15 +135,6 @@ function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
     document.addEventListener('mousedown', onClickOutside);
     return () => document.removeEventListener('mousedown', onClickOutside);
   }, [dropdownOpen]);
-
-  useEffect(() => {
-    if (!contextMenu) return;
-    function onClickOutside(e: MouseEvent) {
-      if (!contextMenuRef.current?.contains(e.target as Node)) setContextMenu(null);
-    }
-    document.addEventListener('mousedown', onClickOutside);
-    return () => document.removeEventListener('mousedown', onClickOutside);
-  }, [contextMenu]);
 
   function handleNewFolderClick() {
     setDropdownOpen(false);
@@ -434,13 +425,11 @@ function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
       </div>
 
       {contextMenu && (
-        <div
-          ref={contextMenuRef}
+        <ContextMenu
           className="sftp-context-menu"
-          style={{
-            top: Math.min(contextMenu.y, window.innerHeight - 200),
-            left: Math.min(contextMenu.x, window.innerWidth - 190),
-          }}
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
         >
           {contextMenu.entry ? (
             <>
@@ -473,7 +462,7 @@ function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
               </button>
             </>
           )}
-        </div>
+        </ContextMenu>
       )}
 
       {confirmDelete && (

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { AuthPromptEvent } from '../types';
+import Modal from './shared/Modal';
 
 interface Props {
   event: AuthPromptEvent;
@@ -95,97 +96,89 @@ export default function AuthPromptModal({ event, onResolved }: Props) {
     setAnswers((prev) => prev.map((a, n) => (n === i ? value : a)));
 
   return (
-    <div className="modal-overlay" style={{ zIndex: 300 }}>
-      <form
-        className="modal authprompt-modal"
-        onSubmit={(e) => { e.preventDefault(); respond(answers); }}
-      >
-        <div className="modal-header">
-          <div>
-            {/* Server-supplied wording, rendered as plain text. */}
-            <h2>{event.name.trim() || 'Two-factor authentication'}</h2>
-            <div className="modal-subtitle">
-              {event.username}@{event.host}
-            </div>
-          </div>
-        </div>
+    <Modal
+      className="authprompt-modal"
+      zIndex={300}
+      /* Server-supplied wording, rendered as plain text. */
+      title={event.name.trim() || 'Two-factor authentication'}
+      subtitle={`${event.username}@${event.host}`}
+      onSubmit={(e) => { e.preventDefault(); respond(answers); }}
+    >
+      {instructionsText.trim() && (
+        <p className="authprompt-instructions">{instructionsText.trim()}</p>
+      )}
 
-        {instructionsText.trim() && (
-          <p className="authprompt-instructions">{instructionsText.trim()}</p>
-        )}
-
-        {options.length > 0 && (
-          <div className="authprompt-options">
-            {options.map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                className="authprompt-option"
-                disabled={submitted}
-                onClick={() => respond([opt.value])}
-              >
-                <span className="authprompt-option-label">{opt.label}</span>
-                <span className="authprompt-option-key">{opt.value}</span>
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Menu on screen: the passcode field stays out of the way until asked
-            for. It is still needed on the round after picking SMS, when Duo
-            re-sends the same menu and expects the texted code. */}
-        {menuShown && !showPasscode && (
-          <button
-            type="button"
-            className="link-btn authprompt-passcode-toggle"
-            disabled={submitted}
-            onClick={() => setShowPasscode(true)}
-          >
-            Enter a passcode instead
-          </button>
-        )}
-
-        {(!menuShown || showPasscode) && event.prompts.map((p, i) => {
-          const label = single && menuShown
-            ? (promptLabel.trim() || 'Passcode')
-            : (p.prompt.trim() || 'Response');
-          return (
-            <div className="authprompt-field" key={i}>
-              <label htmlFor={`authprompt-${i}`}>{label}</label>
-              <input
-                id={`authprompt-${i}`}
-                ref={i === 0 ? firstRef : undefined}
-                type={p.echo ? 'text' : 'password'}
-                value={answers[i]}
-                onChange={(e) => setAnswer(i, e.target.value)}
-                autoComplete={!p.echo && single ? 'one-time-code' : 'off'}
-                spellCheck={false}
-                disabled={submitted}
-              />
-            </div>
-          );
-        })}
-
-        <div className="modal-actions">
-          <button
-            type="button"
-            className="btn-secondary"
-            disabled={submitted}
-            onClick={() => respond(null)}
-          >
-            Cancel
-          </button>
-          {(!menuShown || showPasscode) && (
+      {options.length > 0 && (
+        <div className="authprompt-options">
+          {options.map((opt) => (
             <button
-              type="submit"
-              className="btn-primary"
-              disabled={submitted || (menuShown && answers.every((a) => !a.trim()))}
+              key={opt.value}
+              type="button"
+              className="authprompt-option"
+              disabled={submitted}
+              onClick={() => respond([opt.value])}
             >
-              Submit
+              <span className="authprompt-option-label">{opt.label}</span>
+              <span className="authprompt-option-key">{opt.value}</span>
             </button>
-          )}
+          ))}
         </div>
-      </form>
-    </div>
+      )}
+
+      {/* Menu on screen: the passcode field stays out of the way until asked
+          for. It is still needed on the round after picking SMS, when Duo
+          re-sends the same menu and expects the texted code. */}
+      {menuShown && !showPasscode && (
+        <button
+          type="button"
+          className="link-btn authprompt-passcode-toggle"
+          disabled={submitted}
+          onClick={() => setShowPasscode(true)}
+        >
+          Enter a passcode instead
+        </button>
+      )}
+
+      {(!menuShown || showPasscode) && event.prompts.map((p, i) => {
+        const label = single && menuShown
+          ? (promptLabel.trim() || 'Passcode')
+          : (p.prompt.trim() || 'Response');
+        return (
+          <div className="authprompt-field" key={i}>
+            <label htmlFor={`authprompt-${i}`}>{label}</label>
+            <input
+              id={`authprompt-${i}`}
+              ref={i === 0 ? firstRef : undefined}
+              type={p.echo ? 'text' : 'password'}
+              value={answers[i]}
+              onChange={(e) => setAnswer(i, e.target.value)}
+              autoComplete={!p.echo && single ? 'one-time-code' : 'off'}
+              spellCheck={false}
+              disabled={submitted}
+            />
+          </div>
+        );
+      })}
+
+      <div className="modal-actions">
+        <button
+          type="button"
+          className="btn-secondary"
+          disabled={submitted}
+          onClick={() => respond(null)}
+        >
+          Cancel
+        </button>
+        {(!menuShown || showPasscode) && (
+          <button
+            type="submit"
+            className="btn-primary"
+            disabled={submitted || (menuShown && answers.every((a) => !a.trim()))}
+          >
+            Submit
+          </button>
+        )}
+      </div>
+    </Modal>
   );
 }

@@ -1,0 +1,108 @@
+/*
+ * The known_hosts panel.
+ */
+
+/* ── Known Hosts panel ─────────────────────────────────────── */
+
+.kh-count {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-left: 8px;
+}
+
+.kh-search {
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+.kh-error { color: var(--danger); }
+
+.kh-empty {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 20px;
+  text-align: center;
+}
+
+.kh-empty p { margin: 0; }
+.kh-empty .form-hint { margin-top: 6px; }
+
+.kh-list {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.kh-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.kh-row:last-child { border-bottom: none; }
+.kh-row:hover { background: var(--bg-dark); }
+
+.kh-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+
+.kh-host { display: flex; align-items: center; gap: 8px; }
+
+.kh-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kh-tag {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 1px 6px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.kh-fp {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-size: 11px;
+  padding: 4px 7px;
+  cursor: pointer;
+  overflow-x: auto;
+  white-space: nowrap;
+  word-break: normal;
+}
+
+.kh-fp:hover { border-color: var(--accent); }
+
+.kh-type {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.kh-readonly {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: inherit;
+  text-decoration: underline;
+}
+
+.link-btn:hover { color: var(--accent-hover); }

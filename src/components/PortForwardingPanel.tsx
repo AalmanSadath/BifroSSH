@@ -1,6 +1,9 @@
-import React, { useState, useRef, useEffect, useId } from 'react';
+import React, { useState, useId } from 'react';
 import { useAppStore } from '../store/appStore';
 import type { PortForwarding } from '../types';
+import ConfirmModal from './shared/ConfirmModal';
+import ContextMenu from './shared/ContextMenu';
+import Drawer from './shared/Drawer';
 
 type PfType = 'local' | 'remote' | 'dynamic';
 
@@ -261,26 +264,6 @@ export default function PortForwardingPanel() {
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; pf: PortForwarding } | null>(null);
   const [panelCtx, setPanelCtx] = useState<{ x: number; y: number } | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const ctxRef = useRef<HTMLDivElement>(null);
-  const panelCtxRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!panelCtx) return;
-    function down(e: MouseEvent) {
-      if (!panelCtxRef.current?.contains(e.target as Node)) setPanelCtx(null);
-    }
-    document.addEventListener('mousedown', down);
-    return () => document.removeEventListener('mousedown', down);
-  }, [panelCtx]);
-
-  useEffect(() => {
-    if (!ctxMenu) return;
-    function down(e: MouseEvent) {
-      if (!ctxRef.current?.contains(e.target as Node)) setCtxMenu(null);
-    }
-    document.addEventListener('mousedown', down);
-    return () => document.removeEventListener('mousedown', down);
-  }, [ctxMenu]);
 
   function closeDrawer() {
     setDrawerMode('none');
@@ -792,81 +775,68 @@ export default function PortForwardingPanel() {
 
       {/* Wizard / Edit Drawer */}
       {drawerMode !== 'none' && (
-        <>
-          <div className="drawer-backdrop" onClick={closeDrawer} />
-          <div className="drawer pf-drawer" onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}>
-            <div className="drawer-header">
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 600 }}>
-                  {drawerMode === 'wizard'
-                    ? (wizStep === 'type' ? 'New Port Forwarding' : typeLabel(wizDraft.type) + ' Port Forwarding')
-                    : (editDraft?.id ? 'Edit Port Forwarding' : 'New Port Forwarding')}
+        <Drawer
+          className="pf-drawer"
+          onClose={closeDrawer}
+          title={
+            drawerMode === 'wizard'
+              ? (wizStep === 'type' ? 'New Port Forwarding' : typeLabel(wizDraft.type) + ' Port Forwarding')
+              : (editDraft?.id ? 'Edit Port Forwarding' : 'New Port Forwarding')
+          }
+        >
+          <div className={`pf-drawer-body${hostPickerOpen ? ' pf-drawer-body-picker' : ''}`}>
+            {hostPickerOpen ? (
+              <>
+                <button className="pf-back-btn" onClick={() => setHostPickerOpen(false)}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="15,18 9,12 15,6"/>
+                  </svg>
+                  Back
+                </button>
+                <p className="pf-wiz-title">Select host</p>
+                <div className="pf-host-list">
+                  {servers.length === 0
+                    ? <p className="pf-host-empty">No hosts saved yet.</p>
+                    : servers.map((s) => (
+                      <button key={s.id} className="pf-host-item" onClick={() => selectPickerHost(s)}>
+                        <span className="pf-host-item-name">{s.name}</span>
+                        <span className="pf-host-item-addr">{s.host}:{s.port}</span>
+                      </button>
+                    ))
+                  }
                 </div>
-              </div>
-              <button className="drawer-close" onClick={closeDrawer}>✕</button>
-            </div>
-
-            <div className="pf-drawer-body">
-              {hostPickerOpen ? (
-                <>
-                  <button className="pf-back-btn" onClick={() => setHostPickerOpen(false)}>
+              </>
+            ) : drawerMode === 'wizard' ? (
+              <>
+                {wizStep !== 'type' && (
+                  <button className="pf-back-btn" onClick={wizBack}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                       <polyline points="15,18 9,12 15,6"/>
                     </svg>
                     Back
                   </button>
-                  <p className="pf-wiz-title">Select host</p>
-                  <div className="pf-host-list">
-                    {servers.length === 0
-                      ? <p className="pf-host-empty">No hosts saved yet.</p>
-                      : servers.map((s) => (
-                        <button key={s.id} className="pf-host-item" onClick={() => selectPickerHost(s)}>
-                          <span className="pf-host-item-name">{s.name}</span>
-                          <span className="pf-host-item-addr">{s.host}:{s.port}</span>
-                        </button>
-                      ))
-                    }
-                  </div>
-                </>
-              ) : drawerMode === 'wizard' ? (
-                <>
-                  {wizStep !== 'type' && (
-                    <button className="pf-back-btn" onClick={wizBack}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="15,18 9,12 15,6"/>
-                      </svg>
-                      Back
-                    </button>
+                )}
+                {renderWizardStep()}
+              </>
+            ) : drawerMode === 'edit' ? (
+              <>
+                {renderEditForm()}
+                <div className="pf-edit-actions">
+                  {editDraft?.id && (
+                    <button className="btn-danger btn-sm" onClick={() => setConfirmDeleteId(editDraft.id!)}>Delete</button>
                   )}
-                  {renderWizardStep()}
-                </>
-              ) : drawerMode === 'edit' ? (
-                <>
-                  {renderEditForm()}
-                  <div className="pf-edit-actions">
-                    {editDraft?.id && (
-                      <button className="btn-danger btn-sm" onClick={() => setConfirmDeleteId(editDraft.id!)}>Delete</button>
-                    )}
-                    <button className="btn-secondary btn-sm" onClick={closeDrawer}>Cancel</button>
-                    <button className="btn-primary btn-sm" onClick={saveEdit}>Save</button>
-                  </div>
-                </>
-              ) : null}
-            </div>
+                  <button className="btn-secondary btn-sm" onClick={closeDrawer}>Cancel</button>
+                  <button className="btn-primary btn-sm" onClick={saveEdit}>Save</button>
+                </div>
+              </>
+            ) : null}
           </div>
-        </>
+        </Drawer>
       )}
 
       {/* Panel background context menu */}
       {panelCtx && (
-        <div
-          ref={panelCtxRef}
-          className="host-context-menu"
-          style={{
-            top: Math.min(panelCtx.y, window.innerHeight - 60),
-            left: Math.min(panelCtx.x, window.innerWidth - 160),
-          }}
-        >
+        <ContextMenu x={panelCtx.x} y={panelCtx.y} onClose={() => setPanelCtx(null)}>
           <button className="host-ctx-item" onClick={() => { setPanelCtx(null); openWizard(); }}>Add Forwarding</button>
           <button className="host-ctx-item" onClick={() => { setPanelCtx(null); skipWizard('local'); }}>Add Local Forwarding</button>
           <button className="host-ctx-item" onClick={() => { setPanelCtx(null); skipWizard('remote'); }}>Add Remote Forwarding</button>
@@ -877,19 +847,12 @@ export default function PortForwardingPanel() {
               <button className="host-ctx-item host-ctx-danger" onClick={killAllTunnels}>Kill all active tunnels</button>
             </>
           )}
-        </div>
+        </ContextMenu>
       )}
 
       {/* Context menu */}
       {ctxMenu && (
-        <div
-          ref={ctxRef}
-          className="host-context-menu"
-          style={{
-            top: Math.min(ctxMenu.y, window.innerHeight - 120),
-            left: Math.min(ctxMenu.x, window.innerWidth - 160),
-          }}
-        >
+        <ContextMenu x={ctxMenu.x} y={ctxMenu.y} onClose={() => setCtxMenu(null)}>
           <button className="host-ctx-item" onClick={() => { handleCardDoubleClick(ctxMenu.pf); setCtxMenu(null); }}>
             {activeTunnelIds.has(ctxMenu.pf.id) ? 'Deactivate' : 'Activate'}
           </button>
@@ -905,21 +868,16 @@ export default function PortForwardingPanel() {
           <button className="host-ctx-item host-ctx-danger" onClick={() => { setConfirmDeleteId(ctxMenu.pf.id); setCtxMenu(null); }}>
             Delete
           </button>
-        </div>
+        </ContextMenu>
       )}
 
       {/* Confirm delete */}
       {confirmDeleteId && (
-        <>
-          <div className="modal-overlay" onClick={() => setConfirmDeleteId(null)} />
-          <div className="kc-confirm-modal">
-            <p>Delete this port forwarding rule?</p>
-            <div className="kc-confirm-actions">
-              <button className="btn-secondary btn-sm" onClick={() => setConfirmDeleteId(null)}>Cancel</button>
-              <button className="btn-danger btn-sm" onClick={() => handleConfirmDelete(confirmDeleteId)}>Delete</button>
-            </div>
-          </div>
-        </>
+        <ConfirmModal
+          question="Delete this port forwarding rule?"
+          onCancel={() => setConfirmDeleteId(null)}
+          onConfirm={() => handleConfirmDelete(confirmDeleteId)}
+        />
       )}
     </>
   );

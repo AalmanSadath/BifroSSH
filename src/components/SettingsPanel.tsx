@@ -1,7 +1,7 @@
-import { useState, useRef, useEffect } from 'react';
-import { createPortal } from 'react-dom';
+import { useState, useEffect } from 'react';
+import PortalDropdown from './shared/PortalDropdown';
 import { invoke } from '@tauri-apps/api/core';
-import PassphraseInput from './PassphraseInput';
+import PassphraseInput from './shared/PassphraseInput';
 import ExportDataModal from './ExportDataModal';
 import ImportDataModal from './ImportDataModal';
 import { useAppStore } from '../store/appStore';
@@ -35,50 +35,26 @@ function Picker({
   onChange: (v: string) => void;
   previewFont?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const label = options.find((o) => o.value === value)?.label ?? value;
 
-  function openPicker() {
-    const r = btnRef.current?.getBoundingClientRect();
-    if (r) setRect({ top: r.bottom + 2, left: r.left, width: r.width });
-    setOpen(true);
-  }
-
   return (
-    <>
-      <button ref={btnRef} type="button" className="picker-btn" onClick={openPicker}>
-        <span>{label}</span>
-        <svg width="10" height="6" viewBox="0 0 10 6" fill="currentColor"><path d="M0 0l5 6 5-6z"/></svg>
-      </button>
-      {open && rect && createPortal(
-        <>
-          <div style={{ position: 'fixed', inset: 0, zIndex: 9998 }} onMouseDown={() => setOpen(false)} />
-          <div
-            className="picker-menu"
-            style={{ position: 'fixed', top: rect.top, left: rect.left, width: rect.width, zIndex: 9999, maxHeight: 280, overflowY: 'auto' }}
-          >
-            {options.map((o) => (
-              <button
-                key={o.value}
-                type="button"
-                className={`picker-item${previewFont ? ' picker-item-font' : ''}${value === o.value ? ' selected' : ''}`}
-                onMouseDown={(e) => { e.preventDefault(); onChange(o.value); setOpen(false); }}
-              >
-                {previewFont ? (
-                  <>
-                    <span>{o.label}</span>
-                    <span className="picker-font-sample" style={{ fontFamily: o.value }}>AaBb0123</span>
-                  </>
-                ) : o.label}
-              </button>
-            ))}
-          </div>
-        </>,
-        document.body,
-      )}
-    </>
+    <PortalDropdown label={label} maxHeight={280}>
+      {(close) => options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          className={`picker-item${previewFont ? ' picker-item-font' : ''}${value === o.value ? ' selected' : ''}`}
+          onMouseDown={(e) => { e.preventDefault(); onChange(o.value); close(); }}
+        >
+          {previewFont ? (
+            <>
+              <span>{o.label}</span>
+              <span className="picker-font-sample" style={{ fontFamily: o.value }}>AaBb0123</span>
+            </>
+          ) : o.label}
+        </button>
+      ))}
+    </PortalDropdown>
   );
 }
 

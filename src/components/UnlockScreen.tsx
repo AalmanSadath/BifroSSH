@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import PassphraseInput from './PassphraseInput';
+import PassphraseInput from './shared/PassphraseInput';
 
 interface Props {
   /** Set when the keystore cannot be opened at all, so no passphrase helps. */

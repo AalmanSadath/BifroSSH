@@ -17,7 +17,7 @@ use tokio::net::TcpStream;
 use tokio::time::Duration;
 
 use crate::hostkeys::{ConnectSecurity, HostKeyVerifier, VerifyingHandler};
-use crate::ssh::{host_key_error, AuthContext, SshAuth};
+use crate::ssh::{AuthContext, SshAuth};
 
 /// OpenSSH puts no limit on chain length, but every hop is a full handshake
 /// and possibly a host key prompt. A chain longer than this is a loop in the
@@ -127,10 +127,8 @@ pub async fn open_transport(
             HostKeyVerifier::new(sec.clone(), &hop.host, hop.port, Some(hop.username.clone()))
                 .into_jump();
         let mut handle =
-            match client::connect_stream(config, stream, VerifyingHandler { v: verifier.clone() }).await {
-                Ok(handle) => handle,
-                Err(e) => return Err(host_key_error(&verifier, e)),
-            };
+            crate::ssh::connect_verified(config, stream, verifier, |v| VerifyingHandler { v })
+                .await?;
 
         let ctx = AuthContext::new(sec.clone(), &hop.username).with_host(&hop.host);
         crate::ssh::authenticate(&mut handle, &hop.auth, &ctx)

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { FileEntry } from '../types';
+import Modal from './shared/Modal';
 
 interface Props {
   /** `save` asks for a name to write; `open` asks for a file that exists. */
@@ -125,72 +126,66 @@ export default function FilePickerModal({
   const canConfirm = mode === 'open' ? Boolean(selected) : name.trim().length > 0;
 
   return (
-    <div className="modal-overlay" onClick={onCancel}>
-      <div className="modal picker-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2>{title}</h2>
-        </div>
+    <Modal className="picker-modal" title={title} onClose={onCancel}>
+      <input
+        className="picker-path"
+        value={typedPath}
+        spellCheck={false}
+        aria-label="Current folder"
+        onChange={(e) => setTypedPath(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') navigate(typedPath.trim());
+        }}
+      />
 
-        <input
-          className="picker-path"
-          value={typedPath}
-          spellCheck={false}
-          aria-label="Current folder"
-          onChange={(e) => setTypedPath(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') navigate(typedPath.trim());
-          }}
-        />
+      {error && <p className="form-hint" style={{ color: 'var(--danger)' }}>{error}</p>}
 
-        {error && <p className="form-hint" style={{ color: 'var(--danger)' }}>{error}</p>}
-
-        <div className="picker-list">
-          {loading && entries.length === 0 ? (
-            <p className="form-hint">Reading…</p>
-          ) : (
-            entries.map((entry) => (
-              <div
-                key={entry.path}
-                className={[
-                  'picker-row',
-                  selectable(entry) ? '' : 'picker-row-dim',
-                  selected === entry.path ? 'picker-row-selected' : '',
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-                onClick={() => click(entry)}
-                onDoubleClick={() => activate(entry)}
-              >
-                <span className="picker-icon">{entry.is_dir ? '📁' : '📄'}</span>
-                <span className="picker-name">{entry.name}</span>
-              </div>
-            ))
-          )}
-        </div>
-
-        {mode === 'save' && (
-          <div className="picker-name-row">
-            <label htmlFor="picker-filename">File</label>
-            <input
-              id="picker-filename"
-              ref={nameRef}
-              value={name}
-              spellCheck={false}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && canConfirm) confirm();
-              }}
-            />
-          </div>
+      <div className="picker-list">
+        {loading && entries.length === 0 ? (
+          <p className="form-hint">Reading…</p>
+        ) : (
+          entries.map((entry) => (
+            <div
+              key={entry.path}
+              className={[
+                'picker-row',
+                selectable(entry) ? '' : 'picker-row-dim',
+                selected === entry.path ? 'picker-row-selected' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              onClick={() => click(entry)}
+              onDoubleClick={() => activate(entry)}
+            >
+              <span className="picker-icon">{entry.is_dir ? '📁' : '📄'}</span>
+              <span className="picker-name">{entry.name}</span>
+            </div>
+          ))
         )}
-
-        <div className="modal-actions">
-          <button className="btn-secondary" onClick={onCancel}>Cancel</button>
-          <button className="btn-primary" onClick={confirm} disabled={!canConfirm}>
-            {mode === 'save' ? 'Save here' : 'Open'}
-          </button>
-        </div>
       </div>
-    </div>
+
+      {mode === 'save' && (
+        <div className="picker-name-row">
+          <label htmlFor="picker-filename">File</label>
+          <input
+            id="picker-filename"
+            ref={nameRef}
+            value={name}
+            spellCheck={false}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && canConfirm) confirm();
+            }}
+          />
+        </div>
+      )}
+
+      <div className="modal-actions">
+        <button className="btn-secondary" onClick={onCancel}>Cancel</button>
+        <button className="btn-primary" onClick={confirm} disabled={!canConfirm}>
+          {mode === 'save' ? 'Save here' : 'Open'}
+        </button>
+      </div>
+    </Modal>
   );
 }

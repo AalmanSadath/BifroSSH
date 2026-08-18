@@ -2,6 +2,10 @@ import { useState, useRef, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '../store/appStore';
 import type { AgentKeyInfo, Identity } from '../types';
+import ConfirmModal from './shared/ConfirmModal';
+import ContextMenu from './shared/ContextMenu';
+import Drawer from './shared/Drawer';
+import PassphraseInput from './shared/PassphraseInput';
 
 const KEY_ALGORITHMS = [
   { value: 'ed25519', label: 'ED25519' },
@@ -35,7 +39,6 @@ export default function KeychainPanel() {
   const [genResult, setGenResult] = useState<{ private_pem: string; public_openssh: string } | null>(null);
   const [generating, setGenerating] = useState(false);
   const [genPassphrase, setGenPassphrase] = useState('');
-  const [showGenPassphrase, setShowGenPassphrase] = useState(false);
 
   // identity drawer
   const [showIdForm, setShowIdForm] = useState(false);
@@ -51,15 +54,12 @@ export default function KeychainPanel() {
   const [idKeyDropdownOpen, setIdKeyDropdownOpen] = useState(false);
   const [idError, setIdError] = useState('');
   const [savingId, setSavingId] = useState(false);
-  const [showIdPassword, setShowIdPassword] = useState(false);
-  const [showPassphrase, setShowPassphrase] = useState(false);
 
   const [confirmDeleteKey, setConfirmDeleteKey] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   type KcCtx = { x: number; y: number; kind: 'key'; id: string } | { x: number; y: number; kind: 'identity'; id: string } | { x: number; y: number; kind: 'panel' };
   const [ctxMenu, setCtxMenu] = useState<KcCtx | null>(null);
-  const ctxRef = useRef<HTMLDivElement>(null);
 
   // Only queried when the user picks Agent, so a missing agent costs nothing
   // for everyone else.
@@ -73,28 +73,18 @@ export default function KeychainPanel() {
     return () => { cancelled = true; };
   }, [idAuthType, showIdForm]);
 
-  useEffect(() => {
-    if (!ctxMenu) return;
-    function onDown(e: MouseEvent) {
-      if (!ctxRef.current?.contains(e.target as Node)) setCtxMenu(null);
-    }
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [ctxMenu]);
-
   // edit key drawer
   const [editKeyId, setEditKeyId] = useState<string | null>(null);
   const [editKeyName, setEditKeyName] = useState('');
   const [editKeyPrivate, setEditKeyPrivate] = useState('');
   const [editKeyPublic, setEditKeyPublic] = useState<string | null>(null);
   const [editKeyPassphrase, setEditKeyPassphrase] = useState('');
-  const [showEditKeyPassphrase, setShowEditKeyPassphrase] = useState(false);
   const [editKeySaving, setEditKeySaving] = useState(false);
   const [editKeyLoading, setEditKeyLoading] = useState(false);
   const [editKeyError, setEditKeyError] = useState('');
 
   function resetKeyForm() {
-    setKeyName(''); setKeyContent(''); setKeyPassphrase(''); setKeyError(''); setShowPassphrase(false);
+    setKeyName(''); setKeyContent(''); setKeyPassphrase(''); setKeyError('');
   }
 
   function handleKeyFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
@@ -112,7 +102,7 @@ export default function KeychainPanel() {
   }
 
   function resetGenForm() {
-    setGenKeyName(''); setGenKeyError(''); setGenResult(null); setGenAlgorithm('ed25519'); setRsaSize(4096); setGenPassphrase(''); setShowGenPassphrase(false);
+    setGenKeyName(''); setGenKeyError(''); setGenResult(null); setGenAlgorithm('ed25519'); setRsaSize(4096); setGenPassphrase('');
   }
 
   async function handleAddKey(e: React.FormEvent) {
@@ -198,7 +188,6 @@ export default function KeychainPanel() {
     setEditKeyPrivate('');
     setEditKeyPublic(null);
     setEditKeyPassphrase('');
-    setShowEditKeyPassphrase(false);
     setEditKeyError('');
   }
 
@@ -221,7 +210,7 @@ export default function KeychainPanel() {
 
   function openAddIdentity() {
     setEditId(null);
-    setIdName(''); setIdUsername(''); setIdAuthType('key'); setIdKeyId(''); setIdPassword(''); setIdError(''); setShowIdPassword(false);
+    setIdName(''); setIdUsername(''); setIdAuthType('key'); setIdKeyId(''); setIdPassword(''); setIdError('');
     setIdAgentFingerprint('');
     setShowIdForm(true);
   }
@@ -234,7 +223,7 @@ export default function KeychainPanel() {
         ? 'agent' as const
         : id.encrypted_password === '[stored]' ? 'password' as const : 'key' as const;
     setIdName(id.name); setIdUsername(id.username);
-    setIdAuthType(authType); setIdKeyId(id.key_id ?? ''); setIdPassword(''); setIdError(''); setShowIdPassword(false);
+    setIdAuthType(authType); setIdKeyId(id.key_id ?? ''); setIdPassword(''); setIdError('');
     setIdAgentFingerprint(id.agent_fingerprint ?? '');
     setShowIdForm(true);
   }
@@ -313,190 +302,152 @@ export default function KeychainPanel() {
 
       {/* Import key drawer */}
       {showKeyForm && (
-        <>
-          <div className="drawer-backdrop" onClick={() => { setShowKeyForm(false); resetKeyForm(); }} />
-          <div className="drawer" onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}>
-            <div className="drawer-header">
-              <button className="drawer-close" onClick={() => { setShowKeyForm(false); resetKeyForm(); }}>✕</button>
-              <span>Add SSH Key</span>
-              <button type="submit" form="key-form" className="btn-primary btn-sm" disabled={savingKey}>
-                {savingKey ? 'Saving…' : 'Save Key'}
-              </button>
-            </div>
-            <div className="drawer-body">
-              <form id="key-form" className="inline-form" onSubmit={handleAddKey}>
-                <div className="form-group">
-                  <label>Name</label>
-                  <input value={keyName} onChange={(e) => setKeyName(e.target.value)} placeholder="My SSH Key" autoFocus />
-                </div>
-                <div className="form-group">
-                  <label>Private key</label>
-                  <textarea
-                    className="key-paste-area"
-                    value={keyContent}
-                    onChange={(e) => setKeyContent(e.target.value)}
-                    placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;..."
-                    rows={8}
-                    spellCheck={false}
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Passphrase (if encrypted)</label>
-                  <div className="input-with-eye">
-                    <input
-                      type={showPassphrase ? 'text' : 'password'}
-                      value={keyPassphrase}
-                      onChange={(e) => setKeyPassphrase(e.target.value)}
-                      placeholder="leave empty if none"
-                    />
-                    <button type="button" className="eye-btn" onClick={() => setShowPassphrase((v) => !v)} tabIndex={-1}>
-                      {showPassphrase ? (
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
-                          <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
-                          <line x1="1" y1="1" x2="23" y2="23"/>
-                        </svg>
-                      ) : (
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                          <circle cx="12" cy="12" r="3"/>
-                        </svg>
-                      )}
-                    </button>
-                  </div>
-                </div>
-                {keyContent.trimStart().startsWith('PuTTY-User-Key-File') && (
-                  <p className="form-info">PPK file will be converted to OpenSSH format on save.</p>
-                )}
-                {keyError && <p className="form-error">{keyError}</p>}
-                <input
-                  ref={keyFileInputRef}
-                  type="file"
-                  accept=".ppk,.pem,.key,.txt,*"
-                  style={{ display: 'none' }}
-                  onChange={handleKeyFileSelect}
+        <Drawer
+          title="Add SSH Key"
+          onClose={() => { setShowKeyForm(false); resetKeyForm(); }}
+          action={
+            <button type="submit" form="key-form" className="btn-primary btn-sm" disabled={savingKey}>
+              {savingKey ? 'Saving…' : 'Save Key'}
+            </button>
+          }
+        >
+          <div className="drawer-body">
+            <form id="key-form" className="inline-form" onSubmit={handleAddKey}>
+              <div className="form-group">
+                <label>Name</label>
+                <input value={keyName} onChange={(e) => setKeyName(e.target.value)} placeholder="My SSH Key" autoFocus />
+              </div>
+              <div className="form-group">
+                <label>Private key</label>
+                <textarea
+                  className="key-paste-area"
+                  value={keyContent}
+                  onChange={(e) => setKeyContent(e.target.value)}
+                  placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;..."
+                  rows={8}
+                  spellCheck={false}
                 />
-                <button
-                  type="button"
-                  className="btn-secondary btn-sm"
-                  style={{ alignSelf: 'flex-start' }}
-                  onClick={() => keyFileInputRef.current?.click()}
-                >
-                  Import from key file
-                </button>
-              </form>
-            </div>
+              </div>
+              <div className="form-group">
+                <label>Passphrase (if encrypted)</label>
+                <PassphraseInput
+                  value={keyPassphrase}
+                  onChange={setKeyPassphrase}
+                  placeholder="leave empty if none"
+                />
+              </div>
+              {keyContent.trimStart().startsWith('PuTTY-User-Key-File') && (
+                <p className="form-info">PPK file will be converted to OpenSSH format on save.</p>
+              )}
+              {keyError && <p className="form-error">{keyError}</p>}
+              <input
+                ref={keyFileInputRef}
+                type="file"
+                accept=".ppk,.pem,.key,.txt,*"
+                style={{ display: 'none' }}
+                onChange={handleKeyFileSelect}
+              />
+              <button
+                type="button"
+                className="btn-secondary btn-sm"
+                style={{ alignSelf: 'flex-start' }}
+                onClick={() => keyFileInputRef.current?.click()}
+              >
+                Import from key file
+              </button>
+            </form>
           </div>
-        </>
+        </Drawer>
       )}
 
       {/* Generate key drawer */}
       {showGenForm && (
-        <>
-          <div className="drawer-backdrop" onClick={() => { setShowGenForm(false); resetGenForm(); }} />
-          <div className="drawer" onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}>
-            <div className="drawer-header">
-              <button className="drawer-close" onClick={() => { setShowGenForm(false); resetGenForm(); }}>✕</button>
-              <span>Generate SSH Key</span>
-              <button type="submit" form="gen-key-form" className="btn-primary btn-sm" disabled={genSaving || !genResult}>
-                {genSaving ? 'Saving…' : 'Save Key'}
-              </button>
-            </div>
-            <div className="drawer-body">
-              <form id="gen-key-form" className="inline-form" onSubmit={handleSaveGenerated}>
-                <div className="form-group">
-                  <label>Name</label>
-                  <input value={genKeyName} onChange={(e) => setGenKeyName(e.target.value)} placeholder="My Generated Key" autoFocus />
-                </div>
-                <div className="form-group">
-                  <label>Passphrase (optional)</label>
-                  <div className="input-with-eye">
-                    <input
-                      type={showGenPassphrase ? 'text' : 'password'}
-                      value={genPassphrase}
-                      onChange={(e) => setGenPassphrase(e.target.value)}
-                      placeholder="leave empty for no passphrase"
-                    />
-                    <button type="button" className="eye-btn" onClick={() => setShowGenPassphrase((v) => !v)} tabIndex={-1}>
-                      {showGenPassphrase ? (
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
-                          <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
-                          <line x1="1" y1="1" x2="23" y2="23"/>
-                        </svg>
-                      ) : (
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                          <circle cx="12" cy="12" r="3"/>
-                        </svg>
-                      )}
+        <Drawer
+          title="Generate SSH Key"
+          onClose={() => { setShowGenForm(false); resetGenForm(); }}
+          action={
+            <button type="submit" form="gen-key-form" className="btn-primary btn-sm" disabled={genSaving || !genResult}>
+              {genSaving ? 'Saving…' : 'Save Key'}
+            </button>
+          }
+        >
+          <div className="drawer-body">
+            <form id="gen-key-form" className="inline-form" onSubmit={handleSaveGenerated}>
+              <div className="form-group">
+                <label>Name</label>
+                <input value={genKeyName} onChange={(e) => setGenKeyName(e.target.value)} placeholder="My Generated Key" autoFocus />
+              </div>
+              <div className="form-group">
+                <label>Passphrase (optional)</label>
+                <PassphraseInput
+                  value={genPassphrase}
+                  onChange={setGenPassphrase}
+                  placeholder="leave empty for no passphrase"
+                />
+              </div>
+              <div className="form-group">
+                <label>Algorithm</label>
+                <div className="toggle-row">
+                  {KEY_ALGORITHMS.map((alg) => (
+                    <button
+                      key={alg.value}
+                      type="button"
+                      className={`toggle-btn${genAlgorithm === alg.value ? ' active' : ''}`}
+                      onClick={() => { setGenAlgorithm(alg.value); setGenResult(null); }}
+                    >
+                      {alg.label}
                     </button>
-                  </div>
+                  ))}
                 </div>
+              </div>
+              {genAlgorithm === 'rsa' && (
                 <div className="form-group">
-                  <label>Algorithm</label>
+                  <label>Key size</label>
                   <div className="toggle-row">
-                    {KEY_ALGORITHMS.map((alg) => (
+                    {RSA_SIZES.map((size) => (
                       <button
-                        key={alg.value}
+                        key={size}
                         type="button"
-                        className={`toggle-btn${genAlgorithm === alg.value ? ' active' : ''}`}
-                        onClick={() => { setGenAlgorithm(alg.value); setGenResult(null); }}
+                        className={`toggle-btn${rsaSize === size ? ' active' : ''}`}
+                        onClick={() => { setRsaSize(size); setGenResult(null); }}
                       >
-                        {alg.label}
+                        {size}
                       </button>
                     ))}
                   </div>
                 </div>
-                {genAlgorithm === 'rsa' && (
+              )}
+              <button
+                type="button"
+                className="btn-secondary btn-sm"
+                onClick={handleGenerate}
+                disabled={generating}
+                style={{ alignSelf: 'flex-start' }}
+              >
+                {generating ? 'Generating…' : genResult ? 'Regenerate' : 'Generate Key'}
+              </button>
+              {genResult && (
+                <>
                   <div className="form-group">
-                    <label>Key size</label>
-                    <div className="toggle-row">
-                      {RSA_SIZES.map((size) => (
-                        <button
-                          key={size}
-                          type="button"
-                          className={`toggle-btn${rsaSize === size ? ' active' : ''}`}
-                          onClick={() => { setRsaSize(size); setGenResult(null); }}
-                        >
-                          {size}
-                        </button>
-                      ))}
+                    <label>Public key — add this to your server's authorized_keys</label>
+                    <div className="key-pub-box">
+                      <code>{genResult.public_openssh}</code>
+                      <button type="button" className="btn-secondary btn-sm" onClick={() => navigator.clipboard.writeText(genResult!.public_openssh)}>Copy</button>
                     </div>
                   </div>
-                )}
-                <button
-                  type="button"
-                  className="btn-secondary btn-sm"
-                  onClick={handleGenerate}
-                  disabled={generating}
-                  style={{ alignSelf: 'flex-start' }}
-                >
-                  {generating ? 'Generating…' : genResult ? 'Regenerate' : 'Generate Key'}
-                </button>
-                {genResult && (
-                  <>
-                    <div className="form-group">
-                      <label>Public key — add this to your server's authorized_keys</label>
-                      <div className="key-pub-box">
-                        <code>{genResult.public_openssh}</code>
-                        <button type="button" className="btn-secondary btn-sm" onClick={() => navigator.clipboard.writeText(genResult!.public_openssh)}>Copy</button>
-                      </div>
+                  <div className="form-group">
+                    <label>Private key</label>
+                    <div className="key-pub-box">
+                      <code>{genResult.private_pem}</code>
+                      <button type="button" className="btn-secondary btn-sm" onClick={() => navigator.clipboard.writeText(genResult!.private_pem)}>Copy</button>
                     </div>
-                    <div className="form-group">
-                      <label>Private key</label>
-                      <div className="key-pub-box">
-                        <code>{genResult.private_pem}</code>
-                        <button type="button" className="btn-secondary btn-sm" onClick={() => navigator.clipboard.writeText(genResult!.private_pem)}>Copy</button>
-                      </div>
-                    </div>
-                  </>
-                )}
-                {genKeyError && <p className="form-error">{genKeyError}</p>}
-              </form>
-            </div>
+                  </div>
+                </>
+              )}
+              {genKeyError && <p className="form-error">{genKeyError}</p>}
+            </form>
           </div>
-        </>
+        </Drawer>
       )}
 
       {/* Keys */}
@@ -530,161 +481,137 @@ export default function KeychainPanel() {
 
       {/* Identity drawer */}
       {showIdForm && (
-        <>
-          <div className="drawer-backdrop" onClick={() => setShowIdForm(false)} />
-          <div className="drawer" onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}>
-            <div className="drawer-header">
-              <button className="drawer-close" onClick={() => setShowIdForm(false)}>✕</button>
-              <span>{editId ? 'Edit Identity' : 'Add Identity'}</span>
-              <button type="submit" form="identity-form" className="btn-primary btn-sm" disabled={savingId}>
-                {savingId ? 'Saving…' : 'Save'}
-              </button>
-            </div>
-            <div className="drawer-body">
-              <form id="identity-form" className="inline-form" onSubmit={handleSaveIdentity}>
-                <div className="form-group">
-                  <label>Name</label>
-                  <input value={idName} onChange={(e) => setIdName(e.target.value)} placeholder="prod-ubuntu" autoFocus />
+        <Drawer
+          title={editId ? 'Edit Identity' : 'Add Identity'}
+          onClose={() => setShowIdForm(false)}
+          action={
+            <button type="submit" form="identity-form" className="btn-primary btn-sm" disabled={savingId}>
+              {savingId ? 'Saving…' : 'Save'}
+            </button>
+          }
+        >
+          <div className="drawer-body">
+            <form id="identity-form" className="inline-form" onSubmit={handleSaveIdentity}>
+              <div className="form-group">
+                <label>Name</label>
+                <input value={idName} onChange={(e) => setIdName(e.target.value)} placeholder="prod-ubuntu" autoFocus />
+              </div>
+              <div className="form-group">
+                <label>Username</label>
+                <input value={idUsername} onChange={(e) => setIdUsername(e.target.value)} placeholder="ubuntu" />
+              </div>
+              <div className="form-group">
+                <label>Auth</label>
+                <div className="toggle-row">
+                  <button type="button" className={`toggle-btn${idAuthType === 'key' ? ' active' : ''}`} onClick={() => setIdAuthType('key')}>Key</button>
+                  <button type="button" className={`toggle-btn${idAuthType === 'password' ? ' active' : ''}`} onClick={() => setIdAuthType('password')}>Password</button>
+                  <button type="button" className={`toggle-btn${idAuthType === 'keyboard-interactive' ? ' active' : ''}`} onClick={() => setIdAuthType('keyboard-interactive')}>Prompt</button>
+                  <button type="button" className={`toggle-btn${idAuthType === 'agent' ? ' active' : ''}`} onClick={() => setIdAuthType('agent')}>Agent</button>
                 </div>
+                {idAuthType === 'keyboard-interactive' && (
+                  <p className="form-hint">
+                    The server asks for a password, one-time code, or both at connect time.
+                    Nothing is stored. Use this for PAM or two-factor logins.
+                  </p>
+                )}
+              </div>
+              {idAuthType === 'agent' ? (
                 <div className="form-group">
-                  <label>Username</label>
-                  <input value={idUsername} onChange={(e) => setIdUsername(e.target.value)} placeholder="ubuntu" />
-                </div>
-                <div className="form-group">
-                  <label>Auth</label>
-                  <div className="toggle-row">
-                    <button type="button" className={`toggle-btn${idAuthType === 'key' ? ' active' : ''}`} onClick={() => setIdAuthType('key')}>Key</button>
-                    <button type="button" className={`toggle-btn${idAuthType === 'password' ? ' active' : ''}`} onClick={() => setIdAuthType('password')}>Password</button>
-                    <button type="button" className={`toggle-btn${idAuthType === 'keyboard-interactive' ? ' active' : ''}`} onClick={() => setIdAuthType('keyboard-interactive')}>Prompt</button>
-                    <button type="button" className={`toggle-btn${idAuthType === 'agent' ? ' active' : ''}`} onClick={() => setIdAuthType('agent')}>Agent</button>
-                  </div>
-                  {idAuthType === 'keyboard-interactive' && (
+                  {agentError ? (
+                    <p className="form-hint" style={{ color: 'var(--danger)' }}>{agentError}</p>
+                  ) : agentKeys === null ? (
+                    <p className="form-hint">Reading ssh-agent…</p>
+                  ) : agentKeys.length === 0 ? (
                     <p className="form-hint">
-                      The server asks for a password, one-time code, or both at connect time.
-                      Nothing is stored. Use this for PAM or two-factor logins.
+                      ssh-agent is running but holds no usable keys. Add one with <code>ssh-add</code>.
                     </p>
-                  )}
-                </div>
-                {idAuthType === 'agent' ? (
-                  <div className="form-group">
-                    {agentError ? (
-                      <p className="form-hint" style={{ color: 'var(--danger)' }}>{agentError}</p>
-                    ) : agentKeys === null ? (
-                      <p className="form-hint">Reading ssh-agent…</p>
-                    ) : agentKeys.length === 0 ? (
-                      <p className="form-hint">
-                        ssh-agent is running but holds no usable keys. Add one with <code>ssh-add</code>.
-                      </p>
-                    ) : (
-                      <>
-                        <div className="agentkey-list">
+                  ) : (
+                    <>
+                      <div className="agentkey-list">
+                        <button
+                          type="button"
+                          className={`agentkey${idAgentFingerprint === '' ? ' active' : ''}`}
+                          onClick={() => setIdAgentFingerprint('')}
+                        >
+                          <span className="agentkey-name">Any key the agent offers</span>
+                          <span className="agentkey-meta">tries each in turn</span>
+                        </button>
+                        {agentKeys.map((k) => (
                           <button
                             type="button"
-                            className={`agentkey${idAgentFingerprint === '' ? ' active' : ''}`}
-                            onClick={() => setIdAgentFingerprint('')}
+                            key={k.fingerprint}
+                            className={`agentkey${idAgentFingerprint === k.fingerprint ? ' active' : ''}`}
+                            onClick={() => setIdAgentFingerprint(k.fingerprint)}
                           >
-                            <span className="agentkey-name">Any key the agent offers</span>
-                            <span className="agentkey-meta">tries each in turn</span>
+                            <span className="agentkey-name">{k.algorithm}</span>
+                            <span className="agentkey-meta">{k.fingerprint}</span>
                           </button>
-                          {agentKeys.map((k) => (
+                        ))}
+                      </div>
+                      <p className="form-hint">
+                        The agent signs on your behalf; the private key never reaches BifroSSH.
+                      </p>
+                    </>
+                  )}
+                </div>
+              ) : idAuthType === 'keyboard-interactive' ? null : idAuthType === 'key' ? (
+                <div className="form-group">
+                  <div className="picker" style={{ position: 'relative' }}>
+                    <button
+                      type="button"
+                      className="picker-btn"
+                      onClick={() => setIdKeyDropdownOpen((o) => !o)}
+                    >
+                      <span>{keys.find((k) => k.id === idKeyId)?.name ?? 'Select key…'}</span>
+                      <svg width="10" height="6" viewBox="0 0 10 6" fill="currentColor"><path d="M0 0l5 6 5-6z"/></svg>
+                    </button>
+                    {idKeyDropdownOpen && (
+                      <>
+                        <div style={{ position: 'fixed', inset: 0, zIndex: 99 }} onClick={() => setIdKeyDropdownOpen(false)} />
+                        <div className="picker-menu">
+                          {keys.map((k) => (
                             <button
+                              key={k.id}
                               type="button"
-                              key={k.fingerprint}
-                              className={`agentkey${idAgentFingerprint === k.fingerprint ? ' active' : ''}`}
-                              onClick={() => setIdAgentFingerprint(k.fingerprint)}
+                              className={`picker-item${idKeyId === k.id ? ' selected' : ''}`}
+                              onClick={() => { setIdKeyId(k.id); setIdKeyDropdownOpen(false); }}
                             >
-                              <span className="agentkey-name">{k.algorithm}</span>
-                              <span className="agentkey-meta">{k.fingerprint}</span>
+                              {k.name}
                             </button>
                           ))}
+                          {keys.length > 0 && <div className="picker-divider" />}
+                          <button
+                            type="button"
+                            className="picker-item picker-add"
+                            onClick={() => { setIdKeyDropdownOpen(false); setShowKeyForm(true); resetKeyForm(); }}
+                          >
+                            + Add Key…
+                          </button>
                         </div>
-                        <p className="form-hint">
-                          The agent signs on your behalf; the private key never reaches BifroSSH.
-                        </p>
                       </>
                     )}
                   </div>
-                ) : idAuthType === 'keyboard-interactive' ? null : idAuthType === 'key' ? (
-                  <div className="form-group">
-                    <div className="picker" style={{ position: 'relative' }}>
-                      <button
-                        type="button"
-                        className="picker-btn"
-                        onClick={() => setIdKeyDropdownOpen((o) => !o)}
-                      >
-                        <span>{keys.find((k) => k.id === idKeyId)?.name ?? 'Select key…'}</span>
-                        <svg width="10" height="6" viewBox="0 0 10 6" fill="currentColor"><path d="M0 0l5 6 5-6z"/></svg>
-                      </button>
-                      {idKeyDropdownOpen && (
-                        <>
-                          <div style={{ position: 'fixed', inset: 0, zIndex: 99 }} onClick={() => setIdKeyDropdownOpen(false)} />
-                          <div className="picker-menu">
-                            {keys.map((k) => (
-                              <button
-                                key={k.id}
-                                type="button"
-                                className={`picker-item${idKeyId === k.id ? ' selected' : ''}`}
-                                onClick={() => { setIdKeyId(k.id); setIdKeyDropdownOpen(false); }}
-                              >
-                                {k.name}
-                              </button>
-                            ))}
-                            {keys.length > 0 && <div className="picker-divider" />}
-                            <button
-                              type="button"
-                              className="picker-item picker-add"
-                              onClick={() => { setIdKeyDropdownOpen(false); setShowKeyForm(true); resetKeyForm(); }}
-                            >
-                              + Add Key…
-                            </button>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="form-group">
-                    <div className="input-with-eye">
-                      <input
-                        type={showIdPassword ? 'text' : 'password'}
-                        value={idPassword}
-                        onChange={(e) => setIdPassword(e.target.value)}
-                        placeholder={editId?.encrypted_password === '[stored]' ? 'leave blank to keep existing' : 'password'}
-                      />
-                      <button
-                        type="button"
-                        className="eye-btn"
-                        onClick={() => setShowIdPassword((v) => !v)}
-                        tabIndex={-1}
-                      >
-                        {showIdPassword ? (
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
-                            <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
-                            <line x1="1" y1="1" x2="23" y2="23"/>
-                          </svg>
-                        ) : (
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                            <circle cx="12" cy="12" r="3"/>
-                          </svg>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                )}
-                {idError && <p className="form-error">{idError}</p>}
-              </form>
-            </div>
-            {editId && (
-              <div className="drawer-footer">
-                <button className="btn-danger btn-sm" onClick={() => setConfirmDeleteId(editId.id)}>
-                  Delete Identity
-                </button>
-              </div>
-            )}
+                </div>
+              ) : (
+                <div className="form-group">
+                  <PassphraseInput
+                    value={idPassword}
+                    onChange={setIdPassword}
+                    placeholder={editId?.encrypted_password === '[stored]' ? 'leave blank to keep existing' : 'password'}
+                  />
+                </div>
+              )}
+              {idError && <p className="form-error">{idError}</p>}
+            </form>
           </div>
-        </>
+          {editId && (
+            <div className="drawer-footer">
+              <button className="btn-danger btn-sm" onClick={() => setConfirmDeleteId(editId.id)}>
+                Delete Identity
+              </button>
+            </div>
+          )}
+        </Drawer>
       )}
 
       {/* Identities */}
@@ -728,95 +655,69 @@ export default function KeychainPanel() {
 
       {/* Edit key drawer */}
       {editKeyId && (
-        <>
-          <div className="drawer-backdrop" onClick={closeEditKey} />
-          <div className="drawer" onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}>
-            <div className="drawer-header">
-              <button className="drawer-close" onClick={closeEditKey}>✕</button>
-              <span>Edit Key</span>
-              <button type="submit" form="edit-key-form" className="btn-primary btn-sm" disabled={editKeySaving || editKeyLoading}>
-                {editKeySaving ? 'Saving…' : 'Save'}
-              </button>
-            </div>
-            <div className="drawer-body">
-              {editKeyLoading
-                ? <p style={{ padding: '16px', opacity: 0.6 }}>Loading…</p>
-                : (
-                  <form id="edit-key-form" className="inline-form" onSubmit={handleSaveEditKey}>
+        <Drawer
+          title="Edit Key"
+          onClose={closeEditKey}
+          action={
+            <button type="submit" form="edit-key-form" className="btn-primary btn-sm" disabled={editKeySaving || editKeyLoading}>
+              {editKeySaving ? 'Saving…' : 'Save'}
+            </button>
+          }
+        >
+          <div className="drawer-body">
+            {editKeyLoading
+              ? <p style={{ padding: '16px', opacity: 0.6 }}>Loading…</p>
+              : (
+                <form id="edit-key-form" className="inline-form" onSubmit={handleSaveEditKey}>
+                  <div className="form-group">
+                    <label>Name</label>
+                    <input value={editKeyName} onChange={(e) => setEditKeyName(e.target.value)} placeholder="Key name" autoFocus />
+                  </div>
+                  <div className="form-group">
+                    <label>Passphrase</label>
+                    <PassphraseInput
+                      value={editKeyPassphrase}
+                      onChange={setEditKeyPassphrase}
+                      placeholder="leave blank to keep existing"
+                    />
+                  </div>
+                  {editKeyPublic && (
                     <div className="form-group">
-                      <label>Name</label>
-                      <input value={editKeyName} onChange={(e) => setEditKeyName(e.target.value)} placeholder="Key name" autoFocus />
-                    </div>
-                    <div className="form-group">
-                      <label>Passphrase</label>
-                      <div className="input-with-eye">
-                        <input
-                          type={showEditKeyPassphrase ? 'text' : 'password'}
-                          value={editKeyPassphrase}
-                          onChange={(e) => setEditKeyPassphrase(e.target.value)}
-                          placeholder="leave blank to keep existing"
-                        />
-                        <button type="button" className="eye-btn" onClick={() => setShowEditKeyPassphrase((v) => !v)} tabIndex={-1}>
-                          {showEditKeyPassphrase ? (
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
-                              <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
-                              <line x1="1" y1="1" x2="23" y2="23"/>
-                            </svg>
-                          ) : (
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                              <circle cx="12" cy="12" r="3"/>
-                            </svg>
-                          )}
-                        </button>
+                      <label>Public key</label>
+                      <div className="key-pub-box">
+                        <code>{editKeyPublic}</code>
+                        <button type="button" className="btn-secondary btn-sm" onClick={() => navigator.clipboard.writeText(editKeyPublic!)}>Copy</button>
                       </div>
                     </div>
-                    {editKeyPublic && (
-                      <div className="form-group">
-                        <label>Public key</label>
-                        <div className="key-pub-box">
-                          <code>{editKeyPublic}</code>
-                          <button type="button" className="btn-secondary btn-sm" onClick={() => navigator.clipboard.writeText(editKeyPublic!)}>Copy</button>
-                        </div>
-                      </div>
-                    )}
-                    <div className="form-group">
-                      <label>Private key</label>
-                      <div className="key-pub-box key-pub-box--tall">
-                        <textarea
-                          className="key-paste-area"
-                          value={editKeyPrivate}
-                          onChange={(e) => setEditKeyPrivate(e.target.value)}
-                          rows={10}
-                          spellCheck={false}
-                        />
-                        <button type="button" className="btn-secondary btn-sm" onClick={() => navigator.clipboard.writeText(editKeyPrivate)}>Copy</button>
-                      </div>
+                  )}
+                  <div className="form-group">
+                    <label>Private key</label>
+                    <div className="key-pub-box key-pub-box--tall">
+                      <textarea
+                        className="key-paste-area"
+                        value={editKeyPrivate}
+                        onChange={(e) => setEditKeyPrivate(e.target.value)}
+                        rows={10}
+                        spellCheck={false}
+                      />
+                      <button type="button" className="btn-secondary btn-sm" onClick={() => navigator.clipboard.writeText(editKeyPrivate)}>Copy</button>
                     </div>
-                    {editKeyError && <p className="form-error">{editKeyError}</p>}
-                  </form>
-                )
-              }
-            </div>
-            {!editKeyLoading && (
-              <div className="drawer-footer">
-                <button className="btn-danger btn-sm" onClick={() => setConfirmDeleteKey(editKeyId!)}>Delete Key</button>
-              </div>
-            )}
+                  </div>
+                  {editKeyError && <p className="form-error">{editKeyError}</p>}
+                </form>
+              )
+            }
           </div>
-        </>
+          {!editKeyLoading && (
+            <div className="drawer-footer">
+              <button className="btn-danger btn-sm" onClick={() => setConfirmDeleteKey(editKeyId!)}>Delete Key</button>
+            </div>
+          )}
+        </Drawer>
       )}
 
       {ctxMenu && (
-        <div
-          ref={ctxRef}
-          className="host-context-menu"
-          style={{
-            top: Math.min(ctxMenu.y, window.innerHeight - (ctxMenu.kind === 'panel' ? 100 : 80)),
-            left: Math.min(ctxMenu.x, window.innerWidth - 160),
-          }}
-        >
+        <ContextMenu x={ctxMenu.x} y={ctxMenu.y} onClose={() => setCtxMenu(null)}>
           {ctxMenu.kind === 'panel' ? (
             <>
               <button className="host-ctx-item" onClick={() => { setCtxMenu(null); setShowKeyForm(true); }}>Add Key</button>
@@ -840,33 +741,23 @@ export default function KeychainPanel() {
               }}>Delete</button>
             </>
           )}
-        </div>
+        </ContextMenu>
       )}
 
       {confirmDeleteKey && (
-        <>
-          <div className="modal-overlay" onClick={() => setConfirmDeleteKey(null)} />
-          <div className="kc-confirm-modal">
-            <p>Delete this key?</p>
-            <div className="kc-confirm-actions">
-              <button className="btn-secondary btn-sm" onClick={() => setConfirmDeleteKey(null)}>Cancel</button>
-              <button className="btn-danger btn-sm" onClick={() => { deleteKey(confirmDeleteKey); setConfirmDeleteKey(null); closeEditKey(); }}>Delete</button>
-            </div>
-          </div>
-        </>
+        <ConfirmModal
+          question="Delete this key?"
+          onCancel={() => setConfirmDeleteKey(null)}
+          onConfirm={() => { deleteKey(confirmDeleteKey); setConfirmDeleteKey(null); closeEditKey(); }}
+        />
       )}
 
       {confirmDeleteId && (
-        <>
-          <div className="modal-overlay" onClick={() => setConfirmDeleteId(null)} />
-          <div className="kc-confirm-modal">
-            <p>Delete this identity?</p>
-            <div className="kc-confirm-actions">
-              <button className="btn-secondary btn-sm" onClick={() => setConfirmDeleteId(null)}>Cancel</button>
-              <button className="btn-danger btn-sm" onClick={() => { deleteIdentity(confirmDeleteId); setConfirmDeleteId(null); setShowIdForm(false); }}>Delete</button>
-            </div>
-          </div>
-        </>
+        <ConfirmModal
+          question="Delete this identity?"
+          onCancel={() => setConfirmDeleteId(null)}
+          onConfirm={() => { deleteIdentity(confirmDeleteId); setConfirmDeleteId(null); setShowIdForm(false); }}
+        />
       )}
     </div>
   );

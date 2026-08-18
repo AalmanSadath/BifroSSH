@@ -1,7 +1,7 @@
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex as StdMutex};
 
 use anyhow::Result;
@@ -14,11 +14,9 @@ use russh_keys::key::PublicKey;
 use russh_keys::PublicKeyBase64;
 use sha1::Sha1;
 use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Emitter};
-use tokio::sync::oneshot;
-use tokio::time::{timeout, Duration};
+use tauri::AppHandle;
 
-use crate::prompts::{HostKeyDecision, HostKeyPromptEvent, PromptCancelEvent, PromptState};
+use crate::prompts::{self, HostKeyDecision, HostKeyPromptEvent, PromptState};
 use crate::store::get_data_dir;
 
 /// Serialises rewrites so two connects learning at once cannot interleave.
@@ -740,15 +738,15 @@ impl HostKeyVerifier {
                 }
 
                 let decision = self
-                    .ask(
-                        "mismatch",
-                        &offered_type,
-                        &offered_fp,
-                        Some(existing_type),
-                        Some(existing_fp),
-                        Some(source.as_str().to_string()),
-                        Some(line),
-                    )
+                    .ask(KeyOffer {
+                        status: "mismatch",
+                        key_type: offered_type.clone(),
+                        fingerprint: offered_fp.clone(),
+                        existing_key_type: Some(existing_type),
+                        existing_fingerprint: Some(existing_fp),
+                        source: Some(source.as_str().to_string()),
+                        line: Some(line),
+                    })
                     .await;
 
                 if decision != HostKeyDecision::Replace {
@@ -796,7 +794,15 @@ impl HostKeyVerifier {
                     }
 
                     match self
-                        .ask("unknown", &offered_type, &offered_fp, None, None, None, None)
+                        .ask(KeyOffer {
+                            status: "unknown",
+                            key_type: offered_type.clone(),
+                            fingerprint: offered_fp.clone(),
+                            existing_key_type: None,
+                            existing_fingerprint: None,
+                            source: None,
+                            line: None,
+                        })
                         .await
                     {
                         HostKeyDecision::Trust => {
@@ -824,61 +830,47 @@ impl HostKeyVerifier {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    async fn ask(
-        &self,
-        status: &str,
-        key_type: &str,
-        fingerprint: &str,
-        existing_key_type: Option<String>,
-        existing_fingerprint: Option<String>,
-        source: Option<String>,
-        line: Option<usize>,
-    ) -> HostKeyDecision {
-        let request_id = uuid::Uuid::new_v4().to_string();
-        let (tx, rx) = oneshot::channel();
-        self.sec
-            .prompts
-            .host_keys
-            .lock()
-            .await
-            .insert(request_id.clone(), tx);
-
-        let event = HostKeyPromptEvent {
-            request_id: request_id.clone(),
-            connect_id: self.sec.connect_id.clone(),
-            host: self.host.clone(),
-            port: self.port,
-            username: self.username.clone(),
-            status: status.to_string(),
-            key_type: key_type.to_string(),
-            fingerprint: fingerprint.to_string(),
-            existing_key_type,
-            existing_fingerprint,
-            source,
-            line,
-            is_jump: self.is_jump,
-        };
-
-        self.sec.waiting.store(true, Ordering::Relaxed);
-        let _ = self.sec.app.emit("host-key-prompt", event);
-
-        let decision = match timeout(Duration::from_secs(300), rx).await {
-            Ok(Ok(d)) => d,
-            // Timed out, or the sender was dropped without an answer.
-            _ => HostKeyDecision::Reject,
-        };
-
-        self.sec.waiting.store(false, Ordering::Relaxed);
-        self.sec.prompts.host_keys.lock().await.remove(&request_id);
-        // Retract the modal if we gave up before the user answered.
-        let _ = self
-            .sec
-            .app
-            .emit("host-key-prompt-cancel", PromptCancelEvent { request_id });
-
-        decision
+    /// Puts a key to the user and waits. No answer means reject: a prompt
+    /// nobody was there to answer must not become a trusted host.
+    async fn ask(&self, offer: KeyOffer) -> HostKeyDecision {
+        prompts::request(
+            &self.sec.prompts.host_keys,
+            &self.sec.app,
+            &self.sec.waiting,
+            "host-key-prompt",
+            |request_id| HostKeyPromptEvent {
+                request_id,
+                connect_id: self.sec.connect_id.clone(),
+                host: self.host.clone(),
+                port: self.port,
+                username: self.username.clone(),
+                status: offer.status.to_string(),
+                key_type: offer.key_type,
+                fingerprint: offer.fingerprint,
+                existing_key_type: offer.existing_key_type,
+                existing_fingerprint: offer.existing_fingerprint,
+                source: offer.source,
+                line: offer.line,
+                is_jump: self.is_jump,
+            },
+        )
+        .await
+        .unwrap_or(HostKeyDecision::Reject)
     }
+}
+
+/// The half of a host key prompt that varies between the two call sites. These
+/// are exactly the `HostKeyPromptEvent` fields the verifier cannot supply from
+/// itself; the rest — host, port, username, connect id — it already knows.
+struct KeyOffer {
+    /// "unknown" | "mismatch" | "revoked"
+    status: &'static str,
+    key_type: String,
+    fingerprint: String,
+    existing_key_type: Option<String>,
+    existing_fingerprint: Option<String>,
+    source: Option<String>,
+    line: Option<usize>,
 }
 
 /// The single `client::Handler` used by every connect path in the app.

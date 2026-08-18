@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import PassphraseInput from './PassphraseInput';
+import PassphraseInput from './shared/PassphraseInput';
 import FilePickerModal from './FilePickerModal';
 import { useAppStore } from '../store/appStore';
 import type { ImportOptions, ImportReport, MergePlan, TransferCounts } from '../types';
+import Modal from './shared/Modal';
 
 interface Props {
   onClose: () => void;
@@ -104,136 +105,132 @@ export default function ImportDataModal({ onClose }: Props) {
     Object.values(counts).reduce((sum, n) => sum + n, 0);
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal transfer-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <div>
-            <h2>Import settings</h2>
-            <div className="modal-subtitle">Adds what is missing. Nothing here is replaced.</div>
-          </div>
-        </div>
-
-        {report ? (
-          <>
-            <p className="hostkey-body">
-              Added {total(report.added)} item{total(report.added) === 1 ? '' : 's'} and skipped{' '}
-              {total(report.skipped)} already here.
-              {report.settings_replaced && ' Settings were replaced.'}
-            </p>
-            {report.unresolved_refs > 0 && (
-              <p className="form-hint">
-                {report.unresolved_refs} link{report.unresolved_refs === 1 ? '' : 's'} pointed at
-                something that was not imported and {report.unresolved_refs === 1 ? 'was' : 'were'}{' '}
-                cleared. Check the affected hosts for a missing identity, key or jump host.
-              </p>
-            )}
-            {report.host_key_conflicts.length > 0 && (
-              <div className="hostkey-warn">
-                <strong>Host keys left alone</strong>
-                <p>
-                  The file names a different key than the one already recorded for these hosts.
-                  Nothing was changed: a host whose key really has changed should be confirmed
-                  through the mismatch prompt on the next connect, not through a file.
-                </p>
-                <ul className="transfer-conflicts">
-                  {report.host_key_conflicts.map((h) => <li key={h}>{h}</li>)}
-                </ul>
-              </div>
-            )}
-            <div className="modal-actions">
-              <button className="btn-primary" onClick={onClose}>Done</button>
-            </div>
-          </>
-        ) : plan && chosen ? (
-          <>
-            <p className="transfer-path">{path}</p>
+    <Modal
+      className="transfer-modal"
+      title="Import settings"
+      subtitle="Adds what is missing. Nothing here is replaced."
+      onClose={onClose}
+    >
+      {report ? (
+        <>
+          <p className="hostkey-body">
+            Added {total(report.added)} item{total(report.added) === 1 ? '' : 's'} and skipped{' '}
+            {total(report.skipped)} already here.
+            {report.settings_replaced && ' Settings were replaced.'}
+          </p>
+          {report.unresolved_refs > 0 && (
             <p className="form-hint">
-              Made {new Date(plan.created * 1000).toLocaleString()} by BifroSSH {plan.app_version}.
-              {plan.secrets_included
-                ? ' Passwords and private keys are included.'
-                : ' No passwords or private keys are in this file.'}
+              {report.unresolved_refs} link{report.unresolved_refs === 1 ? '' : 's'} pointed at
+              something that was not imported and {report.unresolved_refs === 1 ? 'was' : 'were'}{' '}
+              cleared. Check the affected hosts for a missing identity, key or jump host.
             </p>
-
-            <div className="transfer-list">
-              {CATEGORIES.map((cat) => {
-                const incoming = cat.counts ? plan.incoming[cat.counts] : plan.has_settings ? 1 : 0;
-                const dup = cat.counts ? plan.duplicates[cat.counts] : 0;
-                const disabled = incoming === 0;
-                return (
-                  <label
-                    key={cat.id}
-                    className={`transfer-row${disabled ? ' transfer-row-empty' : ''}`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={chosen[cat.id]}
-                      disabled={disabled}
-                      onChange={(e) => setChosen({ ...chosen, [cat.id]: e.target.checked })}
-                    />
-                    <span className="transfer-count">{cat.counts ? incoming : ''}</span>
-                    <span className="transfer-label">{cat.label}</span>
-                    {cat.id === 'settings' && plan.has_settings && (
-                      <span className="transfer-note transfer-note-warn">overwrites yours</span>
-                    )}
-                    {dup > 0 && <span className="transfer-note">{dup} already here, skipped</span>}
-                  </label>
-                );
-              })}
-            </div>
-
-            {plan.missing_key_paths.length > 0 && (
-              <p className="form-hint">
-                {plan.missing_key_paths.length} key entr
-                {plan.missing_key_paths.length === 1 ? 'y points' : 'ies point'} at a file this
-                machine does not have ({plan.missing_key_paths.join(', ')}). They will import, but
-                will not work until the file is there or the key is re-added.
+          )}
+          {report.host_key_conflicts.length > 0 && (
+            <div className="hostkey-warn">
+              <strong>Host keys left alone</strong>
+              <p>
+                The file names a different key than the one already recorded for these hosts.
+                Nothing was changed: a host whose key really has changed should be confirmed
+                through the mismatch prompt on the next connect, not through a file.
               </p>
-            )}
-
-            {error && <p className="form-hint" style={{ color: 'var(--danger)' }}>{error}</p>}
-
-            <div className="modal-actions">
-              <button className="btn-secondary" onClick={onClose} disabled={busy}>Cancel</button>
-              <button
-                className="btn-primary"
-                onClick={run}
-                disabled={busy || !Object.values(chosen).some(Boolean)}
-              >
-                {busy ? 'Importing…' : 'Import'}
-              </button>
+              <ul className="transfer-conflicts">
+                {report.host_key_conflicts.map((h) => <li key={h}>{h}</li>)}
+              </ul>
             </div>
-          </>
-        ) : (
-          <>
-            <div className="transfer-dest">
-              <span className="transfer-path">{path || 'No file chosen'}</span>
-              <button className="btn-secondary btn-sm" onClick={() => setPicking(true)}>
-                Choose…
-              </button>
-            </div>
+          )}
+          <div className="modal-actions">
+            <button className="btn-primary" onClick={onClose}>Done</button>
+          </div>
+        </>
+      ) : plan && chosen ? (
+        <>
+          <p className="transfer-path">{path}</p>
+          <p className="form-hint">
+            Made {new Date(plan.created * 1000).toLocaleString()} by BifroSSH {plan.app_version}.
+            {plan.secrets_included
+              ? ' Passwords and private keys are included.'
+              : ' No passwords or private keys are in this file.'}
+          </p>
 
-            <PassphraseInput
-              value={passphrase}
-              placeholder="Passphrase for this file"
-              autoComplete="current-password"
-              onChange={setPassphrase}
-            />
+          <div className="transfer-list">
+            {CATEGORIES.map((cat) => {
+              const incoming = cat.counts ? plan.incoming[cat.counts] : plan.has_settings ? 1 : 0;
+              const dup = cat.counts ? plan.duplicates[cat.counts] : 0;
+              const disabled = incoming === 0;
+              return (
+                <label
+                  key={cat.id}
+                  className={`transfer-row${disabled ? ' transfer-row-empty' : ''}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={chosen[cat.id]}
+                    disabled={disabled}
+                    onChange={(e) => setChosen({ ...chosen, [cat.id]: e.target.checked })}
+                  />
+                  <span className="transfer-count">{cat.counts ? incoming : ''}</span>
+                  <span className="transfer-label">{cat.label}</span>
+                  {cat.id === 'settings' && plan.has_settings && (
+                    <span className="transfer-note transfer-note-warn">overwrites yours</span>
+                  )}
+                  {dup > 0 && <span className="transfer-note">{dup} already here, skipped</span>}
+                </label>
+              );
+            })}
+          </div>
 
-            {error && <p className="form-hint" style={{ color: 'var(--danger)' }}>{error}</p>}
+          {plan.missing_key_paths.length > 0 && (
+            <p className="form-hint">
+              {plan.missing_key_paths.length} key entr
+              {plan.missing_key_paths.length === 1 ? 'y points' : 'ies point'} at a file this
+              machine does not have ({plan.missing_key_paths.join(', ')}). They will import, but
+              will not work until the file is there or the key is re-added.
+            </p>
+          )}
 
-            <div className="modal-actions">
-              <button className="btn-secondary" onClick={onClose} disabled={busy}>Cancel</button>
-              <button
-                className="btn-primary"
-                onClick={preview}
-                disabled={busy || !path || !passphrase}
-              >
-                {busy ? 'Opening…' : 'Open'}
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
+          {error && <p className="form-hint" style={{ color: 'var(--danger)' }}>{error}</p>}
+
+          <div className="modal-actions">
+            <button className="btn-secondary" onClick={onClose} disabled={busy}>Cancel</button>
+            <button
+              className="btn-primary"
+              onClick={run}
+              disabled={busy || !Object.values(chosen).some(Boolean)}
+            >
+              {busy ? 'Importing…' : 'Import'}
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="transfer-dest">
+            <span className="transfer-path">{path || 'No file chosen'}</span>
+            <button className="btn-secondary btn-sm" onClick={() => setPicking(true)}>
+              Choose…
+            </button>
+          </div>
+
+          <PassphraseInput
+            value={passphrase}
+            placeholder="Passphrase for this file"
+            autoComplete="current-password"
+            onChange={setPassphrase}
+          />
+
+          {error && <p className="form-hint" style={{ color: 'var(--danger)' }}>{error}</p>}
+
+          <div className="modal-actions">
+            <button className="btn-secondary" onClick={onClose} disabled={busy}>Cancel</button>
+            <button
+              className="btn-primary"
+              onClick={preview}
+              disabled={busy || !path || !passphrase}
+            >
+              {busy ? 'Opening…' : 'Open'}
+            </button>
+          </div>
+        </>
+      )}
+    </Modal>
   );
 }

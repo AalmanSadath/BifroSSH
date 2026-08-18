@@ -1,0 +1,142 @@
+/*
+ * The unlock screen and first-run setup.
+ */
+
+/* ── Unlock screen ─────────────────────────────────────────── */
+
+/* Fills the window rather than floating over it: there is nothing behind this
+   to look at, because no data is loaded until the passphrase opens the vault. */
+.unlock-screen {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-darkest);
+  padding: 24px;
+}
+
+.unlock-card {
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 28px 26px;
+  width: 380px;
+  max-width: 100%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.unlock-card h1 {
+  font-size: 20px;
+  font-weight: 600;
+  text-align: center;
+  letter-spacing: 0.3px;
+}
+
+.unlock-prompt {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.unlock-card input {
+  width: 100%;
+  background: var(--bg-darkest);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 9px 11px;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.unlock-card input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.unlock-card .btn-primary {
+  padding: 9px 14px;
+}
+
+.unlock-error {
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* Wider than the unlock card: three options with a sentence of explanation
+   each, which is the minimum needed to choose between them honestly. */
+.setup-card { width: 520px; }
+
+.setup-options { display: flex; flex-direction: column; gap: 8px; }
+
+.setup-option {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  background: var(--bg-darkest);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 11px 13px;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.setup-option:hover { background: var(--bg-hover); }
+.setup-option.selected { border-color: var(--accent); background: var(--bg-mid); }
+
+.setup-option-title { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.setup-option-body { font-size: 12px; line-height: 1.45; color: var(--text-muted); }
+
+.setup-pass-row { display: flex; gap: 8px; align-items: stretch; }
+.setup-pass-row input { flex: 1; }
+
+/* A generated phrase gets read back off a screen or a scrap of paper, so it
+   needs to be unambiguous rather than pretty. */
+.setup-pass-row input[type='text'] {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12.5px;
+}
+
+.setup-pass-row .btn-secondary { padding: 0 12px; font-size: 15px; line-height: 1; }
+
+/* The generated phrase, sized so all eight words are visible without
+   scrolling: it gets copied down by hand, and a phrase you cannot see all of
+   is one you transcribe wrong. */
+.setup-phrase {
+  flex: 1;
+  background: var(--bg-darkest);
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  padding: 8px 11px;
+  color: var(--text-primary);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: none;
+  overflow: hidden;
+}
+
+.setup-phrase:focus { outline: none; }
+
+.setup-phrase-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.setup-saved-row { margin-top: 14px; }
+
+/* The paragraph above this is a description of the current state, not a label
+   for the toggle, so it needs to read as a separate thing rather than as the
+   toggle's caption. */
+.master-key-toggle { margin-top: 14px; }
+
+/* The eye sits inside the box, so in a row that also holds the dice the
+   wrapper is what stretches, not the bare input. */
+.setup-pass-row .input-with-eye { flex: 1; }
+.unlock-card .input-with-eye input { width: 100%; }

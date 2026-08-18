@@ -1,5 +1,5 @@
-import { Fragment, useState, useRef } from 'react';
-import { createPortal } from 'react-dom';
+import { Fragment, useState } from 'react';
+import PortalDropdown from './shared/PortalDropdown';
 import { useAppStore } from '../store/appStore';
 import { THEMES } from '../styles/themes';
 import type { NamedTheme } from '../styles/themes';
@@ -78,35 +78,16 @@ function PresetDropdown({ allThemes, customThemes, onSelect }: {
   customThemes: Record<string, NamedTheme>;
   onSelect: (id: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [label, setLabel] = useState('— Select a theme —');
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const [rect, setRect] = useState<{ top: number; left: number; width: number; maxHeight: number } | null>(null);
   const builtIn = Object.entries(allThemes).filter(([id]) => !customThemes[id]);
   const custom = Object.entries(customThemes);
 
-  function pick(id: string, name: string) {
-    setLabel(name);
-    setOpen(false);
-    onSelect(id);
-  }
-
-  function openDropdown() {
-    const r = btnRef.current?.getBoundingClientRect();
-    if (r) setRect({ top: r.bottom + 2, left: r.left, width: r.width, maxHeight: window.innerHeight - r.bottom - 12 });
-    setOpen(true);
-  }
-
   return (
-    <>
-      <button ref={btnRef} type="button" className="picker-btn" onClick={openDropdown}>
-        <span>{label}</span>
-        <svg width="10" height="6" viewBox="0 0 10 6" fill="currentColor"><path d="M0 0l5 6 5-6z"/></svg>
-      </button>
-      {open && rect && createPortal(
-        <>
-          <div style={{ position: 'fixed', inset: 0, zIndex: 9998 }} onMouseDown={() => setOpen(false)} />
-          <div className="picker-menu" style={{ position: 'fixed', top: rect.top, left: rect.left, width: rect.width, maxHeight: rect.maxHeight, zIndex: 9999 }}>
+    <PortalDropdown label={label}>
+      {(close) => {
+        const pick = (id: string, name: string) => { setLabel(name); close(); onSelect(id); };
+        return (
+          <>
             {builtIn.length > 0 && <div className="te-preset-group-label">Built-in</div>}
             {builtIn.map(([id, t]) => (
               <button key={id} type="button" className="picker-item" onMouseDown={(e) => { e.preventDefault(); pick(id, t.name); }}>{t.name}</button>
@@ -115,11 +96,10 @@ function PresetDropdown({ allThemes, customThemes, onSelect }: {
             {custom.map(([id, t]) => (
               <button key={id} type="button" className="picker-item" onMouseDown={(e) => { e.preventDefault(); pick(id, t.name); }}>{t.name}</button>
             ))}
-          </div>
-        </>,
-        document.body,
-      )}
-    </>
+          </>
+        );
+      }}
+    </PortalDropdown>
   );
 }
 

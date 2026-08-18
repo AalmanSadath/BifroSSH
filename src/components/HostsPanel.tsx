@@ -1,10 +1,12 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '../store/appStore';
 import type { Server } from '../types';
 import ServerForm from './ServerForm';
 import SshConfigImport from './SshConfigImport';
 import OsIcon from './OsIcon';
+import ConfirmModal from './shared/ConfirmModal';
+import ContextMenu from './shared/ContextMenu';
 
 export default function HostsPanel() {
   const { servers, sessions, settings, setActiveTab, removeSession, deleteServer, openSession } = useAppStore();
@@ -13,18 +15,8 @@ export default function HostsPanel() {
   const [editServer, setEditServer] = useState<Server | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ kind: 'server'; x: number; y: number; server: Server } | { kind: 'panel'; x: number; y: number } | null>(null);
-  const contextMenuRef = useRef<HTMLDivElement>(null);
 
   const connectedIds = new Set(sessions.map((s) => s.server_id));
-
-  useEffect(() => {
-    if (!contextMenu) return;
-    function onClickOutside(e: MouseEvent) {
-      if (!contextMenuRef.current?.contains(e.target as Node)) setContextMenu(null);
-    }
-    document.addEventListener('mousedown', onClickOutside);
-    return () => document.removeEventListener('mousedown', onClickOutside);
-  }, [contextMenu]);
 
   async function handleDoubleClick(server: Server) {
     const existing = sessions.find((s) => s.server_id === server.id && s.status === 'connected');
@@ -103,14 +95,7 @@ export default function HostsPanel() {
       </div>
 
       {contextMenu && (
-        <div
-          ref={contextMenuRef}
-          className="host-context-menu"
-          style={{
-            top: Math.min(contextMenu.y, window.innerHeight - 120),
-            left: Math.min(contextMenu.x, window.innerWidth - 160),
-          }}
-        >
+        <ContextMenu x={contextMenu.x} y={contextMenu.y} onClose={() => setContextMenu(null)}>
           {contextMenu.kind === 'panel' ? (
             <button className="host-ctx-item" onClick={() => { setContextMenu(null); setEditServer(null); setShowServerForm(true); }}>
               Add Host
@@ -151,7 +136,7 @@ export default function HostsPanel() {
               );
             })()
           )}
-        </div>
+        </ContextMenu>
       )}
 
       {showSshImport && <SshConfigImport onClose={() => setShowSshImport(false)} />}
@@ -164,16 +149,11 @@ export default function HostsPanel() {
         />
       )}
       {confirmDeleteId && (
-        <>
-          <div className="modal-overlay" onClick={() => setConfirmDeleteId(null)} />
-          <div className="kc-confirm-modal">
-            <p>Delete this host?</p>
-            <div className="kc-confirm-actions">
-              <button className="btn-secondary btn-sm" onClick={() => setConfirmDeleteId(null)}>Cancel</button>
-              <button className="btn-danger btn-sm" onClick={() => { deleteServer(confirmDeleteId); setConfirmDeleteId(null); setShowServerForm(false); setEditServer(null); }}>Delete</button>
-            </div>
-          </div>
-        </>
+        <ConfirmModal
+          question="Delete this host?"
+          onCancel={() => setConfirmDeleteId(null)}
+          onConfirm={() => { deleteServer(confirmDeleteId); setConfirmDeleteId(null); setShowServerForm(false); setEditServer(null); }}
+        />
       )}
     </>
   );

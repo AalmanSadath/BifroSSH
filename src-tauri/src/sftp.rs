@@ -273,13 +273,14 @@ async fn connect_sftp_inner(
         })?;
 
     let verifier = HostKeyVerifier::new(sec.clone(), host, port, Some(username.to_string()));
-    let mut handle = client::connect_stream(config, transport, VerifyingHandler { v: verifier.clone() })
-        .await
-        .map_err(|e| {
-            let message = crate::ssh::host_key_error(&verifier, e).to_string();
-            sec.log("error", &message);
-            message
-        })?;
+    let mut handle =
+        crate::ssh::connect_verified(config, transport, verifier, |v| VerifyingHandler { v })
+            .await
+            .map_err(|e| {
+                let message = e.to_string();
+                sec.log("error", &message);
+                message
+            })?;
 
     sec.log("auth", &format!("Authenticating to \"{}\":\"{}\" as \"{}\"", host, port, username));
     crate::ssh::authenticate(&mut handle, &auth, &AuthContext::new(sec.clone(), username).with_host(host))
