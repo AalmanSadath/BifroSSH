@@ -3175,22 +3175,48 @@ button { cursor: pointer; font-family: inherit; }
 
 .sftp-progress-info {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  /* Not space-between: with the cancel button there are three children, and
+     spreading them evenly strands the percentage in the middle. The name
+     takes the slack instead so the stat and button stay together on the
+     right. */
+  gap: 10px;
   font-size: 12px;
 }
 
 .sftp-progress-name {
+  flex: 1;
+  min-width: 0;
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 60%;
 }
 
 .sftp-progress-stat {
   color: var(--text-muted);
   flex-shrink: 0;
+}
+
+.sftp-cancel-btn {
+  flex-shrink: 0;
+  padding: 2px 9px;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.sftp-cancel-btn:hover:not(:disabled) {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.sftp-cancel-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .sftp-progress-track {

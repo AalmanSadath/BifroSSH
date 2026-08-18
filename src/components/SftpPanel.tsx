@@ -648,6 +648,9 @@ export default function SftpPanel() {
   const [transferring, setTransferring] = useState(false);
   const [transferTarget, setTransferTarget] = useState<'left' | 'right' | null>(null);
   const [progress, setProgress] = useState<(TransferProgress & { startTime: number }) | null>(null);
+  // The transfer stops at the next chunk boundary, not on the click, so the
+  // button says so rather than looking like it did nothing.
+  const [cancelling, setCancelling] = useState(false);
 
   useEffect(() => {
     const unlisten = listen<TransferProgress>('sftp-progress', (e) => {
@@ -911,48 +914,73 @@ export default function SftpPanel() {
     const leftIsRemote = leftState === 'connected';
     const rightIsRemote = remoteState === 'connected';
 
-    // Determine which session/paths are involved
-    let uploadCmd: (() => Promise<void>) | null = null;
+    // Each arm is the transfer itself, how to re-list the destination, and
+    // where to put an error. Refreshing is deliberately not part of the
+    // transfer: it has to happen whether the transfer finished, failed part
+    // way, or was cancelled, and in the last two cases there is still
+    // something new on the destination to show.
+    type Move = {
+      run: () => Promise<unknown>;
+      refresh: () => Promise<void>;
+      onError: (message: string) => void;
+    };
+    let move: Move | null = null;
 
     if (targetPanel === 'right' && rightIsRemote && leftIsLocal) {
-      uploadCmd = async () => {
-        await invoke('sftp_upload', { sessionId: remoteSid, localPath: entry.path, remoteDir: remotePath });
-        await navigateRemote(remotePath);
+      move = {
+        run: () => invoke('sftp_upload', { sessionId: remoteSid, localPath: entry.path, remoteDir: remotePath }),
+        refresh: () => navigateRemote(remotePath),
+        onError: setRemoteError,
       };
     } else if (targetPanel === 'left' && leftIsLocal && rightIsRemote) {
-      uploadCmd = async () => {
-        await invoke('sftp_download', { sessionId: remoteSid, remotePath: entry.path, localDir: localPath });
-        await navigateLocal(localPath);
+      move = {
+        run: () => invoke('sftp_download', { sessionId: remoteSid, remotePath: entry.path, localDir: localPath }),
+        refresh: () => navigateLocal(localPath),
+        onError: setLocalError,
       };
     } else if (targetPanel === 'right' && rightIsRemote && leftIsRemote) {
-      uploadCmd = async () => {
-        await invoke('sftp_copy_remote_to_remote', { srcSessionId: leftSid, srcPath: entry.path, dstSessionId: remoteSid, dstDir: remotePath });
-        await navigateRemote(remotePath);
+      move = {
+        run: () => invoke('sftp_copy_remote_to_remote', { srcSessionId: leftSid, srcPath: entry.path, dstSessionId: remoteSid, dstDir: remotePath }),
+        refresh: () => navigateRemote(remotePath),
+        onError: setRemoteError,
       };
     } else if (targetPanel === 'left' && leftIsRemote && rightIsRemote) {
-      uploadCmd = async () => {
-        await invoke('sftp_copy_remote_to_remote', { srcSessionId: remoteSid, srcPath: entry.path, dstSessionId: leftSid, dstDir: leftPath });
-        await navigateLeftRemote(leftPath);
+      move = {
+        run: () => invoke('sftp_copy_remote_to_remote', { srcSessionId: remoteSid, srcPath: entry.path, dstSessionId: leftSid, dstDir: leftPath }),
+        refresh: () => navigateLeftRemote(leftPath),
+        onError: setLeftError,
       };
     } else if (targetPanel === 'right' && rightIsLocal && leftIsRemote) {
-      uploadCmd = async () => {
-        await invoke('sftp_download', { sessionId: leftSid, remotePath: entry.path, localDir: rightLocalPath });
-        await navigateRightLocal(rightLocalPath);
+      move = {
+        run: () => invoke('sftp_download', { sessionId: leftSid, remotePath: entry.path, localDir: rightLocalPath }),
+        refresh: () => navigateRightLocal(rightLocalPath),
+        onError: setRightLocalError,
       };
     } else if (targetPanel === 'left' && leftIsRemote && rightIsLocal) {
-      uploadCmd = async () => {
-        await invoke('sftp_upload', { sessionId: leftSid, localPath: entry.path, remoteDir: leftPath });
-        await navigateLeftRemote(leftPath);
+      move = {
+        run: () => invoke('sftp_upload', { sessionId: leftSid, localPath: entry.path, remoteDir: leftPath }),
+        refresh: () => navigateLeftRemote(leftPath),
+        onError: setLeftError,
       };
     }
 
-    if (!uploadCmd) return;
+    if (!move) return;
     setTransferring(true);
     setTransferTarget(targetPanel);
     setDropTarget(null);
-    try { await uploadCmd(); }
-    catch (e) { console.error('Transfer failed:', e); }
-    finally { setTransferring(false); setTransferTarget(null); setProgress(null); }
+    try {
+      await move.run();
+    } catch (e) {
+      // Was only logged to the console before, so a transfer that failed
+      // looked exactly like one that did nothing.
+      move.onError(String(e));
+    } finally {
+      setTransferring(false);
+      setTransferTarget(null);
+      setProgress(null);
+      setCancelling(false);
+      await move.refresh();
+    }
   }
 
   async function handleNewLocalFolder(name: string) {
@@ -1275,6 +1303,14 @@ export default function SftpPanel() {
                 {progress.file_name}
               </span>
               <span className="sftp-progress-stat">{pct}% · {speedStr}{speedStr ? ' · ' : ''}ETA {eta}</span>
+              <button
+                type="button"
+                className="sftp-cancel-btn"
+                onClick={() => { setCancelling(true); invoke('sftp_cancel_transfer').catch(() => {}); }}
+                disabled={cancelling}
+              >
+                {cancelling ? 'Stopping…' : 'Cancel'}
+              </button>
             </div>
             <div className="sftp-progress-track">
               <div className="sftp-progress-fill" style={{ width: `${pct}%` }} />

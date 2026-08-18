@@ -90,6 +90,17 @@ pub async fn sftp_disconnect_remote(
     Ok(())
 }
 
+/// Asks the transfer in flight to stop.
+///
+/// Returns immediately: the transfer notices at its next chunk boundary and
+/// finishes by returning a summary marked cancelled, so the caller that is
+/// still awaiting it gets a normal result rather than an error.
+#[tauri::command]
+pub async fn sftp_cancel_transfer(state: State<'_, AppState>) -> CmdResult<()> {
+    state.sftp_state.request_cancel();
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn sftp_upload(
     app: tauri::AppHandle,

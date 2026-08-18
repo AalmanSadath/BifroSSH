@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -39,6 +40,17 @@ pub struct TransferSummary {
     /// until the disk fills, and recreating them is not something SFTP does
     /// portably.
     pub skipped_symlinks: u32,
+    /// True when the user stopped it. The files already copied are left where
+    /// they are; only the one in flight is removed. `files` counts what
+    /// actually arrived, so a cancelled batch reports fewer than were asked for.
+    pub cancelled: bool,
+}
+
+/// Whether a file ran to the end or was stopped part way.
+#[derive(PartialEq)]
+enum Step {
+    Finished,
+    Cancelled,
 }
 
 /// One entry in a directory walk, relative to the transfer root.
@@ -71,11 +83,33 @@ pub struct FileEntry {
 
 pub struct SftpClientState {
     sessions: Mutex<HashMap<String, Arc<Mutex<SftpSession>>>>,
+    /// Raised to stop the transfer in flight.
+    ///
+    /// One flag rather than one per transfer because the panel runs a single
+    /// transfer at a time: the drop targets are suppressed while one is
+    /// running, so there is never a second to tell apart from the first.
+    cancel: Arc<AtomicBool>,
 }
 
 impl SftpClientState {
     pub fn new() -> Self {
-        Self { sessions: Mutex::new(HashMap::new()) }
+        Self {
+            sessions: Mutex::new(HashMap::new()),
+            cancel: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    /// Asks the transfer in flight to stop at the next chunk boundary.
+    pub fn request_cancel(&self) {
+        self.cancel.store(true, Ordering::Relaxed);
+    }
+
+    /// Clears any cancellation left over from a previous transfer and hands
+    /// back the flag to watch. Called once at the top of each transfer, so a
+    /// cancel that arrived after the last one finished cannot kill the next.
+    fn begin_transfer(&self) -> Arc<AtomicBool> {
+        self.cancel.store(false, Ordering::Relaxed);
+        Arc::clone(&self.cancel)
     }
 }
 
@@ -428,6 +462,15 @@ async fn ensure_remote_dir(sftp_arc: &Arc<Mutex<SftpSession>>, path: &str) {
 }
 
 /// Copies one file into an already-created remote path.
+/// Summary for the single file case, where there is no batch to report on.
+fn single_file_summary(step: Step) -> TransferSummary {
+    TransferSummary {
+        files: if step == Step::Finished { 1 } else { 0 },
+        cancelled: step == Step::Cancelled,
+        ..Default::default()
+    }
+}
+
 async fn upload_one(
     app: &tauri::AppHandle,
     sftp_arc: &Arc<Mutex<SftpSession>>,
@@ -435,7 +478,8 @@ async fn upload_one(
     remote_path: &str,
     index: u32,
     count: u32,
-) -> Result<(), String> {
+    cancel: &AtomicBool,
+) -> Result<Step, String> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let file_name = local_path.file_name().unwrap_or_default().to_string_lossy().into_owned();
@@ -452,6 +496,16 @@ async fn upload_one(
     let mut buf = vec![0u8; CHUNK];
     let mut transferred = 0u64;
     loop {
+        if cancel.load(Ordering::Relaxed) {
+            // A part written file is not a shorter file, it is a corrupt
+            // one, and nothing here can resume it. Removing it is the honest
+            // outcome; leaving it puts something that looks complete beside
+            // the files that are.
+            drop(remote_file);
+            let sftp = sftp_arc.lock().await;
+            let _ = sftp.remove_file(remote_path).await;
+            return Ok(Step::Cancelled);
+        }
         let n = local_file.read(&mut buf).await.map_err(|e| e.to_string())?;
         if n == 0 { break; }
         remote_file.write_all(&buf[..n]).await.map_err(|e| e.to_string())?;
@@ -461,7 +515,7 @@ async fn upload_one(
         });
     }
     remote_file.flush().await.map_err(|e| e.to_string())?;
-    Ok(())
+    Ok(Step::Finished)
 }
 
 /// Uploads a file, or a directory tree rooted at `local_path`.
@@ -476,11 +530,12 @@ pub async fn upload_path(
     let name = root.file_name().ok_or("Invalid local path")?.to_string_lossy().into_owned();
     let dest_root = join_remote(remote_dir, &name);
     let sftp_arc = get_session(sftp_state, session_id).await?;
+    let cancel = sftp_state.begin_transfer();
 
     let meta = fs::metadata(root).map_err(|e| format!("{}: {}", root.display(), e))?;
     if !meta.is_dir() {
-        upload_one(app, &sftp_arc, root, &dest_root, 1, 1).await?;
-        return Ok(TransferSummary { files: 1, ..Default::default() });
+        let step = upload_one(app, &sftp_arc, root, &dest_root, 1, 1, &cancel).await?;
+        return Ok(single_file_summary(step));
     }
 
     let (items, skipped_symlinks) = collect_local_tree(root)?;
@@ -496,18 +551,26 @@ pub async fn upload_path(
     }
 
     for (i, item) in files.iter().enumerate() {
-        upload_one(
+        let step = upload_one(
             app,
             &sftp_arc,
             &root.join(&item.rel),
             &join_remote(&dest_root, &item.rel),
             i as u32 + 1,
             count,
+            &cancel,
         )
         .await?;
+        // Files already copied are left alone; only the one in flight is
+        // removed. `files` therefore counts what actually arrived.
+        if step == Step::Cancelled {
+            return Ok(TransferSummary {
+                files: i as u32, directories: dirs, skipped_symlinks, cancelled: true,
+            });
+        }
     }
 
-    Ok(TransferSummary { files: count, directories: dirs, skipped_symlinks })
+    Ok(TransferSummary { files: count, directories: dirs, skipped_symlinks, cancelled: false })
 }
 
 async fn download_one(
@@ -517,7 +580,8 @@ async fn download_one(
     local_path: &Path,
     index: u32,
     count: u32,
-) -> Result<(), String> {
+    cancel: &AtomicBool,
+) -> Result<Step, String> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let file_name = local_path.file_name().unwrap_or_default().to_string_lossy().into_owned();
@@ -535,6 +599,12 @@ async fn download_one(
     let mut buf = vec![0u8; CHUNK];
     let mut transferred = 0u64;
     loop {
+        if cancel.load(Ordering::Relaxed) {
+            // See upload_one.
+            drop(local_file);
+            let _ = tokio::fs::remove_file(local_path).await;
+            return Ok(Step::Cancelled);
+        }
         let n = remote_file.read(&mut buf).await.map_err(|e| e.to_string())?;
         if n == 0 { break; }
         local_file.write_all(&buf[..n]).await.map_err(|e| e.to_string())?;
@@ -544,7 +614,7 @@ async fn download_one(
         });
     }
     local_file.flush().await.map_err(|e| e.to_string())?;
-    Ok(())
+    Ok(Step::Finished)
 }
 
 /// Downloads a file, or a directory tree rooted at `remote_path`.
@@ -562,6 +632,7 @@ pub async fn download_path(
         .into_owned();
     let dest_root = Path::new(local_dir).join(&name);
     let sftp_arc = get_session(sftp_state, session_id).await?;
+    let cancel = sftp_state.begin_transfer();
 
     let is_dir = {
         let sftp = sftp_arc.lock().await;
@@ -570,8 +641,8 @@ pub async fn download_path(
     };
 
     if !is_dir {
-        download_one(app, &sftp_arc, remote_path, &dest_root, 1, 1).await?;
-        return Ok(TransferSummary { files: 1, ..Default::default() });
+        let step = download_one(app, &sftp_arc, remote_path, &dest_root, 1, 1, &cancel).await?;
+        return Ok(single_file_summary(step));
     }
 
     let (items, skipped_symlinks) = collect_remote_tree(&sftp_arc, remote_path).await?;
@@ -587,20 +658,31 @@ pub async fn download_path(
     }
 
     for (i, item) in files.iter().enumerate() {
-        download_one(
+        let step = download_one(
             app,
             &sftp_arc,
             &join_remote(remote_path, &item.rel),
             &dest_root.join(&item.rel),
             i as u32 + 1,
             count,
+            &cancel,
         )
         .await?;
+        // Files already copied are left alone; only the one in flight is
+        // removed. `files` therefore counts what actually arrived.
+        if step == Step::Cancelled {
+            return Ok(TransferSummary {
+                files: i as u32, directories: dirs, skipped_symlinks, cancelled: true,
+            });
+        }
     }
 
-    Ok(TransferSummary { files: count, directories: dirs, skipped_symlinks })
+    Ok(TransferSummary { files: count, directories: dirs, skipped_symlinks, cancelled: false })
 }
 
+// Two sessions, two paths and the batch position. Collapsing these into a
+// params struct belongs with the wider transfer dedup, not here.
+#[allow(clippy::too_many_arguments)]
 async fn copy_one(
     app: &tauri::AppHandle,
     src_arc: &Arc<Mutex<SftpSession>>,
@@ -609,7 +691,8 @@ async fn copy_one(
     dst_path: &str,
     index: u32,
     count: u32,
-) -> Result<(), String> {
+    cancel: &AtomicBool,
+) -> Result<Step, String> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let file_name = Path::new(dst_path).file_name().unwrap_or_default().to_string_lossy().into_owned();
@@ -630,6 +713,13 @@ async fn copy_one(
     let mut buf = vec![0u8; CHUNK];
     let mut transferred = 0u64;
     loop {
+        if cancel.load(Ordering::Relaxed) {
+            // See upload_one.
+            drop(dst_file);
+            let sftp = dst_arc.lock().await;
+            let _ = sftp.remove_file(dst_path).await;
+            return Ok(Step::Cancelled);
+        }
         let n = src_file.read(&mut buf).await.map_err(|e| e.to_string())?;
         if n == 0 { break; }
         dst_file.write_all(&buf[..n]).await.map_err(|e| e.to_string())?;
@@ -639,7 +729,7 @@ async fn copy_one(
         });
     }
     dst_file.flush().await.map_err(|e| e.to_string())?;
-    Ok(())
+    Ok(Step::Finished)
 }
 
 /// Copies a file, or a directory tree, between two remote sessions.
@@ -660,6 +750,7 @@ pub async fn copy_remote_path(
 
     let src_arc = get_session(sftp_state, src_session_id).await?;
     let dst_arc = get_session(sftp_state, dst_session_id).await?;
+    let cancel = sftp_state.begin_transfer();
 
     let is_dir = {
         let sftp = src_arc.lock().await;
@@ -668,8 +759,8 @@ pub async fn copy_remote_path(
     };
 
     if !is_dir {
-        copy_one(app, &src_arc, src_path, &dst_arc, &dest_root, 1, 1).await?;
-        return Ok(TransferSummary { files: 1, ..Default::default() });
+        let step = copy_one(app, &src_arc, src_path, &dst_arc, &dest_root, 1, 1, &cancel).await?;
+        return Ok(single_file_summary(step));
     }
 
     let (items, skipped_symlinks) = collect_remote_tree(&src_arc, src_path).await?;
@@ -684,7 +775,7 @@ pub async fn copy_remote_path(
     }
 
     for (i, item) in files.iter().enumerate() {
-        copy_one(
+        let step = copy_one(
             app,
             &src_arc,
             &join_remote(src_path, &item.rel),
@@ -692,11 +783,19 @@ pub async fn copy_remote_path(
             &join_remote(&dest_root, &item.rel),
             i as u32 + 1,
             count,
+            &cancel,
         )
         .await?;
+        // Files already copied are left alone; only the one in flight is
+        // removed. `files` therefore counts what actually arrived.
+        if step == Step::Cancelled {
+            return Ok(TransferSummary {
+                files: i as u32, directories: dirs, skipped_symlinks, cancelled: true,
+            });
+        }
     }
 
-    Ok(TransferSummary { files: count, directories: dirs, skipped_symlinks })
+    Ok(TransferSummary { files: count, directories: dirs, skipped_symlinks, cancelled: false })
 }
 
 
