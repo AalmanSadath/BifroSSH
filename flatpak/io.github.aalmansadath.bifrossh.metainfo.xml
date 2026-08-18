@@ -85,6 +85,30 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.10.0" date="2026-08-19">
+      <description>
+        <p>
+          The terminal font is now picked from a list of the fonts actually
+          installed, rather than typed in. A name that nothing on the system
+          could resolve used to be accepted and then quietly ignored.
+        </p>
+        <p>
+          Two things that should have been visible were not. The overlay shown
+          while an SFTP folder transfer runs was fully transparent, so its text
+          sat on the file list instead of dimming it, and the box for renaming
+          a tab had no background at all.
+        </p>
+        <p>
+          In the dark and AMOLED themes, error messages were drawn in a red
+          that did not match the red used everywhere else.
+        </p>
+        <p>
+          The highlight shown when dragging a file onto an SFTP pane now covers
+          the file list, which is the part that accepts the drop, rather than
+          the whole pane including its toolbar.
+        </p>
+      </description>
+    </release>
     <release version="0.9.3" date="2026-08-10">
       <description>
         <p>
