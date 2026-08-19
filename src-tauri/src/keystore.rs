@@ -20,28 +20,17 @@
 //! key, and inside Flatpak the portal scopes the secret to this application id
 //! so other sandboxed apps get a different one.
 
-use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 use crate::crypto;
 
 pub const KEYSTORE_FILE: &str = "keystore.json";
 pub const SECRET_FILE: &str = ".secret";
-
-/// The application id, which is what the Secret portal scopes its secret to
-/// and what names the Secret Service item.
-const APP_ID: &str = "io.github.aalmansadath.bifrossh";
-
-/// A keyring that is present but locked will sit waiting for a prompter that,
-/// under a bare window manager, may not exist. Startup must not hang on that.
-const KEYRING_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// How the master key was obtained, so the UI can say so rather than implying
 /// a protection that is not in place.
@@ -154,16 +143,6 @@ pub fn unwrap_key(blob: &str, kek: &[u8; 32]) -> Result<[u8; 32]> {
     Ok(slice)
 }
 
-/// The keyring hands back an opaque blob of whatever length it likes (the
-/// portal returns 64 bytes here), so it is hashed down to a key rather than
-/// being used raw.
-fn kek_from_secret(secret: &[u8]) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(b"bifrossh-master-key-wrap-v1");
-    hasher.update(secret);
-    hasher.finalize().into()
-}
-
 pub fn derive_passphrase_kek(passphrase: &str, w: &PassphraseWrapper) -> Result<[u8; 32]> {
     use argon2::{Algorithm, Argon2, Params, Version};
     let salt = BASE64.decode(&w.salt)?;
@@ -232,247 +211,6 @@ pub fn save_keystore(dir: &Path, store: &KeyStore) -> Result<()> {
     crate::store::write_private(&dir.join(KEYSTORE_FILE), serde_json::to_string_pretty(store)?.as_bytes())
 }
 
-// ── Keyring ─────────────────────────────────────────────────────────────────
-
-/// Inside Flatpak the portal is the right door: it hands out a secret scoped
-/// to this application id, so other sandboxed apps cannot ask for ours. On the
-/// host the portal has no application id to scope by and returns the same
-/// secret to every unsandboxed caller, so the Secret Service is used directly
-/// there instead, with an item of our own.
-fn in_flatpak() -> bool {
-    Path::new("/.flatpak-info").exists()
-}
-
-/// Runs `f` on a scratch thread so a keyring that never answers cannot hold up
-/// startup. A timed out thread is left behind blocked on D-Bus; it holds
-/// nothing the rest of the app needs and dies with the process.
-fn with_timeout<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Option<T> {
-    let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = tx.send(f());
-    });
-    rx.recv_timeout(KEYRING_TIMEOUT).ok()
-}
-
-/// Why the keyring did or did not produce a key, which is not the same
-/// question as whether it produced one.
-///
-/// A locked keyring and a keyring that has lost our key look identical from
-/// the outside and want opposite handling. Locked is temporary: the secret is
-/// still in there, the wrapper written against it is still good, and the cure
-/// is for the user to unlock it. Lost is permanent: the wrapper will never
-/// open again and has to be rewritten. Treating locked as lost would rewrite a
-/// perfectly good wrapper against whatever the keyring hands back later, and
-/// telling the user their key is gone when it is merely asleep sends them
-/// looking for a problem they do not have.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum KeyringStatus {
-    Ready(Box<[u8; 32]>),
-    /// Our item exists but the collection holding it will not open.
-    Locked,
-    /// The service answered and has nothing of ours, so one can be made.
-    Missing,
-    /// No keyring at all, or it failed in a way worth neither of the above.
-    Unavailable(String),
-}
-
-pub fn keyring_status() -> KeyringStatus {
-    let Some(result) = with_timeout(|| {
-        if in_flatpak() {
-            // The portal gives no way to tell these apart, so anything other
-            // than a secret is reported as simply unavailable.
-            portal_secret().map(Outcome::Secret)
-        } else {
-            secret_service_secret()
-        }
-    }) else {
-        return KeyringStatus::Unavailable("the keyring did not answer in time".to_string());
-    };
-
-    match result {
-        Ok(Outcome::Secret(bytes)) => KeyringStatus::Ready(Box::new(kek_from_secret(&bytes))),
-        Ok(Outcome::Locked) => KeyringStatus::Locked,
-        Err(e) => KeyringStatus::Unavailable(format!("{e:#}")),
-    }
-}
-
-pub(crate) enum Outcome {
-    Secret(Vec<u8>),
-    Locked,
-}
-
-pub fn keyring_kek() -> Option<[u8; 32]> {
-    match keyring_status() {
-        KeyringStatus::Ready(kek) => Some(*kek),
-        KeyringStatus::Locked => {
-            eprintln!("The desktop keyring is locked, so it cannot open BifroSSH right now.");
-            None
-        }
-        KeyringStatus::Missing => None,
-        KeyringStatus::Unavailable(why) => {
-            eprintln!("Desktop keyring unavailable: {why}");
-            None
-        }
-    }
-}
-
-#[cfg(unix)]
-fn portal_secret() -> Result<Vec<u8>> {
-    use std::os::unix::net::UnixStream;
-    use zbus::blocking::{Connection, Proxy};
-    use zbus::zvariant::{Fd, ObjectPath, OwnedObjectPath, Value};
-
-    let conn = Connection::session().context("connecting to the session bus")?;
-
-    // The reply comes back as a signal on a request object, so it has to be
-    // subscribed to before the call is made or the answer can arrive first.
-    // Passing our own handle_token is what makes the path predictable.
-    let mut token = [0u8; 8];
-    rand::thread_rng().fill_bytes(&mut token);
-    let token = format!("bifrossh_{}", hex(&token));
-    let unique = conn
-        .unique_name()
-        .ok_or_else(|| anyhow!("session bus gave us no unique name"))?
-        .to_string();
-    let request_path = format!(
-        "/org/freedesktop/portal/desktop/request/{}/{}",
-        unique.trim_start_matches(':').replace('.', "_"),
-        token
-    );
-
-    let request = Proxy::new(
-        &conn,
-        "org.freedesktop.portal.Desktop",
-        ObjectPath::try_from(request_path.as_str())?,
-        "org.freedesktop.portal.Request",
-    )?;
-    let mut responses = request.receive_signal("Response")?;
-
-    let (mut ours, theirs) = UnixStream::pair().context("creating the pipe for the secret")?;
-
-    let secret = Proxy::new(
-        &conn,
-        "org.freedesktop.portal.Desktop",
-        "/org/freedesktop/portal/desktop",
-        "org.freedesktop.portal.Secret",
-    )?;
-    let mut options = std::collections::HashMap::new();
-    options.insert("handle_token", Value::from(token.as_str()));
-    let _: OwnedObjectPath = secret
-        .call("RetrieveSecret", &(Fd::from(&theirs), options))
-        .context("calling RetrieveSecret on the Secret portal")?;
-    drop(theirs);
-
-    let message = responses
-        .next()
-        .ok_or_else(|| anyhow!("the Secret portal closed without answering"))?;
-    let (code, _): (u32, std::collections::HashMap<String, Value>) = message.body().deserialize()?;
-    if code != 0 {
-        return Err(anyhow!("the Secret portal refused the request (code {code})"));
-    }
-
-    let mut buf = Vec::new();
-    ours.read_to_end(&mut buf).context("reading the secret")?;
-    if buf.is_empty() {
-        return Err(anyhow!("the Secret portal returned nothing"));
-    }
-    Ok(buf)
-}
-
-/// A Secret Service item of our own, created on first use.
-///
-/// The session is opened in "plain" mode, which sends the secret over the
-/// session bus unencrypted. That is what every other client on a desktop
-/// session does, and the alternative (a DH handshake) protects against an
-/// attacker who can already read your session bus, which is to say one who has
-/// already lost you the game.
-#[cfg(unix)]
-fn secret_service_secret() -> Result<Outcome> {
-    use std::collections::HashMap;
-    use zbus::blocking::{Connection, Proxy};
-    use zbus::zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Type, Value};
-
-    #[derive(serde::Serialize, serde::Deserialize, Type)]
-    struct SecretValue {
-        session: OwnedObjectPath,
-        parameters: Vec<u8>,
-        value: Vec<u8>,
-        content_type: String,
-    }
-
-    const SERVICE: &str = "org.freedesktop.secrets";
-    let conn = Connection::session().context("connecting to the session bus")?;
-    let service = Proxy::new(&conn, SERVICE, "/org/freedesktop/secrets", "org.freedesktop.Secret.Service")
-        .context("no Secret Service on the session bus")?;
-
-    let (_out, session): (OwnedValue, OwnedObjectPath) = service
-        .call("OpenSession", &("plain", Value::from("")))
-        .context("opening a Secret Service session")?;
-
-    let attributes: HashMap<&str, &str> =
-        [("application", APP_ID), ("xdg:schema", APP_ID)].into_iter().collect();
-
-    let (unlocked, locked): (Vec<OwnedObjectPath>, Vec<OwnedObjectPath>) =
-        service.call("SearchItems", &(&attributes,))?;
-
-    if let Some(path) = unlocked.first() {
-        let item = Proxy::new(&conn, SERVICE, path.as_ref(), "org.freedesktop.Secret.Item")?;
-        let secret: SecretValue = item.call("GetSecret", &(&session,))?;
-        if !secret.value.is_empty() {
-            return Ok(Outcome::Secret(secret.value));
-        }
-    }
-
-    // Our key is in there; the collection holding it just will not open, which
-    // happens whenever the login keyring is not unlocked at login, as with
-    // autologin or a keyring password that differs from the login one.
-    //
-    // Reported rather than treated as missing, and emphatically not replaced.
-    // Creating an item with these attributes would overwrite the one that is
-    // sitting there perfectly intact, and every wrapper written against it
-    // would stop opening. A keyring the user only has to unlock must never
-    // become a key they have permanently lost.
-    if !locked.is_empty() || !unlocked.is_empty() {
-        return Ok(Outcome::Locked);
-    }
-
-    // Genuinely nothing stored yet, so make one. A locked default collection
-    // would need a prompt to write into, and rather than drive the prompt
-    // dance this gives up and lets the caller fall back.
-    let mut fresh = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut fresh);
-
-    let collection = Proxy::new(
-        &conn,
-        SERVICE,
-        ObjectPath::try_from("/org/freedesktop/secrets/aliases/default")?,
-        "org.freedesktop.Secret.Collection",
-    )?;
-    let mut properties: HashMap<&str, Value> = HashMap::new();
-    properties.insert("org.freedesktop.Secret.Item.Label", Value::from("BifroSSH master key"));
-    properties.insert("org.freedesktop.Secret.Item.Attributes", Value::from(attributes.clone()));
-
-    let payload = SecretValue {
-        session: session.clone(),
-        parameters: Vec::new(),
-        value: fresh.to_vec(),
-        content_type: "application/octet-stream".to_string(),
-    };
-    let (item, prompt): (OwnedObjectPath, OwnedObjectPath) = collection
-        .call("CreateItem", &(&properties, &payload, true))
-        .context("storing the key in the Secret Service")?;
-    if item.as_str() == "/" {
-        return Err(anyhow!(
-            "the keyring wants to prompt before storing (prompt {prompt}), which is not handled here"
-        ));
-    }
-    Ok(Outcome::Secret(fresh.to_vec()))
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
 // ── Resolution ──────────────────────────────────────────────────────────────
 
 /// The master key plus how it was found.
@@ -509,7 +247,7 @@ pub fn unlock(dir: &Path) -> Result<Unlocked> {
     let store = load_keystore(dir)?;
     let file_key = read_secret_file(dir);
 
-    if let (Some(blob), Some(kek)) = (store.keyring.as_deref(), keyring_kek()) {
+    if let (Some(blob), Some(kek)) = (store.keyring.as_deref(), crate::keyring::keyring_kek()) {
         match unwrap_key(blob, &kek) {
             Ok(key) => {
                 if file_key.is_none_or(|f| f == key) {
@@ -625,7 +363,7 @@ pub fn initialize(dir: &Path, mode: InitMode, passphrase: &str) -> Result<[u8; 3
 
     let mut store = KeyStore { version: 1, ..Default::default() };
     if mode == InitMode::KeyringAndPassphrase {
-        let kek = keyring_kek()
+        let kek = crate::keyring::keyring_kek()
             .ok_or_else(|| anyhow!("No desktop keyring answered, so it cannot hold the key"))?;
         store.keyring = Some(wrap(&master, &kek)?);
     }
@@ -752,9 +490,9 @@ pub fn unlock_with_passphrase(dir: &Path, passphrase: &str) -> Result<[u8; 32]> 
     // only moment the master key is in hand to fix it. Nothing else repairs
     // it: the launch path refreshes the wrapper only once the keyring already
     // works, so a dead one would stay dead and prompt on every launch.
-    let status = if store.always_ask { KeyringStatus::Missing } else { keyring_status() };
+    let status = if store.always_ask { crate::keyring::KeyringStatus::Missing } else { crate::keyring::keyring_status() };
     let wrapper_opens = match (&store.keyring, &status) {
-        (Some(blob), KeyringStatus::Ready(kek)) => unwrap_key(blob, kek).is_ok(),
+        (Some(blob), crate::keyring::KeyringStatus::Ready(kek)) => unwrap_key(blob, kek).is_ok(),
         _ => false,
     };
     if should_repair_keyring(&status, store.always_ask, wrapper_opens) {
@@ -780,20 +518,20 @@ pub fn always_asks(dir: &Path) -> bool {
 /// belongs to the user, who unlocks their keyring. Rewriting it here would
 /// throw away something that works in favour of whatever a future unlock
 /// happens to return.
-fn should_repair_keyring(status: &KeyringStatus, always_ask: bool, wrapper_opens: bool) -> bool {
+fn should_repair_keyring(status: &crate::keyring::KeyringStatus, always_ask: bool, wrapper_opens: bool) -> bool {
     if always_ask || wrapper_opens {
         return false;
     }
     match status {
         // Answered, but the wrapper did not open, so the secret behind it
         // changed and the wrapper is dead.
-        KeyringStatus::Ready(_) => true,
+        crate::keyring::KeyringStatus::Ready(_) => true,
         // Nothing of ours stored; one can be made.
-        KeyringStatus::Missing => true,
+        crate::keyring::KeyringStatus::Missing => true,
         // Temporary. Leave the wrapper alone.
-        KeyringStatus::Locked => false,
+        crate::keyring::KeyringStatus::Locked => false,
         // No keyring to write to anyway.
-        KeyringStatus::Unavailable(_) => false,
+        crate::keyring::KeyringStatus::Unavailable(_) => false,
     }
 }
 
@@ -810,7 +548,7 @@ pub fn store_keyring_wrapper(dir: &Path, master: &[u8; 32]) -> Result<bool> {
         return Ok(false);
     }
 
-    let Some(kek) = keyring_kek() else { return Ok(false) };
+    let Some(kek) = crate::keyring::keyring_kek() else { return Ok(false) };
     store.version = 1;
     store.keyring = Some(wrap(master, &kek)?);
     save_keystore(dir, &store)?;
@@ -1305,24 +1043,24 @@ mod tests {
         // The whole point of telling them apart. A locked keyring still holds
         // the secret the wrapper was written against, so the wrapper is fine
         // and rewriting it would discard something that works.
-        let ready = KeyringStatus::Ready(Box::new(key(3)));
+        let ready = crate::keyring::KeyringStatus::Ready(Box::new(key(3)));
 
-        assert!(!should_repair_keyring(&KeyringStatus::Locked, false, false),
+        assert!(!should_repair_keyring(&crate::keyring::KeyringStatus::Locked, false, false),
                 "rewrote a good wrapper because the keyring was merely locked");
-        assert!(!should_repair_keyring(&KeyringStatus::Unavailable("no bus".into()), false, false),
+        assert!(!should_repair_keyring(&crate::keyring::KeyringStatus::Unavailable("no bus".into()), false, false),
                 "tried to write to a keyring that is not there");
 
         // Answered, and the wrapper still did not open: the secret behind it
         // was replaced, so the wrapper really is dead.
         assert!(should_repair_keyring(&ready, false, false));
         // Nothing of ours stored yet, so there is one to make.
-        assert!(should_repair_keyring(&KeyringStatus::Missing, false, false));
+        assert!(should_repair_keyring(&crate::keyring::KeyringStatus::Missing, false, false));
 
         // Never touch a wrapper that works, and never hand the keyring a way
         // in when the user asked to always be prompted.
         assert!(!should_repair_keyring(&ready, false, true));
         assert!(!should_repair_keyring(&ready, true, false));
-        assert!(!should_repair_keyring(&KeyringStatus::Missing, true, false));
+        assert!(!should_repair_keyring(&crate::keyring::KeyringStatus::Missing, true, false));
     }
 
     #[test]
@@ -1346,7 +1084,7 @@ mod tests {
 
         // Only meaningful where a keyring actually answers, which is not
         // guaranteed on a build machine.
-        if keyring_kek().is_some() {
+        if crate::keyring::keyring_kek().is_some() {
             assert!(!unlock(&dir).unwrap().needs_passphrase, "still asking after the repair");
             assert_eq!(unlock(&dir).unwrap().source, KeySource::Keyring);
         }
@@ -1364,12 +1102,6 @@ mod tests {
         // The repair above must not quietly hand the keyring a way in again.
         assert!(load_keystore(&dir).unwrap().keyring.is_none());
         assert!(unlock(&dir).unwrap().needs_passphrase);
-    }
-
-    #[test]
-    fn the_key_encryption_key_depends_on_the_keyring_secret() {
-        assert_ne!(kek_from_secret(b"one"), kek_from_secret(b"two"));
-        assert_eq!(kek_from_secret(b"one"), kek_from_secret(b"one"));
     }
 }
 

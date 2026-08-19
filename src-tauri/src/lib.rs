@@ -4,6 +4,7 @@ mod crypto;
 mod hostkeys;
 mod hostverify;
 mod jump;
+mod keyring;
 mod keystore;
 mod models;
 mod ppk;

@@ -36,15 +36,15 @@ pub async fn vault_status(state: State<'_, AppState>) -> CmdResult<VaultStatus> 
     // Only worth the D-Bus round trip while something is going to be said
     // about it, which is the setup screen and the unlock screen.
     let keyring = if locked {
-        crate::keystore::keyring_status()
+        crate::keyring::keyring_status()
     } else {
-        crate::keystore::KeyringStatus::Missing
+        crate::keyring::KeyringStatus::Missing
     };
     Ok(VaultStatus {
         locked,
         setup_required,
-        keyring_available: matches!(keyring, crate::keystore::KeyringStatus::Ready(_)),
-        keyring_locked: matches!(keyring, crate::keystore::KeyringStatus::Locked),
+        keyring_available: matches!(keyring, crate::keyring::KeyringStatus::Ready(_)),
+        keyring_locked: matches!(keyring, crate::keyring::KeyringStatus::Locked),
         error: state.startup_error.clone(),
     })
 }
@@ -112,11 +112,11 @@ pub struct KeystoreStatus {
 #[tauri::command]
 pub async fn keystore_status(_state: State<'_, AppState>) -> CmdResult<KeystoreStatus> {
     let dir = crate::store::get_data_dir()?;
-    let keyring = crate::keystore::keyring_status();
-    let keyring_available = matches!(keyring, crate::keystore::KeyringStatus::Ready(_));
+    let keyring = crate::keyring::keyring_status();
+    let keyring_available = matches!(keyring, crate::keyring::KeyringStatus::Ready(_));
     Ok(KeystoreStatus {
         source: crate::keystore::current_source(&dir, keyring_available),
-        keyring_locked: matches!(keyring, crate::keystore::KeyringStatus::Locked),
+        keyring_locked: matches!(keyring, crate::keyring::KeyringStatus::Locked),
         passphrase_set: crate::keystore::has_passphrase(&dir),
         always_ask: crate::keystore::always_asks(&dir),
         keyring_available,
