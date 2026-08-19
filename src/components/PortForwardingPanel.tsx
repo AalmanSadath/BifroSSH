@@ -749,12 +749,12 @@ export default function PortForwardingPanel() {
                       {typeInitial(pf.type)}
                     </div>
                   </div>
-                  <div className="pf-card-body">
+                  <div className="card-body">
                     <div className="pf-card-header">
-                      <span className="pf-card-label">{pf.label}</span>
+                      <span className="card-title">{pf.label}</span>
                       {active && <span className="pf-card-active-dot" />}
                     </div>
-                    <span className="pf-card-desc">{pfCardDesc(pf)}</span>
+                    <span className="card-sub">{pfCardDesc(pf)}</span>
                   </div>
                   <button
                     className="pf-card-edit-btn"

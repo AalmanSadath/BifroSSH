@@ -460,8 +460,8 @@ export default function KeychainPanel() {
           : <div className="kc-grid">
               {keys.map((key) => (
                 <div key={key.id} className="kc-card kc-card--clickable" onClick={() => handleOpenEditKey(key)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, kind: 'key', id: key.id }); }}>
-                  <div className="kc-card-info">
-                    <span className="kc-card-name">{key.name}</span>
+                  <div className="card-body">
+                    <span className="card-title">{key.name}</span>
                     <span className="kc-card-detail">
                       {key.algorithm ?? (key.key_path ? 'file path' : 'unknown')}
                       {key.encrypted_passphrase === '[stored]' && ' · passphrase'}
@@ -633,8 +633,8 @@ export default function KeychainPanel() {
                 const keyMissing = !storedless && !isPasswordAuth && !key;
                 return (
                   <div key={id.id} className={`kc-card kc-card--clickable${keyMissing ? ' warn' : ''}`} onClick={() => openEditIdentity(id)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, kind: 'identity', id: id.id }); }}>
-                    <div className="kc-card-info">
-                      <span className="kc-card-name">{id.name}</span>
+                    <div className="card-body">
+                      <span className="card-title">{id.name}</span>
                       <span className="kc-card-detail">{id.username}</span>
                       <span className="kc-card-detail">
                         {isPromptAuth ? 'prompt' : isAgentAuth ? 'ssh-agent' : isPasswordAuth ? 'password' : key ? key.name : <span className="warn-text">key deleted</span>}

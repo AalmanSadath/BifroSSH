@@ -322,3 +322,39 @@ button { cursor: pointer; font-family: inherit; }
 .btn-block {
   width: 100%;
 }
+
+/* ── Card contents ─────────────────────────────────────────── */
+
+/* What goes inside a card, shared by the hosts, keychain and port forwarding
+   panels. Their frames are genuinely different and stay that way: the port
+   forwarding card sits on --bg-mid behind a 1.5px border, the other two on
+   --bg-dark behind 1px. These three rules were the same in all of them, under
+   a different name in each. */
+
+.card-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The address or command under the title. Monospace because it is nearly
+   always something the user typed at a shell. */
+.card-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

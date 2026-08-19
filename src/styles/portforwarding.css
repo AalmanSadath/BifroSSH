@@ -73,27 +73,10 @@
   flex-shrink: 0;
 }
 
-.pf-card-body {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
 .pf-card-header {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.pf-card-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .pf-card-active-dot {
@@ -102,15 +85,6 @@
   border-radius: 50%;
   background: #3fb950;
   flex-shrink: 0;
-}
-
-.pf-card-desc {
-  font-size: 11px;
-  color: var(--text-muted);
-  font-family: monospace;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .pf-card-edit-btn {

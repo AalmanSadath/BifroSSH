@@ -77,9 +77,9 @@ export default function HostsPanel() {
                         className={`dot ${isConnecting ? 'dot-connecting' : connected ? 'dot-on' : 'dot-off'}`}
                         title={isConnecting ? 'Connecting…' : connected ? 'Connected' : 'Not connected'}
                       />
-                      <span className="host-card-name">{server.name}</span>
+                      <span className="card-title">{server.name}</span>
                     </div>
-                    <span className="host-card-addr">{server.host}:{server.port}</span>
+                    <span className="card-sub">{server.host}:{server.port}</span>
                   </div>
                   <button
                     className="host-card-edit-btn"
