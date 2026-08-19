@@ -85,6 +85,39 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.11.1" date="2026-08-20">
+      <description>
+        <p>
+          A dynamic port forward no longer drops requests for the longest
+          hostnames the SOCKS protocol allows. A 255 character name overran the
+          buffer it was read into and aborted that one connection, which showed
+          as a tunnel that worked for most sites and silently failed for a few.
+        </p>
+        <p>
+          Replacing a changed host key is confirmed with a checkbox rather than
+          by typing the hostname, and the warning above it is one line instead
+          of a paragraph. Pressing Replace without ticking says so instead of
+          doing nothing.
+        </p>
+        <p>
+          A failed SFTP operation is reported without taking the file list
+          away. The message appears over the bottom of the pane and can be
+          dismissed, the listing is read again whether the operation succeeded
+          or not, and the reason now names the file it is about.
+        </p>
+        <p>
+          The hosts page no longer moves when a session opens. The tab bar was
+          appearing for the first time and a connected host card was growing an
+          extra line; both now keep the layout where it was.
+        </p>
+        <p>
+          Buttons on red backgrounds have padding again, so their labels no
+          longer run to the edge, and the host picker in the port forwarding
+          wizard fills the space it has rather than scrolling inside a box that
+          already scrolls.
+        </p>
+      </description>
+    </release>
     <release version="0.11.0" date="2026-08-19">
       <description>
         <p>
