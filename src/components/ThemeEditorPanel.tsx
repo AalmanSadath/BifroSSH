@@ -116,9 +116,9 @@ function TerminalPreview({ colors }: { colors: ThemeColors }) {
   return (
     <div className="te-preview-window">
       <div className="te-preview-titlebar">
-        <span className="te-dot" style={{ background: '#ff5f57' }} />
-        <span className="te-dot" style={{ background: '#ffbd2e' }} />
-        <span className="te-dot" style={{ background: '#28c841' }} />
+        <span className="te-dot te-dot-red" />
+        <span className="te-dot te-dot-amber" />
+        <span className="te-dot te-dot-green" />
         <span className="te-preview-title-text">bifrossh — bash</span>
       </div>
       <div className="te-preview-terminal" style={{ background, color: foreground }}>

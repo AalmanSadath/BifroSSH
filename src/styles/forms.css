@@ -120,7 +120,6 @@ select {
 }
 
 input:not([type="checkbox"]):not([type="radio"]):focus, select:focus {
-  outline: none;
   border-color: var(--accent);
 }
 
@@ -207,7 +206,7 @@ button { cursor: pointer; font-family: inherit; }
 
 .btn-primary {
   background: var(--accent);
-  color: #0d1117;
+  color: var(--on-accent);
   border: none;
   border-radius: 5px;
   padding: 7px 14px;

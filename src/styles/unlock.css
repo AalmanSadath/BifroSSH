@@ -120,7 +120,6 @@
   overflow: hidden;
 }
 
-.setup-phrase:focus { outline: none; }
 
 .setup-phrase-actions {
   display: flex;

@@ -284,7 +284,7 @@
   padding: 3px 16px;
   font-size: 12px;
   color: var(--text-muted);
-  border-bottom: 1px solid rgba(48, 54, 61, 0.4);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -365,7 +365,7 @@
 .sftp-reconnect-btn {
   padding: 3px 10px;
   background: var(--accent);
-  color: #000;
+  color: var(--on-accent);
   border: none;
   border-radius: 4px;
   font-size: 11px;
@@ -491,8 +491,8 @@
   padding: 8px 16px;
   font-size: 12px;
   color: var(--danger);
-  background: rgba(255, 123, 114, 0.08);
-  border-bottom: 1px solid rgba(255, 123, 114, 0.2);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--danger) 20%, transparent);
 }
 
 .sftp-picker-list {
@@ -559,13 +559,13 @@
 
 .sftp-active-badge {
   font-size: 11px;
-  color: #3fb950;
+  color: var(--success);
   flex-shrink: 0;
   font-weight: 500;
 }
 
 .sftp-picker-has-session {
-  border-left: 2px solid #3fb950;
+  border-left: 2px solid var(--success);
 }
 
 /* Actions dropdown */
@@ -645,7 +645,7 @@
   border-radius: 5px;
   border: none;
   background: var(--danger);
-  color: #fff;
+  color: var(--on-danger);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;

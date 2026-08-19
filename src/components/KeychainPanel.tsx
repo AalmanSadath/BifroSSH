@@ -15,6 +15,27 @@ const KEY_ALGORITHMS = [
 
 const RSA_SIZES = [2048, 4096];
 
+/**
+ * Enter and Space on a div that behaves as a button.
+ *
+ * The cards are divs because they hold several lines and their own context
+ * menu, but they are the only way to open a key or an identity, so leaving
+ * them off the tab order made those unreachable without a mouse.
+ */
+function clickableProps(onActivate: () => void) {
+  return {
+    role: 'button',
+    tabIndex: 0,
+    onClick: onActivate,
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        onActivate();
+      }
+    },
+  };
+}
+
 export default function KeychainPanel() {
   const { keys, identities, settings, saveKeyFromContent, generateKey, getKeyContent, updateKey, deleteKey, saveIdentity, deleteIdentity } = useAppStore();
   const hint = (t: string) => settings.show_hover_hints ? t : undefined;
@@ -459,7 +480,7 @@ export default function KeychainPanel() {
           ? <p className="list-empty">No keys added yet.</p>
           : <div className="kc-grid">
               {keys.map((key) => (
-                <div key={key.id} className="kc-card kc-card--clickable" onClick={() => handleOpenEditKey(key)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, kind: 'key', id: key.id }); }}>
+                <div key={key.id} className="kc-card kc-card--clickable" {...clickableProps(() => handleOpenEditKey(key))} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, kind: 'key', id: key.id }); }}>
                   <div className="card-body">
                     <span className="card-title">{key.name}</span>
                     <span className="kc-card-detail">
@@ -632,7 +653,7 @@ export default function KeychainPanel() {
                 const key = storedless || isPasswordAuth ? null : keys.find((k) => k.id === id.key_id);
                 const keyMissing = !storedless && !isPasswordAuth && !key;
                 return (
-                  <div key={id.id} className={`kc-card kc-card--clickable${keyMissing ? ' warn' : ''}`} onClick={() => openEditIdentity(id)} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, kind: 'identity', id: id.id }); }}>
+                  <div key={id.id} className={`kc-card kc-card--clickable${keyMissing ? ' warn' : ''}`} {...clickableProps(() => openEditIdentity(id))} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, kind: 'identity', id: id.id }); }}>
                     <div className="card-body">
                       <span className="card-title">{id.name}</span>
                       <span className="kc-card-detail">{id.username}</span>

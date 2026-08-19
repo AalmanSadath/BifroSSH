@@ -43,8 +43,8 @@
 .pf-card:hover { background: var(--bg-hover); }
 
 .pf-card-active {
-  border-color: #3fb95066;
-  background: #3fb95008;
+  border-color: color-mix(in srgb, var(--success) 40%, transparent);
+  background: color-mix(in srgb, var(--success) 3%, transparent);
 }
 
 .pf-card-left { flex-shrink: 0; display: flex; align-items: center; }
@@ -83,7 +83,7 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #3fb950;
+  background: var(--success);
   flex-shrink: 0;
 }
 
@@ -180,7 +180,7 @@
 
 .pf-type-tab.active {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .pf-wiz-diagram-wrap {

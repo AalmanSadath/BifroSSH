@@ -62,7 +62,7 @@
 }
 
 .kc-card.warn {
-  border-left: 2px solid #d29922;
+  border-left: 2px solid var(--warning);
 }
 
 .kc-card-edit-btn {
@@ -116,7 +116,7 @@
 
 .btn-danger {
   background: var(--danger);
-  color: #fff;
+  color: var(--on-danger);
   border: none;
   border-radius: 5px;
   /* Matching btn-primary and btn-secondary. This had no padding at all, so
@@ -265,7 +265,7 @@
 }
 
 .tab-rename-input:focus {
-  border-color: var(--accent, #61afef);
+  border-color: var(--accent);
 }
 
 .hosts-empty {
@@ -283,7 +283,7 @@
 .add-key-btn-main { border-radius: 6px 0 0 6px !important; }
 .add-key-btn-caret {
   border-radius: 0 6px 6px 0 !important;
-  border-left: 1px solid rgba(255,255,255,0.15) !important;
+  border-left: 1px solid color-mix(in srgb, var(--on-accent) 15%, transparent) !important;
   padding: 0 8px !important;
   display: flex; align-items: center; justify-content: center;
 }
@@ -334,7 +334,7 @@
   transition: border-color 0.15s;
 }
 .picker-btn:hover,
-.picker-btn:focus { border-color: var(--accent); outline: none; }
+.picker-btn:focus { border-color: var(--accent); }
 .picker-menu {
   position: absolute;
   top: calc(100% + 4px);

@@ -387,3 +387,13 @@
   border-top: 1px solid var(--border);
   margin-top: 2px;
 }
+
+/*
+ * The window illustration's traffic lights. Fixed colours on purpose: they
+ * are a picture of a title bar, not part of the theme being edited, so they
+ * do not follow the tokens. In CSS rather than inline only so no colour
+ * literal lives in a .tsx.
+ */
+.te-dot-red   { background: #ff5f57; }
+.te-dot-amber { background: #ffbd2e; }
+.te-dot-green { background: #28c841; }

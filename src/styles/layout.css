@@ -132,13 +132,13 @@
   flex-shrink: 0;
 }
 
-.dot-on  { background: #3fb950; }
+.dot-on  { background: var(--success); }
 .dot-off { background: var(--text-dim); }
 
 /* Mid-connect. Pulsing rather than labelled, so a card that is connecting is
    the same height as one that is not. */
 .dot-connecting {
-  background: #d29922;
+  background: var(--warning);
   animation: dot-pulse 1s ease-in-out infinite;
 }
 
