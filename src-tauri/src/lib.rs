@@ -67,14 +67,20 @@ pub fn run() {
     #[cfg(target_os = "linux")]
     migrate_webview_data_dir();
 
-    let data_dir = store::get_data_dir().expect("Failed to open the data directory");
-
     // Keyring first, .secret second, and a new key only when there is nothing
     // to lose. See keystore::unlock_or_init for why that last part matters.
     // Three ways this can go, and all of them start the window. A master
     // passphrase cannot be asked for before the UI exists, and a keystore that
     // will not open at all needs to say so somewhere the user is looking
-    // rather than on a terminal nobody opened.
+    // rather than on a terminal nobody opened. The data directory is the same
+    // argument: not being able to open it is exactly the thing worth saying.
+    let data_dir = match store::get_data_dir() {
+        Ok(dir) => dir,
+        Err(e) => {
+            return start(std::sync::OnceLock::new(), Default::default(), Some(format!("{e:#}")))
+        }
+    };
+
     let (secret_key, startup_error) = if keystore::is_first_run(&data_dir) {
         // Nothing has ever been written here. The user chooses how the key
         // should be kept before one exists, rather than having a file on disk
@@ -104,11 +110,33 @@ pub fn run() {
 
     // Stays empty while locked. Nothing can overwrite the real file from here,
     // because every save needs the key and the key is not there yet.
-    let app_data = match secret_key.get() {
-        Some(key) => load_app_data(key).expect("Failed to load app data"),
-        None => Default::default(),
+    let (secret_key, app_data, startup_error) = match secret_key.get() {
+        None => (secret_key, Default::default(), startup_error),
+        Some(key) => match load_app_data(key) {
+            Ok(data) => (secret_key, data, startup_error),
+            // store::load_app_data_in falls back to the backup on its own, so
+            // getting here means neither copy could be read. Starting with an
+            // empty document and a usable key would let the next save write
+            // that emptiness over a file somebody may still be able to
+            // recover, so the key is dropped along with the data: the window
+            // opens, says what happened, and can do nothing else.
+            Err(e) => (std::sync::OnceLock::new(), Default::default(), Some(format!("{e:#}"))),
+        },
     };
 
+    start(secret_key, app_data, startup_error)
+}
+
+/// Builds and runs the app.
+///
+/// Split out so every way of failing before this point can still reach it:
+/// there is nowhere else to report a startup failure, since the only thing
+/// that can show the user anything is the window this opens.
+fn start(
+    secret_key: std::sync::OnceLock<[u8; 32]>,
+    app_data: models::AppData,
+    startup_error: Option<String>,
+) {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(AppState {
