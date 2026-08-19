@@ -12,15 +12,23 @@ use base64::prelude::*;
 pub fn ppk_to_openssh(content: &str, passphrase: Option<&str>) -> Result<String> {
     let ppk = parse_ppk(content)?;
 
-    let private_blob = if ppk.encryption == "none" {
-        ppk.private_data.clone()
+    // The MAC key comes out of the same derivation as the decryption key, so
+    // the two are found together or not at all.
+    let (private_blob, mac_key) = if ppk.encryption == "none" {
+        let key = match ppk.version {
+            PpkVersion::V2 => v2_mac_key(""),
+            PpkVersion::V3 => Vec::new(),
+        };
+        (ppk.private_data.clone(), key)
     } else {
         let pass = passphrase.context("Passphrase required for this PPK file")?;
         match ppk.version {
-            PpkVersion::V2 => decrypt_ppk_v2(&ppk.private_data, pass)?,
+            PpkVersion::V2 => (decrypt_ppk_v2(&ppk.private_data, pass)?, v2_mac_key(pass)),
             PpkVersion::V3 => decrypt_ppk_v3(&ppk, pass)?,
         }
     };
+
+    verify_mac(&ppk, &private_blob, &mac_key)?;
 
     match ppk.algorithm.as_str() {
         "ssh-ed25519" => build_ed25519(&ppk.public_data, &private_blob, &ppk.comment),
@@ -71,6 +79,7 @@ struct PpkData {
     argon2_passes:   Option<u32>,
     argon2_parallism: Option<u32>,
     argon2_salt:     Option<Vec<u8>>,
+    private_mac:     Option<String>,
 }
 
 fn parse_ppk(content: &str) -> Result<PpkData> {
@@ -102,6 +111,7 @@ fn parse_ppk(content: &str) -> Result<PpkData> {
     let mut argon2_passes   = None;
     let mut argon2_parallism = None;
     let mut argon2_salt     = None;
+    let mut private_mac     = None;
 
     while idx < remaining.len() {
         let line = remaining[idx];
@@ -120,6 +130,7 @@ fn parse_ppk(content: &str) -> Result<PpkData> {
             "Argon2-Passes"    => argon2_passes    = val.trim().parse().ok(),
             "Argon2-Parallelism" => argon2_parallism = val.trim().parse().ok(),
             "Argon2-Salt"      => argon2_salt = from_hex(val.trim()).ok(),
+            "Private-MAC"      => private_mac = Some(val.trim().to_string()),
             "Public-Lines"     => {
                 let n: usize = val.trim().parse().context("Bad Public-Lines")?;
                 public_data = read_base64_lines(&remaining, &mut idx, n)?;
@@ -136,6 +147,7 @@ fn parse_ppk(content: &str) -> Result<PpkData> {
         version, algorithm, encryption, comment,
         public_data, private_data,
         key_derivation, argon2_memory, argon2_passes, argon2_parallism, argon2_salt,
+        private_mac,
     })
 }
 
@@ -159,6 +171,82 @@ fn read_base64_lines(lines: &[&str], idx: &mut usize, n: usize) -> Result<Vec<u8
 /// for a file that wants the machine.
 const MAX_ARGON2_MEMORY_KIB: u32 = 1024 * 1024;
 const MAX_ARGON2_PASSES: u32 = 64;
+
+// ── Integrity ─────────────────────────────────────────────────────────────────
+
+/// The bytes a PPK's `Private-MAC` is taken over.
+///
+/// Five SSH strings, each a big-endian length followed by its bytes. The
+/// private part is the *plaintext*, so for an encrypted key this can only be
+/// built after decrypting, which is what makes the MAC a passphrase check as
+/// well as a tamper check.
+fn mac_input(ppk: &PpkData, private_plain: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for field in [
+        ppk.algorithm.as_bytes(),
+        ppk.encryption.as_bytes(),
+        ppk.comment.as_bytes(),
+        &ppk.public_data,
+        private_plain,
+    ] {
+        out.extend_from_slice(&(field.len() as u32).to_be_bytes());
+        out.extend_from_slice(field);
+    }
+    out
+}
+
+/// The v2 MAC key: SHA-1 over a fixed string and the passphrase.
+///
+/// An unencrypted v2 key uses the same derivation with an empty passphrase
+/// rather than an empty key, which is why this is called in both cases.
+fn v2_mac_key(passphrase: &str) -> Vec<u8> {
+    use sha1::{Digest, Sha1};
+    Sha1::new()
+        .chain_update(b"putty-private-key-file-mac-key")
+        .chain_update(passphrase.as_bytes())
+        .finalize()
+        .to_vec()
+}
+
+/// Checks `Private-MAC` against the decrypted key.
+///
+/// Nothing checked this before. Two things follow from that. A wrong
+/// passphrase produced plausible-looking garbage that failed further along as
+/// a parse error, telling the user their file was corrupt when it was their
+/// typing; and a file altered in transit was decrypted and used without
+/// anything noticing, which is the whole reason the field is in the format.
+fn verify_mac(ppk: &PpkData, private_plain: &[u8], mac_key: &[u8]) -> Result<()> {
+    use hmac::{Hmac, Mac};
+
+    let expected = ppk
+        .private_mac
+        .as_deref()
+        .context("PPK has no Private-MAC line")?;
+    let expected = from_hex(expected).context("Private-MAC is not hex")?;
+    let data = mac_input(ppk, private_plain);
+
+    // verify_slice compares in constant time and rejects a wrong length.
+    let ok = match ppk.version {
+        PpkVersion::V2 => Hmac::<sha1::Sha1>::new_from_slice(mac_key)
+            .expect("HMAC takes a key of any length")
+            .chain_update(&data)
+            .verify_slice(&expected)
+            .is_ok(),
+        PpkVersion::V3 => Hmac::<sha2::Sha256>::new_from_slice(mac_key)
+            .expect("HMAC takes a key of any length")
+            .chain_update(&data)
+            .verify_slice(&expected)
+            .is_ok(),
+    };
+
+    if ok {
+        return Ok(());
+    }
+    if ppk.encryption == "none" {
+        bail!("PPK failed its integrity check; the file has been modified");
+    }
+    bail!("Wrong passphrase, or the PPK file has been modified");
+}
 
 fn decrypt_ppk_v2(data: &[u8], passphrase: &str) -> Result<Vec<u8>> {
     use aes::Aes256;
@@ -190,7 +278,7 @@ fn decrypt_ppk_v2(data: &[u8], passphrase: &str) -> Result<Vec<u8>> {
     Ok(buf)
 }
 
-fn decrypt_ppk_v3(ppk: &PpkData, passphrase: &str) -> Result<Vec<u8>> {
+fn decrypt_ppk_v3(ppk: &PpkData, passphrase: &str) -> Result<(Vec<u8>, Vec<u8>)> {
     use aes::Aes256;
     use cbc::cipher::{BlockDecryptMut, KeyIvInit, block_padding::NoPadding};
     use argon2::{Algorithm as Argon2Alg, Argon2, Params, Version};
@@ -236,6 +324,7 @@ fn decrypt_ppk_v3(ppk: &PpkData, passphrase: &str) -> Result<Vec<u8>> {
 
     let (aes_key, rest) = key_material.split_at(32);
     let iv = &rest[..16];
+    let mac_key = rest[16..].to_vec();
 
     let mut buf = ppk.private_data.to_vec();
     if !buf.len().is_multiple_of(16) {
@@ -245,7 +334,7 @@ fn decrypt_ppk_v3(ppk: &PpkData, passphrase: &str) -> Result<Vec<u8>> {
         .decrypt_padded_mut::<NoPadding>(&mut buf)
         .map_err(|e| anyhow!("AES decrypt error: {e:?}"))?;
     buf.truncate(ppk.private_data.len());
-    Ok(buf)
+    Ok((buf, mac_key))
 }
 
 // ── SSH wire format helpers ───────────────────────────────────────────────────
@@ -529,10 +618,44 @@ mod tests {
 
     /// The wrong passphrase must fail rather than hand back a key that will be
     /// rejected later by a server, where the cause would be much harder to see.
+    ///
+    /// It must also fail *as* a wrong passphrase. Before the MAC was checked
+    /// this came out as whatever the garbage plaintext happened to break, which
+    /// told the user their file was corrupt when it was their typing.
     #[test]
     fn the_wrong_passphrase_is_rejected() {
-        let r = ppk_to_openssh(include_str!("testdata/ed25519_v3_enc.ppk"), Some("not it"));
-        assert!(r.is_err(), "a wrong passphrase produced a key");
+        let e = ppk_to_openssh(include_str!("testdata/ed25519_v3_enc.ppk"), Some("not it"))
+            .unwrap_err();
+        assert!(format!("{e:#}").contains("Wrong passphrase"), "{e:#}");
+    }
+
+    /// The MAC covers the header as well as the key, so changing the comment
+    /// on a file you did not write is caught. Both versions, because they hash
+    /// with different algorithms under differently derived keys.
+    #[test]
+    fn a_modified_ppk_is_refused() {
+        for (name, original) in [
+            ("v3", include_str!("testdata/ed25519_v3.ppk")),
+            ("v2", include_str!("testdata/ed25519_v2.ppk")),
+        ] {
+            assert!(ppk_to_openssh(original, None).is_ok(), "{name} fixture should open");
+
+            let retitled = original.replace("Comment: ", "Comment: not-");
+            assert_ne!(retitled, original, "{name}: the edit did not apply");
+            let e = ppk_to_openssh(&retitled, None).unwrap_err();
+            assert!(
+                format!("{e:#}").contains("has been modified"),
+                "{name} accepted an edited comment: {e:#}",
+            );
+
+            let no_mac: String = original
+                .lines()
+                .filter(|l| !l.starts_with("Private-MAC:"))
+                .map(|l| format!("{l}\n"))
+                .collect();
+            let e = ppk_to_openssh(&no_mac, None).unwrap_err();
+            assert!(format!("{e:#}").contains("no Private-MAC"), "{name}: {e:#}");
+        }
     }
 
     /// A cost the file asks for is work this machine has to do before it can
