@@ -9,15 +9,20 @@ interface Props {
 }
 
 export default function HostKeyPrompt({ event, onResolved }: Props) {
-  const [confirmText, setConfirmText] = useState('');
+  const [acknowledged, setAcknowledged] = useState(false);
+  /// Raised when Replace is pressed without the tick, to point at the thing
+  /// standing in the way. Clears itself so pressing again flashes again.
+  const [nudge, setNudge] = useState(false);
   const changed = event.status !== 'unknown';
   const target = event.username
     ? `${event.username}@${event.host}:${event.port}`
     : `${event.host}:${event.port}`;
 
-  // Replacing a stored key is the one action that can talk an attacker's key
-  // into known_hosts, so it stays behind typing the hostname.
-  const canReplace = confirmText.trim() === event.host;
+  useEffect(() => {
+    if (!nudge) return;
+    const t = setTimeout(() => setNudge(false), 1200);
+    return () => clearTimeout(t);
+  }, [nudge]);
 
   const respond = async (decision: HostKeyDecision) => {
     onResolved(event.request_id);
@@ -63,12 +68,9 @@ export default function HostKeyPrompt({ event, onResolved }: Props) {
       {changed ? (
         <>
           <div className="hostkey-warn">
-            <strong>REMOTE HOST IDENTIFICATION HAS CHANGED.</strong>
-            <p>
-              {event.status === 'revoked'
-                ? 'This key is marked as revoked in your known_hosts file. It must not be trusted.'
-                : 'Someone could be eavesdropping on you right now (man-in-the-middle attack). It is also possible the server’s host key was just changed — check with whoever administers it before continuing.'}
-            </p>
+            {event.status === 'revoked'
+              ? 'This key is marked revoked. It must not be trusted.'
+              : 'Someone may be intercepting this connection, or the key was changed legitimately. Check with whoever runs the server.'}
           </div>
 
           <div className="hostkey-compare">
@@ -84,27 +86,25 @@ export default function HostKeyPrompt({ event, onResolved }: Props) {
             </div>
           </div>
 
+          {event.status !== 'revoked' && (
+            <label className={`hostkey-confirm${nudge ? ' hostkey-confirm-nudge' : ''}`}>
+              <input
+                type="checkbox"
+                checked={acknowledged}
+                onChange={(e) => { setAcknowledged(e.target.checked); setNudge(false); }}
+              />
+              {/* Replacing a stored key is the one action here that can write
+                  an attacker's key into known_hosts, so it takes a deliberate
+                  tick rather than one click from arriving at the dialog. */}
+              I confirm replacing the host key
+            </label>
+          )}
+
           {event.source && (
             <p className="form-hint">
               Stored in the {event.source} known_hosts file
               {event.line ? `, line ${event.line}` : ''}.
             </p>
-          )}
-
-          {event.status !== 'revoked' && (
-            <div className="hostkey-confirm">
-              <label htmlFor="hostkey-confirm-input">
-                To replace the stored key, type <code>{event.host}</code>
-              </label>
-              <input
-                id="hostkey-confirm-input"
-                type="text"
-                value={confirmText}
-                onChange={(e) => setConfirmText(e.target.value)}
-                autoComplete="off"
-                spellCheck={false}
-              />
-            </div>
           )}
         </>
       ) : (
@@ -133,9 +133,9 @@ export default function HostKeyPrompt({ event, onResolved }: Props) {
             </button>
             {event.status !== 'revoked' && (
               <button
-                className="btn-danger"
-                disabled={!canReplace}
-                onClick={() => respond('replace')}
+                className={`btn-danger${acknowledged ? '' : ' btn-held'}`}
+                aria-disabled={!acknowledged}
+                onClick={() => (acknowledged ? respond('replace') : setNudge(true))}
               >
                 Replace stored key
               </button>

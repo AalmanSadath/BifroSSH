@@ -98,10 +98,8 @@
   padding: 10px 12px;
   font-size: 12px;
   line-height: 1.5;
+  color: var(--text-primary);
 }
-
-.hostkey-warn strong { color: var(--danger); display: block; margin-bottom: 5px; }
-.hostkey-warn p { color: var(--text-primary); }
 
 .hostkey-compare {
   display: grid;
@@ -109,11 +107,38 @@
   gap: 10px;
 }
 
-.hostkey-confirm { display: flex; flex-direction: column; gap: 6px; }
-.hostkey-confirm label { font-size: 12px; color: var(--text-muted); }
-.hostkey-confirm code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+.hostkey-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
   color: var(--text-primary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.hostkey-confirm input { flex-shrink: 0; margin: 0; }
+
+/* Pressing Replace without ticking points here. Two beats of red rather than
+   a state that stays on, since the answer is one click away and the dialog
+   should not start nagging. */
+.hostkey-confirm-nudge {
+  color: var(--danger);
+  animation: hostkey-nudge 0.4s ease-in-out 2;
+}
+
+.hostkey-confirm-nudge input { outline: 2px solid var(--danger); outline-offset: 2px; }
+
+@keyframes hostkey-nudge {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.45; }
+}
+
+/* Held back until the box is ticked. Not `disabled`, because a disabled button
+   fires no click and so cannot say why it will not act. */
+.btn-held {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* ── Keyboard-interactive auth prompt ──────────────────────── */
@@ -276,7 +301,6 @@
 }
 
 /* ── ssh_config import ─────────────────────────────────────── */
-
 
 .sshconfig-alias {
   font-weight: 600;
