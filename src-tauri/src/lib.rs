@@ -7,6 +7,7 @@ mod models;
 mod ppk;
 mod prompts;
 mod sftp;
+mod socks5;
 mod sshconfig;
 mod ssh;
 #[cfg(test)]

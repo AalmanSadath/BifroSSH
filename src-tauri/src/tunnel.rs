@@ -176,52 +176,6 @@ async fn proxy_tcp_channel(stream: TcpStream, mut channel: Channel<Msg>) {
 
 // ── SOCKS5 ────────────────────────────────────────────────────────────────────
 
-async fn socks5_handshake(stream: &mut TcpStream) -> Result<(String, u16)> {
-    let mut buf = [0u8; 256];
-
-    stream.read_exact(&mut buf[..2]).await?;
-    if buf[0] != 5 { return Err(anyhow!("Not SOCKS5")); }
-    let nmethods = buf[1] as usize;
-    if nmethods > 0 { stream.read_exact(&mut buf[..nmethods]).await?; }
-    stream.write_all(&[0x05, 0x00]).await?;
-
-    stream.read_exact(&mut buf[..4]).await?;
-    if buf[0] != 5 || buf[1] != 1 {
-        let _ = stream.write_all(&[0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await;
-        return Err(anyhow!("Only CONNECT supported"));
-    }
-
-    let (host, port) = match buf[3] {
-        0x01 => {
-            stream.read_exact(&mut buf[..6]).await?;
-            let ip = format!("{}.{}.{}.{}", buf[0], buf[1], buf[2], buf[3]);
-            let port = u16::from_be_bytes([buf[4], buf[5]]);
-            (ip, port)
-        }
-        0x03 => {
-            stream.read_exact(&mut buf[..1]).await?;
-            let len = buf[0] as usize;
-            stream.read_exact(&mut buf[..len + 2]).await?;
-            let host = String::from_utf8_lossy(&buf[..len]).to_string();
-            let port = u16::from_be_bytes([buf[len], buf[len + 1]]);
-            (host, port)
-        }
-        0x04 => {
-            stream.read_exact(&mut buf[..18]).await?;
-            let segs: Vec<String> = buf[..16].chunks(2)
-                .map(|c| format!("{:02x}{:02x}", c[0], c[1]))
-                .collect();
-            let ip = segs.join(":");
-            let port = u16::from_be_bytes([buf[16], buf[17]]);
-            (ip, port)
-        }
-        t => return Err(anyhow!("Unknown addr type {}", t)),
-    };
-
-    stream.write_all(&[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await?;
-    Ok((host, port))
-}
-
 // ── Tunnel starters ───────────────────────────────────────────────────────────
 
 pub async fn start_tunnel(pf_id: String, params: TunnelParams, state: Arc<TunnelState>) -> Result<()> {
@@ -328,7 +282,7 @@ async fn dynamic_tunnel(
                     Ok((mut stream, _)) => {
                         let h = Arc::clone(&handle);
                         tokio::spawn(async move {
-                            let Ok((host, port)) = socks5_handshake(&mut stream).await else { return; };
+                            let Ok((host, port)) = crate::socks5::handshake(&mut stream).await else { return; };
                             let ch = h.lock().await.channel_open_direct_tcpip(&host, port as u32, "127.0.0.1", 0).await;
                             if let Ok(ch) = ch { proxy_tcp_channel(stream, ch).await; }
                         });
