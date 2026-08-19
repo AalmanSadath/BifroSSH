@@ -3,22 +3,23 @@
 //! Handles unencrypted and AES-256-CBC/GCM encrypted keys.
 //! Supports ED25519, RSA, and ECDSA (P-256/P-384/P-521).
 
+use anyhow::{anyhow, bail, Context, Result};
 use base64::prelude::*;
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /// Convert PPK file content to OpenSSH private key PEM.
-pub fn ppk_to_openssh(content: &str, passphrase: Option<&str>) -> Result<String, String> {
+pub fn ppk_to_openssh(content: &str, passphrase: Option<&str>) -> Result<String> {
     let ppk = parse_ppk(content)?;
 
     let private_blob = if ppk.encryption == "none" {
         ppk.private_data.clone()
     } else {
-        let pass = passphrase.ok_or("Passphrase required for this PPK file")?;
+        let pass = passphrase.context("Passphrase required for this PPK file")?;
         match ppk.version {
             2 => decrypt_ppk_v2(&ppk.private_data, pass)?,
             3 => decrypt_ppk_v3(&ppk, pass)?,
-            v => return Err(format!("Unsupported PPK version {v}")),
+            v => return Err(anyhow!("Unsupported PPK version {v}")),
         }
     };
 
@@ -26,7 +27,7 @@ pub fn ppk_to_openssh(content: &str, passphrase: Option<&str>) -> Result<String,
         "ssh-ed25519" => build_ed25519(&ppk.public_data, &private_blob, &ppk.comment),
         "ssh-rsa"     => build_rsa(&ppk.public_data, &private_blob, &ppk.comment),
         a if a.starts_with("ecdsa-sha2-") => build_ecdsa(a, &ppk.public_data, &private_blob, &ppk.comment),
-        other => Err(format!("Unsupported PPK algorithm: {other}")),
+        other => Err(anyhow!("Unsupported PPK algorithm: {other}")),
     }
 }
 
@@ -64,16 +65,16 @@ struct PpkData {
     argon2_salt:     Option<Vec<u8>>,
 }
 
-fn parse_ppk(content: &str) -> Result<PpkData, String> {
+fn parse_ppk(content: &str) -> Result<PpkData> {
     let mut lines = content.lines();
 
-    let first = lines.next().ok_or("Empty PPK file")?;
+    let first = lines.next().context("Empty PPK file")?;
     let (version, algorithm) = if let Some(a) = first.strip_prefix("PuTTY-User-Key-File-3: ") {
         (3u8, a.trim().to_string())
     } else if let Some(a) = first.strip_prefix("PuTTY-User-Key-File-2: ") {
         (2u8, a.trim().to_string())
     } else {
-        return Err("Not a PPK file".into());
+        bail!("Not a PPK file");
     };
 
     let remaining: Vec<&str> = lines.collect();
@@ -107,11 +108,11 @@ fn parse_ppk(content: &str) -> Result<PpkData, String> {
             "Argon2-Parallelism" => argon2_parallism = val.trim().parse().ok(),
             "Argon2-Salt"      => argon2_salt = from_hex(val.trim()).ok(),
             "Public-Lines"     => {
-                let n: usize = val.trim().parse().map_err(|_| "Bad Public-Lines")?;
+                let n: usize = val.trim().parse().context("Bad Public-Lines")?;
                 public_data = read_base64_lines(&remaining, &mut idx, n)?;
             }
             "Private-Lines"    => {
-                let n: usize = val.trim().parse().map_err(|_| "Bad Private-Lines")?;
+                let n: usize = val.trim().parse().context("Bad Private-Lines")?;
                 private_data = read_base64_lines(&remaining, &mut idx, n)?;
             }
             _ => {}
@@ -125,19 +126,19 @@ fn parse_ppk(content: &str) -> Result<PpkData, String> {
     })
 }
 
-fn read_base64_lines(lines: &[&str], idx: &mut usize, n: usize) -> Result<Vec<u8>, String> {
+fn read_base64_lines(lines: &[&str], idx: &mut usize, n: usize) -> Result<Vec<u8>> {
     let mut b64 = String::new();
     for _ in 0..n {
-        if *idx >= lines.len() { return Err("Unexpected EOF in PPK".into()); }
+        if *idx >= lines.len() { bail!("Unexpected EOF in PPK"); }
         b64.push_str(lines[*idx]);
         *idx += 1;
     }
-    BASE64_STANDARD.decode(&b64).map_err(|e| e.to_string())
+    Ok(BASE64_STANDARD.decode(&b64)?)
 }
 
 // ── Decryption ────────────────────────────────────────────────────────────────
 
-fn decrypt_ppk_v2(data: &[u8], passphrase: &str) -> Result<Vec<u8>, String> {
+fn decrypt_ppk_v2(data: &[u8], passphrase: &str) -> Result<Vec<u8>> {
     use aes::Aes256;
     use cbc::cipher::{BlockDecryptMut, KeyIvInit, block_padding::NoPadding};
     use sha1::{Digest, Sha1};
@@ -162,37 +163,38 @@ fn decrypt_ppk_v2(data: &[u8], passphrase: &str) -> Result<Vec<u8>, String> {
     }
     cbc::Decryptor::<Aes256>::new(&key.into(), &iv.into())
         .decrypt_padded_mut::<NoPadding>(&mut buf)
-        .map_err(|e| format!("AES decrypt error: {e:?}"))?;
+        .map_err(|e| anyhow!("AES decrypt error: {e:?}"))?;
     buf.truncate(data.len());
     Ok(buf)
 }
 
-fn decrypt_ppk_v3(ppk: &PpkData, passphrase: &str) -> Result<Vec<u8>, String> {
+fn decrypt_ppk_v3(ppk: &PpkData, passphrase: &str) -> Result<Vec<u8>> {
     use aes::Aes256;
     use cbc::cipher::{BlockDecryptMut, KeyIvInit, block_padding::NoPadding};
     use argon2::{Algorithm as Argon2Alg, Argon2, Params, Version};
 
     let flavor = ppk.key_derivation.as_deref().unwrap_or("Argon2id");
-    let memory  = ppk.argon2_memory.ok_or("Missing Argon2-Memory")?;
-    let passes  = ppk.argon2_passes.ok_or("Missing Argon2-Passes")?;
-    let parallel = ppk.argon2_parallism.ok_or("Missing Argon2-Parallelism")?;
-    let salt    = ppk.argon2_salt.as_deref().ok_or("Missing Argon2-Salt")?;
+    let memory  = ppk.argon2_memory.context("Missing Argon2-Memory")?;
+    let passes  = ppk.argon2_passes.context("Missing Argon2-Passes")?;
+    let parallel = ppk.argon2_parallism.context("Missing Argon2-Parallelism")?;
+    let salt    = ppk.argon2_salt.as_deref().context("Missing Argon2-Salt")?;
 
     let alg = match flavor {
         "Argon2id" => Argon2Alg::Argon2id,
         "Argon2i"  => Argon2Alg::Argon2i,
         "Argon2d"  => Argon2Alg::Argon2d,
-        other      => return Err(format!("Unknown Argon2 variant: {other}")),
+        other      => return Err(anyhow!("Unknown Argon2 variant: {other}")),
     };
 
     // 80 bytes: 32 key + 16 IV + 32 MAC key
     let out_len = 80usize;
     let params = Params::new(memory, passes, parallel, Some(out_len))
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| anyhow!("Argon2 parameters: {e}"))?;
     let argon2 = Argon2::new(alg, Version::V0x13, params);
     let mut key_material = vec![0u8; out_len];
-    argon2.hash_password_into(passphrase.as_bytes(), salt, &mut key_material)
-        .map_err(|e| e.to_string())?;
+    argon2
+        .hash_password_into(passphrase.as_bytes(), salt, &mut key_material)
+        .map_err(|e| anyhow!("Argon2 key derivation: {e}"))?;
 
     let (aes_key, rest) = key_material.split_at(32);
     let iv = &rest[..16];
@@ -203,29 +205,29 @@ fn decrypt_ppk_v3(ppk: &PpkData, passphrase: &str) -> Result<Vec<u8>, String> {
     }
     cbc::Decryptor::<Aes256>::new(aes_key.into(), iv.into())
         .decrypt_padded_mut::<NoPadding>(&mut buf)
-        .map_err(|e| format!("AES decrypt error: {e:?}"))?;
+        .map_err(|e| anyhow!("AES decrypt error: {e:?}"))?;
     buf.truncate(ppk.private_data.len());
     Ok(buf)
 }
 
 // ── SSH wire format helpers ───────────────────────────────────────────────────
 
-fn ssh_read_u32(data: &[u8], pos: &mut usize) -> Result<u32, String> {
-    if *pos + 4 > data.len() { return Err("SSH wire: EOF reading u32".into()); }
+fn ssh_read_u32(data: &[u8], pos: &mut usize) -> Result<u32> {
+    if *pos + 4 > data.len() { bail!("SSH wire: EOF reading u32"); }
     let v = u32::from_be_bytes(data[*pos..*pos + 4].try_into().unwrap());
     *pos += 4;
     Ok(v)
 }
 
-fn ssh_read_bytes(data: &[u8], pos: &mut usize) -> Result<Vec<u8>, String> {
+fn ssh_read_bytes(data: &[u8], pos: &mut usize) -> Result<Vec<u8>> {
     let len = ssh_read_u32(data, pos)? as usize;
-    if *pos + len > data.len() { return Err("SSH wire: EOF reading string".into()); }
+    if *pos + len > data.len() { bail!("SSH wire: EOF reading string"); }
     let v = data[*pos..*pos + len].to_vec();
     *pos += len;
     Ok(v)
 }
 
-fn ssh_read_mpint(data: &[u8], pos: &mut usize) -> Result<Vec<u8>, String> {
+fn ssh_read_mpint(data: &[u8], pos: &mut usize) -> Result<Vec<u8>> {
     let bytes = ssh_read_bytes(data, pos)?;
     // strip leading zero sign byte
     Ok(match bytes.iter().position(|&b| b != 0) {
@@ -293,17 +295,17 @@ fn build_openssh_pem(public_blob: &[u8], private_key_data: &[u8], comment: &str)
 
 // ── Key-specific builders ─────────────────────────────────────────────────────
 
-fn build_ed25519(public_data: &[u8], private_blob: &[u8], comment: &str) -> Result<String, String> {
+fn build_ed25519(public_data: &[u8], private_blob: &[u8], comment: &str) -> Result<String> {
     // PPK public blob:  string("ssh-ed25519") + string(pub[32])
     // PPK private blob: string(seed[32])  — PuTTY stores only the 32-byte seed
     let mut pos = 0;
     let _algo = ssh_read_bytes(public_data, &mut pos)?;
     let pub_bytes = ssh_read_bytes(public_data, &mut pos)?;
-    if pub_bytes.len() != 32 { return Err("ED25519 public key must be 32 bytes".into()); }
+    if pub_bytes.len() != 32 { bail!("ED25519 public key must be 32 bytes"); }
 
     let mut ppos = 0;
     let seed_bytes = ssh_read_bytes(private_blob, &mut ppos)?;
-    if seed_bytes.len() != 32 { return Err("ED25519 private seed must be 32 bytes".into()); }
+    if seed_bytes.len() != 32 { bail!("ED25519 private seed must be 32 bytes"); }
 
     // OpenSSH private data: string("ssh-ed25519") + string(pub32) + string(seed32 || pub32)
     let mut combined = Vec::with_capacity(64);
@@ -318,7 +320,7 @@ fn build_ed25519(public_data: &[u8], private_blob: &[u8], comment: &str) -> Resu
     Ok(build_openssh_pem(public_data, &pk_data, comment))
 }
 
-fn build_rsa(public_data: &[u8], private_blob: &[u8], comment: &str) -> Result<String, String> {
+fn build_rsa(public_data: &[u8], private_blob: &[u8], comment: &str) -> Result<String> {
     // PPK public blob:  string("ssh-rsa") + mpint(e) + mpint(n)
     // PPK private blob: mpint(d) + mpint(p) + mpint(q) + mpint(iqmp)
     let mut pos = 0;
@@ -345,7 +347,7 @@ fn build_rsa(public_data: &[u8], private_blob: &[u8], comment: &str) -> Result<S
     Ok(build_openssh_pem(public_data, &pk_data, comment))
 }
 
-fn build_ecdsa(algorithm: &str, public_data: &[u8], private_blob: &[u8], comment: &str) -> Result<String, String> {
+fn build_ecdsa(algorithm: &str, public_data: &[u8], private_blob: &[u8], comment: &str) -> Result<String> {
     // PPK public blob:  string(algo) + string(curve) + string(point)
     // PPK private blob: mpint(scalar)
     let mut pos = 0;
@@ -368,10 +370,10 @@ fn build_ecdsa(algorithm: &str, public_data: &[u8], private_blob: &[u8], comment
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
-fn from_hex(s: &str) -> Result<Vec<u8>, String> {
-    if !s.len().is_multiple_of(2) { return Err("Odd hex length".into()); }
+fn from_hex(s: &str) -> Result<Vec<u8>> {
+    if !s.len().is_multiple_of(2) { bail!("Odd hex length"); }
     (0..s.len())
         .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(|_| "Invalid hex char".to_string()))
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(|_| anyhow!("Invalid hex char")))
         .collect()
 }

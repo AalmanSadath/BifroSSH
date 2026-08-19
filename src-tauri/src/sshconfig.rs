@@ -4,6 +4,7 @@
 //! directives that map onto a BifroSSH host are understood, and anything else
 //! is ignored rather than guessed at.
 
+use anyhow::Context;
 use std::path::PathBuf;
 
 /// One importable host from the config.
@@ -145,12 +146,12 @@ pub fn jump_alias(proxy_jump: &str) -> Option<&str> {
     (!host.is_empty()).then_some(host)
 }
 
-pub fn scan() -> Result<SshConfigScan, String> {
+pub fn scan() -> anyhow::Result<SshConfigScan> {
     let Some(path) = config_path() else {
         return Ok(SshConfigScan { hosts: Vec::new(), has_includes: false });
     };
     let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("{}: {}", path.display(), e))?;
+        .with_context(|| path.display().to_string())?;
     Ok(parse(&content))
 }
 

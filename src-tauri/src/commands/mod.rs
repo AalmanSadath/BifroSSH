@@ -65,8 +65,27 @@ impl From<&str> for CmdError {
 /// the way out.
 impl From<anyhow::Error> for CmdError {
     fn from(e: anyhow::Error) -> Self {
-        CmdError(format!("{e:#}"))
+        CmdError(collapse_repeats(&format!("{e:#}")))
     }
+}
+
+/// Drops a `": "` separated part that repeats the one before it.
+///
+/// Some libraries render an error as its own code plus its own message, and
+/// for the common failures those are the same words: russh_sftp turns a
+/// missing file into "No such file: No such file". Adding the path in front of
+/// that made it worse, not better.
+///
+/// Only adjacent repeats go, so "sftp: No such file: No such file" collapses
+/// but "a: b: a" is left alone.
+fn collapse_repeats(message: &str) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    for part in message.split(": ") {
+        if parts.last() != Some(&part) {
+            parts.push(part);
+        }
+    }
+    parts.join(": ")
 }
 
 impl From<ssh_key::Error> for CmdError {
@@ -235,3 +254,34 @@ pub use ssh::*;
 pub use sftp::*;
 pub use tunnel::*;
 pub use vault::*;
+
+#[cfg(test)]
+mod error_tests {
+    use super::*;
+
+    #[test]
+    fn a_repeated_part_of_a_message_is_shown_once() {
+        // What russh_sftp produces for a missing file, once the path this was
+        // working on is in front of it.
+        assert_eq!(
+            collapse_repeats("/home/pi/text.txt: No such file: No such file"),
+            "/home/pi/text.txt: No such file",
+        );
+    }
+
+    #[test]
+    fn parts_that_differ_are_all_kept() {
+        assert_eq!(
+            collapse_repeats("/home/pi: Permission denied"),
+            "/home/pi: Permission denied",
+        );
+        // Only adjacent repeats collapse; a part that comes back later stays.
+        assert_eq!(collapse_repeats("a: b: a"), "a: b: a");
+    }
+
+    #[test]
+    fn the_context_chain_survives_the_trip_to_the_frontend() {
+        let e = anyhow::anyhow!("No such file").context("/home/pi/text.txt");
+        assert_eq!(CmdError::from(e).0, "/home/pi/text.txt: No such file");
+    }
+}

@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use anyhow::Result;
+use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use russh::*;
 use russh_sftp::client::SftpSession;
@@ -156,7 +156,7 @@ pub fn get_local_home() -> String {
         .into_owned()
 }
 
-pub fn list_local(path: &str) -> Result<Vec<FileEntry>, String> {
+pub fn list_local(path: &str) -> Result<Vec<FileEntry>> {
     let path_obj = if path.is_empty() || path == "~" {
         dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/"))
     } else {
@@ -164,7 +164,7 @@ pub fn list_local(path: &str) -> Result<Vec<FileEntry>, String> {
     };
 
     let path_str = path_obj.to_string_lossy().into_owned();
-    let read = fs::read_dir(&path_obj).map_err(|e| format!("{}: {}", path_str, e))?;
+    let read = fs::read_dir(&path_obj).with_context(|| path_str.to_string())?;
 
     let mut entries: Vec<FileEntry> = Vec::new();
 
@@ -231,7 +231,7 @@ pub async fn connect_sftp(
     inactivity_timeout_secs: u32,
     sec: ConnectSecurity,
     jumps: Vec<JumpHop>,
-) -> Result<(), String> {
+) -> Result<()> {
     // The countdown pauses while a host key or auth prompt is on screen.
     let waiting = Arc::clone(&sec.waiting);
     crate::commands::timeout_pausable(
@@ -240,7 +240,7 @@ pub async fn connect_sftp(
         waiting,
     )
     .await
-    .map_err(|_| "Connection timed out after 30 seconds".to_string())?
+    .map_err(|_| anyhow!("Connection timed out after 30 seconds"))?
 }
 
 // Threaded straight through from the command layer. Collapsing these into a
@@ -256,7 +256,7 @@ async fn connect_sftp_inner(
     inactivity_timeout_secs: u32,
     sec: ConnectSecurity,
     jumps: Vec<JumpHop>,
-) -> Result<(), String> {
+) -> Result<()> {
     let config = Arc::new(client::Config {
         inactivity_timeout: Some(Duration::from_secs(inactivity_timeout_secs as u64)),
         ..Default::default()
@@ -267,44 +267,32 @@ async fn connect_sftp_inner(
     // Resolution, the TCP connect, and every jump host in between.
     let transport = crate::jump::open_transport(&jumps, host, port, &sec, None)
         .await
-        .map_err(|e| {
-            let message = e.to_string();
-            sec.log("error", &message);
-            message
-        })?;
+        .inspect_err(|e| sec.log("error", &format!("{e:#}")))?;
 
     let verifier = HostKeyVerifier::new(sec.clone(), host, port, Some(username.to_string()));
     let mut handle =
         crate::ssh::connect_verified(config, transport, verifier, |v| VerifyingHandler { v })
             .await
-            .map_err(|e| {
-                let message = e.to_string();
-                sec.log("error", &message);
-                message
-            })?;
+            .inspect_err(|e| sec.log("error", &format!("{e:#}")))?;
 
     sec.log("auth", &format!("Authenticating to \"{}\":\"{}\" as \"{}\"", host, port, username));
     crate::ssh::authenticate(&mut handle, &auth, &AuthContext::new(sec.clone(), username).with_host(host))
         .await
-        .map_err(|e| {
-            sec.log("error", &e.to_string());
-            e.to_string()
-        })?;
+        .inspect_err(|e| sec.log("error", &format!("{e:#}")))?;
     sec.log("auth", "Authentication succeeded");
 
     sec.log("network", "Opening session channel...");
-    let channel = handle.channel_open_session().await.map_err(|e| e.to_string())?;
+    let channel = handle.channel_open_session().await?;
 
     sec.log("network", "Requesting SFTP subsystem...");
-    channel.request_subsystem(true, "sftp").await.map_err(|e| {
-        sec.log("error", &format!("SFTP subsystem request failed: {}", e));
-        e.to_string()
-    })?;
+    channel
+        .request_subsystem(true, "sftp")
+        .await
+        .inspect_err(|e| sec.log("error", &format!("SFTP subsystem request failed: {e}")))?;
 
-    let sftp = SftpSession::new(channel.into_stream()).await.map_err(|e| {
-        sec.log("error", &format!("SFTP session failed to start: {}", e));
-        e.to_string()
-    })?;
+    let sftp = SftpSession::new(channel.into_stream())
+        .await
+        .inspect_err(|e| sec.log("error", &format!("SFTP session failed to start: {e}")))?;
     sec.log("auth", "SFTP ready");
 
     sftp_state.sessions.lock().await
@@ -316,21 +304,23 @@ async fn connect_sftp_inner(
     Ok(())
 }
 
-pub async fn get_remote_home(sftp_state: &SftpClientState, session_id: &str) -> Result<String, String> {
+pub async fn get_remote_home(sftp_state: &SftpClientState, session_id: &str) -> Result<String> {
     let sftp_arc = get_session(sftp_state, session_id).await?;
     let sftp = sftp_arc.lock().await;
-    sftp.canonicalize(".").await.map_err(|e| e.to_string())
+    sftp.canonicalize(".")
+        .await
+        .context("Could not find the home directory on the server")
 }
 
 pub async fn list_remote(
     sftp_state: &SftpClientState,
     session_id: &str,
     path: &str,
-) -> Result<Vec<FileEntry>, String> {
+) -> Result<Vec<FileEntry>> {
     let sftp_arc = get_session(sftp_state, session_id).await?;
     let sftp = sftp_arc.lock().await;
 
-    let dir_entries = sftp.read_dir(path).await.map_err(|e| e.to_string())?;
+    let dir_entries = sftp.read_dir(path).await?;
 
     let mut entries: Vec<FileEntry> = Vec::new();
 
@@ -384,7 +374,7 @@ pub async fn list_remote(
 ///
 /// Symlinks are recorded as skipped rather than followed: a link pointing at an
 /// ancestor would otherwise recurse until the disk fills.
-fn collect_local_tree(root: &Path) -> Result<(Vec<TreeItem>, u32), String> {
+fn collect_local_tree(root: &Path) -> Result<(Vec<TreeItem>, u32)> {
     let mut items = Vec::new();
     let mut skipped = 0u32;
     let mut queue: Vec<(std::path::PathBuf, String, usize)> =
@@ -392,16 +382,16 @@ fn collect_local_tree(root: &Path) -> Result<(Vec<TreeItem>, u32), String> {
 
     while let Some((dir, rel, depth)) = queue.pop() {
         if depth >= MAX_DEPTH {
-            return Err(format!("Directory nesting deeper than {} levels", MAX_DEPTH));
+            return Err(anyhow!("Directory nesting deeper than {} levels", MAX_DEPTH));
         }
-        let entries = fs::read_dir(&dir).map_err(|e| format!("{}: {}", dir.display(), e))?;
+        let entries = fs::read_dir(&dir).with_context(|| dir.display().to_string())?;
         for entry in entries {
-            let entry = entry.map_err(|e| e.to_string())?;
+            let entry = entry?;
             let name = entry.file_name().to_string_lossy().into_owned();
             let child_rel = if rel.is_empty() { name.clone() } else { format!("{}/{}", rel, name) };
 
             // symlink_metadata so a link is seen as a link, not its target.
-            let meta = entry.metadata().map_err(|e| e.to_string())?;
+            let meta = entry.metadata()?;
             let link = fs::symlink_metadata(entry.path())
                 .map(|m| m.file_type().is_symlink())
                 .unwrap_or(false);
@@ -423,18 +413,18 @@ fn collect_local_tree(root: &Path) -> Result<(Vec<TreeItem>, u32), String> {
 async fn collect_remote_tree(
     sftp_arc: &Arc<Mutex<SftpSession>>,
     root: &str,
-) -> Result<(Vec<TreeItem>, u32), String> {
+) -> Result<(Vec<TreeItem>, u32)> {
     let mut items = Vec::new();
     let mut skipped = 0u32;
     let mut queue: Vec<(String, String, usize)> = vec![(root.to_string(), String::new(), 0)];
 
     while let Some((dir, rel, depth)) = queue.pop() {
         if depth >= MAX_DEPTH {
-            return Err(format!("Directory nesting deeper than {} levels", MAX_DEPTH));
+            return Err(anyhow!("Directory nesting deeper than {} levels", MAX_DEPTH));
         }
         let read = {
             let sftp = sftp_arc.lock().await;
-            sftp.read_dir(&dir).await.map_err(|e| format!("{}: {}", dir, e))?
+            sftp.read_dir(&dir).await.with_context(|| dir.to_string())?
         };
         for entry in read {
             let name = entry.file_name();
@@ -482,21 +472,21 @@ trait FileSide {
     type Reader: tokio::io::AsyncRead + Unpin + Send;
     type Writer: tokio::io::AsyncWrite + Unpin + Send;
 
-    async fn is_dir(&self, path: &str) -> Result<bool, String>;
+    async fn is_dir(&self, path: &str) -> Result<bool>;
 
     /// Every file and directory under `root`, plus a count of the symlinks
     /// passed over. Parents come before their children.
-    async fn walk(&self, root: &str) -> Result<(Vec<TreeItem>, u32), String>;
+    async fn walk(&self, root: &str) -> Result<(Vec<TreeItem>, u32)>;
 
     /// Creates a directory, treating "already there" as success. Callers make
     /// every directory before any file, so this runs on paths that may already
     /// exist from an earlier transfer.
-    async fn ensure_dir(&self, path: &str) -> Result<(), String>;
+    async fn ensure_dir(&self, path: &str) -> Result<()>;
 
     /// A reader over `path`, and its size for the progress bar.
-    async fn open_read(&self, path: &str) -> Result<(Self::Reader, u64), String>;
+    async fn open_read(&self, path: &str) -> Result<(Self::Reader, u64)>;
 
-    async fn create_write(&self, path: &str) -> Result<Self::Writer, String>;
+    async fn create_write(&self, path: &str) -> Result<Self::Writer>;
 
     /// Best effort: this only ever runs on a file this process just made and
     /// then abandoned, and there is nothing useful to say if it will not go.
@@ -510,32 +500,32 @@ impl FileSide for Local {
     type Reader = tokio::fs::File;
     type Writer = tokio::fs::File;
 
-    async fn is_dir(&self, path: &str) -> Result<bool, String> {
+    async fn is_dir(&self, path: &str) -> Result<bool> {
         fs::metadata(path)
             .map(|m| m.is_dir())
-            .map_err(|e| format!("{}: {}", path, e))
+            .with_context(|| path.to_string())
     }
 
-    async fn walk(&self, root: &str) -> Result<(Vec<TreeItem>, u32), String> {
+    async fn walk(&self, root: &str) -> Result<(Vec<TreeItem>, u32)> {
         collect_local_tree(Path::new(root))
     }
 
-    async fn ensure_dir(&self, path: &str) -> Result<(), String> {
-        fs::create_dir_all(path).map_err(|e| format!("{}: {}", path, e))
+    async fn ensure_dir(&self, path: &str) -> Result<()> {
+        fs::create_dir_all(path).with_context(|| path.to_string())
     }
 
-    async fn open_read(&self, path: &str) -> Result<(Self::Reader, u64), String> {
+    async fn open_read(&self, path: &str) -> Result<(Self::Reader, u64)> {
         let size = tokio::fs::metadata(path).await.map(|m| m.len()).unwrap_or(0);
         let file = tokio::fs::File::open(path)
             .await
-            .map_err(|e| format!("{}: {}", path, e))?;
+            .with_context(|| path.to_string())?;
         Ok((file, size))
     }
 
-    async fn create_write(&self, path: &str) -> Result<Self::Writer, String> {
+    async fn create_write(&self, path: &str) -> Result<Self::Writer> {
         tokio::fs::File::create(path)
             .await
-            .map_err(|e| format!("{}: {}", path, e))
+            .with_context(|| path.to_string())
     }
 
     async fn remove_file(&self, path: &str) {
@@ -553,20 +543,20 @@ impl FileSide for Remote {
     type Reader = russh_sftp::client::fs::File;
     type Writer = russh_sftp::client::fs::File;
 
-    async fn is_dir(&self, path: &str) -> Result<bool, String> {
+    async fn is_dir(&self, path: &str) -> Result<bool> {
         let sftp = self.0.lock().await;
         let meta = sftp
             .metadata(path)
             .await
-            .map_err(|e| format!("{}: {}", path, e))?;
+            .with_context(|| path.to_string())?;
         Ok(meta.file_type().is_dir())
     }
 
-    async fn walk(&self, root: &str) -> Result<(Vec<TreeItem>, u32), String> {
+    async fn walk(&self, root: &str) -> Result<(Vec<TreeItem>, u32)> {
         collect_remote_tree(&self.0, root).await
     }
 
-    async fn ensure_dir(&self, path: &str) -> Result<(), String> {
+    async fn ensure_dir(&self, path: &str) -> Result<()> {
         let sftp = self.0.lock().await;
         // Unlike `create_dir_all`, SFTP's mkdir fails on a directory that is
         // already there, and that is the common case here.
@@ -574,24 +564,24 @@ impl FileSide for Remote {
         Ok(())
     }
 
-    async fn open_read(&self, path: &str) -> Result<(Self::Reader, u64), String> {
+    async fn open_read(&self, path: &str) -> Result<(Self::Reader, u64)> {
         let sftp = self.0.lock().await;
         let meta = sftp
             .metadata(path)
             .await
-            .map_err(|e| format!("{}: {}", path, e))?;
+            .with_context(|| path.to_string())?;
         let file = sftp
             .open(path)
             .await
-            .map_err(|e| format!("{}: {}", path, e))?;
+            .with_context(|| path.to_string())?;
         Ok((file, meta.size.unwrap_or(0)))
     }
 
-    async fn create_write(&self, path: &str) -> Result<Self::Writer, String> {
+    async fn create_write(&self, path: &str) -> Result<Self::Writer> {
         let sftp = self.0.lock().await;
         sftp.create(path)
             .await
-            .map_err(|e| format!("{}: {}", path, e))
+            .with_context(|| path.to_string())
     }
 
     async fn remove_file(&self, path: &str) {
@@ -619,7 +609,7 @@ async fn transfer_one<S: FileSide, D: FileSide>(
     dst_path: &str,
     at: Position,
     cancel: &AtomicBool,
-) -> Result<Step, String> {
+) -> Result<Step> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let file_name = Path::new(dst_path)
@@ -643,11 +633,11 @@ async fn transfer_one<S: FileSide, D: FileSide>(
             dst.remove_file(dst_path).await;
             return Ok(Step::Cancelled);
         }
-        let n = reader.read(&mut buf).await.map_err(|e| e.to_string())?;
+        let n = reader.read(&mut buf).await?;
         if n == 0 {
             break;
         }
-        writer.write_all(&buf[..n]).await.map_err(|e| e.to_string())?;
+        writer.write_all(&buf[..n]).await?;
         transferred += n as u64;
         let _ = app.emit(
             "sftp-progress",
@@ -660,7 +650,7 @@ async fn transfer_one<S: FileSide, D: FileSide>(
             },
         );
     }
-    writer.flush().await.map_err(|e| e.to_string())?;
+    writer.flush().await?;
     Ok(Step::Finished)
 }
 
@@ -675,16 +665,16 @@ async fn transfer<S: FileSide, D: FileSide>(
     dst: &D,
     dst_dir: &str,
     cancel: &AtomicBool,
-) -> Result<TransferSummary, String> {
+) -> Result<TransferSummary> {
     let name = Path::new(src_path)
         .file_name()
-        .ok_or("Invalid source path")?
+        .context("Invalid source path")?
         .to_string_lossy()
         .into_owned();
     // Refused rather than joined: `join_remote` would turn an empty directory
     // into an absolute path and write to the root of whichever side this is.
     if dst_dir.is_empty() {
-        return Err("No destination directory".to_string());
+        return Err(anyhow!("No destination directory"));
     }
     let dest_root = join_remote(dst_dir, &name);
 
@@ -741,7 +731,7 @@ pub async fn upload_path(
     session_id: &str,
     local_path: &str,
     remote_dir: &str,
-) -> Result<TransferSummary, String> {
+) -> Result<TransferSummary> {
     let remote = Remote(get_session(sftp_state, session_id).await?);
     let cancel = sftp_state.begin_transfer();
     transfer(app, &Local, local_path, &remote, remote_dir, &cancel).await
@@ -754,7 +744,7 @@ pub async fn download_path(
     session_id: &str,
     remote_path: &str,
     local_dir: &str,
-) -> Result<TransferSummary, String> {
+) -> Result<TransferSummary> {
     let remote = Remote(get_session(sftp_state, session_id).await?);
     let cancel = sftp_state.begin_transfer();
     transfer(app, &remote, remote_path, &Local, local_dir, &cancel).await
@@ -768,28 +758,29 @@ pub async fn copy_remote_path(
     src_path: &str,
     dst_session_id: &str,
     dst_dir: &str,
-) -> Result<TransferSummary, String> {
+) -> Result<TransferSummary> {
     let src = Remote(get_session(sftp_state, src_session_id).await?);
     let dst = Remote(get_session(sftp_state, dst_session_id).await?);
     let cancel = sftp_state.begin_transfer();
     transfer(app, &src, src_path, &dst, dst_dir, &cancel).await
 }
 
-pub fn create_local_dir(path: &str) -> Result<(), String> {
-    std::fs::create_dir(path).map_err(|e| e.to_string())
+pub fn create_local_dir(path: &str) -> Result<()> {
+    std::fs::create_dir(path).with_context(|| path.to_string())
 }
 
-pub fn delete_local(path: &str) -> Result<(), String> {
-    let meta = std::fs::metadata(path).map_err(|e| e.to_string())?;
+pub fn delete_local(path: &str) -> Result<()> {
+    let meta = std::fs::metadata(path).with_context(|| path.to_string())?;
     if meta.is_dir() {
-        std::fs::remove_dir_all(path).map_err(|e| e.to_string())
+        std::fs::remove_dir_all(path)
     } else {
-        std::fs::remove_file(path).map_err(|e| e.to_string())
+        std::fs::remove_file(path)
     }
+    .with_context(|| path.to_string())
 }
 
-pub fn rename_local(old_path: &str, new_path: &str) -> Result<(), String> {
-    std::fs::rename(old_path, new_path).map_err(|e| e.to_string())
+pub fn rename_local(old_path: &str, new_path: &str) -> Result<()> {
+    std::fs::rename(old_path, new_path).with_context(|| old_path.to_string())
 }
 
 pub async fn delete_remote(
@@ -797,12 +788,12 @@ pub async fn delete_remote(
     session_id: &str,
     path: &str,
     is_dir: bool,
-) -> Result<(), String> {
+) -> Result<()> {
     let sftp_arc = get_session(sftp_state, session_id).await?;
 
     if !is_dir {
         let sftp = sftp_arc.lock().await;
-        return sftp.remove_file(path).await.map_err(|e| e.to_string());
+        return sftp.remove_file(path).await.with_context(|| path.to_string());
     }
 
     // remove_dir only works on an empty directory, so the tree has to come out
@@ -813,13 +804,13 @@ pub async fn delete_remote(
 
     for item in items.iter().filter(|i| !i.is_dir) {
         let child = join_remote(path, &item.rel);
-        sftp.remove_file(&child).await.map_err(|e| format!("{}: {}", child, e))?;
+        sftp.remove_file(&child).await.with_context(|| child.to_string())?;
     }
     for item in items.iter().filter(|i| i.is_dir).rev() {
         let child = join_remote(path, &item.rel);
-        sftp.remove_dir(&child).await.map_err(|e| format!("{}: {}", child, e))?;
+        sftp.remove_dir(&child).await.with_context(|| child.to_string())?;
     }
-    sftp.remove_dir(path).await.map_err(|e| format!("{}: {}", path, e))
+    sftp.remove_dir(path).await.with_context(|| path.to_string())
 }
 
 pub async fn rename_remote(
@@ -827,20 +818,22 @@ pub async fn rename_remote(
     session_id: &str,
     old_path: &str,
     new_path: &str,
-) -> Result<(), String> {
+) -> Result<()> {
     let sftp_arc = get_session(sftp_state, session_id).await?;
     let sftp = sftp_arc.lock().await;
-    sftp.rename(old_path, new_path).await.map_err(|e| e.to_string())
+    sftp.rename(old_path, new_path)
+        .await
+        .with_context(|| old_path.to_string())
 }
 
 pub async fn mkdir(
     sftp_state: &SftpClientState,
     session_id: &str,
     path: &str,
-) -> Result<(), String> {
+) -> Result<()> {
     let sftp_arc = get_session(sftp_state, session_id).await?;
     let sftp = sftp_arc.lock().await;
-    sftp.create_dir(path).await.map_err(|e| e.to_string())
+    sftp.create_dir(path).await.with_context(|| path.to_string())
 }
 
 pub async fn disconnect_sftp(sftp_state: &SftpClientState, session_id: &str) {
@@ -855,11 +848,11 @@ pub async fn disconnect_sftp(sftp_state: &SftpClientState, session_id: &str) {
 async fn get_session(
     sftp_state: &SftpClientState,
     session_id: &str,
-) -> Result<Arc<Mutex<SftpSession>>, String> {
+) -> Result<Arc<Mutex<SftpSession>>> {
     sftp_state.sessions.lock().await
         .get(session_id)
         .cloned()
-        .ok_or_else(|| "SFTP session not found".to_string())
+        .context("SFTP session not found")
 }
 
 #[cfg(test)]
@@ -951,6 +944,25 @@ mod tests {
         let (items, skipped) = collect_local_tree(&root).unwrap();
         assert!(items.is_empty());
         assert_eq!(skipped, 0);
+    }
+
+    /// The point of carrying anyhow contexts rather than flattening to a
+    /// string: `CmdError` renders with `{e:#}`, so the path the operation was
+    /// working on reaches the user instead of a bare "No such file".
+    #[test]
+    fn a_failure_names_the_path_it_was_working_on() {
+        let missing = "/nonexistent-bifrossh-test-dir/inner";
+
+        let e = list_local(missing).unwrap_err();
+        let shown = format!("{e:#}");
+        assert!(shown.contains(missing), "listing: {shown}");
+        assert!(shown.contains("No such file"), "listing lost the cause: {shown}");
+
+        let e = delete_local(missing).unwrap_err();
+        assert!(format!("{e:#}").contains(missing), "delete: {e:#}");
+
+        let e = create_local_dir(missing).unwrap_err();
+        assert!(format!("{e:#}").contains(missing), "mkdir: {e:#}");
     }
 
     #[test]
