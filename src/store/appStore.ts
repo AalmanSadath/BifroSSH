@@ -19,9 +19,10 @@ const PORT_FORWARDINGS_KEY = 'bifrossh_port_forwardings';
  * to save, and blocking the UI on a disk write would be worse than logging it.
  */
 function persist(command: string, items: unknown) {
-  invoke(command, { items }).catch((e) =>
-    console.error(`Could not save ${command}`, e),
-  );
+  // Reported rather than only logged. The state has already been changed by
+  // the time this runs, so a failure here means the screen and the disk have
+  // parted company, which is exactly the thing worth saying out loud.
+  invoke(command, { items }).catch(reportFailure);
 }
 
 function readLegacy<T>(key: string, fallback: T): T {
@@ -127,6 +128,10 @@ interface AppStore {
   /** Set when `loadAll` could not read the saved data; see there. */
   loadError: string | null;
   loadAll: () => Promise<void>;
+
+  /** The last action that failed with nobody to tell; see `reportFailure`. */
+  actionError: string | null;
+  setActionError: (message: string | null) => void;
 
   saveServer: (server: Partial<Server> & { name: string; host: string; port: number }, password?: string) => Promise<void>;
   deleteServer: (id: string) => Promise<void>;
@@ -312,6 +317,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   activeTabId: 'hosts',
 
   loadError: null,
+  actionError: null,
+  setActionError: (message) => set({ actionError: message }),
 
   // Seven reads, and every way they could fail used to escape as an unhandled
   // rejection: Promise.all rejects on the first one, so a single command
@@ -740,3 +747,17 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   setActiveTab: (id) => set({ activeTabId: id }),
 }));
+
+/**
+ * Catch handler for an action whose caller has nowhere to put an error.
+ *
+ * A delete fired from a confirm modal, or a setting toggled from a row, has no
+ * error slot of its own; every one of them was called without `await` and
+ * without `.catch`, so the modal closed and the failure went nowhere. The
+ * lists stayed honest, because the store only patches state after the await
+ * resolves, but nothing said the thing had not happened.
+ */
+export function reportFailure(e: unknown) {
+  console.error(e);
+  useAppStore.getState().setActionError(String(e));
+}

@@ -57,7 +57,7 @@ function parseSSHInput(input: string): { user: string; host: string; port: numbe
 
 export default function App() {
   const {
-    loadAll, loadError, sessions, activeTabId, setActiveTab, removeSession,
+    loadAll, loadError, actionError, setActionError, sessions, activeTabId, setActiveTab, removeSession,
     renameSession, openSession, quickConnect, servers, settings, keys,
   } = useAppStore();
 
@@ -224,6 +224,18 @@ export default function App() {
               {' '}{loadError}
             </span>
             <button className="btn-secondary btn-sm" onClick={() => loadAll()}>Try again</button>
+          </div>
+        )}
+        {actionError && (
+          <div className="load-error-banner">
+            <span>{actionError}</span>
+            <button
+              className="load-error-dismiss"
+              aria-label="Dismiss"
+              onClick={() => setActionError(null)}
+            >
+              ✕
+            </button>
           </div>
         )}
         {(activeTabId === 'hosts' || activeTabId === null) && <div className="quick-connect-bar">

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { useAppStore } from '../store/appStore';
+import { useAppStore, reportFailure } from '../store/appStore';
 import type { AgentKeyInfo, Identity } from '../types';
 import ConfirmModal from './shared/ConfirmModal';
 import ContextMenu from './shared/ContextMenu';
@@ -748,7 +748,7 @@ export default function KeychainPanel() {
         <ConfirmModal
           question="Delete this key?"
           onCancel={() => setConfirmDeleteKey(null)}
-          onConfirm={() => { deleteKey(confirmDeleteKey); setConfirmDeleteKey(null); closeEditKey(); }}
+          onConfirm={() => { deleteKey(confirmDeleteKey).catch(reportFailure); setConfirmDeleteKey(null); closeEditKey(); }}
         />
       )}
 
@@ -756,7 +756,7 @@ export default function KeychainPanel() {
         <ConfirmModal
           question="Delete this identity?"
           onCancel={() => setConfirmDeleteId(null)}
-          onConfirm={() => { deleteIdentity(confirmDeleteId); setConfirmDeleteId(null); setShowIdForm(false); }}
+          onConfirm={() => { deleteIdentity(confirmDeleteId).catch(reportFailure); setConfirmDeleteId(null); setShowIdForm(false); }}
         />
       )}
     </div>

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { useAppStore } from '../store/appStore';
+import { useAppStore, reportFailure } from '../store/appStore';
 import type { Server } from '../types';
 import ServerForm from './ServerForm';
 import SshConfigImport from './SshConfigImport';
@@ -156,7 +156,7 @@ export default function HostsPanel() {
         <ConfirmModal
           question="Delete this host?"
           onCancel={() => setConfirmDeleteId(null)}
-          onConfirm={() => { deleteServer(confirmDeleteId); setConfirmDeleteId(null); setShowServerForm(false); setEditServer(null); }}
+          onConfirm={() => { deleteServer(confirmDeleteId).catch(reportFailure); setConfirmDeleteId(null); setShowServerForm(false); setEditServer(null); }}
         />
       )}
     </>

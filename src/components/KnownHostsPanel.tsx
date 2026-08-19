@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { useAppStore } from '../store/appStore';
+import { useAppStore, reportFailure } from '../store/appStore';
 import type { HostKeyPolicy, KnownHostEntry } from '../types';
 import ConfirmModal from './shared/ConfirmModal';
 
@@ -89,7 +89,7 @@ export default function KnownHostsPanel() {
               key={p.value}
               type="button"
               className={`toggle-btn${settings.host_key_policy === p.value ? ' active' : ''}`}
-              onClick={() => saveSettings({ ...settings, host_key_policy: p.value })}
+              onClick={() => saveSettings({ ...settings, host_key_policy: p.value }).catch(reportFailure)}
             >
               {p.label}
             </button>

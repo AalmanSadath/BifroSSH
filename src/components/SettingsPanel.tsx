@@ -4,7 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import PassphraseInput from './shared/PassphraseInput';
 import ExportDataModal from './ExportDataModal';
 import ImportDataModal from './ImportDataModal';
-import { useAppStore } from '../store/appStore';
+import { useAppStore, reportFailure } from '../store/appStore';
 import type { KeystoreStatus, Settings } from '../types';
 
 const CURSOR_STYLES = [
@@ -340,7 +340,7 @@ export default function SettingsPanel() {
   useEffect(() => { setKeepaliveStr(String(settings.keepalive_interval_secs)); }, [settings.keepalive_interval_secs]);
 
   function patch(p: Partial<Settings>) {
-    saveSettings({ ...settings, ...p });
+    saveSettings({ ...settings, ...p }).catch(reportFailure);
   }
 
   return (

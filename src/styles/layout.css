@@ -328,3 +328,15 @@
 }
 
 .load-error-banner span { flex: 1; }
+
+.load-error-dismiss {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.load-error-dismiss:hover { background: var(--bg-hover); color: var(--text-primary); }
