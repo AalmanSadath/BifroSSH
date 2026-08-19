@@ -57,16 +57,7 @@ pub struct AgentKeyInfo {
 pub async fn list_agent_keys() -> CmdResult<Vec<AgentKeyInfo>> {
     #[cfg(unix)]
     {
-        use russh_keys::agent::client::AgentClient;
-
-        let mut agent = AgentClient::connect_env().await.map_err(|e| {
-            format!("Could not reach ssh-agent ({}). Check that an agent is running and SSH_AUTH_SOCK is set.", e)
-        })?;
-
-        let identities = agent
-            .request_identities()
-            .await
-            .map_err(|e| format!("Could not list ssh-agent keys: {}", e))?;
+        let (_agent, identities) = crate::ssh::agent_identities().await?;
 
         Ok(identities
             .iter()

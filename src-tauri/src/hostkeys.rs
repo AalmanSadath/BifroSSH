@@ -231,10 +231,7 @@ pub fn check_host(host: &str, port: u16, key: &PublicKey) -> KnownHostStatus {
     let algo = algo_from_blob(&blob).unwrap_or_default();
     let target = host_spec(host, port);
 
-    let sources = [
-        (HostKeySource::Bifrossh, bifrossh_known_hosts_path().ok()),
-        (HostKeySource::OpenSsh, openssh_known_hosts_path()),
-    ];
+    let sources = sources();
 
     // A match anywhere outranks a mismatch seen earlier: a host mid key-rotation
     // can legitimately have a stale line above the current one.
@@ -313,19 +310,30 @@ pub fn learn_host(host: &str, port: u16, key: &PublicKey) -> Result<()> {
         return Ok(());
     }
 
-    let needs_newline = fs::read(&path)
+    append_lines(&path, std::slice::from_ref(&line))
+}
+
+/// Appends lines to a known_hosts file, creating it private if it is not there.
+///
+/// A file whose last line has no newline is the case worth having in one
+/// place: appending straight onto it would join the new entry to the end of
+/// the old one and make both unreadable, and a file written by hand often
+/// ends that way.
+fn append_lines(path: &Path, lines: &[String]) -> Result<()> {
+    let needs_newline = fs::read(path)
         .ok()
         .and_then(|b| b.last().copied())
         .is_some_and(|b| b != b'\n');
 
-    let mut file = OpenOptions::new().append(true).create(true).open(&path)?;
+    let mut file = OpenOptions::new().append(true).create(true).open(path)?;
     if needs_newline {
         file.write_all(b"\n")?;
     }
-    writeln!(file, "{}", line)?;
+    for line in lines {
+        writeln!(file, "{}", line)?;
+    }
     drop(file);
-    crate::store::make_private(&path)?;
-    Ok(())
+    crate::store::make_private(path)
 }
 
 /// Drop every non-marker line for this host/algorithm, then record `key`.
@@ -398,14 +406,23 @@ fn remove_lines(host: &str, port: u16, algo: Option<&str>) -> Result<usize> {
     Ok(removed)
 }
 
+/// The known_hosts files this reads, in the order it reads them.
+///
+/// Bifrossh first, so that where the same host appears in both the entry kept
+/// is the one the user can act on: OpenSSH's file is read but never written.
+/// Either path can be missing, which is not an error.
+fn sources() -> [(HostKeySource, Option<PathBuf>); 2] {
+    [
+        (HostKeySource::Bifrossh, bifrossh_known_hosts_path().ok()),
+        (HostKeySource::OpenSsh, openssh_known_hosts_path()),
+    ]
+}
+
 pub fn list_known_hosts() -> Result<Vec<KnownHostEntry>> {
     let mut out: Vec<KnownHostEntry> = Vec::new();
     // Bifrossh first, so that when the same key exists in both files the entry
     // we keep is the one the user can actually act on.
-    let sources = [
-        (HostKeySource::Bifrossh, bifrossh_known_hosts_path().ok()),
-        (HostKeySource::OpenSsh, openssh_known_hosts_path()),
-    ];
+    let sources = sources();
 
     for (source, path) in sources {
         let Some(path) = path else { continue };
@@ -473,16 +490,29 @@ pub fn export_lines() -> Result<Vec<String>> {
 ///
 /// The algorithm is taken from the blob rather than the line's own third
 /// field, for the reason `algo_from_blob` documents.
-fn parse_line(line: &str) -> Option<(Option<String>, String, String, String)> {
+/// An owned, decoded known_hosts line.
+///
+/// `HostLine` borrows from the text it was split out of, which merge_lines
+/// cannot use: it collects the existing file's entries and then compares
+/// incoming ones against them, so the entries have to outlive the strings.
+/// This also carries the algorithm, which is not written on the line but read
+/// out of the key blob.
+struct HostEntry {
+    marker: Option<String>,
+    hosts: String,
+    algo: String,
+    b64: String,
+}
+
+fn parse_line(line: &str) -> Option<HostEntry> {
     let l = split_line(line)?;
     let blob = B64.decode(l.b64.as_bytes()).ok()?;
-    let algo = algo_from_blob(&blob)?;
-    Some((
-        l.marker.map(str::to_string),
-        l.hosts.to_string(),
-        algo,
-        l.b64.to_string(),
-    ))
+    Some(HostEntry {
+        marker: l.marker.map(str::to_string),
+        hosts: l.hosts.to_string(),
+        algo: algo_from_blob(&blob)?,
+        b64: l.b64.to_string(),
+    })
 }
 
 /// Decides what an import would append, given the file as it stands.
@@ -492,7 +522,7 @@ fn parse_line(line: &str) -> Option<(Option<String>, String, String, String)> {
 fn merge_lines(existing: &str, incoming: &[String]) -> (ImportedHosts, Vec<String>) {
     // Grows as lines are accepted, so a file listing the same host twice is
     // judged against what the earlier line already put in.
-    let mut held: Vec<(Option<String>, String, String, String)> = existing
+    let mut held: Vec<HostEntry> = existing
         .lines()
         .filter_map(parse_line)
         .collect();
@@ -512,18 +542,17 @@ fn merge_lines(existing: &str, incoming: &[String]) -> (ImportedHosts, Vec<Strin
             report.skipped += 1;
             continue;
         };
-        let (marker, hosts, algo, b64) = entry;
 
         match held
             .iter()
-            .find(|e| e.0 == marker && e.1 == hosts && e.2 == algo)
+            .find(|e| e.marker == entry.marker && e.hosts == entry.hosts && e.algo == entry.algo)
         {
-            Some(e) if e.3 == b64 => report.skipped += 1,
-            Some(_) => report.conflicts.push(hosts),
+            Some(e) if e.b64 == entry.b64 => report.skipped += 1,
+            Some(_) => report.conflicts.push(entry.hosts),
             None => {
-                held.push((marker, hosts, algo, b64));
                 pending.push(line.to_string());
                 report.added += 1;
+                held.push(entry);
             }
         }
     }
@@ -547,20 +576,7 @@ pub fn import_lines(lines: &[String]) -> Result<ImportedHosts> {
         return Ok(report);
     }
 
-    let needs_newline = fs::read(&path)
-        .ok()
-        .and_then(|b| b.last().copied())
-        .is_some_and(|b| b != b'\n');
-
-    let mut file = OpenOptions::new().append(true).create(true).open(&path)?;
-    if needs_newline {
-        file.write_all(b"\n")?;
-    }
-    for line in &pending {
-        writeln!(file, "{}", line)?;
-    }
-    drop(file);
-    crate::store::make_private(&path)?;
+    append_lines(&path, &pending)?;
     Ok(report)
 }
 

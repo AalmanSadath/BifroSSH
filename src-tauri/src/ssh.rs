@@ -178,6 +178,34 @@ impl AuthContext {
     }
 }
 
+/// Connects to the running ssh-agent and asks what it holds.
+///
+/// Both callers want the same two steps and the same two messages, and a
+/// user-facing string written out twice is one that gets improved in one place
+/// only. The client comes back too, because authenticating means going to the
+/// same agent again to have it sign.
+///
+/// Identities this build cannot parse are skipped rather than aborting the
+/// listing; see the russh-keys patch under patches/.
+#[cfg(unix)]
+pub(crate) async fn agent_identities() -> Result<(
+    russh_keys::agent::client::AgentClient<tokio::net::UnixStream>,
+    Vec<russh_keys::key::PublicKey>,
+)> {
+    use russh_keys::agent::client::AgentClient;
+
+    let mut agent = AgentClient::connect_env().await.map_err(|e| {
+        anyhow!("Could not reach ssh-agent ({}). Check that an agent is running and SSH_AUTH_SOCK is set.", e)
+    })?;
+
+    let identities = agent
+        .request_identities()
+        .await
+        .map_err(|e| anyhow!("Could not list ssh-agent keys: {}", e))?;
+
+    Ok((agent, identities))
+}
+
 /// Authenticates with keys held by a running ssh-agent.
 ///
 /// The agent does the signing, so the private key never enters this process.
@@ -189,18 +217,7 @@ pub(crate) async fn agent_auth<H: client::Handler>(
     want_fingerprint: Option<&str>,
     ctx: &dyn AuthPrompter,
 ) -> Result<bool> {
-    use russh_keys::agent::client::AgentClient;
-
-    let mut agent = AgentClient::connect_env().await.map_err(|e| {
-        anyhow!("Could not reach ssh-agent ({}). Check that an agent is running and SSH_AUTH_SOCK is set.", e)
-    })?;
-
-    // Identities this build cannot parse are skipped rather than aborting the
-    // listing; see the russh-keys patch under patches/.
-    let identities = agent
-        .request_identities()
-        .await
-        .map_err(|e| anyhow!("Could not list ssh-agent keys: {}", e))?;
+    let (mut agent, identities) = agent_identities().await?;
 
     if identities.is_empty() {
         return Err(anyhow!(
@@ -557,14 +574,10 @@ pub async fn connect_ssh(
                 }
                 Some(msg) = channel.wait() => {
                     match msg {
-                        ChannelMsg::Data { ref data } => {
-                            let was_empty = outbuf.is_empty();
-                            outbuf.extend_from_slice(data.as_ref());
-                            if was_empty || outbuf.len() >= 8192 {
-                                flush_outbuf!();
-                            }
-                        }
-                        ChannelMsg::ExtendedData { ref data, .. } => {
+                        // stderr goes to the same terminal as stdout, which
+                        // is what a PTY session means, so the two arms are one.
+                        ChannelMsg::Data { ref data }
+                        | ChannelMsg::ExtendedData { ref data, .. } => {
                             let was_empty = outbuf.is_empty();
                             outbuf.extend_from_slice(data.as_ref());
                             if was_empty || outbuf.len() >= 8192 {
