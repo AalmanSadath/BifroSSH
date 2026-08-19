@@ -229,6 +229,22 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
+/// A fresh KDF description for an export: new salt, the shared cost.
+///
+/// Its own function so the cost can be checked without going through
+/// `build_export`, which reads the running user's known_hosts.
+fn export_kdf(passphrase: &str) -> ExportKdf {
+    let mut salt = [0u8; 16];
+    rand::thread_rng().fill_bytes(&mut salt);
+    ExportKdf {
+        salt: BASE64.encode(salt),
+        m_cost: keystore::ARGON2.m_cost,
+        t_cost: keystore::ARGON2.t_cost,
+        p_cost: keystore::ARGON2.p_cost,
+        form: keystore::detect_form(passphrase),
+    }
+}
+
 /// Builds the finished file contents from a snapshot of the vault, with a
 /// tally of what went in so the caller does not have to open it again to say.
 pub fn build_export(
@@ -241,15 +257,7 @@ pub fn build_export(
         return Err(anyhow!("An export needs a passphrase"));
     }
 
-    let mut salt = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut salt);
-    let kdf = ExportKdf {
-        salt: BASE64.encode(salt),
-        m_cost: 19 * 1024,
-        t_cost: 2,
-        p_cost: 1,
-        form: keystore::detect_form(passphrase),
-    };
+    let kdf = export_kdf(passphrase);
     let export_key = derive(&kdf, passphrase)?;
 
     let mut payload = Payload {
@@ -911,6 +919,20 @@ mod tests {
         assert_eq!(plan.incoming.servers, 2);
         assert_eq!(plan.duplicates.servers, 1);
         assert!(plan.has_settings);
+    }
+
+    /// An export takes its cost from the one profile rather than its own copy
+    /// of the numbers. `keystore.rs` has the matching test for the vault side;
+    /// between them the cost cannot be raised in one place and left behind in
+    /// the other.
+    #[test]
+    fn an_export_uses_the_shared_argon2_profile() {
+        let kdf = export_kdf("phrase");
+        assert_eq!(
+            (kdf.m_cost, kdf.t_cost, kdf.p_cost),
+            (keystore::ARGON2.m_cost, keystore::ARGON2.t_cost, keystore::ARGON2.p_cost),
+        );
+        assert_ne!(export_kdf("phrase").salt, kdf.salt, "every export gets its own salt");
     }
 
     /// The write/read half, against a real file.

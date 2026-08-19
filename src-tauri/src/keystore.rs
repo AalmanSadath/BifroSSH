@@ -178,8 +178,24 @@ pub fn derive_passphrase_kek(passphrase: &str, w: &PassphraseWrapper) -> Result<
     Ok(kek)
 }
 
-/// OWASP's second recommended Argon2id profile: 19 MiB, 2 passes. Chosen over
-/// the heavier ones because this runs on the UI thread at unlock.
+/// How hard a passphrase is to grind.
+///
+/// OWASP's second recommended Argon2id profile: 19 MiB, 2 passes, 1 lane.
+/// Chosen over the heavier ones because this runs on the UI thread at unlock.
+///
+/// One constant because there are two things that turn a passphrase into a
+/// key, the vault's own wrapper and an export's KDF, and they should not be
+/// two different answers to the same question. Both record the parameters they
+/// used, so raising this only affects what is written afterwards: anything
+/// already encrypted keeps opening with the values stored beside it.
+pub const ARGON2: Argon2Profile = Argon2Profile { m_cost: 19 * 1024, t_cost: 2, p_cost: 1 };
+
+pub struct Argon2Profile {
+    pub m_cost: u32,
+    pub t_cost: u32,
+    pub p_cost: u32,
+}
+
 pub fn new_passphrase_wrapper(
     passphrase: &str,
     master: &[u8; 32],
@@ -189,9 +205,9 @@ pub fn new_passphrase_wrapper(
     rand::thread_rng().fill_bytes(&mut salt);
     let mut wrapper = PassphraseWrapper {
         salt: BASE64.encode(salt),
-        m_cost: 19 * 1024,
-        t_cost: 2,
-        p_cost: 1,
+        m_cost: ARGON2.m_cost,
+        t_cost: ARGON2.t_cost,
+        p_cost: ARGON2.p_cost,
         blob: String::new(),
         form,
     };
@@ -849,6 +865,16 @@ mod tests {
         let a = new_passphrase_wrapper("same", &key(3), PassphraseForm::Verbatim).unwrap();
         let b = new_passphrase_wrapper("same", &key(3), PassphraseForm::Verbatim).unwrap();
         assert_ne!(a.salt, b.salt);
+    }
+
+    /// The vault wrapper takes its cost from the one profile rather than its
+    /// own copy of the numbers. `transfer.rs` has the matching test for the
+    /// export side; between them nothing can be raised in one place and left
+    /// behind in the other.
+    #[test]
+    fn a_new_wrapper_uses_the_shared_argon2_profile() {
+        let w = new_passphrase_wrapper("pass", &key(3), PassphraseForm::Verbatim).unwrap();
+        assert_eq!((w.m_cost, w.t_cost, w.p_cost), (ARGON2.m_cost, ARGON2.t_cost, ARGON2.p_cost));
     }
 
     #[test]
