@@ -6,7 +6,7 @@
 //! sites and the lookups open coded at nine, which is nine chances to compare
 //! the wrong id and ten to forget a newly added secret.
 
-use crate::models::{AppData, Identified, Identity, KeyEntry, PortForwarding, Server};
+use crate::models::{AppData, Identified, Identity, KeyEntry, Server};
 
 /// What the frontend sees where a secret is stored.
 ///
@@ -155,7 +155,7 @@ mod tests {
                 auth_kind: None,
                 agent_fingerprint: None,
             }],
-            port_forwardings: vec![PortForwarding {
+            port_forwardings: vec![crate::models::PortForwarding {
                 id: "pf".into(),
                 label: "rule".into(),
                 kind: "local".into(),

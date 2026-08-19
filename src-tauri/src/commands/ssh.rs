@@ -11,6 +11,89 @@ use super::resolve::{resolve_auth, resolve_jumps, JumpHopRequest};
 
 // ── SSH ────────────────────────────────────────────────────────
 
+/// What resolving a connection request out of the saved data produces.
+struct Prepared {
+    auth: crate::ssh::SshAuth,
+    jumps: Vec<crate::jump::JumpHop>,
+    timeout_secs: u64,
+    keepalive_secs: u32,
+}
+
+/// Turns the ids in a request into the things they name.
+///
+/// Synchronous and taking `&AppData`, so the caller decides how long the lock
+/// is held; ssh_connect needs the server out of the same lock anyway.
+fn prepare(
+    data: &crate::models::AppData,
+    key: &[u8; 32],
+    auth_type: &str,
+    auth_value: &str,
+    jumps: &[JumpHopRequest],
+    host_timeout: Option<u32>,
+) -> CmdResult<Prepared> {
+    Ok(Prepared {
+        auth: resolve_auth(data, key, auth_type, auth_value)?,
+        jumps: resolve_jumps(data, key, jumps)?,
+        timeout_secs: host_timeout.unwrap_or(data.settings.connection_timeout_secs) as u64,
+        keepalive_secs: data.settings.keepalive_interval_secs,
+    })
+}
+
+/// Opens a session and reports the outcome the way the connect view expects.
+///
+/// The two connect commands differ only in where the host and port come from
+/// and whether the host has a timeout of its own. Everything after that was
+/// written out twice, identically, down to the wording of the timeout message
+/// and the shape of the log event.
+async fn start_session(
+    state: &State<'_, AppState>,
+    app: &AppHandle,
+    connect_id: String,
+    params: SshConnectParams,
+    timeout_secs: u64,
+) -> CmdResult<String> {
+    let session_id = Uuid::new_v4().to_string();
+
+    let sec = connect_security(state, app, Some(connect_id.clone()), true).await;
+    let waiting = Arc::clone(&sec.waiting);
+
+    let connect_result = timeout_pausable(
+        connect_ssh(
+            session_id.clone(),
+            params,
+            connect_id.clone(),
+            app.clone(),
+            Arc::clone(&state.ssh_state),
+            sec,
+        ),
+        timeout_secs,
+        waiting,
+    )
+    .await;
+
+    let err_msg = match connect_result {
+        Ok(Ok(())) => None,
+        Ok(Err(e)) => Some(e.to_string()),
+        Err(_) => Some(format!("Connection timed out after {} seconds", timeout_secs)),
+    };
+
+    if let Some(msg) = err_msg {
+        // The connect view is listening on this id and shows nothing otherwise,
+        // so the failure has to be narrated as well as returned.
+        let _ = app.emit(
+            &format!("ssh-connect-log:{}", connect_id),
+            ConnectLogEvent {
+                message: format!("Connection failed: {}", msg),
+                kind: "error".to_string(),
+            },
+        );
+        return Err(msg.into());
+    }
+
+    Ok(session_id)
+}
+
+
 #[derive(serde::Deserialize)]
 pub struct ConnectRequest {
     pub server_id: String,
@@ -30,68 +113,36 @@ pub async fn ssh_connect(
     app: AppHandle,
     request: ConnectRequest,
 ) -> CmdResult<String> {
-    let session_id = Uuid::new_v4().to_string();
-
-    let server = {
+    // One lock: the server, and everything the request names, come out together.
+    let (host, port, prep) = {
         let data = state.data.lock().await;
-        data.servers
-            .iter()
-            .find(|s| s.id == request.server_id)
-            .cloned()
-            .ok_or_else(|| "Server not found".to_string())?
-    };
-
-    let (auth, jumps, timeout_secs, keepalive_secs) = {
-        let data = state.data.lock().await;
-        let auth = resolve_auth(&data, &state.key()?, &request.auth_type, &request.auth_value)?;
-        let jumps = resolve_jumps(&data, &state.key()?, &request.jumps)?;
-        let host_timeout = data.servers.iter()
-            .find(|s| s.id == request.server_id)
-            .and_then(|s| s.connection_timeout);
-        (
-            auth,
-            jumps,
-            host_timeout.unwrap_or(data.settings.connection_timeout_secs) as u64,
-            data.settings.keepalive_interval_secs,
-        )
+        let server = super::records::find_by_id(&data.servers, &request.server_id)
+            .ok_or("Server not found")?;
+        let (host, port, host_timeout) =
+            (server.host.clone(), server.port, server.connection_timeout);
+        let prep = prepare(
+            &data,
+            &state.key()?,
+            &request.auth_type,
+            &request.auth_value,
+            &request.jumps,
+            host_timeout,
+        )?;
+        (host, port, prep)
     };
 
     let params = SshConnectParams {
-        host: server.host,
-        port: server.port,
+        host,
+        port,
         username: request.username,
-        auth,
+        auth: prep.auth,
         initial_cols: request.cols,
         initial_rows: request.rows,
-        keepalive_secs,
-        jumps,
+        keepalive_secs: prep.keepalive_secs,
+        jumps: prep.jumps,
     };
 
-    let sec = connect_security(&state, &app, Some(request.connect_id.clone()), true).await;
-    let waiting = Arc::clone(&sec.waiting);
-
-    let connect_result = timeout_pausable(
-        connect_ssh(session_id.clone(), params, request.connect_id.clone(), app.clone(), Arc::clone(&state.ssh_state), sec),
-        timeout_secs,
-        waiting,
-    )
-    .await;
-
-    let err_msg = match connect_result {
-        Ok(Ok(())) => None,
-        Ok(Err(e)) => Some(e.to_string()),
-        Err(_) => Some(format!("Connection timed out after {} seconds", timeout_secs)),
-    };
-
-    if let Some(ref msg) = err_msg {
-        let _ = app.emit(
-            &format!("ssh-connect-log:{}", request.connect_id),
-            ConnectLogEvent { message: format!("Connection failed: {}", msg), kind: "error".to_string() },
-        );
-        return Err(msg.clone().into());
-    }
-
-    Ok(session_id)
+    start_session(&state, &app, request.connect_id, params, prep.timeout_secs).await
 }
 
 #[derive(serde::Deserialize)]
@@ -114,53 +165,31 @@ pub async fn ssh_connect_quick(
     app: AppHandle,
     request: QuickConnectRequest,
 ) -> CmdResult<String> {
-    let session_id = Uuid::new_v4().to_string();
-
-    let (auth, jumps, timeout_secs, keepalive_secs) = {
+    // No saved host, so no host timeout: the global setting is the only one.
+    let prep = {
         let data = state.data.lock().await;
-        (
-            resolve_auth(&data, &state.key()?, &request.auth_type, &request.auth_value)?,
-            resolve_jumps(&data, &state.key()?, &request.jumps)?,
-            data.settings.connection_timeout_secs as u64,
-            data.settings.keepalive_interval_secs,
-        )
+        prepare(
+            &data,
+            &state.key()?,
+            &request.auth_type,
+            &request.auth_value,
+            &request.jumps,
+            None,
+        )?
     };
 
     let params = SshConnectParams {
         host: request.host,
         port: request.port,
         username: request.username,
-        auth,
+        auth: prep.auth,
         initial_cols: request.cols,
         initial_rows: request.rows,
-        keepalive_secs,
-        jumps,
+        keepalive_secs: prep.keepalive_secs,
+        jumps: prep.jumps,
     };
 
-    let sec = connect_security(&state, &app, Some(request.connect_id.clone()), true).await;
-    let waiting = Arc::clone(&sec.waiting);
-
-    let connect_result = timeout_pausable(
-        connect_ssh(session_id.clone(), params, request.connect_id.clone(), app.clone(), Arc::clone(&state.ssh_state), sec),
-        timeout_secs,
-        waiting,
-    ).await;
-
-    let err_msg = match connect_result {
-        Ok(Ok(())) => None,
-        Ok(Err(e)) => Some(e.to_string()),
-        Err(_) => Some(format!("Connection timed out after {} seconds", timeout_secs)),
-    };
-
-    if let Some(ref msg) = err_msg {
-        let _ = app.emit(
-            &format!("ssh-connect-log:{}", request.connect_id),
-            ConnectLogEvent { message: format!("Connection failed: {}", msg), kind: "error".to_string() },
-        );
-        return Err(msg.clone().into());
-    }
-
-    Ok(session_id)
+    start_session(&state, &app, request.connect_id, params, prep.timeout_secs).await
 }
 
 #[tauri::command]
