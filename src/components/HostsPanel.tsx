@@ -33,7 +33,7 @@ export default function HostsPanel() {
   return (
     <>
       <div className="panel hosts-panel" onContextMenu={(e) => { if ((e.target as HTMLElement).closest('button, input, textarea, select, label, a')) return; e.preventDefault(); setContextMenu({ kind: 'panel', x: e.clientX, y: e.clientY }); }}>
-        <div className="panel-title-row" style={{ marginBottom: 6 }}>
+        <div className="panel-title-row">
           <div className="panel-title">Hosts</div>
         </div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
@@ -70,12 +70,16 @@ export default function HostsPanel() {
                   </div>
                   <div className="host-card-info">
                     <div className="host-card-name-row">
-                      <span className={`dot ${connected ? 'dot-on' : 'dot-off'}`} />
+                      {/* The dot is the whole status. Spelling it out underneath
+                          gave the connected card a third line and made it taller
+                          than the others in its row. */}
+                      <span
+                        className={`dot ${isConnecting ? 'dot-connecting' : connected ? 'dot-on' : 'dot-off'}`}
+                        title={isConnecting ? 'Connecting…' : connected ? 'Connected' : 'Not connected'}
+                      />
                       <span className="host-card-name">{server.name}</span>
                     </div>
                     <span className="host-card-addr">{server.host}:{server.port}</span>
-                    {isConnecting && <span className="host-status">Connecting…</span>}
-                    {connected && !isConnecting && <span className="host-status host-status-on">Connected</span>}
                   </div>
                   <button
                     className="host-card-edit-btn"

@@ -235,9 +235,10 @@ export default function App() {
             Quick Connect
           </button>
         </div>}
-        {sessions.length > 0 && (
-          <div className="tab-bar">
-            {sessions.map((s) => (
+        {/* Always rendered, empty or not. Appearing on the first connect, it
+            pushed everything below it down the page. */}
+        <div className={`tab-bar${sessions.length === 0 ? ' tab-bar-empty' : ''}`}>
+          {sessions.map((s) => (
               <div
                 key={s.session_id}
                 className={`tab ${activeTabId === s.session_id ? 'tab-active' : ''}`}
@@ -260,8 +261,7 @@ export default function App() {
                 </svg>
               </button>
             )}
-          </div>
-        )}
+        </div>
 
         <div className="content">
           <div className="content-main">

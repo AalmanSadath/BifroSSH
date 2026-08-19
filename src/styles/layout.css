@@ -135,6 +135,18 @@
 .dot-on  { background: #3fb950; }
 .dot-off { background: var(--text-dim); }
 
+/* Mid-connect. Pulsing rather than labelled, so a card that is connecting is
+   the same height as one that is not. */
+.dot-connecting {
+  background: #d29922;
+  animation: dot-pulse 1s ease-in-out infinite;
+}
+
+@keyframes dot-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.25; }
+}
+
 .nav-btn {
   display: flex;
   align-items: center;
@@ -225,6 +237,13 @@
   overflow-x: auto;
   overflow-y: hidden;
   flex-shrink: 0;
+}
+
+/* Held open with nothing in it when no session is running, so opening the
+   first one does not move the page underneath. */
+.tab-bar-empty {
+  background: none;
+  border-bottom-color: transparent;
 }
 
 .tab-bar::-webkit-scrollbar { height: 2px; }

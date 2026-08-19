@@ -6,6 +6,14 @@
 
 .hosts-panel {
   max-width: 100%;
+  /* The title rides up into the tab bar's space, which on this page is empty.
+     What comes off the top goes back on below the title, so the buttons and
+     the grid stay exactly where they were. */
+  padding-top: 8px;
+}
+
+.hosts-panel .panel-title-row {
+  margin-bottom: 12px;
 }
 
 .panel-title-row {
@@ -224,15 +232,6 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.host-status {
-  font-size: 11px;
-  color: var(--text-dim);
-}
-
-.host-status-on {
-  color: #3fb950;
 }
 
 .host-context-menu {
