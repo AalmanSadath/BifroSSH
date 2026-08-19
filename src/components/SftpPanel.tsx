@@ -583,56 +583,271 @@ function HostPicker({ servers, connectingId, activeServerId, error, onConnect, o
   );
 }
 
-export default function SftpPanel() {
+/** What a pane is showing. Both panes use all five. */
+type PaneMode = 'local' | 'idle' | 'picking' | 'connecting' | 'connected';
+
+/** One directory, as shown. The four move together, so they are stored together. */
+interface Listing {
+  path: string;
+  entries: FileEntry[];
+  loading: boolean;
+  error: string;
+}
+
+const emptyListing = (loading: boolean): Listing => ({ path: '', entries: [], loading, error: '' });
+
+/**
+ * One side of the panel.
+ *
+ * The two panes are the same machine: either can browse the local disk or
+ * connect to a host, and each has its own local listing, remote listing,
+ * session and connect progress. That was written out twice, under `local`/
+ * `left` prefixes on one side and `rightLocal`/`remote`/`connect` on the
+ * other, which is why there were two connect functions, two disconnects, four
+ * navigate functions and twelve CRUD handlers for six operations.
+ *
+ * They differ in two things only, both arguments here: where they start, and
+ * that the left pane loads the local home at mount while the right waits until
+ * asked.
+ */
+function usePane(initialMode: PaneMode) {
   const { servers, identities } = useAppStore();
 
-  // Local filesystem
-  const [localPath, setLocalPath] = useState('');
-  const [localEntries, setLocalEntries] = useState<FileEntry[]>([]);
-  const [localLoading, setLocalLoading] = useState(true);
-  const [localError, setLocalError] = useState('');
+  const [mode, setMode] = useState<PaneMode>(initialMode);
+  const [local, setLocal] = useState<Listing>(emptyListing(initialMode === 'local'));
+  const [remote, setRemote] = useState<Listing>(emptyListing(false));
 
-  // Left panel (local by default, can connect to remote)
-  type LeftState = 'local' | 'idle' | 'picking' | 'connecting' | 'connected';
-  const [leftState, setLeftState] = useState<LeftState>('local');
-  const [leftPath, setLeftPath] = useState('');
-  const [leftEntries, setLeftEntries] = useState<FileEntry[]>([]);
-  const [leftLoading, setLeftLoading] = useState(false);
-  const [leftError, setLeftError] = useState('');
-  const [leftSid, setLeftSid] = useState<string | null>(null);
-  const [leftServerId, setLeftServerId] = useState<string | null>(null);
-  const [leftServerName, setLeftServerName] = useState('');
-  const [leftConnectingId, setLeftConnectingId] = useState<string | null>(null);
-  const [leftConnectError, setLeftConnectError] = useState('');
-  const [leftConnectLogs, setLeftConnectLogs] = useState<LogEntry[]>([]);
-  const [leftConnectServer, setLeftConnectServer] = useState<Server | null>(null);
+  const [sid, setSid] = useState<string | null>(null);
+  // Outlives `sid`: a dropped connection clears the session but keeps the
+  // host, so the reconnect button knows what to reconnect to.
+  const [serverId, setServerId] = useState<string | null>(null);
+  const [serverName, setServerName] = useState('');
+  const [disconnected, setDisconnected] = useState(false);
 
-  // Right local filesystem (when right panel shows local)
-  const [rightLocalPath, setRightLocalPath] = useState('');
-  const [rightLocalEntries, setRightLocalEntries] = useState<FileEntry[]>([]);
-  const [rightLocalLoading, setRightLocalLoading] = useState(false);
-  const [rightLocalError, setRightLocalError] = useState('');
-
-  // Right panel (idle | local | picking | connected)
-  type RemoteState = 'idle' | 'local' | 'picking' | 'connecting' | 'connected';
-  const [remoteState, setRemoteState] = useState<RemoteState>('picking');
-  const [remotePath, setRemotePath] = useState('');
-  const [remoteEntries, setRemoteEntries] = useState<FileEntry[]>([]);
-  const [remoteLoading, setRemoteLoading] = useState(false);
-  const [remoteError, setRemoteError] = useState('');
-  const [remoteSid, setRemoteSid] = useState<string | null>(null);
-  const [remoteServerId, setRemoteServerId] = useState<string | null>(null);
-  const [remoteServerName, setRemoteServerName] = useState('');
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [connectError, setConnectError] = useState('');
   const [connectLogs, setConnectLogs] = useState<LogEntry[]>([]);
   const [connectServer, setConnectServer] = useState<Server | null>(null);
 
-  // Unexpected disconnect flags (set when navigate/list fails while connected)
-  const [leftDisconnected, setLeftDisconnected] = useState(false);
-  const [remoteDisconnected, setRemoteDisconnected] = useState(false);
+  /** The listing the pane is currently showing, whichever side it is on. */
+  const listing = mode === 'local' ? local : remote;
 
-  // Drag-and-drop transfer state
+  async function navigateLocal(path: string) {
+    setLocal((l) => ({ ...l, path, loading: true, error: '' }));
+    try {
+      const entries = await invoke<FileEntry[]>('sftp_list_local', { path });
+      setLocal((l) => ({ ...l, entries, loading: false }));
+    } catch (e) {
+      setLocal((l) => ({ ...l, error: String(e), loading: false }));
+    }
+  }
+
+  async function navigateRemote(path: string) {
+    if (!sid) return;
+    setRemote((r) => ({ ...r, path, loading: true, error: '' }));
+    try {
+      const entries = await invoke<FileEntry[]>('sftp_list_remote', { sessionId: sid, path });
+      setRemote((r) => ({ ...r, entries, loading: false }));
+    } catch (e) {
+      // A failed listing on a live session means the session is gone. Dropping
+      // the id is what puts the reconnect button up.
+      setRemote((r) => ({ ...r, error: String(e), loading: false }));
+      setDisconnected(true);
+      setSid(null);
+    }
+  }
+
+  /** Re-lists whichever side is showing, after a change made to it. */
+  const refresh = () => (mode === 'local' ? navigateLocal(local.path) : navigateRemote(remote.path));
+
+  /** Shows the local disk, fetching the home directory the first time only. */
+  async function goLocal() {
+    setMode('local');
+    if (!local.path) {
+      const home = await invoke<string>('sftp_local_home').catch(() => '/');
+      await navigateLocal(home);
+    }
+  }
+
+  async function connect(server: Server) {
+    // Resume the session already open for this host rather than making another.
+    if (server.id === serverId && sid) {
+      setMode('connected');
+      return;
+    }
+
+    const resolved = await resolveServerAuth(server, identities);
+    if (!resolved) {
+      setConnectError(`No authentication configured for "${server.name}". Add a key, password or prompt auth in Hosts settings.`);
+      return;
+    }
+    const { username, authType, authValue } = resolved;
+
+    setConnectingId(server.id);
+    setConnectError('');
+    setConnectLogs([]);
+    setConnectServer(server);
+    setMode('connecting');
+
+    // Narrate the connect the same way a terminal session does, so a stall or
+    // rejection is visible instead of leaving a bare spinner.
+    const connectId = crypto.randomUUID();
+    const unlisten = await listen<LogEntry>(`ssh-connect-log:${connectId}`, (event) => {
+      setConnectLogs((prev) => [...prev, event.payload]);
+    });
+
+    try {
+      const newSid = await invoke<string>('sftp_connect_remote', {
+        serverId: server.id,
+        username,
+        authType,
+        authValue,
+        connectId,
+        jumps: await buildJumpChain(server, servers, identities),
+      });
+      setSid(newSid);
+      setServerId(server.id);
+      setServerName(server.name);
+      setMode('connected');
+      setDisconnected(false);
+      setRemote((r) => ({ ...r, error: '', loading: true }));
+
+      const home = await invoke<string>('sftp_get_home', { sessionId: newSid });
+      const entries = await invoke<FileEntry[]>('sftp_list_remote', { sessionId: newSid, path: home });
+      setRemote({ path: home, entries, loading: false, error: '' });
+    } catch (e) {
+      // Stay on the connecting screen so the log explaining the failure, and
+      // the retry button, are both still there.
+      setConnectError(String(e));
+    } finally {
+      // Trailing log lines race the invoke response over the same bridge.
+      setTimeout(unlisten, 1000);
+      setConnectingId(null);
+      setRemote((r) => ({ ...r, loading: false }));
+    }
+  }
+
+  async function disconnect() {
+    if (sid) {
+      await invoke('sftp_disconnect_remote', { sessionId: sid }).catch(() => {});
+    }
+    setMode('idle');
+    setSid(null);
+    setServerId(null);
+    setServerName('');
+    setDisconnected(false);
+    setRemote(emptyListing(false));
+  }
+
+  /** Reconnects to the host whose session dropped, if there is one. */
+  const reconnect = disconnected
+    ? () => {
+        const s = servers.find((sv) => sv.id === serverId);
+        if (s) connect(s);
+      }
+    : undefined;
+
+  // The six operations below were twelve handlers: one pair per operation,
+  // differing only in which prefix they set and which navigate they called.
+
+  async function newFolder(name: string) {
+    const path = listing.path.replace(/\/$/, '') + '/' + name;
+    try {
+      if (mode === 'local') await invoke('sftp_create_local_dir', { path });
+      else await invoke('sftp_mkdir', { sessionId: sid, path });
+      await refresh();
+    } catch (e) {
+      fail(String(e));
+    }
+  }
+
+  async function rename(entry: FileEntry, newName: string) {
+    const parent = entry.path.substring(0, entry.path.lastIndexOf('/'));
+    try {
+      if (mode === 'local') {
+        await invoke('sftp_rename_local', { oldPath: entry.path, newPath: parent + '/' + newName });
+      } else {
+        // A file directly under the remote root would otherwise become "//name".
+        const base = parent || '/';
+        await invoke('sftp_rename_remote', {
+          sessionId: sid,
+          oldPath: entry.path,
+          newPath: (base === '/' ? '' : base) + '/' + newName,
+        });
+      }
+      await refresh();
+    } catch (e) {
+      fail(String(e));
+    }
+  }
+
+  async function remove(entry: FileEntry) {
+    try {
+      if (mode === 'local') await invoke('sftp_delete_local', { path: entry.path });
+      else await invoke('sftp_delete_remote', { sessionId: sid, path: entry.path, isDir: entry.is_dir });
+      await refresh();
+    } catch (e) {
+      fail(String(e));
+    }
+  }
+
+  /** Puts an error on whichever side is showing. */
+  function fail(message: string) {
+    const set = mode === 'local' ? setLocal : setRemote;
+    set((l) => ({ ...l, error: message }));
+  }
+
+  return {
+    mode, setMode, listing, local, remote,
+    sid, serverId, serverName, disconnected,
+    connectingId, connectError, setConnectError, connectServer, connectLogs,
+    navigate: (path: string) => (mode === 'local' ? navigateLocal(path) : navigateRemote(path)),
+    refresh, goLocal, connect, disconnect, reconnect,
+    newFolder, rename, remove, fail,
+  };
+}
+
+type Pane = ReturnType<typeof usePane>;
+
+/** Whether dragging from `src` onto `dst` is a transfer this app can make. */
+function canMove(src: Pane, dst: Pane): boolean {
+  const browsing = (p: Pane) => p.mode === 'local' || p.mode === 'connected';
+  // Local to local is the one pairing with no command behind it.
+  return browsing(src) && browsing(dst) && !(src.mode === 'local' && dst.mode === 'local');
+}
+
+const LOCAL_ICON = (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+    <polyline points="9,22 9,12 15,12 15,22" />
+  </svg>
+);
+
+const REMOTE_ICON = (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+    <line x1="8" y1="21" x2="16" y2="21" />
+    <line x1="12" y1="17" x2="12" y2="21" />
+  </svg>
+);
+
+const closeConnectionActions = (onClose: () => void) => (
+  <>
+    <div className="sftp-dropdown-divider" />
+    <button className="sftp-dropdown-item sftp-dropdown-item-danger" onClick={onClose}>
+      Close Connection
+    </button>
+  </>
+);
+
+export default function SftpPanel() {
+  const { servers } = useAppStore();
+
+  // The left pane starts on the local disk, the right on the host list. That
+  // and the eager home fetch below are the only asymmetry between them.
+  const left = usePane('local');
+  const right = usePane('picking');
+
   const [dropTarget, setDropTarget] = useState<'left' | 'right' | null>(null);
   const [transferring, setTransferring] = useState(false);
   const [transferTarget, setTransferTarget] = useState<'left' | 'right' | null>(null);
@@ -651,620 +866,133 @@ export default function SftpPanel() {
     return () => { unlisten.then((f) => f()); };
   }, []);
 
-  useEffect(() => {
-    invoke<string>('sftp_local_home').then((home) => navigateLocal(home)).catch((e) => {
-      setLocalError(String(e));
-      setLocalLoading(false);
-    });
-  }, []);
+  useEffect(() => { left.goLocal(); }, []);
 
-  async function navigateLocal(path: string) {
-    setLocalLoading(true);
-    setLocalError('');
-    setLocalPath(path);
-    try {
-      const entries = await invoke<FileEntry[]>('sftp_list_local', { path });
-      setLocalEntries(entries);
-    } catch (e) {
-      setLocalError(String(e));
-    } finally {
-      setLocalLoading(false);
-    }
-  }
+  /**
+   * Moves `entry` into the pane named by `target`, from the other one.
+   *
+   * Which of the three commands runs falls out of what the two panes are
+   * showing: local to remote uploads, remote to local downloads, remote to
+   * remote copies. Refreshing is deliberately not part of the transfer: it has
+   * to happen whether the transfer finished, failed part way, or was
+   * cancelled, and in the last two cases there is still something new on the
+   * destination to show.
+   */
+  async function handleDrop(target: 'left' | 'right', entry: FileEntry) {
+    const dst = target === 'left' ? left : right;
+    const src = target === 'left' ? right : left;
+    if (!canMove(src, dst)) return;
 
-  async function navigateRightLocal(path: string) {
-    setRightLocalLoading(true);
-    setRightLocalError('');
-    setRightLocalPath(path);
-    try {
-      const entries = await invoke<FileEntry[]>('sftp_list_local', { path });
-      setRightLocalEntries(entries);
-    } catch (e) {
-      setRightLocalError(String(e));
-    } finally {
-      setRightLocalLoading(false);
-    }
-  }
-
-  async function navigateRemote(path: string) {
-    if (!remoteSid) return;
-    setRemoteLoading(true);
-    setRemoteError('');
-    setRemotePath(path);
-    try {
-      const entries = await invoke<FileEntry[]>('sftp_list_remote', { sessionId: remoteSid, path });
-      setRemoteEntries(entries);
-    } catch (e) {
-      setRemoteError(String(e));
-      setRemoteDisconnected(true);
-      setRemoteSid(null);
-    } finally {
-      setRemoteLoading(false);
-    }
-  }
-
-  async function navigateLeftRemote(path: string) {
-    if (!leftSid) return;
-    setLeftLoading(true);
-    setLeftError('');
-    setLeftPath(path);
-    try {
-      const entries = await invoke<FileEntry[]>('sftp_list_remote', { sessionId: leftSid, path });
-      setLeftEntries(entries);
-    } catch (e) {
-      setLeftError(String(e));
-      setLeftDisconnected(true);
-      setLeftSid(null);
-    } finally {
-      setLeftLoading(false);
-    }
-  }
-
-  async function openRightLocal() {
-    setRemoteState('local');
-    if (!rightLocalPath) {
-      const home = await invoke<string>('sftp_local_home').catch(() => '/');
-      await navigateRightLocal(home);
-    }
-  }
-
-  async function handleLeftSftpConnect(server: Server) {
-    // Resume existing session for this host
-    if (server.id === leftServerId && leftSid) {
-      setLeftState('connected');
-      return;
-    }
-    let username: string;
-    let authType: string;
-    let authValue: string;
-
-    const resolved = await resolveServerAuth(server, identities);
-    if (!resolved) {
-      setLeftConnectError(`No authentication configured for "${server.name}". Add a key, password or prompt auth in Hosts settings.`);
-      return;
-    }
-    ({ username, authType, authValue } = resolved);
-
-    setLeftConnectingId(server.id);
-    setLeftConnectError('');
-    setLeftConnectLogs([]);
-    setLeftConnectServer(server);
-    setLeftState('connecting');
-
-    // Narrate the connect the same way a terminal session does, so a stall or
-    // rejection is visible instead of leaving a bare spinner.
-    const connectId = crypto.randomUUID();
-    const unlisten = await listen<LogEntry>(`ssh-connect-log:${connectId}`, (event) => {
-      setLeftConnectLogs((prev) => [...prev, event.payload]);
-    });
-
-    try {
-      const sid = await invoke<string>('sftp_connect_remote', {
-        serverId: server.id,
-        username,
-        authType,
-        authValue,
-        connectId,
-        jumps: await buildJumpChain(server, servers, identities),
+    const run = () => {
+      if (src.mode === 'local') {
+        return invoke('sftp_upload', {
+          sessionId: dst.sid, localPath: entry.path, remoteDir: dst.listing.path,
+        });
+      }
+      if (dst.mode === 'local') {
+        return invoke('sftp_download', {
+          sessionId: src.sid, remotePath: entry.path, localDir: dst.listing.path,
+        });
+      }
+      return invoke('sftp_copy_remote_to_remote', {
+        srcSessionId: src.sid, srcPath: entry.path,
+        dstSessionId: dst.sid, dstDir: dst.listing.path,
       });
-      setLeftSid(sid);
-      setLeftServerId(server.id);
-      setLeftServerName(server.name);
-      setLeftState('connected');
-      setLeftDisconnected(false);
-      setLeftError('');
-      setLeftLoading(true);
-      const homePath = await invoke<string>('sftp_get_home', { sessionId: sid });
-      setLeftPath(homePath);
-      const entries = await invoke<FileEntry[]>('sftp_list_remote', { sessionId: sid, path: homePath });
-      setLeftEntries(entries);
-    } catch (e) {
-      // Stay on the connecting screen so the log explaining the failure, and
-      // the retry button, are both still there.
-      setLeftConnectError(String(e));
-    } finally {
-      // Trailing log lines race the invoke response over the same bridge.
-      setTimeout(unlisten, 1000);
-      setLeftConnectingId(null);
-      setLeftLoading(false);
-    }
-  }
-
-  async function handleLeftDisconnect() {
-    if (leftSid) {
-      await invoke('sftp_disconnect_remote', { sessionId: leftSid }).catch(() => {});
-    }
-    setLeftState('idle');
-    setLeftSid(null);
-    setLeftServerId(null);
-    setLeftEntries([]);
-    setLeftPath('');
-    setLeftServerName('');
-    setLeftError('');
-    setLeftDisconnected(false);
-  }
-
-  async function handleSftpConnect(server: Server) {
-    // Resume existing session for this host
-    if (server.id === remoteServerId && remoteSid) {
-      setRemoteState('connected');
-      return;
-    }
-    let username: string;
-    let authType: string;
-    let authValue: string;
-
-    const resolved = await resolveServerAuth(server, identities);
-    if (!resolved) {
-      setConnectError(`No authentication configured for "${server.name}". Add a key, password or prompt auth in Hosts settings.`);
-      return;
-    }
-    ({ username, authType, authValue } = resolved);
-
-    setConnectingId(server.id);
-    setConnectError('');
-    setConnectLogs([]);
-    setConnectServer(server);
-    setRemoteState('connecting');
-
-    const connectId = crypto.randomUUID();
-    const unlisten = await listen<LogEntry>(`ssh-connect-log:${connectId}`, (event) => {
-      setConnectLogs((prev) => [...prev, event.payload]);
-    });
-
-    try {
-      const sid = await invoke<string>('sftp_connect_remote', {
-        serverId: server.id,
-        username,
-        authType,
-        authValue,
-        connectId,
-        jumps: await buildJumpChain(server, servers, identities),
-      });
-
-      setRemoteSid(sid);
-      setRemoteServerId(server.id);
-      setRemoteServerName(server.name);
-      setRemoteState('connected');
-      setRemoteDisconnected(false);
-      setRemoteError('');
-      setRemoteLoading(true);
-
-      const homePath = await invoke<string>('sftp_get_home', { sessionId: sid });
-      setRemotePath(homePath);
-      const entries = await invoke<FileEntry[]>('sftp_list_remote', { sessionId: sid, path: homePath });
-      setRemoteEntries(entries);
-    } catch (e) {
-      setConnectError(String(e));
-    } finally {
-      setTimeout(unlisten, 1000);
-      setConnectingId(null);
-      setRemoteLoading(false);
-    }
-  }
-
-  async function handleRenameLocal(entry: FileEntry, newName: string) {
-    const parent = entry.path.substring(0, entry.path.lastIndexOf('/'));
-    const newPath = parent + '/' + newName;
-    try {
-      await invoke('sftp_rename_local', { oldPath: entry.path, newPath });
-      await navigateLocal(localPath);
-    } catch (e) { setLocalError(String(e)); }
-  }
-
-  async function handleDeleteLocal(entry: FileEntry) {
-    try {
-      await invoke('sftp_delete_local', { path: entry.path });
-      await navigateLocal(localPath);
-    } catch (e) { setLocalError(String(e)); }
-  }
-
-  async function handleRenameRemote(entry: FileEntry, newName: string) {
-    if (!remoteSid) return;
-    const parent = entry.path.substring(0, entry.path.lastIndexOf('/')) || '/';
-    const newPath = (parent === '/' ? '' : parent) + '/' + newName;
-    try {
-      await invoke('sftp_rename_remote', { sessionId: remoteSid, oldPath: entry.path, newPath });
-      await navigateRemote(remotePath);
-    } catch (e) { setRemoteError(String(e)); }
-  }
-
-  async function handleDeleteRemote(entry: FileEntry) {
-    if (!remoteSid) return;
-    try {
-      await invoke('sftp_delete_remote', { sessionId: remoteSid, path: entry.path, isDir: entry.is_dir });
-      await navigateRemote(remotePath);
-    } catch (e) { setRemoteError(String(e)); }
-  }
-
-  async function handleDrop(targetPanel: 'left' | 'right', entry: FileEntry) {
-    const leftIsLocal = leftState === 'local';
-    const rightIsLocal = remoteState === 'local';
-    const leftIsRemote = leftState === 'connected';
-    const rightIsRemote = remoteState === 'connected';
-
-    // Each arm is the transfer itself, how to re-list the destination, and
-    // where to put an error. Refreshing is deliberately not part of the
-    // transfer: it has to happen whether the transfer finished, failed part
-    // way, or was cancelled, and in the last two cases there is still
-    // something new on the destination to show.
-    type Move = {
-      run: () => Promise<unknown>;
-      refresh: () => Promise<void>;
-      onError: (message: string) => void;
     };
-    let move: Move | null = null;
 
-    if (targetPanel === 'right' && rightIsRemote && leftIsLocal) {
-      move = {
-        run: () => invoke('sftp_upload', { sessionId: remoteSid, localPath: entry.path, remoteDir: remotePath }),
-        refresh: () => navigateRemote(remotePath),
-        onError: setRemoteError,
-      };
-    } else if (targetPanel === 'left' && leftIsLocal && rightIsRemote) {
-      move = {
-        run: () => invoke('sftp_download', { sessionId: remoteSid, remotePath: entry.path, localDir: localPath }),
-        refresh: () => navigateLocal(localPath),
-        onError: setLocalError,
-      };
-    } else if (targetPanel === 'right' && rightIsRemote && leftIsRemote) {
-      move = {
-        run: () => invoke('sftp_copy_remote_to_remote', { srcSessionId: leftSid, srcPath: entry.path, dstSessionId: remoteSid, dstDir: remotePath }),
-        refresh: () => navigateRemote(remotePath),
-        onError: setRemoteError,
-      };
-    } else if (targetPanel === 'left' && leftIsRemote && rightIsRemote) {
-      move = {
-        run: () => invoke('sftp_copy_remote_to_remote', { srcSessionId: remoteSid, srcPath: entry.path, dstSessionId: leftSid, dstDir: leftPath }),
-        refresh: () => navigateLeftRemote(leftPath),
-        onError: setLeftError,
-      };
-    } else if (targetPanel === 'right' && rightIsLocal && leftIsRemote) {
-      move = {
-        run: () => invoke('sftp_download', { sessionId: leftSid, remotePath: entry.path, localDir: rightLocalPath }),
-        refresh: () => navigateRightLocal(rightLocalPath),
-        onError: setRightLocalError,
-      };
-    } else if (targetPanel === 'left' && leftIsRemote && rightIsLocal) {
-      move = {
-        run: () => invoke('sftp_upload', { sessionId: leftSid, localPath: entry.path, remoteDir: leftPath }),
-        refresh: () => navigateLeftRemote(leftPath),
-        onError: setLeftError,
-      };
-    }
-
-    if (!move) return;
     setTransferring(true);
-    setTransferTarget(targetPanel);
+    setTransferTarget(target);
     setDropTarget(null);
     try {
-      await move.run();
+      await run();
     } catch (e) {
       // Was only logged to the console before, so a transfer that failed
       // looked exactly like one that did nothing.
-      move.onError(String(e));
+      dst.fail(String(e));
     } finally {
       setTransferring(false);
       setTransferTarget(null);
       setProgress(null);
       setCancelling(false);
-      await move.refresh();
+      await dst.refresh();
     }
   }
 
-  async function handleNewLocalFolder(name: string) {
-    const path = localPath.replace(/\/$/, '') + '/' + name;
-    try {
-      await invoke('sftp_create_local_dir', { path });
-      await navigateLocal(localPath);
-    } catch (e) {
-      setLocalError(String(e));
+  /** One pane, in whichever of its five modes it is in. */
+  function renderPane(pane: Pane, other: Pane, side: 'left' | 'right') {
+    const browser = (
+      <FileBrowser
+        title={pane.mode === 'local' ? 'Local' : pane.serverName}
+        icon={pane.mode === 'local' ? LOCAL_ICON : REMOTE_ICON}
+        path={pane.listing.path}
+        entries={pane.listing.entries}
+        loading={pane.listing.loading}
+        error={pane.listing.error}
+        onNavigate={pane.navigate}
+        onRefresh={pane.refresh}
+        onNewFolder={pane.newFolder}
+        canCopyToTarget={canMove(pane, other)}
+        onCopyToTarget={(entry) => handleDrop(side === 'left' ? 'right' : 'left', entry)}
+        onRename={pane.rename}
+        onDelete={pane.remove}
+        onLocalBtn={() => pane.setMode('idle')}
+        extraActions={closeConnectionActions(
+          pane.mode === 'local' ? () => pane.setMode('idle') : pane.disconnect,
+        )}
+        side={side}
+        isDropTarget={dropTarget === side && !transferring}
+        transferring={transferring && transferTarget === side}
+        onDragEnter={() => setDropTarget(side)}
+        onDragLeave={() => setDropTarget((p) => (p === side ? null : p))}
+        onFileDrop={(entry) => handleDrop(side, entry)}
+        onReconnect={pane.mode === 'connected' ? pane.reconnect : undefined}
+      />
+    );
+
+    switch (pane.mode) {
+      case 'local':
+      case 'connected':
+        return browser;
+      case 'idle':
+        return (
+          <ConnectPrompt
+            onSelectHost={() => pane.setMode('picking')}
+            onGoLocal={pane.goLocal}
+          />
+        );
+      case 'connecting':
+        return pane.connectServer && (
+          <ConnectingView
+            server={pane.connectServer}
+            logs={pane.connectLogs}
+            error={pane.connectError || undefined}
+            onClose={() => { pane.setMode('picking'); pane.setConnectError(''); }}
+            onRetry={() => pane.connect(pane.connectServer!)}
+            retryLabel="Retry"
+          />
+        );
+      case 'picking':
+        return (
+          <HostPicker
+            servers={servers}
+            connectingId={pane.connectingId}
+            activeServerId={pane.serverId}
+            error={pane.connectError}
+            onConnect={pane.connect}
+            onBack={() => { pane.setMode('idle'); pane.setConnectError(''); }}
+            onGoLocal={pane.goLocal}
+          />
+        );
     }
   }
-
-  async function handleNewRemoteFolder(name: string) {
-    if (!remoteSid) return;
-    const path = remotePath.replace(/\/$/, '') + '/' + name;
-    try {
-      await invoke('sftp_mkdir', { sessionId: remoteSid, path });
-      await navigateRemote(remotePath);
-    } catch (e) {
-      setRemoteError(String(e));
-    }
-  }
-
-  async function handleNewLeftRemoteFolder(name: string) {
-    if (!leftSid) return;
-    const path = leftPath.replace(/\/$/, '') + '/' + name;
-    try {
-      await invoke('sftp_mkdir', { sessionId: leftSid, path });
-      await navigateLeftRemote(leftPath);
-    } catch (e) { setLeftError(String(e)); }
-  }
-
-  async function handleRenameLeftRemote(entry: FileEntry, newName: string) {
-    if (!leftSid) return;
-    const parent = entry.path.substring(0, entry.path.lastIndexOf('/')) || '/';
-    const newPath = (parent === '/' ? '' : parent) + '/' + newName;
-    try {
-      await invoke('sftp_rename_remote', { sessionId: leftSid, oldPath: entry.path, newPath });
-      await navigateLeftRemote(leftPath);
-    } catch (e) { setLeftError(String(e)); }
-  }
-
-  async function handleDeleteLeftRemote(entry: FileEntry) {
-    if (!leftSid) return;
-    try {
-      await invoke('sftp_delete_remote', { sessionId: leftSid, path: entry.path, isDir: entry.is_dir });
-      await navigateLeftRemote(leftPath);
-    } catch (e) { setLeftError(String(e)); }
-  }
-
-  async function handleRenameRightLocal(entry: FileEntry, newName: string) {
-    const parent = entry.path.substring(0, entry.path.lastIndexOf('/'));
-    const newPath = parent + '/' + newName;
-    try {
-      await invoke('sftp_rename_local', { oldPath: entry.path, newPath });
-      await navigateRightLocal(rightLocalPath);
-    } catch (e) { setRightLocalError(String(e)); }
-  }
-
-  async function handleDeleteRightLocal(entry: FileEntry) {
-    try {
-      await invoke('sftp_delete_local', { path: entry.path });
-      await navigateRightLocal(rightLocalPath);
-    } catch (e) { setRightLocalError(String(e)); }
-  }
-
-  async function handleNewRightLocalFolder(name: string) {
-    const path = rightLocalPath.replace(/\/$/, '') + '/' + name;
-    try {
-      await invoke('sftp_create_local_dir', { path });
-      await navigateRightLocal(rightLocalPath);
-    } catch (e) { setRightLocalError(String(e)); }
-  }
-
-  async function handleDisconnect() {
-    if (remoteSid) {
-      await invoke('sftp_disconnect_remote', { sessionId: remoteSid }).catch(() => {});
-    }
-    setRemoteState('idle');
-    setRemoteSid(null);
-    setRemoteServerId(null);
-    setRemoteEntries([]);
-    setRemotePath('');
-    setRemoteServerName('');
-    setRemoteError('');
-    setRemoteDisconnected(false);
-  }
-
-  const localIcon = (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
-      <polyline points="9,22 9,12 15,12 15,22" />
-    </svg>
-  );
-
-  const remoteIcon = (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-      <line x1="8" y1="21" x2="16" y2="21" />
-      <line x1="12" y1="17" x2="12" y2="21" />
-    </svg>
-  );
-
-  const closeConnectionActions = (onClose: () => void) => (
-    <>
-      <div className="sftp-dropdown-divider" />
-      <button className="sftp-dropdown-item sftp-dropdown-item-danger" onClick={onClose}>
-        Close Connection
-      </button>
-    </>
-  );
 
   return (
     <div className="sftp-container">
       <div className="sftp-panels-row">
-      {/* Left panel */}
-      <div className="sftp-file-panel">
-        {leftState === 'local' && (
-          <FileBrowser
-            title="Local"
-            icon={localIcon}
-            path={localPath}
-            entries={localEntries}
-            loading={localLoading}
-            error={localError}
-            onNavigate={navigateLocal}
-            onRefresh={() => navigateLocal(localPath)}
-            onNewFolder={handleNewLocalFolder}
-            canCopyToTarget={remoteState === 'connected'}
-            onCopyToTarget={(entry) => handleDrop('right', entry)}
-            onRename={handleRenameLocal}
-            onDelete={handleDeleteLocal}
-            onLocalBtn={() => setLeftState('idle')}
-            extraActions={closeConnectionActions(() => setLeftState('idle'))}
-            side="left"
-            isDropTarget={dropTarget === 'left' && !transferring}
-            transferring={transferring && transferTarget === 'left'}
-            onDragEnter={() => setDropTarget('left')}
-            onDragLeave={() => setDropTarget(p => p === 'left' ? null : p)}
-            onFileDrop={(entry) => handleDrop('left', entry)}
-          />
-        )}
-
-        {leftState === 'idle' && (
-          <ConnectPrompt
-            onSelectHost={() => setLeftState('picking')}
-            onGoLocal={() => setLeftState('local')}
-          />
-        )}
-
-        {leftState === 'connecting' && leftConnectServer && (
-          <ConnectingView
-            server={leftConnectServer}
-            logs={leftConnectLogs}
-            error={leftConnectError || undefined}
-            onClose={() => { setLeftState('picking'); setLeftConnectError(''); }}
-            onRetry={() => handleLeftSftpConnect(leftConnectServer)}
-            retryLabel="Retry"
-          />
-        )}
-
-        {leftState === 'picking' && (
-          <HostPicker
-            servers={servers}
-            connectingId={leftConnectingId}
-            activeServerId={leftServerId}
-            error={leftConnectError}
-            onConnect={handleLeftSftpConnect}
-            onBack={() => { setLeftState('idle'); setLeftConnectError(''); }}
-            onGoLocal={() => setLeftState('local')}
-          />
-        )}
-
-        {leftState === 'connected' && (
-          <FileBrowser
-            title={leftServerName}
-            icon={remoteIcon}
-            path={leftPath}
-            entries={leftEntries}
-            loading={leftLoading}
-            error={leftError}
-            onNavigate={navigateLeftRemote}
-            onRefresh={() => navigateLeftRemote(leftPath)}
-            onNewFolder={handleNewLeftRemoteFolder}
-            canCopyToTarget={remoteState === 'local' || remoteState === 'connected'}
-            onCopyToTarget={(entry) => handleDrop('right', entry)}
-            onRename={handleRenameLeftRemote}
-            onDelete={handleDeleteLeftRemote}
-            onLocalBtn={() => setLeftState('idle')}
-            extraActions={closeConnectionActions(handleLeftDisconnect)}
-            side="left"
-            isDropTarget={dropTarget === 'left' && !transferring}
-            transferring={transferring && transferTarget === 'left'}
-            onDragEnter={() => setDropTarget('left')}
-            onDragLeave={() => setDropTarget(p => p === 'left' ? null : p)}
-            onFileDrop={(entry) => handleDrop('left', entry)}
-            onReconnect={leftDisconnected ? () => {
-              const s = servers.find(sv => sv.id === leftServerId);
-              if (s) handleLeftSftpConnect(s);
-            } : undefined}
-          />
-        )}
+        <div className="sftp-file-panel">{renderPane(left, right, 'left')}</div>
+        <div className="sftp-divider" />
+        <div className="sftp-file-panel sftp-remote-panel">{renderPane(right, left, 'right')}</div>
       </div>
-
-      <div className="sftp-divider" />
-
-      {/* Right panel */}
-      <div className="sftp-file-panel sftp-remote-panel">
-        {remoteState === 'idle' && (
-          <ConnectPrompt
-            onSelectHost={() => setRemoteState('picking')}
-            onGoLocal={openRightLocal}
-          />
-        )}
-
-        {remoteState === 'local' && (
-          <FileBrowser
-            title="Local"
-            icon={localIcon}
-            path={rightLocalPath}
-            entries={rightLocalEntries}
-            loading={rightLocalLoading}
-            error={rightLocalError}
-            onNavigate={navigateRightLocal}
-            onRefresh={() => navigateRightLocal(rightLocalPath)}
-            onNewFolder={handleNewRightLocalFolder}
-            canCopyToTarget={leftState === 'connected'}
-            onCopyToTarget={(entry) => handleDrop('left', entry)}
-            onRename={handleRenameRightLocal}
-            onDelete={handleDeleteRightLocal}
-            onLocalBtn={() => setRemoteState('idle')}
-            extraActions={closeConnectionActions(() => setRemoteState('idle'))}
-            side="right"
-            isDropTarget={dropTarget === 'right' && !transferring}
-            transferring={transferring && transferTarget === 'right'}
-            onDragEnter={() => setDropTarget('right')}
-            onDragLeave={() => setDropTarget(p => p === 'right' ? null : p)}
-            onFileDrop={(entry) => handleDrop('right', entry)}
-          />
-        )}
-
-        {remoteState === 'connecting' && connectServer && (
-          <ConnectingView
-            server={connectServer}
-            logs={connectLogs}
-            error={connectError || undefined}
-            onClose={() => { setRemoteState('picking'); setConnectError(''); }}
-            onRetry={() => handleSftpConnect(connectServer)}
-            retryLabel="Retry"
-          />
-        )}
-
-        {remoteState === 'picking' && (
-          <HostPicker
-            servers={servers}
-            connectingId={connectingId}
-            activeServerId={remoteServerId}
-            error={connectError}
-            onConnect={handleSftpConnect}
-            onBack={() => { setRemoteState('idle'); setConnectError(''); }}
-            onGoLocal={openRightLocal}
-          />
-        )}
-
-        {remoteState === 'connected' && (
-          <FileBrowser
-            title={remoteServerName}
-            icon={remoteIcon}
-            path={remotePath}
-            entries={remoteEntries}
-            loading={remoteLoading}
-            error={remoteError}
-            onNavigate={navigateRemote}
-            onRefresh={() => navigateRemote(remotePath)}
-            onNewFolder={handleNewRemoteFolder}
-            canCopyToTarget={leftState === 'local' || leftState === 'connected'}
-            onCopyToTarget={(entry) => handleDrop('left', entry)}
-            onRename={handleRenameRemote}
-            onDelete={handleDeleteRemote}
-            onLocalBtn={() => setRemoteState('idle')}
-            extraActions={closeConnectionActions(handleDisconnect)}
-            side="right"
-            isDropTarget={dropTarget === 'right' && !transferring}
-            transferring={transferring && transferTarget === 'right'}
-            onDragEnter={() => setDropTarget('right')}
-            onDragLeave={() => setDropTarget(p => p === 'right' ? null : p)}
-            onFileDrop={(entry) => handleDrop('right', entry)}
-            onReconnect={remoteDisconnected ? () => {
-              const s = servers.find(sv => sv.id === remoteServerId);
-              if (s) handleSftpConnect(s);
-            } : undefined}
-          />
-        )}
-      </div>
-      </div>{/* end sftp-panels-row */}
       {progress && (() => {
         const pct = progress.total > 0 ? Math.min(100, Math.round((progress.transferred / progress.total) * 100)) : 0;
         const elapsed = (Date.now() - progress.startTime) / 1000;
