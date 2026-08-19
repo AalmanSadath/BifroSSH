@@ -151,6 +151,15 @@ fn read_base64_lines(lines: &[&str], idx: &mut usize, n: usize) -> Result<Vec<u8
 
 // ── Decryption ────────────────────────────────────────────────────────────────
 
+/// Ceilings on the Argon2 cost a PPK may ask for.
+///
+/// PuTTY's own defaults are 8 MiB and 13 passes, and it scales the passes to
+/// hit a time target rather than the memory, so real files sit far below these.
+/// The room above them is for a key someone deliberately made expensive, not
+/// for a file that wants the machine.
+const MAX_ARGON2_MEMORY_KIB: u32 = 1024 * 1024;
+const MAX_ARGON2_PASSES: u32 = 64;
+
 fn decrypt_ppk_v2(data: &[u8], passphrase: &str) -> Result<Vec<u8>> {
     use aes::Aes256;
     use cbc::cipher::{BlockDecryptMut, KeyIvInit, block_padding::NoPadding};
@@ -191,6 +200,22 @@ fn decrypt_ppk_v3(ppk: &PpkData, passphrase: &str) -> Result<Vec<u8>> {
     let passes  = ppk.argon2_passes.context("Missing Argon2-Passes")?;
     let parallel = ppk.argon2_parallism.context("Missing Argon2-Parallelism")?;
     let salt    = ppk.argon2_salt.as_deref().context("Missing Argon2-Salt")?;
+
+    // The cost is read out of the file, so it is whatever the file's author
+    // chose. argon2's own ceiling is 256 GiB, which is no ceiling at all: a
+    // header asking for 8 GiB is eight characters to write and enough to end
+    // the process. Refusing is the only safe answer, because the work has to
+    // happen before anything can tell whether the passphrase was even right.
+    if memory > MAX_ARGON2_MEMORY_KIB {
+        bail!(
+            "PPK asks for {} MiB of memory to open, more than the {} MiB limit",
+            memory / 1024,
+            MAX_ARGON2_MEMORY_KIB / 1024,
+        );
+    }
+    if passes > MAX_ARGON2_PASSES {
+        bail!("PPK asks for {passes} Argon2 passes, more than the {MAX_ARGON2_PASSES} limit");
+    }
 
     let alg = match flavor {
         "Argon2id" => Argon2Alg::Argon2id,
@@ -508,6 +533,26 @@ mod tests {
     fn the_wrong_passphrase_is_rejected() {
         let r = ppk_to_openssh(include_str!("testdata/ed25519_v3_enc.ppk"), Some("not it"));
         assert!(r.is_err(), "a wrong passphrase produced a key");
+    }
+
+    /// A cost the file asks for is work this machine has to do before it can
+    /// tell whether the passphrase was right, so it has to be refused up front
+    /// rather than attempted and abandoned.
+    #[test]
+    fn a_ppk_demanding_absurd_argon2_cost_is_refused_before_doing_the_work() {
+        let base = include_str!("testdata/ed25519_v3_enc.ppk");
+
+        let greedy = base.replace("Argon2-Memory: 8192", "Argon2-Memory: 8388608");
+        let e = ppk_to_openssh(&greedy, Some(PASSPHRASE)).unwrap_err();
+        assert!(format!("{e:#}").contains("8192 MiB"), "{e:#}");
+
+        let slow = base.replace("Argon2-Passes: 21", "Argon2-Passes: 4000000000");
+        let e = ppk_to_openssh(&slow, Some(PASSPHRASE)).unwrap_err();
+        assert!(format!("{e:#}").contains("Argon2 passes"), "{e:#}");
+
+        // The limits have to leave real files alone, so the same fixture at
+        // its own cost still opens.
+        assert!(ppk_to_openssh(base, Some(PASSPHRASE)).is_ok());
     }
 
     #[test]
