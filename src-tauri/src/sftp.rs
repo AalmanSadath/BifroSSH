@@ -72,6 +72,23 @@ fn join_remote(dir: &str, name: &str) -> String {
     }
 }
 
+/// Whether a name a server gave us may be joined onto a path.
+///
+/// `join_remote` concatenates, and nothing downstream normalises the result, so
+/// a name carrying a separator or `..` would place the file somewhere the user
+/// did not choose. A recursive download builds its local destination the same
+/// way, which makes this the boundary between a path the app decided on and one
+/// a server did. Names come from the wire, not from a filesystem, so a server
+/// is free to answer `read_dir` with whatever it likes.
+fn is_safe_name(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.contains('/')
+        && !name.contains('\\')
+        && !name.contains('\0')
+}
+
 #[derive(Serialize, Clone, Debug)]
 pub struct FileEntry {
     pub name: String,
@@ -411,6 +428,9 @@ fn collect_local_tree(root: &Path) -> Result<(Vec<TreeItem>, u32)> {
 }
 
 /// Remote equivalent of `collect_local_tree`.
+///
+/// Unlike the local walk, the names here arrive over the wire rather than from
+/// a filesystem, so they are checked with `is_safe_name` before being joined.
 async fn collect_remote_tree(
     sftp_arc: &Arc<Mutex<SftpSession>>,
     root: &str,
@@ -429,7 +449,11 @@ async fn collect_remote_tree(
         };
         for entry in read {
             let name = entry.file_name();
-            if name == "." || name == ".." {
+            // Counted rather than refused: one unusable name should not cost
+            // the user the rest of a directory they asked for, which is how
+            // symlinks are already handled below.
+            if !is_safe_name(&name) {
+                skipped += 1;
                 continue;
             }
             let child_rel = if rel.is_empty() { name.clone() } else { format!("{}/{}", rel, name) };
@@ -972,5 +996,32 @@ mod tests {
         assert_eq!(join_remote("/home/x", "f.txt"), "/home/x/f.txt");
         assert_eq!(join_remote("/home/x/", "f.txt"), "/home/x/f.txt");
         assert_eq!(join_remote("/home/x", "a/b.txt"), "/home/x/a/b.txt");
+    }
+
+    /// `join_remote` concatenating is the whole reason this guard exists: the
+    /// test above asserts a name carrying a separator lands in a subdirectory,
+    /// so a name a server chose must never reach it.
+    #[test]
+    fn a_name_from_a_server_cannot_leave_the_directory() {
+        for name in ["..", ".", "", "../etc/passwd", "a/b", "a\\b", "a\0b"] {
+            assert!(!is_safe_name(name), "{name:?} should have been refused");
+        }
+        for name in ["f.txt", "..hidden", "a..b", "...", " ", "naïve.txt"] {
+            assert!(is_safe_name(name), "{name:?} is a legitimate filename");
+        }
+    }
+
+    /// What the refusal buys, spelled out against the path that gets built.
+    #[test]
+    fn a_refused_name_is_what_stops_the_write_escaping() {
+        let dest_root = "/home/user/Downloads";
+        let hostile = "../../.ssh/authorized_keys";
+
+        assert_eq!(
+            join_remote(dest_root, hostile),
+            "/home/user/Downloads/../../.ssh/authorized_keys",
+            "nothing downstream normalises this, so the guard is the only defence",
+        );
+        assert!(!is_safe_name(hostile));
     }
 }
