@@ -259,3 +259,66 @@ button { cursor: pointer; font-family: inherit; }
   font-size: 12px;
   padding: 8px 0;
 }
+
+/* ── Menu rows ─────────────────────────────────────────────── */
+
+/* One row of a context menu or a dropdown. This existed three times over as
+   host-ctx-*, sftp-ctx-* and sftp-dropdown-*, byte for byte identical in all
+   five rules, which is what happens when the same widget is named after
+   whichever panel first needed it. */
+
+.menu-item {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.menu-item:hover {
+  background: var(--bg-hover);
+}
+
+.menu-item-danger {
+  color: var(--danger);
+}
+
+.menu-item-danger:hover {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+.menu-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+/* Catches the click that closes an open dropdown. Covers the window so that
+   clicking anywhere counts, and sits under the menu it is dismissing.
+
+   A real element rather than a document listener, because the menus it serves
+   are portalled out of their button's subtree, where "clicked outside" stops
+   being a containment test. */
+.dropdown-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+}
+
+/* A form hint reporting a failure rather than explaining a field. Was nine
+   copies of an inline `color: var(--danger)`, every one of them on a
+   `.form-hint`. */
+.form-hint-error {
+  color: var(--danger);
+}
+
+/* A button that fills its column. Ten copies of an inline `width: 100%` in the
+   port forwarding wizard, where every step ends in one. */
+.btn-block {
+  width: 100%;
+}

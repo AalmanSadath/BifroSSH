@@ -456,7 +456,7 @@ export default function PortForwardingPanel() {
           <p className="pf-wiz-desc">This port will be open on the local (current) machine to forward traffic to the remote host.</p>
           <FloatField label="Local port number" required value={wizDraft.localPort} onChange={(v) => wiz({ localPort: v })} type="number" placeholder="e.g. 8080" />
           <FloatField label="Bind address" value={wizDraft.bindAddress} onChange={(v) => wiz({ bindAddress: v })} placeholder="127.0.0.1" />
-          <button className="btn-primary" style={{ width: '100%' }} onClick={wizNext} disabled={!wizDraft.localPort}>Continue</button>
+          <button className="btn-primary btn-block" onClick={wizNext} disabled={!wizDraft.localPort}>Continue</button>
         </div>
       );
 
@@ -475,7 +475,7 @@ export default function PortForwardingPanel() {
           ) : (
             <>
               <label className="pf-float-label" style={{ display: 'block', marginBottom: 6 }}>Intermediate host *</label>
-              <button className="btn-secondary" style={{ width: '100%' }} onClick={() => openHostPicker('intermediate')}>Select host</button>
+              <button className="btn-secondary btn-block" onClick={() => openHostPicker('intermediate')}>Select host</button>
             </>
           )}
         </div>
@@ -490,7 +490,7 @@ export default function PortForwardingPanel() {
           <p className="pf-wiz-desc">IP address/hostname and the port number of the remote host where the intermediate host will direct the traffic.</p>
           <FloatField label="Destination address" required value={wizDraft.destAddress} onChange={(v) => wiz({ destAddress: v })} placeholder="127.0.0.1" />
           <FloatField label="Destination port number" required value={wizDraft.destPort} onChange={(v) => wiz({ destPort: v })} type="number" placeholder="e.g. 22" />
-          <button className="btn-primary" style={{ width: '100%' }} onClick={wizNext} disabled={!wizDraft.destAddress || !wizDraft.destPort}>Continue</button>
+          <button className="btn-primary btn-block" onClick={wizNext} disabled={!wizDraft.destAddress || !wizDraft.destPort}>Continue</button>
         </div>
       );
 
@@ -509,7 +509,7 @@ export default function PortForwardingPanel() {
           ) : (
             <>
               <label className="pf-float-label" style={{ display: 'block', marginBottom: 6 }}>Remote host *</label>
-              <button className="btn-secondary" style={{ width: '100%' }} onClick={() => openHostPicker('remote')}>Select host</button>
+              <button className="btn-secondary btn-block" onClick={() => openHostPicker('remote')}>Select host</button>
             </>
           )}
         </div>
@@ -524,7 +524,7 @@ export default function PortForwardingPanel() {
           <p className="pf-wiz-desc">We will forward traffic from specified port and interface address of the selected host.</p>
           <FloatField label="Remote port number" required value={wizDraft.remotePort} onChange={(v) => wiz({ remotePort: v })} type="number" placeholder="e.g. 8080" />
           <FloatField label="Bind address" value={wizDraft.bindAddress} onChange={(v) => wiz({ bindAddress: v })} placeholder="127.0.0.1" />
-          <button className="btn-primary" style={{ width: '100%' }} onClick={wizNext} disabled={!wizDraft.remotePort}>Continue</button>
+          <button className="btn-primary btn-block" onClick={wizNext} disabled={!wizDraft.remotePort}>Continue</button>
         </div>
       );
 
@@ -537,7 +537,7 @@ export default function PortForwardingPanel() {
           <p className="pf-wiz-desc">The destination address and port where the traffic will be forwarded.</p>
           <FloatField label="Destination address" required value={wizDraft.destAddress} onChange={(v) => wiz({ destAddress: v })} placeholder="127.0.0.1" />
           <FloatField label="Destination port number" required value={wizDraft.destPort} onChange={(v) => wiz({ destPort: v })} type="number" placeholder="e.g. 22" />
-          <button className="btn-primary" style={{ width: '100%' }} onClick={wizNext} disabled={!wizDraft.destAddress || !wizDraft.destPort}>Continue</button>
+          <button className="btn-primary btn-block" onClick={wizNext} disabled={!wizDraft.destAddress || !wizDraft.destPort}>Continue</button>
         </div>
       );
 
@@ -550,7 +550,7 @@ export default function PortForwardingPanel() {
           <p className="pf-wiz-desc">This port will be open on the local (current) device, and it will receive the traffic.</p>
           <FloatField label="Local port number" required value={wizDraft.localPort} onChange={(v) => wiz({ localPort: v })} type="number" placeholder="e.g. 1080" />
           <FloatField label="Bind address" value={wizDraft.bindAddress} onChange={(v) => wiz({ bindAddress: v })} placeholder="127.0.0.1" />
-          <button className="btn-primary" style={{ width: '100%' }} onClick={wizNext} disabled={!wizDraft.localPort}>Continue</button>
+          <button className="btn-primary btn-block" onClick={wizNext} disabled={!wizDraft.localPort}>Continue</button>
         </div>
       );
 
@@ -569,7 +569,7 @@ export default function PortForwardingPanel() {
           ) : (
             <>
               <label className="pf-float-label" style={{ display: 'block', marginBottom: 6 }}>Intermediate host *</label>
-              <button className="btn-secondary" style={{ width: '100%' }} onClick={() => openHostPicker('intermediate')}>Select host</button>
+              <button className="btn-secondary btn-block" onClick={() => openHostPicker('intermediate')}>Select host</button>
             </>
           )}
         </div>
@@ -582,7 +582,7 @@ export default function PortForwardingPanel() {
             <PfDiagram pfType={wizDraft.type} step={4} />
           </div>
           <FloatField label="Label" value={wizDraft.label} onChange={(v) => wiz({ label: v })} placeholder={`${typeLabel(wizDraft.type)} Rule`} />
-          <button className="btn-primary" style={{ width: '100%' }} onClick={finishWizard}>Done</button>
+          <button className="btn-primary btn-block" onClick={finishWizard}>Done</button>
         </div>
       );
     }
@@ -653,7 +653,7 @@ export default function PortForwardingPanel() {
         ) : (
           <div style={{ marginBottom: 12 }}>
             <label className="pf-float-label" style={{ display: 'block', marginBottom: 6 }}>{hostFieldLabel} *</label>
-            <button className="btn-secondary" style={{ width: '100%' }} onClick={() => openHostPicker(t !== 'remote' ? 'intermediate' : 'remote')}>
+            <button className="btn-secondary btn-block" onClick={() => openHostPicker(t !== 'remote' ? 'intermediate' : 'remote')}>
               Select {hostFieldLabel}
             </button>
           </div>
@@ -710,7 +710,7 @@ export default function PortForwardingPanel() {
           </div>
           {addDropdownOpen && (
             <>
-              <div style={{ position: 'fixed', inset: 0, zIndex: 99 }} onClick={() => setAddDropdownOpen(false)} />
+              <div className="dropdown-scrim" onClick={() => setAddDropdownOpen(false)} />
               <div className="key-dropdown">
                 <button onClick={() => { setAddDropdownOpen(false); skipWizard('local'); }}>Local Forwarding</button>
                 <button onClick={() => { setAddDropdownOpen(false); skipWizard('remote'); }}>Remote Forwarding</button>
@@ -837,14 +837,14 @@ export default function PortForwardingPanel() {
       {/* Panel background context menu */}
       {panelCtx && (
         <ContextMenu x={panelCtx.x} y={panelCtx.y} onClose={() => setPanelCtx(null)}>
-          <button className="host-ctx-item" onClick={() => { setPanelCtx(null); openWizard(); }}>Add Forwarding</button>
-          <button className="host-ctx-item" onClick={() => { setPanelCtx(null); skipWizard('local'); }}>Add Local Forwarding</button>
-          <button className="host-ctx-item" onClick={() => { setPanelCtx(null); skipWizard('remote'); }}>Add Remote Forwarding</button>
-          <button className="host-ctx-item" onClick={() => { setPanelCtx(null); skipWizard('dynamic'); }}>Add Dynamic Forwarding</button>
+          <button className="menu-item" onClick={() => { setPanelCtx(null); openWizard(); }}>Add Forwarding</button>
+          <button className="menu-item" onClick={() => { setPanelCtx(null); skipWizard('local'); }}>Add Local Forwarding</button>
+          <button className="menu-item" onClick={() => { setPanelCtx(null); skipWizard('remote'); }}>Add Remote Forwarding</button>
+          <button className="menu-item" onClick={() => { setPanelCtx(null); skipWizard('dynamic'); }}>Add Dynamic Forwarding</button>
           {activeTunnelIds.size > 0 && (
             <>
-              <div className="host-ctx-divider" />
-              <button className="host-ctx-item host-ctx-danger" onClick={killAllTunnels}>Kill all active tunnels</button>
+              <div className="menu-divider" />
+              <button className="menu-item menu-item-danger" onClick={killAllTunnels}>Kill all active tunnels</button>
             </>
           )}
         </ContextMenu>
@@ -853,19 +853,19 @@ export default function PortForwardingPanel() {
       {/* Context menu */}
       {ctxMenu && (
         <ContextMenu x={ctxMenu.x} y={ctxMenu.y} onClose={() => setCtxMenu(null)}>
-          <button className="host-ctx-item" onClick={() => { handleCardDoubleClick(ctxMenu.pf); setCtxMenu(null); }}>
+          <button className="menu-item" onClick={() => { handleCardDoubleClick(ctxMenu.pf); setCtxMenu(null); }}>
             {activeTunnelIds.has(ctxMenu.pf.id) ? 'Deactivate' : 'Activate'}
           </button>
           {activeTunnelIds.size > 1 && (
-            <button className="host-ctx-item" onClick={killAllTunnels}>
+            <button className="menu-item" onClick={killAllTunnels}>
               Kill all active
             </button>
           )}
-          <button className="host-ctx-item" onClick={() => editExisting(ctxMenu.pf)}>
+          <button className="menu-item" onClick={() => editExisting(ctxMenu.pf)}>
             Edit
           </button>
-          <div className="host-ctx-divider" />
-          <button className="host-ctx-item host-ctx-danger" onClick={() => { setConfirmDeleteId(ctxMenu.pf.id); setCtxMenu(null); }}>
+          <div className="menu-divider" />
+          <button className="menu-item menu-item-danger" onClick={() => { setConfirmDeleteId(ctxMenu.pf.id); setCtxMenu(null); }}>
             Delete
           </button>
         </ContextMenu>

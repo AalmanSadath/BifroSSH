@@ -20,8 +20,13 @@
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 22px 24px;
-  width: 420px;
+  /* 520 is what four of the five dialogs asked for; the auth prompt is the
+     one that wants to be narrow, and says so below. */
+  width: 520px;
   max-width: calc(100vw - 40px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
 
@@ -29,7 +34,6 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 18px;
 }
 
 .modal-header h2 {
@@ -54,13 +58,8 @@
 /* ── Host key verification ─────────────────────────────────── */
 
 .hostkey-modal {
-  width: 520px;
-  display: flex;
-  flex-direction: column;
   gap: 14px;
 }
-
-.hostkey-modal .modal-header { margin-bottom: 0; }
 
 .hostkey-modal-danger {
   border-color: var(--danger);
@@ -121,12 +120,8 @@
 
 .authprompt-modal {
   width: 420px;
-  display: flex;
-  flex-direction: column;
   gap: 14px;
 }
-
-.authprompt-modal .modal-header { margin-bottom: 0; }
 
 .authprompt-instructions {
   font-size: 12px;
@@ -242,25 +237,21 @@
   color: var(--text-muted);
 }
 
-/* ── ssh_config import ─────────────────────────────────────── */
+/* ── Checklist ─────────────────────────────────────────────── */
 
-.sshconfig-modal {
-  width: 520px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
+/* A bordered, scrolling list of rows, each a label wrapping a checkbox. The
+   ssh_config import and the settings import/export each had their own copy of
+   all three of these rules, identical property for property; only what the
+   rows put beside the checkbox differs, and that stays with each of them. */
 
-.sshconfig-modal .modal-header { margin-bottom: 0; }
-
-.sshconfig-list {
+.checklist {
   max-height: 300px;
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 8px;
 }
 
-.sshconfig-row {
+.checklist-row {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -270,8 +261,22 @@
   margin: 0;
 }
 
-.sshconfig-row:last-child { border-bottom: none; }
-.sshconfig-row:hover { background: var(--bg-dark); }
+.checklist-row:hover { background: var(--bg-dark); }
+.checklist-row:last-child { border-bottom: none; }
+
+/* The pill on the right of a row, naming what the row carries. */
+.checklist-tag {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+/* ── ssh_config import ─────────────────────────────────────── */
+
 
 .sshconfig-alias {
   font-weight: 600;
@@ -293,30 +298,12 @@
   white-space: nowrap;
 }
 
-.sshconfig-tag {
-  flex-shrink: 0;
-  font-size: 10px;
-  font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-}
-
 /* ── Export and import ─────────────────────────────────────── */
 
 /* The paragraph above is an explanation of what the file is, not a caption for
    these buttons, so it needs to sit apart from them. */
 .transfer-buttons { display: flex; gap: 8px; margin-top: 14px; }
 
-.transfer-modal {
-  width: 520px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.transfer-modal .modal-header { margin-bottom: 0; }
 .transfer-modal .form-hint { margin: 0; }
 
 .transfer-dest {
@@ -338,27 +325,8 @@
 
 .transfer-secrets { margin: 0; }
 
-.transfer-list {
-  max-height: 300px;
-  overflow-y: auto;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-
-.transfer-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--border);
-  cursor: pointer;
-  margin: 0;
-}
-
-.transfer-row:last-child { border-bottom: none; }
-.transfer-row:hover { background: var(--bg-dark); }
-.transfer-row-empty { opacity: 0.45; cursor: default; }
-.transfer-row-empty:hover { background: none; }
+.checklist-row-empty { opacity: 0.45; cursor: default; }
+.checklist-row-empty:hover { background: none; }
 
 .transfer-count {
   min-width: 28px;
@@ -374,17 +342,7 @@
   color: var(--text-primary);
 }
 
-.transfer-note {
-  flex-shrink: 0;
-  font-size: 10px;
-  font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-}
-
-.transfer-note-warn { border-color: var(--danger); color: var(--danger); }
+.checklist-tag-warn { border-color: var(--danger); color: var(--danger); }
 
 .transfer-conflicts {
   margin: 6px 0 0;
@@ -394,15 +352,6 @@
 }
 
 /* ── Local file picker ─────────────────────────────────────── */
-
-.picker-modal {
-  width: 520px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.picker-modal .modal-header { margin-bottom: 0; }
 
 .picker-path {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

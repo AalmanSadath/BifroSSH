@@ -310,7 +310,6 @@
   background: color-mix(in srgb, var(--accent) 25%, transparent);
 }
 
-
 .sftp-name-cell {
   display: flex;
   align-items: center;
@@ -446,7 +445,6 @@
   color: var(--text-dim);
 }
 
-
 /* Host picker */
 .sftp-host-picker {
   display: flex;
@@ -488,7 +486,6 @@
   color: var(--text-primary);
   flex: 1;
 }
-
 
 .sftp-picker-error {
   padding: 8px 16px;
@@ -589,37 +586,6 @@
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
 }
 
-.sftp-dropdown-item {
-  display: block;
-  width: 100%;
-  padding: 6px 10px;
-  text-align: left;
-  background: none;
-  border: none;
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.sftp-dropdown-item:hover {
-  background: var(--bg-hover);
-}
-
-.sftp-dropdown-item-danger {
-  color: var(--danger);
-}
-
-.sftp-dropdown-item-danger:hover {
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
-}
-
-.sftp-dropdown-divider {
-  height: 1px;
-  background: var(--border);
-  margin: 4px 0;
-}
-
 /* Context menu */
 .sftp-context-menu {
   position: fixed;
@@ -630,37 +596,6 @@
   min-width: 180px;
   z-index: 200;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
-}
-
-.sftp-ctx-item {
-  display: block;
-  width: 100%;
-  padding: 6px 10px;
-  text-align: left;
-  background: none;
-  border: none;
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.sftp-ctx-item:hover {
-  background: var(--bg-hover);
-}
-
-.sftp-ctx-danger {
-  color: var(--danger);
-}
-
-.sftp-ctx-danger:hover {
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
-}
-
-.sftp-ctx-divider {
-  height: 1px;
-  background: var(--border);
-  margin: 4px 0;
 }
 
 /* Delete confirmation */

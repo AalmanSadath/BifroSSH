@@ -98,7 +98,6 @@
   color: var(--text-primary);
 }
 
-
 .kc-confirm-modal {
   position: fixed;
   top: 50%;
@@ -245,37 +244,6 @@
   min-width: 150px;
   z-index: 300;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
-}
-
-.host-ctx-item {
-  display: block;
-  width: 100%;
-  padding: 6px 10px;
-  text-align: left;
-  background: none;
-  border: none;
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.host-ctx-item:hover {
-  background: var(--bg-hover);
-}
-
-.host-ctx-danger {
-  color: var(--danger);
-}
-
-.host-ctx-danger:hover {
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
-}
-
-.host-ctx-divider {
-  height: 1px;
-  background: var(--border);
-  margin: 4px 0;
 }
 
 .host-card:hover .kc-card-edit-btn {

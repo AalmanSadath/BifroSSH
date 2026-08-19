@@ -57,8 +57,8 @@ export default function SshConfigImport({ onClose }: Props) {
   };
 
   return (
-    <Modal className="sshconfig-modal" title="Import from ssh config" subtitle="~/.ssh/config" onClose={onClose}>
-      {error && <p className="form-hint" style={{ color: 'var(--danger)' }}>{error}</p>}
+    <Modal title="Import from ssh config" subtitle="~/.ssh/config" onClose={onClose}>
+      {error && <p className="form-hint form-hint-error">{error}</p>}
 
       {result ? (
         <>
@@ -90,9 +90,9 @@ export default function SshConfigImport({ onClose }: Props) {
             </p>
           )}
 
-          <div className="sshconfig-list">
+          <div className="checklist">
             {scan.hosts.map((h) => (
-              <label className="sshconfig-row" key={h.alias}>
+              <label className="checklist-row" key={h.alias}>
                 <input
                   type="checkbox"
                   checked={selected.has(h.alias)}
@@ -100,10 +100,10 @@ export default function SshConfigImport({ onClose }: Props) {
                 />
                 <span className="sshconfig-alias">{h.alias}</span>
                 <span className="sshconfig-target">{describe(h)}</span>
-                {h.identity_file && <span className="sshconfig-tag">key</span>}
+                {h.identity_file && <span className="checklist-tag">key</span>}
                 {h.proxy_jump && (
                   <span
-                    className="sshconfig-tag"
+                    className="checklist-tag"
                     title={`Reached through ${h.proxy_jump}. Import that host too for the link to be made.`}
                   >
                     jump

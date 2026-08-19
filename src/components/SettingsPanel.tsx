@@ -196,7 +196,7 @@ function MasterKeySection() {
                   )}
                 </>
               )}
-              {error && <p className="form-hint" style={{ color: 'var(--danger)' }}>{error}</p>}
+              {error && <p className="form-hint form-hint-error">{error}</p>}
               <div className="modal-actions" style={{ justifyContent: 'flex-start', paddingTop: 4 }}>
                 {status.passphrase_set ? (
                   <button className="btn-secondary" onClick={() => { reset(); setMode('remove'); }}>
@@ -288,7 +288,7 @@ function MasterKeySection() {
                 </>
               )}
 
-              {error && <p className="form-hint" style={{ color: 'var(--danger)' }}>{error}</p>}
+              {error && <p className="form-hint form-hint-error">{error}</p>}
 
               <div className="modal-actions" style={{ justifyContent: 'flex-start' }}>
                 <button className="btn-secondary" onClick={reset} disabled={busy}>

@@ -285,7 +285,7 @@ export default function KeychainPanel() {
           {showKeyDropdown && (
             <>
               <div
-                style={{ position: 'fixed', inset: 0, zIndex: 99 }}
+                className="dropdown-scrim"
                 onClick={() => setShowKeyDropdown(false)}
               />
               <div className="key-dropdown">
@@ -518,7 +518,7 @@ export default function KeychainPanel() {
               {idAuthType === 'agent' ? (
                 <div className="form-group">
                   {agentError ? (
-                    <p className="form-hint" style={{ color: 'var(--danger)' }}>{agentError}</p>
+                    <p className="form-hint form-hint-error">{agentError}</p>
                   ) : agentKeys === null ? (
                     <p className="form-hint">Reading ssh-agent…</p>
                   ) : agentKeys.length === 0 ? (
@@ -567,7 +567,7 @@ export default function KeychainPanel() {
                     </button>
                     {idKeyDropdownOpen && (
                       <>
-                        <div style={{ position: 'fixed', inset: 0, zIndex: 99 }} onClick={() => setIdKeyDropdownOpen(false)} />
+                        <div className="dropdown-scrim" onClick={() => setIdKeyDropdownOpen(false)} />
                         <div className="picker-menu">
                           {keys.map((k) => (
                             <button
@@ -720,20 +720,20 @@ export default function KeychainPanel() {
         <ContextMenu x={ctxMenu.x} y={ctxMenu.y} onClose={() => setCtxMenu(null)}>
           {ctxMenu.kind === 'panel' ? (
             <>
-              <button className="host-ctx-item" onClick={() => { setCtxMenu(null); setShowKeyForm(true); }}>Add Key</button>
-              <button className="host-ctx-item" onClick={() => { setCtxMenu(null); setShowGenForm(true); }}>Generate Key</button>
-              <div className="host-ctx-divider" />
-              <button className="host-ctx-item" onClick={() => { setCtxMenu(null); setShowIdForm(true); }}>Add Identity</button>
+              <button className="menu-item" onClick={() => { setCtxMenu(null); setShowKeyForm(true); }}>Add Key</button>
+              <button className="menu-item" onClick={() => { setCtxMenu(null); setShowGenForm(true); }}>Generate Key</button>
+              <div className="menu-divider" />
+              <button className="menu-item" onClick={() => { setCtxMenu(null); setShowIdForm(true); }}>Add Identity</button>
             </>
           ) : (
             <>
-              <button className="host-ctx-item" onClick={() => {
+              <button className="menu-item" onClick={() => {
                 setCtxMenu(null);
                 if (ctxMenu.kind === 'key') { const k = keys.find(k => k.id === ctxMenu.id); if (k) handleOpenEditKey(k); }
                 else { const id = identities.find(i => i.id === ctxMenu.id); if (id) openEditIdentity(id); }
               }}>Edit</button>
-              <div className="host-ctx-divider" />
-              <button className="host-ctx-item host-ctx-danger" onClick={() => {
+              <div className="menu-divider" />
+              <button className="menu-item menu-item-danger" onClick={() => {
                 const id = ctxMenu.id;
                 setCtxMenu(null);
                 if (ctxMenu.kind === 'key') setConfirmDeleteKey(id);

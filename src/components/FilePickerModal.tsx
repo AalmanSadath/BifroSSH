@@ -126,7 +126,7 @@ export default function FilePickerModal({
   const canConfirm = mode === 'open' ? Boolean(selected) : name.trim().length > 0;
 
   return (
-    <Modal className="picker-modal" title={title} onClose={onCancel}>
+    <Modal title={title} onClose={onCancel}>
       <input
         className="picker-path"
         value={typedPath}
@@ -138,7 +138,7 @@ export default function FilePickerModal({
         }}
       />
 
-      {error && <p className="form-hint" style={{ color: 'var(--danger)' }}>{error}</p>}
+      {error && <p className="form-hint form-hint-error">{error}</p>}
 
       <div className="picker-list">
         {loading && entries.length === 0 ? (

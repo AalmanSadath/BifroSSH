@@ -97,7 +97,7 @@ export default function HostsPanel() {
       {contextMenu && (
         <ContextMenu x={contextMenu.x} y={contextMenu.y} onClose={() => setContextMenu(null)}>
           {contextMenu.kind === 'panel' ? (
-            <button className="host-ctx-item" onClick={() => { setContextMenu(null); setEditServer(null); setShowServerForm(true); }}>
+            <button className="menu-item" onClick={() => { setContextMenu(null); setEditServer(null); setShowServerForm(true); }}>
               Add Host
             </button>
           ) : (
@@ -108,7 +108,7 @@ export default function HostsPanel() {
                   {activeSessions.length > 0 && (
                     <>
                       {activeSessions.map((s) => (
-                        <button key={s.session_id} className="host-ctx-item host-ctx-danger" onClick={() => {
+                        <button key={s.session_id} className="menu-item menu-item-danger" onClick={() => {
                           if (s.status === 'connected') invoke('ssh_disconnect', { sessionId: s.session_id }).catch(() => {});
                           removeSession(s.session_id);
                           setContextMenu(null);
@@ -116,20 +116,20 @@ export default function HostsPanel() {
                           End {s.server_name}
                         </button>
                       ))}
-                      <div className="host-ctx-divider" />
+                      <div className="menu-divider" />
                     </>
                   )}
                   {/* Same action either way, but the word has to match what
                       it does: with nothing open there is nothing to duplicate,
                       and "Duplicate" read as though it would copy the host. */}
-                  <button className="host-ctx-item" onClick={() => { setContextMenu(null); openSession(contextMenu.server.id); }}>
+                  <button className="menu-item" onClick={() => { setContextMenu(null); openSession(contextMenu.server.id); }}>
                     {activeSessions.length > 0 ? 'Duplicate' : 'Connect'}
                   </button>
-                  <button className="host-ctx-item" onClick={() => { setContextMenu(null); setEditServer(contextMenu.server); setShowServerForm(true); }}>
+                  <button className="menu-item" onClick={() => { setContextMenu(null); setEditServer(contextMenu.server); setShowServerForm(true); }}>
                     Edit
                   </button>
-                  <div className="host-ctx-divider" />
-                  <button className="host-ctx-item host-ctx-danger" onClick={() => { setConfirmDeleteId(contextMenu.server.id); setContextMenu(null); }}>
+                  <div className="menu-divider" />
+                  <button className="menu-item menu-item-danger" onClick={() => { setConfirmDeleteId(contextMenu.server.id); setContextMenu(null); }}>
                     Remove
                   </button>
                 </>

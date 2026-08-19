@@ -204,7 +204,7 @@ export default function ExportDataModal({ onClose }: Props) {
           )}
 
           {!generated && confirmPass.length > 0 && !matched && (
-            <p className="form-hint" style={{ color: 'var(--danger)' }}>
+            <p className="form-hint form-hint-error">
               The two do not match.
             </p>
           )}
@@ -241,7 +241,7 @@ export default function ExportDataModal({ onClose }: Props) {
             </div>
           )}
 
-          {error && <p className="form-hint" style={{ color: 'var(--danger)' }}>{error}</p>}
+          {error && <p className="form-hint form-hint-error">{error}</p>}
 
           <div className="modal-actions">
             <button className="btn-secondary" onClick={onClose} disabled={busy}>Cancel</button>

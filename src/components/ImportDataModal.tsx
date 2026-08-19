@@ -152,7 +152,7 @@ export default function ImportDataModal({ onClose }: Props) {
               : ' No passwords or private keys are in this file.'}
           </p>
 
-          <div className="transfer-list">
+          <div className="checklist">
             {CATEGORIES.map((cat) => {
               const incoming = cat.counts ? plan.incoming[cat.counts] : plan.has_settings ? 1 : 0;
               const dup = cat.counts ? plan.duplicates[cat.counts] : 0;
@@ -160,7 +160,7 @@ export default function ImportDataModal({ onClose }: Props) {
               return (
                 <label
                   key={cat.id}
-                  className={`transfer-row${disabled ? ' transfer-row-empty' : ''}`}
+                  className={`checklist-row${disabled ? ' checklist-row-empty' : ''}`}
                 >
                   <input
                     type="checkbox"
@@ -171,9 +171,9 @@ export default function ImportDataModal({ onClose }: Props) {
                   <span className="transfer-count">{cat.counts ? incoming : ''}</span>
                   <span className="transfer-label">{cat.label}</span>
                   {cat.id === 'settings' && plan.has_settings && (
-                    <span className="transfer-note transfer-note-warn">overwrites yours</span>
+                    <span className="checklist-tag checklist-tag-warn">overwrites yours</span>
                   )}
-                  {dup > 0 && <span className="transfer-note">{dup} already here, skipped</span>}
+                  {dup > 0 && <span className="checklist-tag">{dup} already here, skipped</span>}
                 </label>
               );
             })}
@@ -188,7 +188,7 @@ export default function ImportDataModal({ onClose }: Props) {
             </p>
           )}
 
-          {error && <p className="form-hint" style={{ color: 'var(--danger)' }}>{error}</p>}
+          {error && <p className="form-hint form-hint-error">{error}</p>}
 
           <div className="modal-actions">
             <button className="btn-secondary" onClick={onClose} disabled={busy}>Cancel</button>
@@ -217,7 +217,7 @@ export default function ImportDataModal({ onClose }: Props) {
             onChange={setPassphrase}
           />
 
-          {error && <p className="form-hint" style={{ color: 'var(--danger)' }}>{error}</p>}
+          {error && <p className="form-hint form-hint-error">{error}</p>}
 
           <div className="modal-actions">
             <button className="btn-secondary" onClick={onClose} disabled={busy}>Cancel</button>

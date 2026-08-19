@@ -287,20 +287,20 @@ function FileBrowser({ title, icon, path, entries, loading, error, notice, onDis
             </button>
             {dropdownOpen && (
               <div className="sftp-dropdown-menu">
-                <button className="sftp-dropdown-item" onClick={() => { setDropdownOpen(false); onRefresh?.(); }}>
+                <button className="menu-item" onClick={() => { setDropdownOpen(false); onRefresh?.(); }}>
                   Refresh
                 </button>
-                <button className="sftp-dropdown-item" onClick={handleNewFolderClick}>
+                <button className="menu-item" onClick={handleNewFolderClick}>
                   New Folder
                 </button>
-                <button className="sftp-dropdown-item" onClick={() => { setDropdownOpen(false); setShowHidden(h => !h); }}>
+                <button className="menu-item" onClick={() => { setDropdownOpen(false); setShowHidden(h => !h); }}>
                   {showHidden ? 'Hide Hidden Files' : 'Show Hidden Files'}
                 </button>
                 <label className="sftp-dropdown-checkbox" onClick={(e) => e.stopPropagation()}>
                   Folders on top
                   <input type="checkbox" checked={dirsOnTop} onChange={(e) => setDirsOnTop(e.target.checked)} />
                 </label>
-                {extraActions && <div className="sftp-dropdown-divider" />}
+                {extraActions && <div className="menu-divider" />}
                 {extraActions}
               </div>
             )}
@@ -443,30 +443,30 @@ function FileBrowser({ title, icon, path, entries, loading, error, notice, onDis
           {contextMenu.entry ? (
             <>
               {canCopyToTarget && (
-                <button className="sftp-ctx-item" onClick={() => { onCopyToTarget?.(contextMenu.entry!); setContextMenu(null); }}>
+                <button className="menu-item" onClick={() => { onCopyToTarget?.(contextMenu.entry!); setContextMenu(null); }}>
                   Copy to Target
                 </button>
               )}
-              <button className="sftp-ctx-item" onClick={() => handleRenameClick(contextMenu.entry!)}>
+              <button className="menu-item" onClick={() => handleRenameClick(contextMenu.entry!)}>
                 Rename
               </button>
-              <div className="sftp-ctx-divider" />
-              <button className="sftp-ctx-item sftp-ctx-danger" onClick={() => { setConfirmDelete(contextMenu.entry); setContextMenu(null); }}>
+              <div className="menu-divider" />
+              <button className="menu-item menu-item-danger" onClick={() => { setConfirmDelete(contextMenu.entry); setContextMenu(null); }}>
                 Delete
               </button>
             </>
           ) : (
             <>
-              <button className="sftp-ctx-item" onClick={() => { onRefresh?.(); setContextMenu(null); }}>
+              <button className="menu-item" onClick={() => { onRefresh?.(); setContextMenu(null); }}>
                 Refresh
               </button>
-              <button className="sftp-ctx-item" onClick={() => { setContextMenu(null); handleNewFolderClick(); }}>
+              <button className="menu-item" onClick={() => { setContextMenu(null); handleNewFolderClick(); }}>
                 New Folder
               </button>
-              <button className="sftp-ctx-item" onClick={() => { setShowHidden(h => !h); setContextMenu(null); }}>
+              <button className="menu-item" onClick={() => { setShowHidden(h => !h); setContextMenu(null); }}>
                 {showHidden ? 'Hide Hidden Files' : 'Show Hidden Files'}
               </button>
-              <button className="sftp-ctx-item" onClick={() => { setDirsOnTop(v => !v); setContextMenu(null); }}>
+              <button className="menu-item" onClick={() => { setDirsOnTop(v => !v); setContextMenu(null); }}>
                 {dirsOnTop ? 'Folders on Top ✓' : 'Folders on Top'}
               </button>
             </>
@@ -865,8 +865,8 @@ const REMOTE_ICON = (
 
 const closeConnectionActions = (onClose: () => void) => (
   <>
-    <div className="sftp-dropdown-divider" />
-    <button className="sftp-dropdown-item sftp-dropdown-item-danger" onClick={onClose}>
+    <div className="menu-divider" />
+    <button className="menu-item menu-item-danger" onClick={onClose}>
       Close Connection
     </button>
   </>

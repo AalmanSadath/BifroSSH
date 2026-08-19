@@ -390,14 +390,14 @@ export default function App() {
         <ContextMenu x={tabCtx.x} y={tabCtx.y} onClose={() => setTabCtx(null)}>
           {tabCtx.mode === 'menu' ? (
             <>
-              <button className="host-ctx-item" onClick={() => handleDuplicate(tabCtx.session)}>
+              <button className="menu-item" onClick={() => handleDuplicate(tabCtx.session)}>
                 Duplicate
               </button>
-              <button className="host-ctx-item" onClick={() => setTabCtx({ ...tabCtx, mode: 'rename' })}>
+              <button className="menu-item" onClick={() => setTabCtx({ ...tabCtx, mode: 'rename' })}>
                 Rename
               </button>
-              <div className="host-ctx-divider" />
-              <button className="host-ctx-item host-ctx-danger" onClick={(e) => { handleCloseTab(tabCtx.session.session_id, e); setTabCtx(null); }}>
+              <div className="menu-divider" />
+              <button className="menu-item menu-item-danger" onClick={(e) => { handleCloseTab(tabCtx.session.session_id, e); setTabCtx(null); }}>
                 Close Connection
               </button>
             </>
@@ -411,7 +411,7 @@ export default function App() {
                 onKeyDown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setTabCtx(null); }}
                 autoFocus
               />
-              <button className="host-ctx-item" onClick={commitRename}>OK</button>
+              <button className="menu-item" onClick={commitRename}>OK</button>
             </div>
           )}
         </ContextMenu>
