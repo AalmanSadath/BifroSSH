@@ -129,6 +129,42 @@ fn host_spec(host: &str, port: u16) -> String {
     }
 }
 
+/// One known_hosts line, split into the fields that mean something here.
+struct HostLine<'a> {
+    /// `@revoked` or `@cert-authority`, if the line carries one. What it means
+    /// is each caller's business, and they do not agree: `check_host` honours
+    /// both, and `remove_lines` refuses to touch a line that has either.
+    marker: Option<&'a str>,
+    hosts: &'a str,
+    b64: &'a str,
+}
+
+/// Splits a known_hosts line into its fields.
+///
+/// `None` for a blank line, a comment, or anything without the three fields a
+/// host key entry needs. Three call sites did this by hand and had drifted
+/// apart in what they accepted.
+///
+/// The stated algorithm is read past and discarded. It is redundant with the
+/// blob, and the blob is what gets compared, so trusting the text would let a
+/// line claim to be something it is not.
+fn split_line(raw: &str) -> Option<HostLine<'_>> {
+    let line = raw.trim();
+    if line.is_empty() || line.starts_with('#') {
+        return None;
+    }
+    let mut fields = line.split_whitespace();
+    let mut first = fields.next()?;
+    let mut marker = None;
+    if first.starts_with('@') {
+        marker = Some(first);
+        first = fields.next()?;
+    }
+    let _stated_algo = fields.next()?;
+    let b64 = fields.next()?;
+    Some(HostLine { marker, hosts: first, b64 })
+}
+
 struct RawLine {
     line_no: usize,
     marker: Option<String>,
@@ -140,32 +176,19 @@ fn scan(path: &Path) -> Vec<RawLine> {
     let Ok(content) = fs::read_to_string(path) else {
         return Vec::new();
     };
-    let mut out = Vec::new();
-    for (i, raw) in content.lines().enumerate() {
-        let line = raw.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let mut fields = line.split_whitespace();
-        let Some(mut first) = fields.next() else { continue };
-        let mut marker = None;
-        if first.starts_with('@') {
-            marker = Some(first.to_string());
-            let Some(next) = fields.next() else { continue };
-            first = next;
-        }
-        // field order is: hosts, algorithm, base64 — the algorithm is redundant
-        // with the blob and is not trusted.
-        let Some(_algo) = fields.next() else { continue };
-        let Some(b64) = fields.next() else { continue };
-        out.push(RawLine {
-            line_no: i + 1,
-            marker,
-            hosts: first.to_string(),
-            b64: b64.to_string(),
-        });
-    }
-    out
+    content
+        .lines()
+        .enumerate()
+        .filter_map(|(i, raw)| {
+            let l = split_line(raw)?;
+            Some(RawLine {
+                line_no: i + 1,
+                marker: l.marker.map(str::to_string),
+                hosts: l.hosts.to_string(),
+                b64: l.b64.to_string(),
+            })
+        })
+        .collect()
 }
 
 fn glob_match(pattern: &str, text: &str) -> bool {
@@ -353,22 +376,22 @@ fn remove_lines(host: &str, port: u16, algo: Option<&str>) -> Result<usize> {
     for raw in content.lines() {
         let line = raw.trim();
         let drop_it = (|| {
-            if line.is_empty() || line.starts_with('#') || line.starts_with('@') {
+            let Some(l) = split_line(line) else { return false };
+            // A marked line is never removed, and this is not an oversight.
+            // Dropping an `@revoked` line would quietly un-revoke a key the
+            // user distrusted, and an `@cert-authority` line is a delegation
+            // to a CA rather than this host's key, so forgetting the host is
+            // not a reason to delete it.
+            if l.marker.is_some() {
                 return false;
             }
-            let mut fields = line.split_whitespace();
-            let (Some(hosts), Some(_), Some(b64)) =
-                (fields.next(), fields.next(), fields.next())
-            else {
-                return false;
-            };
-            if !host_matches(hosts, &target) {
+            if !host_matches(l.hosts, &target) {
                 return false;
             }
             match algo {
                 None => true,
                 Some(want) => B64
-                    .decode(b64.as_bytes())
+                    .decode(l.b64.as_bytes())
                     .ok()
                     .and_then(|b| algo_from_blob(&b))
                     .is_some_and(|a| a == want),
@@ -473,18 +496,15 @@ pub fn export_lines() -> Result<Vec<String>> {
 /// The algorithm is taken from the blob rather than the line's own third
 /// field, for the reason `algo_from_blob` documents.
 fn parse_line(line: &str) -> Option<(Option<String>, String, String, String)> {
-    let mut fields = line.split_whitespace();
-    let mut first = fields.next()?;
-    let mut marker = None;
-    if first.starts_with('@') {
-        marker = Some(first.to_string());
-        first = fields.next()?;
-    }
-    let _stated_algo = fields.next()?;
-    let b64 = fields.next()?;
-    let blob = B64.decode(b64.as_bytes()).ok()?;
+    let l = split_line(line)?;
+    let blob = B64.decode(l.b64.as_bytes()).ok()?;
     let algo = algo_from_blob(&blob)?;
-    Some((marker, first.to_string(), algo, b64.to_string()))
+    Some((
+        l.marker.map(str::to_string),
+        l.hosts.to_string(),
+        algo,
+        l.b64.to_string(),
+    ))
 }
 
 /// Decides what an import would append, given the file as it stands.
@@ -496,8 +516,6 @@ fn merge_lines(existing: &str, incoming: &[String]) -> (ImportedHosts, Vec<Strin
     // judged against what the earlier line already put in.
     let mut held: Vec<(Option<String>, String, String, String)> = existing
         .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty() && !l.starts_with('#'))
         .filter_map(parse_line)
         .collect();
 
@@ -506,6 +524,9 @@ fn merge_lines(existing: &str, incoming: &[String]) -> (ImportedHosts, Vec<Strin
 
     for raw in incoming {
         let line = raw.trim();
+        // Passed over rather than counted. `parse_line` would reject these
+        // too, but as "skipped", and a blank line in the file the user handed
+        // us is not something that failed to import.
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
@@ -995,6 +1016,63 @@ mod tests {
         assert_eq!(lines[1].marker.as_deref(), Some("@revoked"));
 
         fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn splitting_a_line_agrees_across_its_three_callers() {
+        let plain = format!("example.com ssh-ed25519 {ED25519_B64}");
+        let ok = split_line(&plain).unwrap();
+        assert_eq!(ok.hosts, "example.com");
+        assert_eq!(ok.marker, None);
+        assert_eq!(ok.b64, ED25519_B64);
+
+        let revoked = format!("@revoked bad.com ssh-ed25519 {ED25519_B64}");
+        let marked = split_line(&revoked).unwrap();
+        assert_eq!(marked.marker, Some("@revoked"));
+        assert_eq!(marked.hosts, "bad.com");
+
+        // Leading whitespace is not a reason to ignore an entry.
+        let padded = format!("   example.com ssh-ed25519 {ED25519_B64}");
+        let indented = split_line(&padded).unwrap();
+        assert_eq!(indented.hosts, "example.com");
+
+        for junk in ["", "   ", "# a comment", "# host algo data", "example.com", "example.com ssh-ed25519", "@revoked"] {
+            assert!(split_line(junk).is_none(), "should not parse: {junk:?}");
+        }
+    }
+
+    /// A comment whose words happen to be readable must not become an entry
+    /// keyed on "#". One of the three hand-written parsers did exactly that.
+    #[test]
+    fn a_comment_is_never_mistaken_for_an_entry() {
+        let line = format!("# example.com ssh-ed25519 {ED25519_B64}");
+        assert!(split_line(&line).is_none());
+        assert!(parse_line(&line).is_none());
+    }
+
+    /// Forgetting a host must not un-revoke a key, and must not delete a CA
+    /// delegation that was never this host's key in the first place. The
+    /// removal path skips marked lines on purpose; this is here so that stays
+    /// true.
+    #[test]
+    fn removal_leaves_revoked_and_ca_lines_alone() {
+        let target = host_spec("bad.com", 22);
+        let cases = [
+            (format!("@revoked {target} ssh-ed25519 {ED25519_B64}"), "revoked"),
+            (format!("@cert-authority {target} ssh-ed25519 {ED25519_B64}"), "cert-authority"),
+        ];
+        for (line, what) in cases {
+            let l = split_line(&line).expect("should still parse");
+            assert!(l.marker.is_some(), "{what}: marker not seen");
+            assert!(host_matches(l.hosts, &target), "{what}: host should match");
+        }
+
+        // And a plain line for the same host is removable, so the skip above is
+        // about the marker and not about the host failing to match.
+        let plain = format!("{target} ssh-ed25519 {ED25519_B64}");
+        let l = split_line(&plain).unwrap();
+        assert!(l.marker.is_none());
+        assert!(host_matches(l.hosts, &target));
     }
 
     /// Full learn/check/replace/forget lifecycle against a scratch HOME, with
