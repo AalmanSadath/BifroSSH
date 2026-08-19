@@ -17,9 +17,8 @@ pub fn ppk_to_openssh(content: &str, passphrase: Option<&str>) -> Result<String>
     } else {
         let pass = passphrase.context("Passphrase required for this PPK file")?;
         match ppk.version {
-            2 => decrypt_ppk_v2(&ppk.private_data, pass)?,
-            3 => decrypt_ppk_v3(&ppk, pass)?,
-            v => return Err(anyhow!("Unsupported PPK version {v}")),
+            PpkVersion::V2 => decrypt_ppk_v2(&ppk.private_data, pass)?,
+            PpkVersion::V3 => decrypt_ppk_v3(&ppk, pass)?,
         }
     };
 
@@ -50,8 +49,17 @@ pub fn is_ppk(content: &str) -> bool {
 
 // ── PPK parsing ───────────────────────────────────────────────────────────────
 
+/// The two the parser accepts. An enum rather than a number so the one place
+/// that branches on it has nothing left to say about anything else: as a u8 it
+/// needed a third arm that could not be reached.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum PpkVersion {
+    V2,
+    V3,
+}
+
 struct PpkData {
-    version:         u8,
+    version:         PpkVersion,
     algorithm:       String,
     encryption:      String,
     comment:         String,
@@ -70,9 +78,14 @@ fn parse_ppk(content: &str) -> Result<PpkData> {
 
     let first = lines.next().context("Empty PPK file")?;
     let (version, algorithm) = if let Some(a) = first.strip_prefix("PuTTY-User-Key-File-3: ") {
-        (3u8, a.trim().to_string())
+        (PpkVersion::V3, a.trim().to_string())
     } else if let Some(a) = first.strip_prefix("PuTTY-User-Key-File-2: ") {
-        (2u8, a.trim().to_string())
+        (PpkVersion::V2, a.trim().to_string())
+    } else if let Some(rest) = first.strip_prefix("PuTTY-User-Key-File-") {
+        // A PPK, just not one this understands. Saying "not a PPK file" about a
+        // key PuTTY wrote sends the reader looking in the wrong place.
+        let v = rest.split(':').next().unwrap_or(rest).trim();
+        bail!("Unsupported PPK version {v}; this reads version 2 and 3");
     } else {
         bail!("Not a PPK file");
     };
@@ -376,4 +389,157 @@ fn from_hex(s: &str) -> Result<Vec<u8>> {
         .step_by(2)
         .map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(|_| anyhow!("Invalid hex char")))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PASSPHRASE: &str = include_str!("testdata/PASSPHRASE");
+
+    /// Converts, then reads the result back and returns its public key in
+    /// `authorized_keys` form.
+    ///
+    /// Parsing the output is the point: a converter can emit something that
+    /// looks like a PEM and is not a key, and only a reader that does not
+    /// share its assumptions will say so.
+    fn converted_public_key(ppk: &str, passphrase: Option<&str>) -> String {
+        let pem = ppk_to_openssh(ppk, passphrase).expect("conversion failed");
+        let key = ssh_key::PrivateKey::from_openssh(&pem).expect("output is not an OpenSSH key");
+        key.public_key().to_openssh().expect("public key would not render")
+    }
+
+    /// What puttygen itself says the file holds, minus the trailing comment.
+    fn expected_public_key(pub_file: &str) -> String {
+        let line = pub_file.lines().find(|l| !l.starts_with("---") && !l.contains(": ")).unwrap_or("");
+        line.split_whitespace().take(2).collect::<Vec<_>>().join(" ")
+    }
+
+    fn check(ppk: &str, pub_file: &str, passphrase: Option<&str>) {
+        let got = converted_public_key(ppk, passphrase);
+        let want = expected_public_key(pub_file);
+        assert_eq!(
+            got.split_whitespace().take(2).collect::<Vec<_>>().join(" "),
+            want,
+            "converted key does not match the one PuTTY says the file holds",
+        );
+    }
+
+    #[test]
+    fn ed25519_v3_unencrypted() {
+        check(include_str!("testdata/ed25519_v3.ppk"), include_str!("testdata/ed25519_v3.pub"), None);
+    }
+
+    #[test]
+    fn ed25519_v2_unencrypted() {
+        check(include_str!("testdata/ed25519_v2.ppk"), include_str!("testdata/ed25519_v2.pub"), None);
+    }
+
+    #[test]
+    fn rsa_v3_unencrypted() {
+        check(include_str!("testdata/rsa_v3.ppk"), include_str!("testdata/rsa_v3.pub"), None);
+    }
+
+    #[test]
+    fn ecdsa_p256_v3_unencrypted() {
+        check(include_str!("testdata/ecdsa256_v3.ppk"), include_str!("testdata/ecdsa256_v3.pub"), None);
+    }
+
+    /// v3 encryption: Argon2id, then AES-256-CBC.
+    #[test]
+    fn ed25519_v3_encrypted() {
+        check(
+            include_str!("testdata/ed25519_v3_enc.ppk"),
+            include_str!("testdata/ed25519_v3_enc.pub"),
+            Some(PASSPHRASE),
+        );
+    }
+
+    /// v2 encryption derives its key by SHA-1 instead, a different path.
+    #[test]
+    fn rsa_v2_encrypted() {
+        check(
+            include_str!("testdata/rsa_v2_enc.ppk"),
+            include_str!("testdata/rsa_v2_enc.pub"),
+            Some(PASSPHRASE),
+        );
+    }
+
+    #[test]
+    fn the_algorithm_is_readable_without_decrypting() {
+        let cases = [
+            ("testdata/ed25519_v3.ppk", "ED25519"),
+            ("testdata/rsa_v3.ppk", "RSA"),
+            ("testdata/ecdsa256_v3.ppk", "ECDSA P-256"),
+        ];
+        let files = [
+            include_str!("testdata/ed25519_v3.ppk"),
+            include_str!("testdata/rsa_v3.ppk"),
+            include_str!("testdata/ecdsa256_v3.ppk"),
+        ];
+        for ((name, want), content) in cases.iter().zip(files) {
+            assert_eq!(ppk_detect_algorithm(content).as_deref(), Some(*want), "{name}");
+        }
+        // Encrypted too: the header is in the clear.
+        assert_eq!(
+            ppk_detect_algorithm(include_str!("testdata/ed25519_v3_enc.ppk")).as_deref(),
+            Some("ED25519"),
+        );
+    }
+
+    #[test]
+    fn ppk_files_are_recognised_and_others_are_not() {
+        assert!(is_ppk(include_str!("testdata/ed25519_v3.ppk")));
+        assert!(!is_ppk("-----BEGIN OPENSSH PRIVATE KEY-----\n"));
+        assert!(!is_ppk(""));
+    }
+
+    // ── Failures ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn an_encrypted_key_without_a_passphrase_says_so() {
+        let e = ppk_to_openssh(include_str!("testdata/ed25519_v3_enc.ppk"), None).unwrap_err();
+        assert!(format!("{e:#}").contains("Passphrase required"), "{e:#}");
+    }
+
+    /// The wrong passphrase must fail rather than hand back a key that will be
+    /// rejected later by a server, where the cause would be much harder to see.
+    #[test]
+    fn the_wrong_passphrase_is_rejected() {
+        let r = ppk_to_openssh(include_str!("testdata/ed25519_v3_enc.ppk"), Some("not it"));
+        assert!(r.is_err(), "a wrong passphrase produced a key");
+    }
+
+    #[test]
+    fn something_that_is_not_a_ppk_is_refused() {
+        let e = ppk_to_openssh("-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n", None).unwrap_err();
+        assert!(format!("{e:#}").contains("Not a PPK file"), "{e:#}");
+    }
+
+    #[test]
+    fn a_truncated_file_is_refused_rather_than_half_read() {
+        let full = include_str!("testdata/ed25519_v3.ppk");
+        let half: String = full.lines().take(4).collect::<Vec<_>>().join("\n");
+        assert!(ppk_to_openssh(&half, None).is_err());
+    }
+
+    /// A newer PPK is a PPK, and saying otherwise sends the reader looking in
+    /// the wrong place.
+    #[test]
+    fn a_newer_ppk_version_is_named_rather_than_disowned() {
+        let bad = include_str!("testdata/ed25519_v3.ppk")
+            .replace("PuTTY-User-Key-File-3", "PuTTY-User-Key-File-9");
+        let e = ppk_to_openssh(&bad, None).unwrap_err();
+        let shown = format!("{e:#}");
+        assert!(shown.contains('9'), "{shown}");
+        assert!(!shown.contains("Not a PPK"), "{shown}");
+    }
+
+    #[test]
+    fn hex_is_read_in_pairs() {
+        assert_eq!(from_hex("00ff10").unwrap(), vec![0x00, 0xff, 0x10]);
+        assert_eq!(from_hex("").unwrap(), Vec::<u8>::new());
+        assert!(from_hex("abc").is_err(), "odd length");
+        assert!(from_hex("zz").is_err(), "not hex");
+    }
 }
