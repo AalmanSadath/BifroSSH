@@ -18,7 +18,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::crypto;
 use crate::keystore::{self, PassphraseForm, PassphraseWrapper};
-use crate::models::{AppData, Codeprint, Identity, KeyEntry, PortForwarding, Server, Settings};
+use crate::models::{
+    AppData, Codeprint, Identified, Identity, KeyEntry, PortForwarding, Server, Settings,
+};
 
 /// Marks the file as ours before anything is decrypted, so a wrong file gets a
 /// clear answer instead of a passphrase prompt that can never succeed.
@@ -359,34 +361,68 @@ fn same_codeprint(a: &Codeprint, b: &Codeprint) -> bool {
     a.id == b.id || (a.name == b.name && a.command == b.command)
 }
 
+/// How many of `incoming` are already present.
+fn duplicates<T>(incoming: &[T], current: &[T], same: impl Fn(&T, &T) -> bool) -> usize {
+    incoming
+        .iter()
+        .filter(|i| current.iter().any(|e| same(i, e)))
+        .count()
+}
+
+/// What merging one collection did.
+struct Merged {
+    /// Each incoming id and the id it ended up as: its own if it was added,
+    /// the existing record's if one was already there. Only the collections
+    /// other records point at need this; the rest drop it.
+    ids: HashMap<String, String>,
+    /// Ids of the records actually added, for callers that follow up on them.
+    added: Vec<String>,
+    skipped: usize,
+}
+
+/// Adds every incoming record that is not already there.
+///
+/// Never overwrites and never deletes: a record that matches something already
+/// in the vault is skipped, not merged into it. Five collections were doing
+/// this with their own copy of the loop, differing only in which of the two
+/// results they bothered to keep.
+fn merge_into<T: Identified>(
+    incoming: Vec<T>,
+    current: &mut Vec<T>,
+    same: impl Fn(&T, &T) -> bool,
+) -> Merged {
+    let mut out = Merged { ids: HashMap::new(), added: Vec::new(), skipped: 0 };
+    for item in incoming {
+        let from = item.id().to_string();
+        match current.iter().find(|e| same(&item, e)) {
+            Some(existing) => {
+                out.ids.insert(from, existing.id().to_string());
+                out.skipped += 1;
+            }
+            None => {
+                out.ids.insert(from.clone(), from.clone());
+                out.added.push(from);
+                current.push(item);
+            }
+        }
+    }
+    out
+}
+
 /// Works out what an import would do, changing nothing.
 pub fn plan_merge(file: &ExportFile, payload: &Payload, current: &AppData) -> MergePlan {
+    // The same predicates `apply_merge` uses, so the preview and the import
+    // cannot disagree about what counts as already present.
     let dup = Counts {
-        servers: payload
-            .servers
-            .iter()
-            .filter(|s| current.servers.iter().any(|e| same_server(s, e)))
-            .count(),
-        identities: payload
-            .identities
-            .iter()
-            .filter(|i| current.identities.iter().any(|e| same_identity(i, e)))
-            .count(),
-        keys: payload
-            .keys
-            .iter()
-            .filter(|k| current.keys.iter().any(|e| same_key(k, e)))
-            .count(),
-        port_forwardings: payload
-            .port_forwardings
-            .iter()
-            .filter(|p| current.port_forwardings.iter().any(|e| same_forwarding(p, e)))
-            .count(),
-        codeprints: payload
-            .codeprints
-            .iter()
-            .filter(|c| current.codeprints.iter().any(|e| same_codeprint(c, e)))
-            .count(),
+        servers: duplicates(&payload.servers, &current.servers, same_server),
+        identities: duplicates(&payload.identities, &current.identities, same_identity),
+        keys: duplicates(&payload.keys, &current.keys, same_key),
+        port_forwardings: duplicates(
+            &payload.port_forwardings,
+            &current.port_forwardings,
+            same_forwarding,
+        ),
+        codeprints: duplicates(&payload.codeprints, &current.codeprints, same_codeprint),
         custom_themes: payload
             .custom_themes
             .keys()
@@ -434,87 +470,52 @@ pub fn apply_merge(
 
     // Pass one: add what is missing, and remember where every imported id
     // ended up so references can be pointed at it afterwards.
-    let mut identity_ids: HashMap<String, String> = HashMap::new();
+    // Each of these adds what is missing and reports where every incoming id
+    // ended up. Only some of the results are wanted: identities, keys and
+    // servers are pointed at by other records, and servers and forwardings are
+    // followed up on below.
+    let mut identity_ids = HashMap::new();
     if opts.identities {
-        for incoming in payload.identities {
-            match current.identities.iter().find(|e| same_identity(&incoming, e)) {
-                Some(existing) => {
-                    identity_ids.insert(incoming.id.clone(), existing.id.clone());
-                    report.skipped.identities += 1;
-                }
-                None => {
-                    identity_ids.insert(incoming.id.clone(), incoming.id.clone());
-                    current.identities.push(incoming);
-                    report.added.identities += 1;
-                }
-            }
-        }
+        let m = merge_into(payload.identities, &mut current.identities, same_identity);
+        report.added.identities = m.added.len();
+        report.skipped.identities = m.skipped;
+        identity_ids = m.ids;
     }
 
-    let mut key_ids: HashMap<String, String> = HashMap::new();
+    let mut key_ids = HashMap::new();
     if opts.keys {
-        for incoming in payload.keys {
-            match current.keys.iter().find(|e| same_key(&incoming, e)) {
-                Some(existing) => {
-                    key_ids.insert(incoming.id.clone(), existing.id.clone());
-                    report.skipped.keys += 1;
-                }
-                None => {
-                    key_ids.insert(incoming.id.clone(), incoming.id.clone());
-                    current.keys.push(incoming);
-                    report.added.keys += 1;
-                }
-            }
-        }
+        let m = merge_into(payload.keys, &mut current.keys, same_key);
+        report.added.keys = m.added.len();
+        report.skipped.keys = m.skipped;
+        key_ids = m.ids;
     }
 
-    let mut server_ids: HashMap<String, String> = HashMap::new();
+    let mut server_ids = HashMap::new();
     let mut added_servers: Vec<String> = Vec::new();
     if opts.servers {
-        for incoming in payload.servers {
-            match current.servers.iter().find(|e| same_server(&incoming, e)) {
-                Some(existing) => {
-                    server_ids.insert(incoming.id.clone(), existing.id.clone());
-                    report.skipped.servers += 1;
-                }
-                None => {
-                    server_ids.insert(incoming.id.clone(), incoming.id.clone());
-                    added_servers.push(incoming.id.clone());
-                    current.servers.push(incoming);
-                    report.added.servers += 1;
-                }
-            }
-        }
+        let m = merge_into(payload.servers, &mut current.servers, same_server);
+        report.added.servers = m.added.len();
+        report.skipped.servers = m.skipped;
+        added_servers = m.added;
+        server_ids = m.ids;
     }
 
     let mut added_forwardings: Vec<String> = Vec::new();
     if opts.port_forwardings {
-        for incoming in payload.port_forwardings {
-            match current
-                .port_forwardings
-                .iter()
-                .find(|e| same_forwarding(&incoming, e))
-            {
-                Some(_) => report.skipped.port_forwardings += 1,
-                None => {
-                    added_forwardings.push(incoming.id.clone());
-                    current.port_forwardings.push(incoming);
-                    report.added.port_forwardings += 1;
-                }
-            }
-        }
+        let m = merge_into(
+            payload.port_forwardings,
+            &mut current.port_forwardings,
+            same_forwarding,
+        );
+        report.added.port_forwardings = m.added.len();
+        report.skipped.port_forwardings = m.skipped;
+        added_forwardings = m.added;
     }
 
     if opts.codeprints {
-        for incoming in payload.codeprints {
-            match current.codeprints.iter().find(|e| same_codeprint(&incoming, e)) {
-                Some(_) => report.skipped.codeprints += 1,
-                None => {
-                    current.codeprints.push(incoming);
-                    report.added.codeprints += 1;
-                }
-            }
-        }
+        let m = merge_into(payload.codeprints, &mut current.codeprints, same_codeprint);
+        report.added.codeprints = m.added.len();
+        report.skipped.codeprints = m.skipped;
     }
 
     if opts.custom_themes {
@@ -919,6 +920,53 @@ mod tests {
         assert_eq!(plan.incoming.servers, 2);
         assert_eq!(plan.duplicates.servers, 1);
         assert!(plan.has_settings);
+    }
+
+    /// The preview and the import have to agree about what is already here.
+    ///
+    /// They are separate passes over the same data with the same predicates,
+    /// and nothing but this stops one of them being changed alone: a preview
+    /// promising two new servers and an import adding one is a lie told before
+    /// the user consented to it.
+    #[test]
+    fn the_plan_promises_exactly_what_the_import_does() {
+        let payload = Payload {
+            servers: vec![
+                server("s1", "alpha.example", None, &key(1)),
+                server("s2", "beta.example", None, &key(1)),
+            ],
+            identities: vec![identity("i1", "deploy"), identity("i2", "other")],
+            codeprints: vec![
+                Codeprint { id: "c1".into(), name: "uptime".into(), command: "uptime".into() },
+                Codeprint { id: "c2".into(), name: "disk".into(), command: "df -h".into() },
+            ],
+            ..Default::default()
+        };
+        let content = seal(&payload, "phrase");
+        let (file, opened, export_key) = open_export(&content, "phrase").unwrap();
+
+        // One of each already present, matched by content rather than by id, so
+        // the predicates are doing the work and not a string compare on ids.
+        let mut current = AppData::default();
+        current.servers.push(server("different-id", "alpha.example", None, &key(2)));
+        current.identities.push(identity("also-different", "deploy"));
+        current.codeprints.push(Codeprint {
+            id: "third-id".into(),
+            name: "uptime".into(),
+            command: "uptime".into(),
+        });
+
+        let plan = plan_merge(&file, &opened, &current);
+        let report = apply_merge(opened, &export_key, &key(2), &mut current, &all_options()).unwrap();
+
+        assert_eq!(plan.duplicates.servers, report.skipped.servers, "servers");
+        assert_eq!(plan.duplicates.identities, report.skipped.identities, "identities");
+        assert_eq!(plan.duplicates.codeprints, report.skipped.codeprints, "codeprints");
+
+        // And what it said was coming, minus the duplicates, is what arrived.
+        assert_eq!(plan.incoming.servers - plan.duplicates.servers, report.added.servers);
+        assert_eq!(plan.incoming.identities - plan.duplicates.identities, report.added.identities);
+        assert_eq!(plan.incoming.codeprints - plan.duplicates.codeprints, report.added.codeprints);
     }
 
     /// An export takes its cost from the one profile rather than its own copy

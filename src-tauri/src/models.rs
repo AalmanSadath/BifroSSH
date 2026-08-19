@@ -159,3 +159,22 @@ pub struct AppData {
     #[serde(default)]
     pub custom_themes: std::collections::HashMap<String, serde_json::Value>,
 }
+
+/// A record addressed by a string id.
+///
+/// Lives here rather than beside one of its users because two of them want it:
+/// the command layer looks records up by id, and an import has to say where
+/// each incoming id ended up.
+pub trait Identified {
+    fn id(&self) -> &str;
+}
+
+macro_rules! identified {
+    ($($t:ty),+ $(,)?) => {
+        $(impl Identified for $t {
+            fn id(&self) -> &str { &self.id }
+        })+
+    };
+}
+
+identified!(Server, Identity, KeyEntry, PortForwarding, Codeprint);

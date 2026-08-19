@@ -6,7 +6,7 @@
 //! sites and the lookups open coded at nine, which is nine chances to compare
 //! the wrong id and ten to forget a newly added secret.
 
-use crate::models::{Identity, KeyEntry, Server};
+use crate::models::{Identified, Identity, KeyEntry, Server};
 
 /// What the frontend sees where a secret is stored.
 ///
@@ -49,29 +49,6 @@ impl Redacted for KeyEntry {
             encrypted_passphrase: self.encrypted_passphrase.map(|_| STORED.to_string()),
             ..self
         }
-    }
-}
-
-/// A record addressed by a string id.
-pub trait Identified {
-    fn id(&self) -> &str;
-}
-
-impl Identified for Server {
-    fn id(&self) -> &str {
-        &self.id
-    }
-}
-
-impl Identified for Identity {
-    fn id(&self) -> &str {
-        &self.id
-    }
-}
-
-impl Identified for KeyEntry {
-    fn id(&self) -> &str {
-        &self.id
     }
 }
 
