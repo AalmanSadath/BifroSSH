@@ -72,7 +72,16 @@ interface FileBrowserProps {
   path: string;
   entries: FileEntry[];
   loading: boolean;
+  /** The directory could not be read, so there is no list to show. */
   error: string;
+  /**
+   * An operation failed while the listing is still good: a delete, a rename, a
+   * transfer. Shown over the list rather than in place of it, because throwing
+   * away the files you were looking at is not a way to report that one of them
+   * would not delete.
+   */
+  notice?: string;
+  onDismissNotice?: () => void;
   onNavigate: (path: string) => void;
   onRefresh?: () => void;
   onNewFolder?: (name: string) => void;
@@ -91,7 +100,7 @@ interface FileBrowserProps {
   onReconnect?: () => void;
 }
 
-function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
+function FileBrowser({ title, icon, path, entries, loading, error, notice, onDismissNotice, onNavigate,
   onRefresh, onNewFolder, extraActions, onLocalBtn,
   canCopyToTarget, onCopyToTarget, onRename, onDelete,
   side, isDropTarget, transferring, onDragEnter: onDragEnterCb, onDragLeave: onDragLeaveCb, onFileDrop, onReconnect
@@ -465,6 +474,20 @@ function FileBrowser({ title, icon, path, entries, loading, error, onNavigate,
         </ContextMenu>
       )}
 
+      {notice && (
+        <div className="sftp-notice">
+          <span className="sftp-notice-text">{notice}</span>
+          <button
+            className="sftp-notice-close"
+            onClick={onDismissNotice}
+            aria-label="Dismiss"
+            title="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {confirmDelete && (
         <div className="sftp-confirm-overlay">
           <div className="sftp-confirm-dialog">
@@ -624,6 +647,11 @@ function usePane(initialMode: PaneMode) {
   const [serverName, setServerName] = useState('');
   const [disconnected, setDisconnected] = useState(false);
 
+  // Separate from the listings: an operation that fails leaves the directory
+  // it was working in perfectly readable, so its message must not take the
+  // place of one.
+  const [notice, setNotice] = useState('');
+
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [connectError, setConnectError] = useState('');
   const [connectLogs, setConnectLogs] = useState<LogEntry[]>([]);
@@ -633,6 +661,7 @@ function usePane(initialMode: PaneMode) {
   const listing = mode === 'local' ? local : remote;
 
   async function navigateLocal(path: string) {
+    if (path !== local.path) setNotice('');
     setLocal((l) => ({ ...l, path, loading: true, error: '' }));
     try {
       const entries = await invoke<FileEntry[]>('sftp_list_local', { path });
@@ -644,6 +673,7 @@ function usePane(initialMode: PaneMode) {
 
   async function navigateRemote(path: string) {
     if (!sid) return;
+    if (path !== remote.path) setNotice('');
     setRemote((r) => ({ ...r, path, loading: true, error: '' }));
     try {
       const entries = await invoke<FileEntry[]>('sftp_list_remote', { sessionId: sid, path });
@@ -755,9 +785,10 @@ function usePane(initialMode: PaneMode) {
     try {
       if (mode === 'local') await invoke('sftp_create_local_dir', { path });
       else await invoke('sftp_mkdir', { sessionId: sid, path });
-      await refresh();
     } catch (e) {
       fail(String(e));
+    } finally {
+      await refresh();
     }
   }
 
@@ -775,9 +806,10 @@ function usePane(initialMode: PaneMode) {
           newPath: (base === '/' ? '' : base) + '/' + newName,
         });
       }
-      await refresh();
     } catch (e) {
       fail(String(e));
+    } finally {
+      await refresh();
     }
   }
 
@@ -785,20 +817,20 @@ function usePane(initialMode: PaneMode) {
     try {
       if (mode === 'local') await invoke('sftp_delete_local', { path: entry.path });
       else await invoke('sftp_delete_remote', { sessionId: sid, path: entry.path, isDir: entry.is_dir });
-      await refresh();
     } catch (e) {
       fail(String(e));
+    } finally {
+      await refresh();
     }
   }
 
-  /** Puts an error on whichever side is showing. */
+  /** Reports a failed operation without disturbing the list behind it. */
   function fail(message: string) {
-    const set = mode === 'local' ? setLocal : setRemote;
-    set((l) => ({ ...l, error: message }));
+    setNotice(message);
   }
 
   return {
-    mode, setMode, listing, local, remote,
+    mode, setMode, listing, local, remote, notice, dismissNotice: () => setNotice(''),
     sid, serverId, serverName, disconnected,
     connectingId, connectError, setConnectError, connectServer, connectLogs,
     navigate: (path: string) => (mode === 'local' ? navigateLocal(path) : navigateRemote(path)),
@@ -928,6 +960,8 @@ export default function SftpPanel() {
         entries={pane.listing.entries}
         loading={pane.listing.loading}
         error={pane.listing.error}
+        notice={pane.notice}
+        onDismissNotice={pane.dismissNotice}
         onNavigate={pane.navigate}
         onRefresh={pane.refresh}
         onNewFolder={pane.newFolder}

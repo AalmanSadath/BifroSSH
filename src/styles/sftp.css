@@ -117,6 +117,54 @@
   color: var(--text-primary);
 }
 
+/* A failed operation, over a listing that is still good. Dismissible, because
+   it describes something that already happened rather than the state of the
+   pane.
+
+   Positioned against the panel rather than placed in it, so showing it moves
+   nothing. Anywhere in the flow, including `sticky`, pushed this pane's table
+   down and left the two panes' column headers out of line with each other. */
+.sftp-notice {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 10px 7px 14px;
+  background: color-mix(in srgb, var(--danger) 22%, var(--bg-dark));
+  border-top: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.35);
+}
+
+.sftp-notice-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--danger);
+  word-break: break-word;
+}
+
+.sftp-notice-close {
+  background: none;
+  border: none;
+  color: var(--danger);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  opacity: 0.75;
+}
+
+.sftp-notice-close:hover {
+  opacity: 1;
+  background: color-mix(in srgb, var(--danger) 20%, transparent);
+}
+
 .sftp-breadcrumb {
   display: flex;
   align-items: center;
