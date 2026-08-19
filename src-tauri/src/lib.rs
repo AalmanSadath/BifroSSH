@@ -1,6 +1,8 @@
 mod commands;
+mod connect;
 mod crypto;
 mod hostkeys;
+mod hostverify;
 mod jump;
 mod keystore;
 mod models;

@@ -9,7 +9,8 @@ use tokio::time::{interval, Duration};
 use russh::client::{KeyboardInteractiveAuthResponse, Prompt};
 use tauri::{AppHandle, Emitter};
 
-use crate::hostkeys::{ConnectSecurity, HostKeyVerifier, VerifyingHandler};
+use crate::connect::{emit_log, ConnectSecurity};
+use crate::hostverify::{HostKeyVerifier, VerifyingHandler};
 use crate::jump::{self, JumpHop};
 use crate::prompts::{self, AuthPromptEvent, AuthPromptField};
 
@@ -79,19 +80,6 @@ impl SshState {
             sessions: Mutex::new(HashMap::new()),
         }
     }
-}
-
-#[derive(serde::Serialize, Clone)]
-pub struct ConnectLogEvent {
-    pub message: String,
-    pub kind: String,
-}
-
-pub(crate) fn emit_log(app: &AppHandle, connect_id: &str, kind: &str, message: &str) {
-    let _ = app.emit(&format!("ssh-connect-log:{}", connect_id), ConnectLogEvent {
-        message: message.to_string(),
-        kind: kind.to_string(),
-    });
 }
 
 pub enum SshAuth {

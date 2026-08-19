@@ -3,7 +3,8 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
-use crate::ssh::{connect_ssh, ConnectLogEvent, SshCommand, SshConnectParams};
+use crate::connect::ConnectLogEvent;
+use crate::ssh::{connect_ssh, SshCommand, SshConnectParams};
 
 use super::{CmdError, CmdResult, connect_security, timeout_pausable, AppState};
 use super::resolve::{resolve_auth, resolve_jumps, JumpHopRequest};

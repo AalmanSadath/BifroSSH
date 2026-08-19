@@ -8,7 +8,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{oneshot, Mutex};
 
-use crate::hostkeys::{ConnectSecurity, HostKeyVerifier, VerifyingHandler};
+use crate::connect::ConnectSecurity;
+use crate::hostverify::{HostKeyVerifier, VerifyingHandler};
 use crate::jump::JumpHop;
 use crate::ssh::{AuthContext, SshAuth};
 

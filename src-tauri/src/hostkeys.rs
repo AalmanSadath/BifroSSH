@@ -1,22 +1,17 @@
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::Mutex as StdMutex;
 
 use anyhow::Result;
-use async_trait::async_trait;
 use base64::engine::general_purpose::{STANDARD as B64, STANDARD_NO_PAD as B64_NOPAD};
 use base64::Engine as _;
 use hmac::{Hmac, Mac};
-use russh::client;
 use russh_keys::key::PublicKey;
 use russh_keys::PublicKeyBase64;
 use sha1::Sha1;
 use sha2::{Digest, Sha256};
-use tauri::AppHandle;
 
-use crate::prompts::{self, HostKeyDecision, HostKeyPromptEvent, PromptState};
 use crate::store::get_data_dir;
 
 /// Serialises rewrites so two connects learning at once cannot interleave.
@@ -50,23 +45,6 @@ pub enum KnownHostStatus {
         existing_fp: String,
     },
     Revoked,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HostKeyPolicy {
-    Ask,
-    AcceptNew,
-    Strict,
-}
-
-impl HostKeyPolicy {
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "accept-new" => HostKeyPolicy::AcceptNew,
-            "strict" => HostKeyPolicy::Strict,
-            _ => HostKeyPolicy::Ask,
-        }
-    }
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -346,7 +324,7 @@ pub fn learn_host(host: &str, port: u16, key: &PublicKey) -> Result<()> {
     }
     writeln!(file, "{}", line)?;
     drop(file);
-    set_owner_only(&path)?;
+    crate::store::make_private(&path)?;
     Ok(())
 }
 
@@ -415,7 +393,7 @@ fn remove_lines(host: &str, port: u16, algo: Option<&str>) -> Result<usize> {
         body.push('\n');
     }
     fs::write(&tmp, body)?;
-    set_owner_only(&tmp)?;
+    crate::store::make_private(&tmp)?;
     fs::rename(&tmp, &path)?;
     Ok(removed)
 }
@@ -582,7 +560,7 @@ pub fn import_lines(lines: &[String]) -> Result<ImportedHosts> {
         writeln!(file, "{}", line)?;
     }
     drop(file);
-    set_owner_only(&path)?;
+    crate::store::make_private(&path)?;
     Ok(report)
 }
 
@@ -596,316 +574,6 @@ fn split_host_spec(spec: &str) -> (String, u16) {
         }
     }
     (spec.to_string(), 22)
-}
-
-fn set_owner_only(path: &Path) -> Result<()> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
-    }
-    #[cfg(not(unix))]
-    let _ = path;
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// Verification during a connect
-// ---------------------------------------------------------------------------
-
-/// Everything a connect needs in order to decide about a host key.
-#[derive(Clone)]
-pub struct ConnectSecurity {
-    pub app: AppHandle,
-    pub prompts: Arc<PromptState>,
-    pub policy: HostKeyPolicy,
-    /// `Some` also narrates into the ConnectingView log for that connect.
-    pub connect_id: Option<String>,
-    /// Background connects (OS detection) cannot prompt and must fail closed.
-    pub interactive: bool,
-    /// Raised while a modal is up. The command that owns the connect timeout
-    /// watches this so a user reading a fingerprint isn't timed out.
-    pub waiting: Arc<AtomicBool>,
-}
-
-impl ConnectSecurity {
-    /// Narrates a step into the connection log. A connect with no `connect_id`
-    /// (background OS detection) has nowhere to show it, so this is a no-op.
-    pub fn log(&self, kind: &str, message: &str) {
-        if let Some(connect_id) = &self.connect_id {
-            crate::ssh::emit_log(&self.app, connect_id, kind, message);
-        }
-    }
-
-    pub fn new(
-        app: AppHandle,
-        prompts: Arc<PromptState>,
-        policy: &str,
-        connect_id: Option<String>,
-        interactive: bool,
-    ) -> Self {
-        ConnectSecurity {
-            app,
-            prompts,
-            policy: HostKeyPolicy::from_str(policy),
-            connect_id,
-            interactive,
-            waiting: Arc::new(AtomicBool::new(false)),
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct HostKeyVerifier {
-    pub sec: ConnectSecurity,
-    pub host: String,
-    pub port: u16,
-    pub username: Option<String>,
-    /// russh throws away the reason a handler rejected a key (see
-    /// `client/mod.rs`: `Session::run` matches `Err(e)` and returns `Ok(())`
-    /// with the propagation commented out). The caller would only ever see
-    /// "Disconnected", so the real reason is recorded here instead.
-    outcome: Arc<StdMutex<Option<String>>>,
-    /// Whether this host is a jump host rather than the requested server.
-    is_jump: bool,
-}
-
-impl HostKeyVerifier {
-    pub fn new(sec: ConnectSecurity, host: &str, port: u16, username: Option<String>) -> Self {
-        HostKeyVerifier {
-            sec,
-            host: host.to_string(),
-            port,
-            username,
-            outcome: Arc::new(StdMutex::new(None)),
-            is_jump: false,
-        }
-    }
-
-    /// Marks this as a hop on the way somewhere else, so the prompt can say
-    /// which machine it is asking the user to trust.
-    pub fn into_jump(mut self) -> Self {
-        self.is_jump = true;
-        self
-    }
-
-    /// The rejection reason, if this verifier turned a key down.
-    pub fn failure(&self) -> Option<String> {
-        self.outcome.lock().ok().and_then(|g| g.clone())
-    }
-
-    fn fail(&self, message: String) {
-        self.log("error", &message);
-        if let Ok(mut guard) = self.outcome.lock() {
-            *guard = Some(message);
-        }
-    }
-
-    fn log(&self, kind: &str, message: &str) {
-        self.sec.log(kind, message);
-    }
-
-    fn target(&self) -> String {
-        match &self.username {
-            Some(u) => format!("{}@{}:{}", u, self.host, self.port),
-            None => format!("{}:{}", self.host, self.port),
-        }
-    }
-
-    pub async fn verify(&self, key: &PublicKey) -> bool {
-        let offered_type = key_type(key);
-        let offered_fp = fingerprint(key);
-        self.log(
-            "auth",
-            &format!("Checking host key ({} {})", offered_type, offered_fp),
-        );
-
-        match check_host(&self.host, self.port, key) {
-            KnownHostStatus::Match { source } => {
-                self.log(
-                    "auth",
-                    &format!("Host key verified against {} known_hosts", source.as_str()),
-                );
-                true
-            }
-
-            KnownHostStatus::Revoked => {
-                self.fail(format!(
-                    "The host key for {} is marked @revoked in known_hosts. Refusing to connect.",
-                    self.target()
-                ));
-                false
-            }
-
-            KnownHostStatus::Mismatch {
-                source,
-                line,
-                existing_type,
-                existing_fp,
-            } => {
-                self.fail(format!(
-                    "REMOTE HOST IDENTIFICATION HAS CHANGED for {target}.\n\
-                     The stored key ({existing_type} {existing_fp}) does not match the key the \
-                     server offered ({offered_type} {offered_fp}).\n\
-                     Someone could be eavesdropping right now (man-in-the-middle attack), or the \
-                     server's host key was changed.\n\
-                     Stored in the {source} known_hosts file, line {line}.",
-                    target = self.target(),
-                    source = source.as_str(),
-                ));
-
-                if self.sec.policy != HostKeyPolicy::Ask || !self.sec.interactive {
-                    return false;
-                }
-
-                let decision = self
-                    .ask(KeyOffer {
-                        status: "mismatch",
-                        key_type: offered_type.clone(),
-                        fingerprint: offered_fp.clone(),
-                        existing_key_type: Some(existing_type),
-                        existing_fingerprint: Some(existing_fp),
-                        source: Some(source.as_str().to_string()),
-                        line: Some(line),
-                    })
-                    .await;
-
-                if decision != HostKeyDecision::Replace {
-                    return false;
-                }
-                if let Err(e) = replace_host(&self.host, self.port, key) {
-                    self.fail(format!("Could not update known_hosts: {}", e));
-                    return false;
-                }
-                // The rejection reason recorded above no longer applies.
-                if let Ok(mut guard) = self.outcome.lock() {
-                    *guard = None;
-                }
-                self.log("auth", "Stored host key replaced by user");
-                true
-            }
-
-            KnownHostStatus::Unknown => match self.sec.policy {
-                HostKeyPolicy::AcceptNew => {
-                    if let Err(e) = learn_host(&self.host, self.port, key) {
-                        self.fail(format!("Could not write known_hosts: {}", e));
-                        return false;
-                    }
-                    self.log("auth", "New host key accepted and saved (accept-new policy)");
-                    true
-                }
-
-                HostKeyPolicy::Strict => {
-                    self.fail(format!(
-                        "The host key for {} is not in known_hosts, and the host key policy is \
-                         set to strict. Refusing to connect.",
-                        self.target()
-                    ));
-                    false
-                }
-
-                HostKeyPolicy::Ask => {
-                    if !self.sec.interactive {
-                        self.fail(format!(
-                            "The host key for {} is not in known_hosts. Connect a terminal \
-                             session first to review and trust it.",
-                            self.target()
-                        ));
-                        return false;
-                    }
-
-                    match self
-                        .ask(KeyOffer {
-                            status: "unknown",
-                            key_type: offered_type.clone(),
-                            fingerprint: offered_fp.clone(),
-                            existing_key_type: None,
-                            existing_fingerprint: None,
-                            source: None,
-                            line: None,
-                        })
-                        .await
-                    {
-                        HostKeyDecision::Trust => {
-                            if let Err(e) = learn_host(&self.host, self.port, key) {
-                                self.fail(format!("Could not write known_hosts: {}", e));
-                                return false;
-                            }
-                            self.log("auth", "Host key trusted and saved");
-                            true
-                        }
-                        HostKeyDecision::Once => {
-                            self.log("auth", "Host key accepted for this session only");
-                            true
-                        }
-                        _ => {
-                            self.fail(format!(
-                                "Host key for {} was rejected.",
-                                self.target()
-                            ));
-                            false
-                        }
-                    }
-                }
-            },
-        }
-    }
-
-    /// Puts a key to the user and waits. No answer means reject: a prompt
-    /// nobody was there to answer must not become a trusted host.
-    async fn ask(&self, offer: KeyOffer) -> HostKeyDecision {
-        prompts::request(
-            &self.sec.prompts.host_keys,
-            &self.sec.app,
-            &self.sec.waiting,
-            "host-key-prompt",
-            |request_id| HostKeyPromptEvent {
-                request_id,
-                connect_id: self.sec.connect_id.clone(),
-                host: self.host.clone(),
-                port: self.port,
-                username: self.username.clone(),
-                status: offer.status.to_string(),
-                key_type: offer.key_type,
-                fingerprint: offer.fingerprint,
-                existing_key_type: offer.existing_key_type,
-                existing_fingerprint: offer.existing_fingerprint,
-                source: offer.source,
-                line: offer.line,
-                is_jump: self.is_jump,
-            },
-        )
-        .await
-        .unwrap_or(HostKeyDecision::Reject)
-    }
-}
-
-/// The half of a host key prompt that varies between the two call sites. These
-/// are exactly the `HostKeyPromptEvent` fields the verifier cannot supply from
-/// itself; the rest — host, port, username, connect id — it already knows.
-struct KeyOffer {
-    /// "unknown" | "mismatch" | "revoked"
-    status: &'static str,
-    key_type: String,
-    fingerprint: String,
-    existing_key_type: Option<String>,
-    existing_fingerprint: Option<String>,
-    source: Option<String>,
-    line: Option<usize>,
-}
-
-/// The single `client::Handler` used by every connect path in the app.
-pub struct VerifyingHandler {
-    pub v: HostKeyVerifier,
-}
-
-#[async_trait]
-impl client::Handler for VerifyingHandler {
-    type Error = russh::Error;
-
-    async fn check_server_key(&mut self, key: &PublicKey) -> Result<bool, Self::Error> {
-        Ok(self.v.verify(key).await)
-    }
 }
 
 #[cfg(test)]

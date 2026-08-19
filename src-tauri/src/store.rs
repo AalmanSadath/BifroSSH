@@ -38,6 +38,16 @@ fn set_mode(_path: &Path, _mode: u32) -> Result<()> {
     Ok(())
 }
 
+/// Narrows a file to owner-only.
+///
+/// Here rather than beside each caller because this is the module that decides
+/// what "private" means on disk, and known_hosts wants the same answer as the
+/// vault. Reads the mode first so the common case of a file already correct
+/// costs nothing.
+pub fn make_private(path: &Path) -> Result<()> {
+    set_mode(path, FILE_MODE)
+}
+
 /// Creates the file already private, so it never exists at a wider mode even
 /// briefly.
 fn create_private(path: &Path) -> Result<fs::File> {

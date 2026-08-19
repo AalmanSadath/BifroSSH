@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, State};
 
-use crate::hostkeys::ConnectSecurity;
+use crate::connect::ConnectSecurity;
 use crate::models::*;
 use crate::prompts::PromptState;
 use crate::sftp::SftpClientState;

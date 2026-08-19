@@ -16,7 +16,8 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 use tokio::time::Duration;
 
-use crate::hostkeys::{ConnectSecurity, HostKeyVerifier, VerifyingHandler};
+use crate::connect::ConnectSecurity;
+use crate::hostverify::{HostKeyVerifier, VerifyingHandler};
 use crate::ssh::{AuthContext, SshAuth};
 
 /// OpenSSH puts no limit on chain length, but every hop is a full handshake

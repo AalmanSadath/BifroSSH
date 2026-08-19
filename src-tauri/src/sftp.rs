@@ -14,7 +14,8 @@ use tauri::Emitter;
 use tokio::sync::Mutex;
 use tokio::time::Duration;
 
-use crate::hostkeys::{ConnectSecurity, HostKeyVerifier, VerifyingHandler};
+use crate::connect::ConnectSecurity;
+use crate::hostverify::{HostKeyVerifier, VerifyingHandler};
 use crate::jump::JumpHop;
 use crate::ssh::{AuthContext, SshAuth};
 
