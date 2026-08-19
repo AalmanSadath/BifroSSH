@@ -70,6 +70,27 @@ pub fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// Same, but refuses if anything is already there.
+///
+/// The refusal is the open itself rather than a check before it, which is the
+/// only way it can be relied on: a caller that asks whether a path exists and
+/// then writes to it has a gap between the two, and the write would follow a
+/// symlink planted in that gap and truncate whatever it pointed at.
+///
+/// Returns `ErrorKind::AlreadyExists` for the caller to phrase.
+pub fn write_new_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut opts = fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(FILE_MODE);
+    }
+    let mut file = opts.open(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()
+}
+
 pub fn get_data_dir() -> Result<PathBuf> {
     let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("No home directory found"))?;
     let dir = home.join(".local").join("share").join("bifrossh");
@@ -419,5 +440,35 @@ mod tests {
         // Returning a default here would look like a fresh install, and the
         // first save would then overwrite whatever might still be salvageable.
         assert!(load_app_data_in(&dir, &KEY).is_err());
+    }
+
+    /// The export path used to ask whether a file existed and then write to it.
+    ///
+    /// A *dangling* symlink is what separates that from refusing in the open
+    /// itself, and it is the shape the gap between the two steps had: the
+    /// check follows the link, finds nothing there, and says the path is free;
+    /// the write then follows the same link and creates the file it points at,
+    /// somewhere the user never named. create_new refuses the link itself.
+    #[cfg(unix)]
+    #[test]
+    fn a_write_that_must_not_overwrite_refuses_a_dangling_symlink() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = temp_dir();
+        let elsewhere = dir.join("elsewhere");
+
+        let link = dir.join("export.json");
+        std::os::unix::fs::symlink(&elsewhere, &link).unwrap();
+        assert!(!link.exists(), "the check this replaces would have seen a free path");
+
+        let e = write_new_private(&link, b"exported").unwrap_err();
+        assert_eq!(e.kind(), std::io::ErrorKind::AlreadyExists);
+        assert!(!elsewhere.exists(), "the write went through the link");
+
+        // And it still writes where there is nothing in the way.
+        let fresh = dir.join("fresh.json");
+        write_new_private(&fresh, b"exported").unwrap();
+        assert_eq!(fs::read(&fresh).unwrap(), b"exported");
+        let mode = fs::metadata(&fresh).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, FILE_MODE, "left at {mode:o}");
     }
 }

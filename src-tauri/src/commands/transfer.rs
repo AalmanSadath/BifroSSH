@@ -25,12 +25,6 @@ pub async fn export_data(
     include_secrets: bool,
     overwrite: bool,
 ) -> CmdResult<crate::transfer::ExportResult> {
-    // Checked before anything is built, so a refusal costs nothing and cannot
-    // be mistaken for a write that half happened.
-    if !overwrite && std::path::Path::new(&path).exists() {
-        return Err(format!("{path} already exists").into());
-    }
-
     let key = state.key()?;
     let (content, counts) = {
         let data = state.data.lock().await;
@@ -38,10 +32,25 @@ pub async fn export_data(
             ?
     };
 
-    // write_private, so the file is owner-only from the moment it exists
-    // rather than after a chmod that a reader could beat.
-    crate::store::write_private(std::path::Path::new(&path), content.as_bytes())
-        .map_err(|e| format!("Could not write {path}: {e:#}"))?;
+    // Private from the moment it exists, rather than after a chmod a reader
+    // could beat. Without overwrite the refusal is the open, not a prior
+    // exists() check: that check and the write were two steps, and a symlink
+    // appearing between them would have been followed and its target
+    // truncated.
+    let file = std::path::Path::new(&path);
+    let content_bytes = content.as_bytes();
+    if overwrite {
+        crate::store::write_private(file, content_bytes)
+            .map_err(|e| format!("Could not write {path}: {e:#}"))?;
+    } else {
+        crate::store::write_new_private(file, content_bytes).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::AlreadyExists {
+                format!("{path} already exists")
+            } else {
+                format!("Could not write {path}: {e}")
+            }
+        })?;
+    }
 
     Ok(crate::transfer::ExportResult {
         path,
