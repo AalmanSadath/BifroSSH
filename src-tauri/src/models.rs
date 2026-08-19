@@ -17,6 +17,12 @@ pub struct Server {
     pub key_id: Option<String>,
     #[serde(default)]
     pub theme: Option<String>,
+    /// Which OS the host runs, for its icon.
+    ///
+    /// Two sentinels, and the difference matters: empty means nobody has
+    /// looked yet, and [`UNKNOWN_OS`] means somebody looked and could not
+    /// tell. Without the second one, a host that cannot answer is asked again
+    /// on every connect for as long as it exists.
     #[serde(default = "Server::default_os")]
     pub os: String,
     #[serde(default)]
@@ -35,6 +41,12 @@ pub struct Server {
 impl Server {
     fn default_os() -> String { String::new() }
 }
+
+/// [`Server::os`] for a host that was asked and could not say.
+///
+/// The frontend compares against this exact string to pick a generic icon, so
+/// it is part of the contract with `OsIcon`.
+pub const UNKNOWN_OS: &str = "server";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Identity {

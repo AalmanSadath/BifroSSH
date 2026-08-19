@@ -308,3 +308,23 @@
 }
 .tab-sidebar-toggle:hover { background: var(--bg-hover); color: var(--text-primary); }
 .tab-sidebar-toggle.active { color: var(--accent); background: var(--bg-darkest); }
+
+/* ── Load failure banner ───────────────────────────────────── */
+
+/*
+ * Shown when loadAll could not read the saved data. In the flow rather than
+ * over the page: what it says is that everything below it may be incomplete,
+ * which is not something to be dismissed and then forgotten about.
+ */
+.load-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
+  border-bottom: 1px solid var(--danger);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.load-error-banner span { flex: 1; }

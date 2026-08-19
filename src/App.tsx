@@ -57,7 +57,7 @@ function parseSSHInput(input: string): { user: string; host: string; port: numbe
 
 export default function App() {
   const {
-    loadAll, sessions, activeTabId, setActiveTab, removeSession,
+    loadAll, loadError, sessions, activeTabId, setActiveTab, removeSession,
     renameSession, openSession, quickConnect, servers, settings, keys,
   } = useAppStore();
 
@@ -217,6 +217,15 @@ export default function App() {
     <div className={`app${settings.app_theme === 'light' ? ' app-light' : settings.app_theme === 'amoled' ? ' app-amoled' : ''}`}>
       <Sidebar />
       <div className="main">
+        {loadError && (
+          <div className="load-error-banner">
+            <span>
+              Saved data could not be read, so this may not be showing everything.
+              {' '}{loadError}
+            </span>
+            <button className="btn-secondary btn-sm" onClick={() => loadAll()}>Try again</button>
+          </div>
+        )}
         {(activeTabId === 'hosts' || activeTabId === null) && <div className="quick-connect-bar">
 
           <input

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { UNKNOWN_OS } from '../types';
 import type { Codeprint, Identity, JumpHopParams, KeyEntry, LogEntry, PortForwarding, Server, SessionTab, Settings } from '../types';
 import type { NamedTheme } from '../styles/themes';
 
@@ -123,6 +124,8 @@ interface AppStore {
   sessions: SessionTab[];
   activeTabId: string | null;
 
+  /** Set when `loadAll` could not read the saved data; see there. */
+  loadError: string | null;
   loadAll: () => Promise<void>;
 
   saveServer: (server: Partial<Server> & { name: string; host: string; port: number }, password?: string) => Promise<void>;
@@ -308,30 +311,47 @@ export const useAppStore = create<AppStore>((set, get) => ({
   sessions: [],
   activeTabId: 'hosts',
 
+  loadError: null,
+
+  // Seven reads, and every way they could fail used to escape as an unhandled
+  // rejection: Promise.all rejects on the first one, so a single command
+  // failing left every panel showing its empty default with nothing said. That
+  // reads as a vault which opened onto no data rather than a read that did not
+  // finish.
+  //
+  // Nothing is at risk from it. Saves go through the backend's own copy of the
+  // document, so the empty lists here cannot be written over the full ones
+  // there. What was missing is the user being told the screen is not the
+  // truth, and being able to ask again.
   loadAll: async () => {
-    const [servers, identities, keys, settings, portForwardings, codeprints, customThemes] =
-      await Promise.all([
-        invoke<Server[]>('list_servers'),
-        invoke<Identity[]>('list_identities'),
-        invoke<KeyEntry[]>('list_keys'),
-        invoke<Settings>('get_settings'),
-        invoke<PortForwarding[]>('get_port_forwardings'),
-        invoke<Codeprint[]>('get_codeprints'),
-        invoke<Record<string, NamedTheme>>('get_custom_themes'),
-      ]);
-
-    cacheAppTheme(settings.app_theme);
-
-    let collections = { portForwardings, codeprints, customThemes };
     try {
-      collections = await migrateLegacyStorage(collections);
-    } catch (e) {
-      // Leave localStorage intact so the next launch can retry rather than
-      // losing the user's rules.
-      console.error('Could not migrate saved data out of localStorage', e);
-    }
+      const [servers, identities, keys, settings, portForwardings, codeprints, customThemes] =
+        await Promise.all([
+          invoke<Server[]>('list_servers'),
+          invoke<Identity[]>('list_identities'),
+          invoke<KeyEntry[]>('list_keys'),
+          invoke<Settings>('get_settings'),
+          invoke<PortForwarding[]>('get_port_forwardings'),
+          invoke<Codeprint[]>('get_codeprints'),
+          invoke<Record<string, NamedTheme>>('get_custom_themes'),
+        ]);
 
-    set({ servers, identities, keys, settings, ...collections });
+      cacheAppTheme(settings.app_theme);
+
+      let collections = { portForwardings, codeprints, customThemes };
+      try {
+        collections = await migrateLegacyStorage(collections);
+      } catch (e) {
+        // Leave localStorage intact so the next launch can retry rather than
+        // losing the user's rules.
+        console.error('Could not migrate saved data out of localStorage', e);
+      }
+
+      set({ servers, identities, keys, settings, ...collections, loadError: null });
+    } catch (e) {
+      console.error('Could not load saved data', e);
+      set({ loadError: String(e) });
+    }
   },
 
   saveServer: async (server, password) => {
@@ -366,9 +386,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
       }));
     } catch (e) {
       console.warn('[OS detect]', e);
+      // Matches what the backend has now recorded for this host, so the two
+      // agree and the next launch does not start over.
       set((s) => ({
         servers: s.servers.map((srv) =>
-          srv.id === serverId ? { ...srv, os: 'server' } : srv
+          srv.id === serverId ? { ...srv, os: UNKNOWN_OS } : srv
         ),
       }));
     }

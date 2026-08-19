@@ -78,16 +78,22 @@ pub async fn detect_server_os(
     // so an unknown host key fails rather than silently trusting.
     let sec = connect_security(&state, &app, None, false).await;
 
-    let output = crate::ssh::exec_ssh_command(
+    let result = crate::ssh::exec_ssh_command(
         &host, port, &username, auth,
         "cat /etc/os-release 2>/dev/null; cat /proc/device-tree/model 2>/dev/null; echo; uname -s",
         sec,
         &jumps,
     )
-    .await
-    ?;
+    .await;
 
-    let detected = parse_os_release(&output);
+    // A host that could not be asked is recorded as unknown rather than left
+    // as never-asked. Only success used to be written, so the empty string
+    // survived and openSession, which detects when it sees one, tried again on
+    // every single connect to a host already known not to answer.
+    let detected = match &result {
+        Ok(output) => parse_os_release(output),
+        Err(_) => crate::models::UNKNOWN_OS.to_string(),
+    };
 
     {
         let mut data = state.data.lock().await;
@@ -97,5 +103,8 @@ pub async fn detect_server_os(
         state.save(&data)?;
     }
 
+    // The failure is still a failure to the caller; what changed is that the
+    // answer to "have we tried this host" is now on disk either way.
+    result?;
     Ok(detected)
 }

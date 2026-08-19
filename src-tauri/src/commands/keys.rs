@@ -29,7 +29,14 @@ pub async fn list_keys(state: State<'_, AppState>) -> CmdResult<Vec<KeyEntry>> {
             }
         }
     }
-    if updated { let _ = state.save(&data); }
+    // Listing must not fail because a backfilled algorithm could not be
+    // written, but a save that fails silently means the same detection runs on
+    // every listing forever with nothing saying why.
+    if updated {
+        if let Err(e) = state.save(&data) {
+            eprintln!("Could not record detected key algorithms: {e:?}");
+        }
+    }
     Ok(data.keys.iter().cloned().map(Redacted::redacted).collect())
 }
 

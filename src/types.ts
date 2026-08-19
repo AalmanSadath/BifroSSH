@@ -1,3 +1,12 @@
+/**
+ * `Server.os` for a host that was asked and could not say.
+ *
+ * Distinct from an empty string, which means nobody has looked yet. The
+ * backend writes this value, so the two must agree: see `UNKNOWN_OS` in
+ * `models.rs`.
+ */
+export const UNKNOWN_OS = 'server';
+
 export interface Server {
   id: string;
   name: string;
