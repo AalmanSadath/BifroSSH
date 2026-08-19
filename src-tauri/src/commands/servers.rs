@@ -63,5 +63,6 @@ pub async fn get_server_password(
 pub async fn delete_server(state: State<'_, AppState>, server_id: String) -> CmdResult<()> {
     let mut data = state.data.lock().await;
     data.servers.retain(|s| s.id != server_id);
+    super::records::forget_references_to(&mut data, &server_id);
     state.save(&data)
 }

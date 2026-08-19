@@ -6,7 +6,7 @@
 //! sites and the lookups open coded at nine, which is nine chances to compare
 //! the wrong id and ten to forget a newly added secret.
 
-use crate::models::{Identified, Identity, KeyEntry, Server};
+use crate::models::{AppData, Identified, Identity, KeyEntry, PortForwarding, Server};
 
 /// What the frontend sees where a secret is stored.
 ///
@@ -68,6 +68,43 @@ pub fn upsert_by_id<T: Identified>(items: &mut Vec<T>, item: T) {
     }
 }
 
+/// Clears every reference to a record that no longer exists.
+///
+/// A saved record is pointed at from several places: a server names an
+/// identity, a key and a jump host, an identity names a key, and a forwarding
+/// names up to two hosts. Deleting one used to leave those pointing at nothing,
+/// and the three deletes each decided for themselves what to do about it, so
+/// removing an identity tidied up after itself while removing a server or a key
+/// did not. A rule left pointing at a deleted host fails at connect time with
+/// no way to see why from the list it appears in.
+///
+/// That this is the wrong outcome is already settled elsewhere: `apply_merge`
+/// exists in part to clear exactly these fields when an import cannot resolve
+/// them.
+///
+/// Every field is listed here rather than at the call sites so a new one is
+/// added in one place, not three.
+pub fn forget_references_to(data: &mut AppData, id: &str) {
+    let gone = |field: &mut Option<String>| {
+        if field.as_deref() == Some(id) {
+            *field = None;
+        }
+    };
+
+    for server in data.servers.iter_mut() {
+        gone(&mut server.identity_id);
+        gone(&mut server.key_id);
+        gone(&mut server.proxy_jump);
+    }
+    for identity in data.identities.iter_mut() {
+        gone(&mut identity.key_id);
+    }
+    for pf in data.port_forwardings.iter_mut() {
+        gone(&mut pf.intermediate_host_id);
+        gone(&mut pf.remote_host_id);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -88,6 +125,60 @@ mod tests {
             auth_kind: None,
             proxy_jump: None,
         }
+    }
+
+    /// Deleting a record must leave nothing pointing at it, and all three
+    /// deletes must agree about that. They did not: removing an identity
+    /// cleared the servers that named it while removing a server or a key
+    /// cleared nothing, so a jump chain or a forwarding rule kept an id that
+    /// would never resolve again.
+    #[test]
+    fn deleting_a_record_leaves_nothing_pointing_at_it() {
+        let mut data = AppData {
+            servers: vec![
+                Server { proxy_jump: Some("gone".into()), ..server("via", None) },
+                Server {
+                    identity_id: Some("gone".into()),
+                    key_id: Some("gone".into()),
+                    ..server("uses", None)
+                },
+                // A different id with the same shape must survive untouched,
+                // or the helper is clearing by field rather than by id.
+                Server { proxy_jump: Some("keep".into()), ..server("other", None) },
+            ],
+            identities: vec![Identity {
+                id: "i1".into(),
+                name: "an identity".into(),
+                username: "root".into(),
+                key_id: Some("gone".into()),
+                encrypted_password: None,
+                auth_kind: None,
+                agent_fingerprint: None,
+            }],
+            port_forwardings: vec![PortForwarding {
+                id: "pf".into(),
+                label: "rule".into(),
+                kind: "local".into(),
+                bind_address: "127.0.0.1".into(),
+                local_port: Some(8080),
+                intermediate_host_id: Some("gone".into()),
+                remote_host_id: Some("gone".into()),
+                remote_port: None,
+                dest_address: "example.com".into(),
+                dest_port: Some(80),
+            }],
+            ..Default::default()
+        };
+
+        forget_references_to(&mut data, "gone");
+
+        assert_eq!(data.servers[0].proxy_jump, None);
+        assert_eq!(data.servers[1].identity_id, None);
+        assert_eq!(data.servers[1].key_id, None);
+        assert_eq!(data.servers[2].proxy_jump.as_deref(), Some("keep"));
+        assert_eq!(data.identities[0].key_id, None);
+        assert_eq!(data.port_forwardings[0].intermediate_host_id, None);
+        assert_eq!(data.port_forwardings[0].remote_host_id, None);
     }
 
     fn key(id: &str, content: Option<&str>, passphrase: Option<&str>) -> KeyEntry {

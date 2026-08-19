@@ -112,6 +112,7 @@ pub async fn save_key_from_content(
 pub async fn delete_key(state: State<'_, AppState>, key_id: String) -> CmdResult<()> {
     let mut data = state.data.lock().await;
     data.keys.retain(|k| k.id != key_id);
+    super::records::forget_references_to(&mut data, &key_id);
     state.save(&data)
 }
 
