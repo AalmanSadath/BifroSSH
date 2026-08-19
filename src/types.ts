@@ -33,6 +33,16 @@ export interface Server {
  * credentials resolved on this side; a key here is still just an id, and the
  * backend goes to the keychain for the material.
  */
+/** What `sftp_upload`, `sftp_download` and `sftp_copy_remote_to_remote` return. */
+export interface TransferSummary {
+  files: number;
+  directories: number;
+  /** Symlinks are never copied; following one risks a loop. */
+  skipped_symlinks: number;
+  /** True when the user stopped it; `files` then counts what arrived. */
+  cancelled: boolean;
+}
+
 export interface JumpHopParams {
   host: string;
   port: number;

@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useAppStore, buildJumpChain, resolveServerAuth } from '../store/appStore';
 import OsIcon from './OsIcon';
-import type { FileEntry, LogEntry, Server } from '../types';
+import type { FileEntry, LogEntry, Server, TransferSummary } from '../types';
 import ConnectingView from './ConnectingView';
 import ContextMenu from './shared/ContextMenu';
 
@@ -829,13 +829,18 @@ function usePane(initialMode: PaneMode) {
     setNotice(message);
   }
 
+  /** Same place, for something that went well enough but is worth saying. */
+  function say(message: string) {
+    setNotice(message);
+  }
+
   return {
     mode, setMode, listing, local, remote, notice, dismissNotice: () => setNotice(''),
     sid, serverId, serverName, disconnected,
     connectingId, connectError, setConnectError, connectServer, connectLogs,
     navigate: (path: string) => (mode === 'local' ? navigateLocal(path) : navigateRemote(path)),
     refresh, goLocal, connect, disconnect, reconnect,
-    newFolder, rename, remove, fail,
+    newFolder, rename, remove, fail, say,
   };
 }
 
@@ -901,6 +906,26 @@ export default function SftpPanel() {
   useEffect(() => { left.goLocal(); }, []);
 
   /**
+   * What a finished transfer is worth saying, or nothing.
+   *
+   * The backend has always counted these and the panel has always thrown the
+   * answer away, so a batch that quietly copied less than was asked for looked
+   * identical to one that copied all of it. Only the two surprises are
+   * reported: a transfer that did what was asked needs no announcement.
+   */
+  function describeTransfer(s: TransferSummary): string | null {
+    const parts: string[] = [];
+    if (s.cancelled) {
+      parts.push(`Stopped after ${s.files} ${s.files === 1 ? 'file' : 'files'}.`);
+    }
+    if (s.skipped_symlinks > 0) {
+      const n = s.skipped_symlinks;
+      parts.push(`${n} ${n === 1 ? 'symlink was' : 'symlinks were'} not copied.`);
+    }
+    return parts.length > 0 ? parts.join(' ') : null;
+  }
+
+  /**
    * Moves `entry` into the pane named by `target`, from the other one.
    *
    * Which of the three commands runs falls out of what the two panes are
@@ -915,18 +940,18 @@ export default function SftpPanel() {
     const src = target === 'left' ? right : left;
     if (!canMove(src, dst)) return;
 
-    const run = () => {
+    const run = (): Promise<TransferSummary> => {
       if (src.mode === 'local') {
-        return invoke('sftp_upload', {
+        return invoke<TransferSummary>('sftp_upload', {
           sessionId: dst.sid, localPath: entry.path, remoteDir: dst.listing.path,
         });
       }
       if (dst.mode === 'local') {
-        return invoke('sftp_download', {
+        return invoke<TransferSummary>('sftp_download', {
           sessionId: src.sid, remotePath: entry.path, localDir: dst.listing.path,
         });
       }
-      return invoke('sftp_copy_remote_to_remote', {
+      return invoke<TransferSummary>('sftp_copy_remote_to_remote', {
         srcSessionId: src.sid, srcPath: entry.path,
         dstSessionId: dst.sid, dstDir: dst.listing.path,
       });
@@ -936,7 +961,9 @@ export default function SftpPanel() {
     setTransferTarget(target);
     setDropTarget(null);
     try {
-      await run();
+      const summary = await run();
+      const said = describeTransfer(summary);
+      if (said) dst.say(said);
     } catch (e) {
       // Was only logged to the console before, so a transfer that failed
       // looked exactly like one that did nothing.
