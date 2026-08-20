@@ -3,6 +3,7 @@ import * as ipc from '../ipc';
 import { useAppStore } from '../store/appStore';
 import ThemePicker, { ThumbNail } from './ThemePicker';
 import { THEMES } from '../styles/themes';
+import { STORED } from '../types';
 import type { Server } from '../types';
 import Drawer from './shared/Drawer';
 import PortalDropdown, { PortalMenu, anchorBelow, type AnchorRect } from './shared/PortalDropdown';
@@ -25,7 +26,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
   const [password, setPassword] = useState('');
 
   useEffect(() => {
-    if (server?.id && server.encrypted_password === '[stored]') {
+    if (server?.id && server.encrypted_password === STORED) {
       ipc.getServerPassword(server.id)
         .then(setPassword)
         .catch(() => {});
@@ -233,7 +234,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
                             ? 'prompt'
                             : i.auth_kind === 'agent'
                               ? 'ssh-agent'
-                              : i.encrypted_password === '[stored]' ? 'password' : 'key'}
+                              : i.encrypted_password === STORED ? 'password' : 'key'}
                         </span>
                       </button>
                     ))}

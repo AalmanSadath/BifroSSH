@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import * as ipc from '../ipc';
 import { useAppStore, reportFailure } from '../store/appStore';
+import { STORED } from '../types';
 import type { AgentKeyInfo, Identity } from '../types';
 import ConfirmModal from './shared/ConfirmModal';
 import ContextMenu from './shared/ContextMenu';
@@ -225,7 +226,7 @@ export default function KeychainPanel() {
       ? 'keyboard-interactive' as const
       : id.auth_kind === 'agent'
         ? 'agent' as const
-        : id.encrypted_password === '[stored]' ? 'password' as const : 'key' as const;
+        : id.encrypted_password === STORED ? 'password' as const : 'key' as const;
     setIdName(id.name); setIdUsername(id.username);
     setIdAuthType(authType); setIdKeyId(id.key_id ?? ''); setIdPassword(''); setIdError('');
     setIdAgentFingerprint(id.agent_fingerprint ?? '');
@@ -236,7 +237,7 @@ export default function KeychainPanel() {
     e.preventDefault();
     if (!idName.trim() || !idUsername.trim()) { setIdError('Name and username required'); return; }
     if (idAuthType === 'key' && !idKeyId) { setIdError('Select a key'); return; }
-    if (idAuthType === 'password' && !idPassword && editId?.encrypted_password !== '[stored]') {
+    if (idAuthType === 'password' && !idPassword && editId?.encrypted_password !== STORED) {
       setIdError('Password required'); return;
     }
     setSavingId(true);
@@ -464,7 +465,7 @@ export default function KeychainPanel() {
                     <span className="card-title">{key.name}</span>
                     <span className="kc-card-detail">
                       {key.algorithm ?? (key.key_path ? 'file path' : 'unknown')}
-                      {key.encrypted_passphrase === '[stored]' && ' · passphrase'}
+                      {key.encrypted_passphrase === STORED && ' · passphrase'}
                     </span>
                   </div>
                   <button className="card-edit-btn" onClick={(e) => { e.stopPropagation(); handleOpenEditKey(key); }} title={hint('Edit')} disabled={editKeyLoading}>
@@ -585,7 +586,7 @@ export default function KeychainPanel() {
                   <PassphraseInput
                     value={idPassword}
                     onChange={setIdPassword}
-                    placeholder={editId?.encrypted_password === '[stored]' ? 'leave blank to keep existing' : 'password'}
+                    placeholder={editId?.encrypted_password === STORED ? 'leave blank to keep existing' : 'password'}
                   />
                 </div>
               )}
@@ -616,7 +617,7 @@ export default function KeychainPanel() {
                 const isPromptAuth = id.auth_kind === 'keyboard-interactive';
                 const isAgentAuth = id.auth_kind === 'agent';
                 const storedless = isPromptAuth || isAgentAuth;
-                const isPasswordAuth = !storedless && id.encrypted_password === '[stored]';
+                const isPasswordAuth = !storedless && id.encrypted_password === STORED;
                 const key = storedless || isPasswordAuth ? null : keys.find((k) => k.id === id.key_id);
                 const keyMissing = !storedless && !isPasswordAuth && !key;
                 return (
