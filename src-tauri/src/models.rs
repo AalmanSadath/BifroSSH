@@ -49,7 +49,11 @@ pub enum AuthMethod {
     Agent,
 }
 
-/// Which of the three app palettes is in force.
+/// Which app palette is in force.
+///
+/// `System` is a choice about where the answer comes from rather than a
+/// palette of its own: it resolves to Light or Dark from what the desktop
+/// reports. Never to Amoled, which no desktop can ask for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AppTheme {
@@ -57,6 +61,7 @@ pub enum AppTheme {
     Dark,
     Light,
     Amoled,
+    System,
 }
 
 /// What to do about a host key that is not already trusted.
@@ -191,6 +196,14 @@ pub struct Settings {
     pub sftp_inactivity_timeout_secs: u32,
     #[serde(default, deserialize_with = "lenient")]
     pub host_key_policy: HostKeyPolicy,
+    /// `#rrggbb` the user picked, or None to follow the desktop's own accent
+    /// and fall back to the palette's built-in one where there is none.
+    ///
+    /// Held as an override rather than seeded at first launch, so a desktop
+    /// that changes its accent is still followed by everyone who never chose
+    /// one of their own.
+    #[serde(default)]
+    pub accent_color: Option<String>,
     /// Seconds between keepalives on terminal and tunnel connections; 0 is off.
     /// Stops idle sessions being dropped by NAT and firewall idle timers, and
     /// makes a dead connection surface instead of hanging.
@@ -214,6 +227,7 @@ impl Default for Settings {
             show_hover_hints: true,
             sftp_inactivity_timeout_secs: 300,
             host_key_policy: HostKeyPolicy::Ask,
+            accent_color: None,
             keepalive_interval_secs: 30,
         }
     }

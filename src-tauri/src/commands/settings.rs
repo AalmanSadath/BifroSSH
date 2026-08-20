@@ -7,6 +7,21 @@ use super::AppState;
 
 // ── Settings ─────────────────────────────────────────────────────────────────
 
+/// What the desktop reports about its own appearance.
+///
+/// Advisory, and never an error: a desktop that cannot be asked answers "no
+/// preference" with no accent, which is the same as one that has no opinion.
+/// On a blocking thread because it has to be: zbus's blocking API drives its
+/// own executor, and calling it straight from a command panics with "Cannot
+/// start a runtime from within a runtime". `keyring` uses the same API without
+/// this only because it runs at startup, before the runtime exists.
+#[tauri::command]
+pub async fn system_appearance() -> crate::appearance::SystemAppearance {
+    tokio::task::spawn_blocking(crate::appearance::read)
+        .await
+        .unwrap_or_default()
+}
+
 #[tauri::command]
 pub async fn get_settings(state: State<'_, AppState>) -> CmdResult<Settings> {
     Ok(state.data.lock().await.settings.clone())

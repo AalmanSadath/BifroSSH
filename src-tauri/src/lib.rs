@@ -1,3 +1,4 @@
+mod appearance;
 mod commands;
 mod connect;
 mod crypto;
@@ -148,6 +149,12 @@ fn start(
             tunnel_state: Arc::new(TunnelState::new()),
             prompts: Arc::new(PromptState::new()),
         })
+        // Started before the window so the first paint already knows whether
+        // the desktop wants light or dark, rather than flashing the default.
+        .setup(|app| {
+            appearance::watch(app.handle().clone());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::list_servers,
             commands::save_server,
@@ -164,6 +171,7 @@ fn start(
             commands::save_identity,
             commands::delete_identity,
             commands::get_identity_password,
+            commands::system_appearance,
             commands::get_settings,
             commands::save_settings,
             commands::list_fonts,
