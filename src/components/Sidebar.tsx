@@ -14,7 +14,7 @@ export default function Sidebar() {
   return (
     <aside className={`sidebar${collapsed ? ' sidebar-collapsed' : ''}`} onContextMenu={(e) => e.preventDefault()}>
       <div className="sidebar-top">
-        <div className="sidebar-brand">
+        {!collapsed && <div className="sidebar-brand">
           <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 512 512" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
             <path d="M 110 390 L 110 200" strokeWidth="30"/>
             <path d="M 402 390 L 402 200" strokeWidth="30"/>
@@ -22,8 +22,8 @@ export default function Sidebar() {
             <path d="M 174 254 L 254 296 L 174 338" strokeWidth="24"/>
             <path d="M 254 360 L 338 360" strokeWidth="24"/>
           </svg>
-          {!collapsed && <span className="sidebar-brand-text">BifroSSH</span>}
-        </div>
+          <span className="sidebar-brand-text">BifroSSH</span>
+        </div>}
         <button className="sidebar-collapse-btn" onClick={() => setCollapsed(c => !c)} title={hint(collapsed ? 'Expand sidebar' : 'Collapse sidebar')}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             {collapsed

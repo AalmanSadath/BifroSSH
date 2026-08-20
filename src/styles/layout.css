@@ -64,10 +64,19 @@
   gap: 6px;
 }
 
+/* The mark steps aside and the chevron takes the row, rather than stacking
+   under it. Stacked, the header went from 48px to 80px and shifted every nav
+   item down 32px, so an icon was never in the same place twice. Side by side
+   does not fit: 28 + 26 plus gap and padding wants about 76px of a 48px rail.
+
+   The button is held to the mark's own height so the header measures the same
+   in both states, which is the whole point of the change. */
 .sidebar-collapsed .sidebar-top {
   justify-content: center;
-  flex-direction: column;
-  gap: 6px;
+}
+
+.sidebar-collapsed .sidebar-collapse-btn {
+  height: 28px;
 }
 
 .sidebar-brand {
