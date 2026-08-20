@@ -4,15 +4,31 @@ use super::*;
 use super::listing::{collect_local_tree, collect_remote_tree};
 use super::session::get_session;
 use std::fs;
+use std::future::Future;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use russh_sftp::client::SftpSession;
 use tauri::Emitter;
 use tokio::sync::Mutex;
+
+/// How long one chunk may sit with nothing happening before the transfer is
+/// called dead.
+///
+/// A server that goes away without closing the socket does not fail the
+/// transfer: the SSH channel simply stops answering, and the await never
+/// completes and never errors. Generous enough that no real link trips it —
+/// a 128 KB chunk needs a link slower than 2 KB/s to take this long — and
+/// short enough that a host that has gone is reported within the minute
+/// rather than never.
+const STALL: Duration = Duration::from_secs(60);
+
+/// How often a waiting chunk looks up to check the clock and the cancel flag.
+const TICK: Duration = Duration::from_secs(1);
 
 /// Summary for the single file case, where there is no batch to report on.
 fn single_file_summary(step: Step) -> TransferSummary {
@@ -164,6 +180,51 @@ struct Position {
     count: u32,
 }
 
+/// What came of waiting on one read or write.
+#[derive(Debug)]
+enum Waited<T> {
+    Done(T),
+    Cancelled,
+}
+
+/// Runs one I/O step, while still watching the clock and the cancel flag.
+///
+/// Every await in the copy loop used to be unbounded, which is only safe
+/// against a peer that fails loudly. A host that reboots mid-transfer does
+/// not: the socket stays open with nothing on the other end, the channel
+/// stops answering, and `read` or `write_all` parks on a future that will
+/// never complete. The loop then never comes back round to its `cancel`
+/// check, so Cancel does nothing, and the command never returns, so the panel
+/// goes on showing a progress bar for a transfer that ended minutes ago.
+///
+/// The future is pinned once and polled across ticks rather than rebuilt each
+/// time, so a chunk half written is not written again from the start.
+async fn waited<T, F>(op: F, cancel: &AtomicBool, what: &str) -> Result<Waited<T>>
+where
+    F: Future<Output = std::io::Result<T>>,
+{
+    tokio::pin!(op);
+    let deadline = tokio::time::Instant::now() + STALL;
+    loop {
+        tokio::select! {
+            done = &mut op => return Ok(Waited::Done(done?)),
+            _ = tokio::time::sleep(TICK) => {
+                if cancel.load(Ordering::Relaxed) {
+                    return Ok(Waited::Cancelled);
+                }
+                if tokio::time::Instant::now() >= deadline {
+                    return Err(anyhow!(
+                        "Transfer stalled: nothing {} for {} seconds. \
+                         The connection is gone even though it was never closed.",
+                        what,
+                        STALL.as_secs()
+                    ));
+                }
+            }
+        }
+    }
+}
+
 /// Streams one file across, in chunks, reporting as it goes.
 ///
 /// Chunked rather than read whole into memory, so a large file does not have to
@@ -188,37 +249,67 @@ async fn transfer_one<S: FileSide, D: FileSide>(
     let (mut reader, total) = src.open_read(src_path).await?;
     let mut writer = dst.create_write(dst_path).await?;
 
-    let mut buf = vec![0u8; CHUNK];
-    let mut transferred = 0u64;
-    loop {
-        if cancel.load(Ordering::Relaxed) {
-            // A part written file is not a shorter file, it is a corrupt one,
-            // and nothing here can resume it. Removing it is the honest
-            // outcome; leaving it puts something that looks complete beside the
-            // files that are.
-            drop(writer);
-            dst.remove_file(dst_path).await;
-            return Ok(Step::Cancelled);
+    let outcome = async {
+        let mut buf = vec![0u8; CHUNK];
+        let mut transferred = 0u64;
+        loop {
+            if cancel.load(Ordering::Relaxed) {
+                return Ok(Step::Cancelled);
+            }
+            let n = match waited(reader.read(&mut buf), cancel, "read").await? {
+                Waited::Done(n) => n,
+                Waited::Cancelled => return Ok(Step::Cancelled),
+            };
+            if n == 0 {
+                break;
+            }
+            match waited(writer.write_all(&buf[..n]), cancel, "written").await? {
+                Waited::Done(()) => {}
+                Waited::Cancelled => return Ok(Step::Cancelled),
+            }
+            transferred += n as u64;
+            let _ = app.emit(
+                "sftp-progress",
+                TransferProgress {
+                    file_name: file_name.clone(),
+                    transferred,
+                    total,
+                    file_index: at.index,
+                    file_count: at.count,
+                },
+            );
         }
-        let n = reader.read(&mut buf).await?;
-        if n == 0 {
-            break;
-        }
-        writer.write_all(&buf[..n]).await?;
-        transferred += n as u64;
-        let _ = app.emit(
-            "sftp-progress",
-            TransferProgress {
-                file_name: file_name.clone(),
+
+        // A stream that ends early is not a shorter file, it is an incomplete
+        // one. `total` had only ever been used to fill the progress event, so
+        // a connection that died mid-file reached this break on EOF and was
+        // reported as a transfer that finished.
+        if transferred < total {
+            return Err(anyhow!(
+                "{} ended after {} of {} bytes",
+                file_name,
                 transferred,
-                total,
-                file_index: at.index,
-                file_count: at.count,
-            },
-        );
+                total
+            ));
+        }
+
+        match waited(writer.flush(), cancel, "flushed").await? {
+            Waited::Done(()) => Ok(Step::Finished),
+            Waited::Cancelled => Ok(Step::Cancelled),
+        }
     }
-    writer.flush().await?;
-    Ok(Step::Finished)
+    .await;
+
+    // A part written file is not a shorter file, it is a corrupt one, and
+    // nothing here can resume it. Removing it is the honest outcome; leaving
+    // it puts something that looks complete beside the files that are. This
+    // now covers a failure as well as a cancel: before, an error left the
+    // stub behind.
+    if !matches!(outcome, Ok(Step::Finished)) {
+        drop(writer);
+        dst.remove_file(dst_path).await;
+    }
+    outcome
 }
 
 /// Copies `src_path` into `dst_dir`, recursing if it names a directory.
@@ -330,4 +421,74 @@ pub async fn copy_remote_path(
     let dst = Remote(get_session(sftp_state, dst_session_id).await?);
     let cancel = sftp_state.begin_transfer();
     transfer(app, &src, src_path, &dst, dst_dir, &cancel).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io;
+
+    /// A read or write that will never answer, which is what an SSH channel to
+    /// a host that has gone looks like: no data, no error, no close.
+    fn never() -> impl Future<Output = io::Result<usize>> {
+        std::future::pending()
+    }
+
+    /// The clock is paused in these tests, so tokio advances it as soon as
+    /// every task is idle. A sixty second stall therefore costs no wall time.
+    #[tokio::test(start_paused = true)]
+    async fn a_transfer_whose_peer_vanished_is_called_stalled_rather_than_awaited_forever() {
+        let cancel = AtomicBool::new(false);
+        let err = waited(never(), &cancel, "read")
+            .await
+            .expect_err("a peer that never answers must not be waited on forever");
+        let message = format!("{err}");
+        assert!(message.contains("stalled"), "{message}");
+        assert!(message.contains("60 seconds"), "{message}");
+    }
+
+    /// The defect this covers is not that Cancel was unimplemented, but that
+    /// it could not be reached: the flag was read at the top of the copy loop,
+    /// and a parked await never came back round to it.
+    #[tokio::test(start_paused = true)]
+    async fn cancel_reaches_a_transfer_that_is_already_parked_on_a_dead_connection() {
+        let cancel = AtomicBool::new(true);
+        let waited = waited(never(), &cancel, "read")
+            .await
+            .expect("a cancelled wait is an outcome, not a failure");
+        assert!(matches!(waited, Waited::Cancelled));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_chunk_that_arrives_is_handed_back_untouched() {
+        let cancel = AtomicBool::new(false);
+        let waited = waited(async { io::Result::Ok(4096usize) }, &cancel, "read")
+            .await
+            .unwrap();
+        assert!(matches!(waited, Waited::Done(4096)));
+    }
+
+    /// A slow link is not a dead one. Anything that finishes inside the window
+    /// has to come back as itself, or the fix for the wedge would break every
+    /// transfer over a bad connection.
+    #[tokio::test(start_paused = true)]
+    async fn a_slow_chunk_is_not_mistaken_for_a_stalled_one() {
+        let cancel = AtomicBool::new(false);
+        let slow = async {
+            tokio::time::sleep(STALL - Duration::from_secs(5)).await;
+            io::Result::Ok(1usize)
+        };
+        let waited = waited(slow, &cancel, "read").await.unwrap();
+        assert!(matches!(waited, Waited::Done(1)));
+    }
+
+    /// The error the caller reports is the one that names the failure, not an
+    /// io::Error wrapped in a stall message.
+    #[tokio::test(start_paused = true)]
+    async fn a_connection_that_fails_loudly_keeps_its_own_error() {
+        let cancel = AtomicBool::new(false);
+        let broken = async { io::Result::<usize>::Err(io::Error::other("connection reset")) };
+        let err = waited(broken, &cancel, "read").await.unwrap_err();
+        assert!(format!("{err}").contains("connection reset"));
+    }
 }

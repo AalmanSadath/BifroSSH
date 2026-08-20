@@ -41,6 +41,11 @@ argon2 = "0.5"
 [target.'cfg(unix)'.dependencies]
 zbus = { version = "5", default-features = false, features = ["blocking-api", "tokio"] }
 
+[dev-dependencies]
+# Pausable clock, so a test for a sixty second stall does not take sixty
+# seconds. Not in tokio's "full", and wanted only by tests.
+tokio = { version = "1", features = ["test-util"] }
+
 [profile.dev]
 opt-level = 1
 codegen-units = 1

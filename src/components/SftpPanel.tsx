@@ -884,7 +884,9 @@ export default function SftpPanel() {
   const [dropTarget, setDropTarget] = useState<'left' | 'right' | null>(null);
   const [transferring, setTransferring] = useState(false);
   const [transferTarget, setTransferTarget] = useState<'left' | 'right' | null>(null);
-  const [progress, setProgress] = useState<(TransferProgress & { startTime: number }) | null>(null);
+  const [progress, setProgress] = useState<
+    (TransferProgress & { startTime: number; at: number }) | null
+  >(null);
   // The transfer stops at the next chunk boundary, not on the click, so the
   // button says so rather than looking like it did nothing.
   const [cancelling, setCancelling] = useState(false);
@@ -894,10 +896,28 @@ export default function SftpPanel() {
       setProgress((prev) => ({
         ...e.payload,
         startTime: prev?.startTime ?? Date.now(),
+        at: Date.now(),
       }));
     });
     return () => { unlisten.then((f) => f()); };
   }, []);
+
+  /**
+   * Re-renders the progress bar once a second while a transfer is running.
+   *
+   * Speed and ETA are worked out from the last event during render, so when
+   * the events stop the bar keeps showing whatever it last computed. Nothing
+   * re-rendered, so a transfer whose server had gone displayed a healthy rate
+   * and a falling ETA that never fell. The tick is what lets the bar notice
+   * its own silence.
+   */
+  const [, setNow] = useState(0);
+  const transferInFlight = progress !== null;
+  useEffect(() => {
+    if (!transferInFlight) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [transferInFlight]);
 
   useEffect(() => { left.goLocal(); }, []);
 
@@ -1058,6 +1078,17 @@ export default function SftpPanel() {
               ? `${(speed / 1024).toFixed(1)} KB/s`
               : `${Math.round(speed)} B/s`
           : '';
+        // Reporting silence rather than a stale rate. The backend gives a
+        // stalled transfer a minute before it calls the connection dead, and
+        // saying nothing for that minute is what made a dead transfer look
+        // like a working one.
+        //
+        // Ten seconds rather than five: one 128 KB chunk takes 6.4s at
+        // 20 KB/s, so a shorter window would call a slow link stalled. At this
+        // one the claim only goes wrong below about 13 KB/s, and even then it
+        // is describing something true.
+        const silentFor = Math.round((Date.now() - progress.at) / 1000);
+        const stalled = silentFor >= 10;
         return (
           <div className="sftp-progress-wrap">
             <div className="sftp-progress-info">
@@ -1069,7 +1100,11 @@ export default function SftpPanel() {
                 )}
                 {progress.file_name}
               </span>
-              <span className="sftp-progress-stat">{pct}% · {speedStr}{speedStr ? ' · ' : ''}ETA {eta}</span>
+              <span className="sftp-progress-stat">
+                {stalled
+                  ? `${pct}% · stalled for ${silentFor}s`
+                  : `${pct}% · ${speedStr}${speedStr ? ' · ' : ''}ETA ${eta}`}
+              </span>
               <button
                 type="button"
                 className="sftp-cancel-btn"
