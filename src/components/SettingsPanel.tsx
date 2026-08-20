@@ -6,7 +6,17 @@ import MasterKeySection from './MasterKeySection';
 import ExportDataModal from './ExportDataModal';
 import ImportDataModal from './ImportDataModal';
 import { useAppStore, reportFailure } from '../store/appStore';
-import type { CursorStyle, Settings } from '../types';
+import { ColorPickerField } from './ColorPicker';
+import { resolveAccent } from '../store/appStore';
+import type { AppTheme, CursorStyle, Settings } from '../types';
+
+/** System first: it is the one that defers rather than decides. */
+const APP_THEMES: { value: AppTheme; label: string }[] = [
+  { value: 'system', label: 'System' },
+  { value: 'dark', label: 'Dark' },
+  { value: 'light', label: 'Light' },
+  { value: 'amoled', label: 'AMOLED' },
+];
 
 const CURSOR_STYLES: PickerOption<CursorStyle>[] = [
   { value: 'block', label: 'Block' },
@@ -60,8 +70,11 @@ function Picker<T extends string>({
 }
 
 export default function SettingsPanel() {
-  const { settings, saveSettings, setActiveTab } = useAppStore();
+  const { settings, saveSettings, setActiveTab, systemAppearance } = useAppStore();
   const [fonts, setFonts] = useState<string[]>([]);
+  // What the picker should show: the user's colour, else the desktop's,
+  // else the dark palette's own, which is what an unthemed picker opens on.
+  const accent = resolveAccent(settings, systemAppearance);
 
   useEffect(() => {
     ipc.listFonts().then(setFonts).catch(() => setFonts([]));
@@ -94,29 +107,51 @@ export default function SettingsPanel() {
         <h3>Appearance</h3>
         <div className="form-group">
           <label>App Theme</label>
-          <div className="toggle-row" style={{ maxWidth: 240 }}>
-            <button
-              type="button"
-              className={`toggle-btn${settings.app_theme === 'dark' ? ' active' : ''}`}
-              onClick={() => patch({ app_theme: 'dark' })}
-            >
-              Dark
-            </button>
-            <button
-              type="button"
-              className={`toggle-btn${settings.app_theme === 'light' ? ' active' : ''}`}
-              onClick={() => patch({ app_theme: 'light' })}
-            >
-              Light
-            </button>
-            <button
-              type="button"
-              className={`toggle-btn${settings.app_theme === 'amoled' ? ' active' : ''}`}
-              onClick={() => patch({ app_theme: 'amoled' })}
-            >
-              AMOLED
-            </button>
+          <div className="toggle-row" style={{ maxWidth: 320 }}>
+            {APP_THEMES.map(({ value, label }) => (
+              <button
+                key={value}
+                type="button"
+                className={`toggle-btn${settings.app_theme === value ? ' active' : ''}`}
+                onClick={() => patch({ app_theme: value })}
+              >
+                {label}
+              </button>
+            ))}
           </div>
+          {settings.app_theme === 'system' && (
+            <p className="form-hint">
+              {systemAppearance.color_scheme === 'dark'
+                ? 'Following this desktop, which is set to dark.'
+                : 'Following this desktop, which is set to light.'}
+            </p>
+          )}
+        </div>
+
+        <div className="form-group">
+          <label>Accent Colour</label>
+          <div className="accent-row">
+            <ColorPickerField
+              value={accent ?? '#58a6ff'}
+              onChange={(v) => patch({ accent_color: v })}
+            />
+            {settings.accent_color !== null && (
+              <button
+                type="button"
+                className="btn-secondary btn-sm"
+                onClick={() => patch({ accent_color: null })}
+              >
+                Use system accent
+              </button>
+            )}
+          </div>
+          <p className="form-hint">
+            {settings.accent_color !== null
+              ? 'Your own colour. Reset it to follow the desktop again.'
+              : systemAppearance.accent
+                ? "Following this desktop's accent, and changes with it."
+                : 'This desktop exposes no accent, so the theme\u2019s own is used.'}
+          </p>
         </div>
       </section>
 

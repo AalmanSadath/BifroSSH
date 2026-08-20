@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { listen } from '@tauri-apps/api/event';
 import * as ipc from '../ipc';
 import { STORED, UNDETECTED_OS, UNKNOWN_OS } from '../types';
-import type { AuthType, Codeprint, GeneratedKey, Identity, IdentityInput, JumpHopParams, KeyContent, KeyEntry, LogEntry, PortForwarding, Server, ServerInput, SessionTab, Settings } from '../types';
+import type { AuthType, Codeprint, GeneratedKey, Identity, IdentityInput, JumpHopParams, KeyContent, KeyEntry, LogEntry, PortForwarding, ResolvedTheme, Server, ServerInput, SessionTab, Settings, SystemAppearance } from '../types';
 import type { NamedTheme } from '../styles/themes';
 
 // These three collections used to live here. They are now kept in the Rust
@@ -90,12 +90,19 @@ async function migrateLegacyStorage(current: {
  */
 const APP_THEME_CACHE = 'bifrossh_app_theme';
 
-function cachedAppTheme(): Settings['app_theme'] {
+export function cachedAppTheme(): ResolvedTheme {
   const saved = localStorage.getItem(APP_THEME_CACHE);
   return saved === 'light' || saved === 'amoled' || saved === 'dark' ? saved : 'dark';
 }
 
-function cacheAppTheme(theme: Settings['app_theme']) {
+/**
+ * Caches the palette actually painted, not the setting.
+ *
+ * The setting can now be "system", which tells the next first paint nothing:
+ * it would have to ask the desktop before it knew what to draw, and the point
+ * of this cache is to draw something right before anything has been asked.
+ */
+function cacheAppTheme(theme: ResolvedTheme) {
   try {
     localStorage.setItem(APP_THEME_CACHE, theme);
   } catch {
@@ -115,7 +122,48 @@ const DEFAULT_SETTINGS: Settings = {
   sftp_inactivity_timeout_secs: 300,
   host_key_policy: 'ask',
   keepalive_interval_secs: 30,
+  accent_color: null,
 };
+
+/**
+ * What the desktop last told us about itself.
+ *
+ * Read once at startup and again whenever the portal says it changed, so a
+ * theme set to "system" follows the desktop live rather than only at launch.
+ */
+const NO_APPEARANCE: SystemAppearance = { color_scheme: 'no-preference', accent: null };
+
+/**
+ * The palette to paint, given the setting and what the desktop reports.
+ *
+ * Only an explicit "dark" means dark. "No preference" resolves to light, which
+ * looks like the wrong way round until you watch what desktops actually send:
+ * GNOME's Appearance panel offers Default and Dark, and choosing the light one
+ * sets color-scheme to `default`, which the portal reports as 0, no
+ * preference. It never sends 2. Treating 0 as dark meant switching the desktop
+ * to light did nothing at all.
+ *
+ * It is also what CSS does. `prefers-color-scheme` dropped its no-preference
+ * value, and user agents report light when nothing has been asked for.
+ */
+export function resolveAppTheme(
+  setting: Settings['app_theme'],
+  system: SystemAppearance,
+): ResolvedTheme {
+  if (setting !== 'system') return setting;
+  return system.color_scheme === 'dark' ? 'dark' : 'light';
+}
+
+/**
+ * The accent to paint: the user's choice, else the desktop's, else none, which
+ * leaves each palette's own built-in accent in place.
+ */
+export function resolveAccent(
+  settings: Pick<Settings, 'accent_color'>,
+  system: SystemAppearance,
+): string | null {
+  return settings.accent_color ?? system.accent;
+}
 
 interface AppStore {
   servers: Server[];
@@ -124,6 +172,10 @@ interface AppStore {
   settings: Settings;
   sessions: SessionTab[];
   activeTabId: string | null;
+
+  /** What the desktop reports about its own theme and accent. */
+  systemAppearance: SystemAppearance;
+  setSystemAppearance: (appearance: SystemAppearance) => void;
 
   /** Set when `loadAll` could not read the saved data; see there. */
   loadError: string | null;
@@ -316,6 +368,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
   sessions: [],
   activeTabId: 'hosts',
 
+  systemAppearance: NO_APPEARANCE,
+  setSystemAppearance: (appearance) => set({ systemAppearance: appearance }),
+
   loadError: null,
   actionError: null,
   setActionError: (message) => set({ actionError: message }),
@@ -343,7 +398,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
           ipc.getCustomThemes(),
         ]);
 
-      cacheAppTheme(settings.app_theme);
+      cacheAppTheme(resolveAppTheme(settings.app_theme, get().systemAppearance));
 
       let collections = { portForwardings, codeprints, customThemes };
       try {
@@ -453,7 +508,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   saveSettings: async (settings) => {
     await ipc.saveSettings(settings);
-    cacheAppTheme(settings.app_theme);
+    cacheAppTheme(resolveAppTheme(settings.app_theme, get().systemAppearance));
     set({ settings });
   },
 

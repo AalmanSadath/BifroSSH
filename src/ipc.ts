@@ -42,6 +42,7 @@ import type {
   Settings,
   SshConfigImportResult,
   SshConfigScan,
+  SystemAppearance,
   TransferSummary,
   VaultInitMode,
   VaultStatus,
@@ -119,6 +120,9 @@ export const saveSettings = (settings: Settings) =>
   invoke<void>('save_settings', { settings });
 
 export const listFonts = () => invoke<string[]>('list_fonts');
+
+/** Never fails; a desktop that cannot be asked reports no preference. */
+export const systemAppearance = () => invoke<SystemAppearance>('system_appearance');
 
 // ── ssh_config import ────────────────────────────────────────────────────
 

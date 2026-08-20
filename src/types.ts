@@ -158,11 +158,16 @@ export interface Settings {
   font_family: string;
   cursor_style: CursorStyle;
   cursor_blink: boolean;
-  app_theme: 'dark' | 'light' | 'amoled';
+  app_theme: AppTheme;
   connection_timeout_secs: number;
   show_hover_hints: boolean;
   sftp_inactivity_timeout_secs: number;
   host_key_policy: HostKeyPolicy;
+  /**
+   * `#rrggbb` the user picked, or null to follow the desktop's accent and fall
+   * back to the palette's own where the desktop has none.
+   */
+  accent_color: string | null;
   /** Seconds between keepalives on terminal and tunnel connections; 0 is off. */
   keepalive_interval_secs: number;
 }
@@ -195,6 +200,23 @@ export interface KeystoreStatus {
 }
 
 export type CursorStyle = 'block' | 'underline' | 'bar';
+
+/**
+ * `system` is a choice about where the answer comes from, not a palette: it
+ * resolves to light or dark from what the desktop reports, and never to
+ * amoled, which no desktop can ask for.
+ */
+export type AppTheme = 'system' | 'dark' | 'light' | 'amoled';
+
+/** The three palettes that can actually be painted. */
+export type ResolvedTheme = 'dark' | 'light' | 'amoled';
+
+/** What the desktop says about itself, as far as it says anything. */
+export interface SystemAppearance {
+  color_scheme: 'dark' | 'light' | 'no-preference';
+  /** `#rrggbb`, or null on a desktop that exposes no accent. */
+  accent: string | null;
+}
 
 /** A mismatched key is blocked under all three policies. */
 export type HostKeyPolicy = 'ask' | 'accept-new' | 'strict';

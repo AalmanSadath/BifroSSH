@@ -539,3 +539,10 @@ button { cursor: pointer; font-family: inherit; }
   opacity: 0;
   transition: opacity 0.1s, background 0.1s, color 0.1s;
 }
+
+/* The accent picker and the button that gives it back to the desktop. */
+.accent-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}

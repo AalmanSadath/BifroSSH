@@ -1,8 +1,9 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import * as ipc from './ipc';
 import { listen } from '@tauri-apps/api/event';
-import { useAppStore } from './store/appStore';
-import type { AuthPromptEvent, HostKeyPromptEvent, SessionTab, VaultStatus } from './types';
+import { useAppStore, resolveAccent, resolveAppTheme } from './store/appStore';
+import { accentTokens } from './styles/accent';
+import type { AuthPromptEvent, HostKeyPromptEvent, SessionTab, SystemAppearance, VaultStatus } from './types';
 import HostKeyPrompt from './components/HostKeyPrompt';
 import AuthPromptModal from './components/AuthPromptModal';
 import Sidebar from './components/Sidebar';
@@ -62,7 +63,11 @@ export default function App() {
   const {
     loadAll, loadError, actionError, setActionError, sessions, activeTabId, setActiveTab, removeSession,
     renameSession, openSession, quickConnect, servers, settings, keys,
+    systemAppearance, setSystemAppearance,
   } = useAppStore();
+
+  const resolvedTheme = resolveAppTheme(settings.app_theme, systemAppearance);
+  const accent = resolveAccent(settings, systemAppearance);
 
   const [editServerId, setEditServerId] = useState<string | null>(null);
   const [quickInput, setQuickInput] = useState('');
@@ -141,12 +146,63 @@ export default function App() {
     };
   }, []);
 
+  // Asked once at startup, then followed: the portal reports a desktop that
+  // changes its mind, so a theme set to system switches without a restart.
+  useEffect(() => {
+    ipc.systemAppearance().then(setSystemAppearance).catch(() => {});
+    const unlisten = listen<SystemAppearance>(
+      'system-appearance-changed',
+      (e) => setSystemAppearance(e.payload),
+    );
+    return () => { unlisten.then((fn) => fn()); };
+  }, [setSystemAppearance]);
+
   useEffect(() => {
     const body = document.body;
     body.classList.remove('app-light', 'app-amoled');
-    if (settings.app_theme === 'light') body.classList.add('app-light');
-    else if (settings.app_theme === 'amoled') body.classList.add('app-amoled');
-  }, [settings.app_theme]);
+    if (resolvedTheme === 'light') body.classList.add('app-light');
+    else if (resolvedTheme === 'amoled') body.classList.add('app-amoled');
+  }, [resolvedTheme]);
+
+  /**
+   * The accent overrides the palette's own, as three properties rather than
+   * one. A colour needs a foreground that stays legible on it and a hover a
+   * shade along, and both were hand-picked per theme against a known accent.
+   *
+   * Written onto the same elements that carry the theme class, not onto
+   * <html>. Custom properties inherit, so the nearest declaration wins, and
+   * the light and amoled palettes redeclare --accent on body and on .app
+   * below it: an override on the root was shadowed by both, which is why only
+   * the dark theme, the one declared on bare :root, appeared to follow.
+   *
+   * Portals render into body rather than into .app, so both need it.
+   */
+  // Memoised on the colour itself: a fresh object each render would restyle
+  // the body on every one.
+  const accentVars = useMemo(() => {
+    const tokens = accent ? accentTokens(accent) : null;
+    return tokens
+      ? ({
+          '--accent': tokens.accent,
+          '--accent-hover': tokens.accentHover,
+          '--on-accent': tokens.onAccent,
+        } as React.CSSProperties)
+      : undefined;
+  }, [accent]);
+
+  useEffect(() => {
+    const { style } = document.body;
+    // Removed rather than set to a default when there is nothing to apply, so
+    // whichever palette is in force goes back to the values it ships with.
+    for (const [name, value] of Object.entries(accentVars ?? {})) {
+      style.setProperty(name, value as string);
+    }
+    if (!accentVars) {
+      for (const name of ['--accent', '--accent-hover', '--on-accent']) {
+        style.removeProperty(name);
+      }
+    }
+  }, [accentVars]);
 
   useEffect(() => {
     if (tabCtx?.mode === 'rename') renameInputRef.current?.select();
@@ -208,7 +264,10 @@ export default function App() {
   if (!vault) return null;
   if (vault.locked || vault.error) {
     return (
-      <div className={`app${settings.app_theme === 'light' ? ' app-light' : settings.app_theme === 'amoled' ? ' app-amoled' : ''}`}>
+      <div
+        className={`app${resolvedTheme === 'light' ? ' app-light' : resolvedTheme === 'amoled' ? ' app-amoled' : ''}`}
+        style={accentVars}
+      >
         {vault.setup_required ? (
           <FirstRunSetup keyringAvailable={vault.keyring_available} onReady={opened} />
         ) : (
@@ -219,7 +278,10 @@ export default function App() {
   }
 
   return (
-    <div className={`app${settings.app_theme === 'light' ? ' app-light' : settings.app_theme === 'amoled' ? ' app-amoled' : ''}`}>
+    <div
+      className={`app${resolvedTheme === 'light' ? ' app-light' : resolvedTheme === 'amoled' ? ' app-amoled' : ''}`}
+      style={accentVars}
+    >
       <Sidebar />
       <div className="main">
         {loadError && (
