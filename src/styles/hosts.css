@@ -80,7 +80,8 @@
   transition: opacity 0.1s, background 0.1s;
 }
 
-.kc-card--clickable:hover .kc-card-edit-btn {
+.kc-card--clickable:hover .kc-card-edit-btn,
+.kc-card-edit-btn:focus-visible {
   opacity: 1;
 }
 
@@ -179,7 +180,7 @@
   width: 46px;
   height: 46px;
   border-radius: 10px;
-  background: var(--bg-mid);
+  background: var(--bg-chip);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -213,7 +214,8 @@
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
 }
 
-.host-card:hover .kc-card-edit-btn {
+.host-card:hover .kc-card-edit-btn,
+.kc-card-edit-btn:focus-visible {
   opacity: 1;
 }
 
@@ -236,7 +238,10 @@
   -webkit-user-select: none;
 }
 
-.host-card:hover .host-card-edit-btn {
+/* A button revealed on hover is invisible when it takes focus, which is the
+   one time something needs to be seen. */
+.host-card:hover .host-card-edit-btn,
+.host-card-edit-btn:focus-visible {
   opacity: 1;
 }
 

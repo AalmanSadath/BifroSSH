@@ -101,7 +101,8 @@
   flex-shrink: 0;
 }
 
-.pf-card:hover .pf-card-edit-btn { opacity: 1; }
+.pf-card:hover .pf-card-edit-btn,
+.pf-card-edit-btn:focus-visible { opacity: 1; }
 .pf-card-edit-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
 
 /* ── Port Forwarding Drawer ───────────────────────────────── */

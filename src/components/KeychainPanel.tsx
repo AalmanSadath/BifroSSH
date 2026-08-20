@@ -6,6 +6,7 @@ import ConfirmModal from './shared/ConfirmModal';
 import ContextMenu from './shared/ContextMenu';
 import Drawer from './shared/Drawer';
 import PassphraseInput from './shared/PassphraseInput';
+import { cardKeys } from './shared/cardKeys';
 
 const KEY_ALGORITHMS = [
   { value: 'ed25519', label: 'ED25519' },
@@ -15,25 +16,9 @@ const KEY_ALGORITHMS = [
 
 const RSA_SIZES = [2048, 4096];
 
-/**
- * Enter and Space on a div that behaves as a button.
- *
- * The cards are divs because they hold several lines and their own context
- * menu, but they are the only way to open a key or an identity, so leaving
- * them off the tab order made those unreachable without a mouse.
- */
+/** Card activation, plus the single click these two use to reach it. */
 function clickableProps(onActivate: () => void) {
-  return {
-    role: 'button',
-    tabIndex: 0,
-    onClick: onActivate,
-    onKeyDown: (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        onActivate();
-      }
-    },
-  };
+  return { ...cardKeys(onActivate), onClick: onActivate };
 }
 
 export default function KeychainPanel() {

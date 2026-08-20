@@ -7,6 +7,7 @@ import SshConfigImport from './SshConfigImport';
 import OsIcon from './OsIcon';
 import ConfirmModal from './shared/ConfirmModal';
 import ContextMenu from './shared/ContextMenu';
+import { cardKeys } from './shared/cardKeys';
 
 export default function HostsPanel() {
   const { servers, sessions, settings, setActiveTab, removeSession, deleteServer, openSession } = useAppStore();
@@ -61,6 +62,7 @@ export default function HostsPanel() {
                 <div
                   key={server.id}
                   className="host-card"
+                  {...cardKeys(() => handleDoubleClick(server))}
                   onDoubleClick={() => handleDoubleClick(server)}
                   onContextMenu={(e) => handleContextMenu(e, server)}
                   title={settings.show_hover_hints ? 'Double-click to connect · Right-click for options' : undefined}

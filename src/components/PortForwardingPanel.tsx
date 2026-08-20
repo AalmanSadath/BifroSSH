@@ -4,6 +4,7 @@ import type { PortForwarding } from '../types';
 import ConfirmModal from './shared/ConfirmModal';
 import ContextMenu from './shared/ContextMenu';
 import Drawer from './shared/Drawer';
+import { cardKeys } from './shared/cardKeys';
 
 type PfType = 'local' | 'remote' | 'dynamic';
 
@@ -737,6 +738,7 @@ export default function PortForwardingPanel() {
                 <div
                   key={pf.id}
                   className={`pf-card${active ? ' pf-card-active' : ''}`}
+                  {...cardKeys(() => handleCardDoubleClick(pf))}
                   onDoubleClick={() => handleCardDoubleClick(pf)}
                   onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, pf }); }}
                   title="Double-click to activate · Right-click for options"
