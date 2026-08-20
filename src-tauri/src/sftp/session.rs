@@ -14,6 +14,9 @@ use crate::hostverify::{HostKeyVerifier, VerifyingHandler};
 use crate::jump::JumpHop;
 use crate::ssh::{AuthContext, SshAuth};
 
+// Threaded straight through from the command layer. Collapsing these into a
+// params struct belongs with the wider connect-path dedup, not here.
+#[allow(clippy::too_many_arguments)]
 pub async fn connect_sftp(
     sftp_state: &SftpClientState,
     session_id: &str,

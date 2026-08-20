@@ -80,24 +80,6 @@ pub async fn mkdir(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-
-    struct TempTree(std::path::PathBuf);
-    impl Drop for TempTree {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
-
-    fn temp_tree(name: &str) -> TempTree {
-        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-        let id = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let dir = std::env::temp_dir()
-            .join(format!("bifrossh-tree-{}-{}-{}", std::process::id(), name, id));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        TempTree(dir)
-    }
 
     /// The point of carrying anyhow contexts rather than flattening to a
     /// string: `CmdError` renders with `{e:#}`, so the path the operation was

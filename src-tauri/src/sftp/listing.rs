@@ -115,10 +115,6 @@ pub fn list_local(path: &str) -> Result<Vec<FileEntry>> {
     Ok(entries)
 }
 
-// Threaded straight through from the command layer. Collapsing these into a
-// params struct belongs with the wider connect-path dedup, not here.
-#[allow(clippy::too_many_arguments)]
-
 pub async fn get_remote_home(sftp_state: &SftpClientState, session_id: &str) -> Result<String> {
     let sftp_arc = get_session(sftp_state, session_id).await?;
     let sftp = sftp_arc.lock().await;
