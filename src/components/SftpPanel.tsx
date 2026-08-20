@@ -572,7 +572,7 @@ function HostPicker({ servers, connectingId, activeServerId, error, onConnect, o
             title={hint(activeServerId === s.id ? 'Double-click to resume' : 'Double-click to connect via SFTP')}
           >
             <div className="sftp-picker-icon">
-              <OsIcon os={s.os ?? 'linux'} size={28} />
+              <OsIcon os={s.os} size={28} />
             </div>
             <div className="sftp-picker-info">
               <div className="sftp-picker-name">{s.name}</div>

@@ -69,7 +69,7 @@ export default function HostsPanel() {
                   title={settings.show_hover_hints ? 'Double-click to connect · Right-click for options' : undefined}
                 >
                   <div className="host-card-icon">
-                    <OsIcon os={server.os ?? 'linux'} size={28} />
+                    <OsIcon os={server.os} size={28} />
                   </div>
                   <div className="host-card-info">
                     <div className="host-card-name-row">

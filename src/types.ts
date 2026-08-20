@@ -1,8 +1,17 @@
 /**
+ * `Server.os` for a host nobody has asked yet.
+ *
+ * The two sentinels are the whole state of OS detection for a host, and the
+ * difference decides whether it is asked again: this one means try, and
+ * [`UNKNOWN_OS`] means it was tried and the host could not say. Both draw the
+ * generic server icon, so only the store tells them apart.
+ */
+export const UNDETECTED_OS = '';
+
+/**
  * `Server.os` for a host that was asked and could not say.
  *
- * Distinct from an empty string, which means nobody has looked yet. The
- * backend writes this value, so the two must agree: see `UNKNOWN_OS` in
+ * The backend writes this value, so the two must agree: see `UNKNOWN_OS` in
  * `models.rs`.
  */
 export const UNKNOWN_OS = 'server';

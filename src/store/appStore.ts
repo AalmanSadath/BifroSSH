@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { listen } from '@tauri-apps/api/event';
 import * as ipc from '../ipc';
-import { STORED, UNKNOWN_OS } from '../types';
+import { STORED, UNDETECTED_OS, UNKNOWN_OS } from '../types';
 import type { AuthType, Codeprint, GeneratedKey, Identity, IdentityInput, JumpHopParams, KeyContent, KeyEntry, LogEntry, PortForwarding, Server, ServerInput, SessionTab, Settings } from '../types';
 import type { NamedTheme } from '../styles/themes';
 
@@ -687,7 +687,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       },
     );
 
-    if (ok && server.os === '') detectServerOs(serverId, username, authType, authValue, jumps);
+    if (ok && server.os === UNDETECTED_OS) detectServerOs(serverId, username, authType, authValue, jumps);
   },
 
   quickConnect: async (host, port, username, authType, authValue) => {

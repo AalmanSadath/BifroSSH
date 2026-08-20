@@ -150,6 +150,14 @@ const ICON_MAP: Record<string, () => React.ReactElement> = {
 };
 
 interface Props {
+  /**
+   * The value the backend stored, passed through as-is.
+   *
+   * Both sentinels land on the generic server: an empty string because nobody
+   * has looked yet, and `UNKNOWN_OS` because somebody did and the host could
+   * not say. Two callers used to substitute 'linux' here, which drew a penguin
+   * for a host that had never been asked.
+   */
   os: string;
   size?: number;
 }

@@ -129,8 +129,14 @@ pub struct Server {
 }
 
 impl Server {
-    fn default_os() -> String { String::new() }
+    fn default_os() -> String { UNDETECTED_OS.to_string() }
 }
+
+/// [`Server::os`] for a host nobody has asked yet.
+///
+/// The frontend decides whether to run detection on this exact value, so the
+/// two must agree: see `UNDETECTED_OS` in `types.ts`.
+pub const UNDETECTED_OS: &str = "";
 
 /// [`Server::os`] for a host that was asked and could not say.
 ///

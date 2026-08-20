@@ -38,7 +38,7 @@ export default function ConnectingView({
       <div className="connecting-card">
         <div className="connecting-header">
           <div className="connecting-os-icon">
-            <OsIcon os={server.os || 'linux'} size={40} />
+            <OsIcon os={server.os} size={40} />
           </div>
           <div className="connecting-info">
             <div className="connecting-name">{server.name}</div>
