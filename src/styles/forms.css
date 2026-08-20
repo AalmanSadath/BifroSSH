@@ -203,7 +203,11 @@ button { cursor: pointer; font-family: inherit; }
 .btn-primary {
   background: var(--accent);
   color: var(--on-accent);
-  border: none;
+  /* Transparent rather than none. box-sizing is border-box everywhere, but
+     these buttons have no set height, so the border still adds to the box and
+     a bordered .btn-secondary standing next to a borderless .btn-primary was
+     two pixels taller. The two appear side by side in seventeen components. */
+  border: 1px solid transparent;
   border-radius: 5px;
   padding: 7px 14px;
   font-size: 13px;
@@ -381,13 +385,16 @@ button { cursor: pointer; font-family: inherit; }
 .btn-danger {
   background: var(--danger);
   color: var(--on-danger);
-  border: none;
+  /* See .btn-primary: transparent so the box matches a bordered button. */
+  border: 1px solid transparent;
   border-radius: 5px;
   /* Matching btn-primary and btn-secondary. This had no padding at all, so
-     anywhere it was used without btn-sm the label ran to the button's edges. */
+     anywhere it was used without btn-sm the label ran to the button's edges.
+     The font size was still 12 against their 13, which the same sentence had
+     meant to settle. */
   padding: 7px 14px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
 }
 
@@ -395,9 +402,6 @@ button { cursor: pointer; font-family: inherit; }
   opacity: 0.85;
 }
 
-.btn-danger.btn-sm {
-  padding: 4px 10px;
-}
 
 .picker-btn {
   width: 100%;
