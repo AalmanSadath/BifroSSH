@@ -105,6 +105,25 @@ pub fn forget_references_to(data: &mut AppData, id: &str) {
     }
 }
 
+/// The private key material a `KeyEntry` names, wherever it is kept.
+///
+/// An entry holds either the key itself, encrypted with the master key, or a
+/// path to one on disk. Three callers wanted this and each wrote it out, which
+/// would matter little except that they had already come to disagree about
+/// what an entry holding neither means: one returned None, one propagated, and
+/// one produced its own message. It is an entry that cannot be used, and this
+/// says so once.
+pub fn key_pem(key: &KeyEntry, secret_key: &[u8; 32]) -> Result<String, crate::commands::CmdError> {
+    if let Some(enc) = &key.encrypted_key {
+        Ok(String::from_utf8(crate::crypto::decrypt(enc, secret_key)?)?)
+    } else if let Some(path) = &key.key_path {
+        Ok(std::fs::read_to_string(path)
+            .map_err(|e| crate::commands::CmdError::from(format!("{path}: {e}")))?)
+    } else {
+        Err("Key has no content or path".to_string().into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

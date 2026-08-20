@@ -13,18 +13,15 @@ use super::AppState;
 #[tauri::command]
 pub async fn list_keys(state: State<'_, AppState>) -> CmdResult<Vec<KeyEntry>> {
     let mut data = state.data.lock().await;
+    let secret_key = state.key()?;
     let mut updated = false;
     for key in data.keys.iter_mut() {
         if key.algorithm.is_none() {
-            let pem = if let Some(ref enc) = key.encrypted_key {
-                state.decrypt_str(enc).ok()
-            } else if let Some(ref path) = key.key_path {
-                std::fs::read_to_string(path).ok()
-            } else {
-                None
-            };
-            if let Some(ref pem) = pem {
-                key.algorithm = detect_algorithm(pem);
+            // An entry that cannot be read is left without an algorithm rather
+            // than failing the listing: the panel still has to show it, and
+            // showing it is how the user finds out it is broken.
+            if let Ok(pem) = super::records::key_pem(key, &secret_key) {
+                key.algorithm = detect_algorithm(&pem);
                 if key.algorithm.is_some() { updated = true; }
             }
         }
@@ -195,13 +192,7 @@ pub async fn get_key_content(
     let key = find_by_id(&data.keys, &key_id)
         .ok_or("Key not found")?;
 
-    let private_pem = if let Some(ref enc) = key.encrypted_key {
-        state.decrypt_str(enc)?
-    } else if let Some(ref path) = key.key_path {
-        std::fs::read_to_string(path)?
-    } else {
-        return Err("Key has no content or path".to_string().into());
-    };
+    let private_pem = super::records::key_pem(key, &state.key()?)?;
 
     let passphrase = key.encrypted_passphrase.as_ref()
         .and_then(|enc| state.decrypt_str(enc).ok());

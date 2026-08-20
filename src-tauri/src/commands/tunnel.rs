@@ -3,9 +3,8 @@ use tauri::{AppHandle, State};
 
 use crate::tunnel::{TunnelKind, TunnelParams};
 
-use super::records::*;
 use super::{CmdError, CmdResult, connect_security, AppState};
-use super::resolve::{resolve_auth, resolve_jumps, JumpHopRequest};
+use super::resolve::{JumpHopRequest, server_target};
 
 // ── Tunnel commands ───────────────────────────────────────────────────────────
 
@@ -29,13 +28,9 @@ pub async fn tunnel_start(
     auth_value: String,
     jumps: Option<Vec<JumpHopRequest>>,
 ) -> CmdResult<()> {
-    let (ssh_host, ssh_port, auth, jumps) = {
+    let target = {
         let data = state.data.lock().await;
-        let server = find_by_id(&data.servers, &server_id)
-            .ok_or("Server not found")?;
-        let auth = resolve_auth(&data, &state.key()?, &auth_type, &auth_value)?;
-        let jumps = resolve_jumps(&data, &state.key()?, jumps.as_deref().unwrap_or(&[]))?;
-        (server.host.clone(), server.port as u16, auth, jumps)
+        server_target(&data, &state.key()?, &server_id, &auth_type, &auth_value, jumps.as_deref())?
     };
 
     // Check not already running
@@ -65,7 +60,17 @@ pub async fn tunnel_start(
 
     let sec = connect_security(&state, &app, None, true).await;
     let keepalive_secs = { state.data.lock().await.settings.keepalive_interval_secs };
-    let params = TunnelParams { kind, bind_address, ssh_host, ssh_port, ssh_username: username, auth, sec, keepalive_secs, jumps };
+    let params = TunnelParams {
+        kind,
+        bind_address,
+        ssh_host: target.host,
+        ssh_port: target.port,
+        ssh_username: username,
+        auth: target.auth,
+        sec,
+        keepalive_secs,
+        jumps: target.jumps,
+    };
 
     crate::tunnel::start_tunnel(pf_id, params, Arc::clone(&state.tunnel_state))
         .await

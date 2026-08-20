@@ -3,7 +3,7 @@ use uuid::Uuid;
 
 
 use super::{CmdError, CmdResult, connect_security, AppState};
-use super::resolve::{resolve_auth, resolve_jumps, JumpHopRequest};
+use super::resolve::{JumpHopRequest, server_target};
 
 // ── SFTP ─────────────────────────────────────────────────────────────────────
 
@@ -32,18 +32,12 @@ pub async fn sftp_connect_remote(
     connect_id: Option<String>,
     jumps: Option<Vec<JumpHopRequest>>,
 ) -> CmdResult<String> {
-    let (host, port, auth, jumps, inactivity_timeout_secs) = {
+    let (target, inactivity_timeout_secs) = {
         let data = state.data.lock().await;
-        let server = data.servers.iter()
-            .find(|s| s.id == server_id)
-            .ok_or_else(|| "Server not found".to_string())?;
-        let host = server.host.clone();
-        let port = server.port as u16;
-
-        let auth = resolve_auth(&data, &state.key()?, &auth_type, &auth_value)?;
-        let jumps = resolve_jumps(&data, &state.key()?, jumps.as_deref().unwrap_or(&[]))?;
-
-        (host, port, auth, jumps, data.settings.sftp_inactivity_timeout_secs)
+        let target = server_target(
+            &data, &state.key()?, &server_id, &auth_type, &auth_value, jumps.as_deref(),
+        )?;
+        (target, data.settings.sftp_inactivity_timeout_secs)
     };
 
     let session_id = Uuid::new_v4().to_string();
@@ -52,13 +46,13 @@ pub async fn sftp_connect_remote(
     crate::sftp::connect_sftp(
         &state.sftp_state,
         &session_id,
-        &host,
-        port,
+        &target.host,
+        target.port,
         &username,
-        auth,
+        target.auth,
         inactivity_timeout_secs,
         sec,
-        jumps,
+        target.jumps,
     ).await?;
 
     Ok(session_id)

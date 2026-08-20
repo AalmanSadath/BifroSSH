@@ -1,9 +1,8 @@
 use tauri::{AppHandle, State};
 
 
-use super::records::*;
 use super::{CmdResult, connect_security, AppState};
-use super::resolve::{resolve_auth, resolve_jumps, JumpHopRequest};
+use super::resolve::{JumpHopRequest, server_target};
 
 // ── OS detection ─────────────────────────────────────────────────────────────
 
@@ -65,13 +64,9 @@ pub async fn detect_server_os(
     auth_value: String,
     jumps: Option<Vec<JumpHopRequest>>,
 ) -> CmdResult<String> {
-    let (host, port, auth, jumps) = {
+    let target = {
         let data = state.data.lock().await;
-        let server = find_by_id(&data.servers, &server_id)
-            .ok_or("Server not found")?;
-        let auth = resolve_auth(&data, &state.key()?, &auth_type, &auth_value)?;
-        let jumps = resolve_jumps(&data, &state.key()?, jumps.as_deref().unwrap_or(&[]))?;
-        (server.host.clone(), server.port, auth, jumps)
+        server_target(&data, &state.key()?, &server_id, &auth_type, &auth_value, jumps.as_deref())?
     };
 
     // Non-interactive: this runs in the background with no UI to prompt from,
@@ -79,10 +74,10 @@ pub async fn detect_server_os(
     let sec = connect_security(&state, &app, None, false).await;
 
     let result = crate::ssh::exec_ssh_command(
-        &host, port, &username, auth,
+        &target.host, target.port, &username, target.auth,
         "cat /etc/os-release 2>/dev/null; cat /proc/device-tree/model 2>/dev/null; echo; uname -s",
         sec,
-        &jumps,
+        &target.jumps,
     )
     .await;
 

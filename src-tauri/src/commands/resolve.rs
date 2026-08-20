@@ -6,6 +6,43 @@ use crate::models::*;
 use crate::ssh::SshAuth;
 
 
+/// Everything needed to open a connection to a saved server.
+pub(super) struct ServerTarget {
+    pub host: String,
+    pub port: u16,
+    pub auth: SshAuth,
+    pub jumps: Vec<JumpHop>,
+}
+
+/// Looks up a saved server and resolves the credential and chain named with it.
+///
+/// SFTP, tunnels and OS detection each wrote this out, and had already drifted:
+/// one used an open-coded `iter().find()` where the others used `find_by_id`,
+/// two wrote `server.port as u16` on a field that is already `u16`, and all
+/// three called `state.key()` twice for the two resolutions that want the same
+/// key. Sessions keep their own version, in `commands::ssh`, because a saved
+/// host may carry a connection timeout and a quick connect has no host to
+/// carry one.
+///
+/// Synchronous and taking `&AppData`, so the caller holds the lock once and
+/// reads whatever else it needs from the same one.
+pub(super) fn server_target(
+    data: &AppData,
+    secret_key: &[u8; 32],
+    server_id: &str,
+    auth_type: &str,
+    auth_value: &str,
+    jumps: Option<&[JumpHopRequest]>,
+) -> CmdResult<ServerTarget> {
+    let server = super::records::find_by_id(&data.servers, server_id).ok_or("Server not found")?;
+    Ok(ServerTarget {
+        host: server.host.clone(),
+        port: server.port,
+        auth: resolve_auth(data, secret_key, auth_type, auth_value)?,
+        jumps: resolve_jumps(data, secret_key, jumps.unwrap_or(&[]))?,
+    })
+}
+
 // ── Resolving a saved server into connectable parts ──────────────────
 
 /// Turns the credential the frontend picked into something connectable.
@@ -35,14 +72,7 @@ pub(super) fn resolve_auth(
                 .find(|k| k.id == auth_value)
                 .ok_or_else(|| "Key not found".to_string())?;
 
-            let key_pem = if let Some(enc) = &key.encrypted_key {
-                let bytes = decrypt(enc, secret_key)?;
-                String::from_utf8(bytes)?
-            } else if let Some(path) = &key.key_path {
-                std::fs::read_to_string(path)?
-            } else {
-                return Err("Key has no content or path".to_string().into());
-            };
+            let key_pem = super::records::key_pem(key, secret_key)?;
 
             let passphrase = match &key.encrypted_passphrase {
                 Some(enc) => {
