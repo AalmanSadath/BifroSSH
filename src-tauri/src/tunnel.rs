@@ -175,8 +175,6 @@ async fn proxy_tcp_channel(stream: TcpStream, mut channel: Channel<Msg>) {
     }
 }
 
-// ── SOCKS5 ────────────────────────────────────────────────────────────────────
-
 // ── Tunnel starters ───────────────────────────────────────────────────────────
 
 pub async fn start_tunnel(pf_id: String, params: TunnelParams, state: Arc<TunnelState>) -> Result<()> {
@@ -192,17 +190,33 @@ pub async fn start_tunnel(pf_id: String, params: TunnelParams, state: Arc<Tunnel
     }
 }
 
-// ── Local (-L) ────────────────────────────────────────────────────────────────
+// ── Listening tunnels (-L and -D) ─────────────────────────────────────────────
 
-async fn local_tunnel(
+/// A shared SSH connection that accepted connections open channels on.
+type SharedHandle = Arc<Mutex<client::Handle<VerifyingHandler>>>;
+
+/// Binds a local port and serves every connection that arrives on it.
+///
+/// Local and dynamic forwarding are the same tunnel with different opinions
+/// about where a connection is going: a local forward is told at setup time, a
+/// dynamic one asks the client each time over SOCKS5. Everything around that
+/// question is identical, and was written out twice, down to the biased select
+/// that lets a stop win a race against an incoming connection.
+///
+/// `serve` is spawned per connection and owns the stream from there.
+async fn accept_loop<F, Fut>(
     pf_id: String,
     base: TunnelBase,
     local_port: u32,
-    dest_host: String,
-    dest_port: u32,
     state: Arc<TunnelState>,
-) -> Result<()> {
-    let handle = Arc::new(Mutex::new(connect_tunnel(&base, |v| VerifyingHandler { v }).await?));
+    serve: F,
+) -> Result<()>
+where
+    F: Fn(TcpStream, SharedHandle) -> Fut + Send + Sync + 'static,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
+    let handle: SharedHandle =
+        Arc::new(Mutex::new(connect_tunnel(&base, |v| VerifyingHandler { v }).await?));
     let listener = TcpListener::bind(format!("{}:{}", base.bind_address, local_port)).await?;
     let (stop_tx, stop_rx) = oneshot::channel::<()>();
 
@@ -212,17 +226,14 @@ async fn local_tunnel(
         let mut stop_rx = stop_rx;
         loop {
             tokio::select! {
+                // Stopping beats accepting, so a tunnel torn down while
+                // connections are arriving does not serve one more.
                 biased;
                 _ = &mut stop_rx => break,
                 res = listener.accept() => match res {
                     Err(_) => break,
                     Ok((stream, _)) => {
-                        let h = Arc::clone(&handle);
-                        let dh = dest_host.clone();
-                        tokio::spawn(async move {
-                            let ch = h.lock().await.channel_open_direct_tcpip(&dh, dest_port, "127.0.0.1", 0).await;
-                            if let Ok(ch) = ch { proxy_tcp_channel(stream, ch).await; }
-                        });
+                        tokio::spawn(serve(stream, Arc::clone(&handle)));
                     }
                 },
             }
@@ -231,6 +242,30 @@ async fn local_tunnel(
     });
 
     Ok(())
+}
+
+async fn local_tunnel(
+    pf_id: String,
+    base: TunnelBase,
+    local_port: u32,
+    dest_host: String,
+    dest_port: u32,
+    state: Arc<TunnelState>,
+) -> Result<()> {
+    accept_loop(pf_id, base, local_port, state, move |stream, handle| {
+        let dest_host = dest_host.clone();
+        async move {
+            let ch = handle
+                .lock()
+                .await
+                .channel_open_direct_tcpip(&dest_host, dest_port, "127.0.0.1", 0)
+                .await;
+            if let Ok(ch) = ch {
+                proxy_tcp_channel(stream, ch).await;
+            }
+        }
+    })
+    .await
 }
 
 // ── Remote (-R) ───────────────────────────────────────────────────────────────
@@ -258,41 +293,26 @@ async fn remote_tunnel(
     Ok(())
 }
 
-// ── Dynamic SOCKS5 (-D) ───────────────────────────────────────────────────────
-
 async fn dynamic_tunnel(
     pf_id: String,
     base: TunnelBase,
     local_port: u32,
     state: Arc<TunnelState>,
 ) -> Result<()> {
-    let handle = Arc::new(Mutex::new(connect_tunnel(&base, |v| VerifyingHandler { v }).await?));
-    let listener = TcpListener::bind(format!("{}:{}", base.bind_address, local_port)).await?;
-    let (stop_tx, stop_rx) = oneshot::channel::<()>();
-
-    state.tunnels.lock().await.insert(pf_id, TunnelHandle { stop_tx });
-
-    tokio::spawn(async move {
-        let mut stop_rx = stop_rx;
-        loop {
-            tokio::select! {
-                biased;
-                _ = &mut stop_rx => break,
-                res = listener.accept() => match res {
-                    Err(_) => break,
-                    Ok((mut stream, _)) => {
-                        let h = Arc::clone(&handle);
-                        tokio::spawn(async move {
-                            let Ok((host, port)) = crate::socks5::handshake(&mut stream).await else { return; };
-                            let ch = h.lock().await.channel_open_direct_tcpip(&host, port as u32, "127.0.0.1", 0).await;
-                            if let Ok(ch) = ch { proxy_tcp_channel(stream, ch).await; }
-                        });
-                    }
-                },
-            }
+    accept_loop(pf_id, base, local_port, state, |mut stream, handle| async move {
+        // Where this one is going is the client's to say, and it says so in
+        // the handshake rather than at setup time.
+        let Ok((host, port)) = crate::socks5::handshake(&mut stream).await else {
+            return;
+        };
+        let ch = handle
+            .lock()
+            .await
+            .channel_open_direct_tcpip(&host, port as u32, "127.0.0.1", 0)
+            .await;
+        if let Ok(ch) = ch {
+            proxy_tcp_channel(stream, ch).await;
         }
-        let _ = handle.lock().await.disconnect(Disconnect::ByApplication, "", "en").await;
-    });
-
-    Ok(())
+    })
+    .await
 }
