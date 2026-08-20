@@ -173,6 +173,11 @@
   gap: 8px;
 }
 
-.connecting-retry-btn {
+/* The retry action and the copy beside it, held together and pushed away from
+   Close and Edit host. On the group rather than on the retry button, so two
+   auto margins cannot split the free space and open a gap between them. */
+.connecting-actions-end {
+  display: flex;
+  gap: 8px;
   margin-left: auto;
 }
