@@ -33,6 +33,7 @@ export default function ContextMenu({
   // No dependency list: the menu's size changes with its contents, and several
   // callers swap those out in place (a rename field replacing the item list).
   // Bailing out when the position is unchanged is what stops this looping.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;

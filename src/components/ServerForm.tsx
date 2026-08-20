@@ -25,12 +25,22 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
   const [username, setUsername] = useState(server?.username ?? '');
   const [password, setPassword] = useState('');
 
+  // Mount only, and deliberately so: this fills the box with what is already
+  // stored, and re-running it when the prop changes would put the saved
+  // password back over whatever the user had started typing. The drawer is
+  // built fresh per host, so the prop does not change under it anyway.
+  //
+  // The cancel flag is not about the dependency list. A drawer closed while
+  // the keychain read is still in flight used to set state on a component
+  // that had gone.
   useEffect(() => {
-    if (server?.id && server.encrypted_password === STORED) {
-      ipc.getServerPassword(server.id)
-        .then(setPassword)
-        .catch(() => {});
-    }
+    if (!server?.id || server.encrypted_password !== STORED) return;
+    let cancelled = false;
+    ipc.getServerPassword(server.id)
+      .then((pw) => { if (!cancelled) setPassword(pw); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [keyId, setKeyId] = useState(server?.key_id ?? '');
   const [showSuggestions, setShowSuggestions] = useState(false);

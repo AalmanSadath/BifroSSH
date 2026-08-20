@@ -502,13 +502,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const server = servers.find((s) => s.id === serverId);
     if (!server) throw new Error('Server not found');
 
-    let username: string;
-    let authType: AuthType;
-    let authValue: string;
-
     const resolved = await resolveServerAuth(server, identities);
     if (!resolved) throw new Error('No credentials configured for this server');
-    ({ username, authType, authValue } = resolved);
+    const { username, authType, authValue } = resolved;
 
     await ipc.tunnelStart({
       pfId: pf.id,
@@ -622,10 +618,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
     if (!server) return;
 
     // Resolve credentials: identity takes priority, then server-direct credentials
-    let username: string;
-    let authType: AuthType;
-    let authValue: string;
-
     const connectId = crypto.randomUUID();
     const existing = sessions.filter((s) => s.server_id === serverId).length;
     const tabName = existing === 0 ? server.name : `${server.name} (${existing})`;
@@ -657,7 +649,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       }));
       return;
     }
-    ({ username, authType, authValue } = resolved);
+    const { username, authType, authValue } = resolved;
 
     // Resolved before the tab exists, since a broken jump chain should reach
     // the session's own error view like any other failure to connect.

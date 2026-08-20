@@ -138,6 +138,11 @@ jobs:
 
       - run: npm ci
 
+      # Mainly react-hooks/exhaustive-deps, which tsc cannot see: a dependency
+      # array that lies compiles perfectly and goes wrong at runtime.
+      - name: Lint
+        run: npm run lint
+
       # `npm run build` runs tsc first, so this covers type checking too.
       - name: Type check and build
         run: npm run build

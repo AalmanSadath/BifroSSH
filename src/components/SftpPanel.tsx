@@ -243,7 +243,11 @@ function FileBrowser({ title, icon, path, entries, loading, error, notice, onDis
     try {
       const { side: fromSide, entry } = JSON.parse(raw) as { side: 'left' | 'right'; entry: FileEntry };
       if (fromSide !== side) onFileDrop(entry, fromSide);
-    } catch {}
+    } catch {
+      // A drag from outside the app carries whatever that app put on the
+      // clipboard, which is not this payload. Nothing to do and nothing worth
+      // saying: the drop simply is not one of ours.
+    }
   }
 
   return (
@@ -919,6 +923,10 @@ export default function SftpPanel() {
     return () => clearInterval(id);
   }, [transferInFlight]);
 
+  // Mount only, and `left` cannot be named: the pane hook returns a fresh
+  // object every render, so depending on it would put the pane back to its
+  // local root on each one.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { left.goLocal(); }, []);
 
   /**

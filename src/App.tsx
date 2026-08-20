@@ -91,7 +91,9 @@ export default function App() {
         if (!v.locked) loadAll();
       })
       .catch(() => setVault({ locked: false, setup_required: false, keyring_available: false, keyring_locked: false, error: null }));
-  }, []);
+    // `loadAll` is a store action, created once with the store, so naming it
+    // does not make this run again.
+  }, [loadAll]);
 
   const opened = () => {
     setVault({ locked: false, setup_required: false, keyring_available: false, keyring_locked: false, error: null });

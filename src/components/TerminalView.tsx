@@ -60,9 +60,16 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
    * so looking only at THEMES silently fell back to the default: the host form
    * showed the chosen name while the session ignored it.
    */
-  function resolveTheme() {
-    return THEMES[themeKey] ?? customThemes[themeKey] ?? THEMES['bifrossh-dark'];
-  }
+  /// Pulled out of the lookups below so the dependency arrays can name it.
+  /// `customThemes[themeKey]` is the one entry that matters, and it changes
+  /// identity when that theme is edited, so a save in the theme editor
+  /// repaints the sessions using it and nothing else.
+  const activeCustomTheme = customThemes[themeKey];
+
+  const resolveTheme = useCallback(
+    () => THEMES[themeKey] ?? activeCustomTheme ?? THEMES['bifrossh-dark'],
+    [themeKey, activeCustomTheme],
+  );
 
   /**
    * Highlight colours drawn from the session's own theme.
@@ -102,7 +109,7 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
       activeMatchBorder: bright,
       activeMatchColorOverviewRuler: bright,
     };
-  }, [themeKey, customThemes[themeKey]]);
+  }, [resolveTheme]);
 
   /**
    * `incremental` is for typing, where the match under the cursor should be
@@ -166,7 +173,7 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
       fontSize: settings.font_size,
       fontFamily: settings.font_family,
       lineHeight: 1.2,
-      cursorStyle: settings.cursor_style as 'block' | 'underline' | 'bar',
+      cursorStyle: settings.cursor_style,
       cursorBlink: settings.cursor_blink,
       scrollback: 10000,
       allowTransparency: false,
@@ -326,15 +333,11 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
     term.options.theme = resolveTheme();
     term.options.fontSize = settings.font_size;
     term.options.fontFamily = settings.font_family;
-    term.options.cursorStyle = settings.cursor_style as 'block' | 'underline' | 'bar';
+    term.options.cursorStyle = settings.cursor_style;
     term.options.cursorBlink = settings.cursor_blink;
     fitRef.current?.fit();
-    // customThemes[themeKey] rather than the whole map: it changes identity
-    // when that one theme is edited, so a save in the theme editor repaints
-    // the sessions using it and nothing else.
   }, [
-    themeKey,
-    customThemes[themeKey],
+    resolveTheme,
     settings.font_size,
     settings.font_family,
     settings.cursor_style,
