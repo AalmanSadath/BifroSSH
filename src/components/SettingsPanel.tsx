@@ -197,7 +197,7 @@ export default function SettingsPanel() {
 
       <section className="panel-section">
         <h3>Host keys</h3>
-        <p className="form-hint" style={{ marginTop: 0 }}>
+        <p className="form-hint form-hint-flush">
           Server fingerprints and how new servers are trusted are managed on the{' '}
           <button type="button" className="link-btn" onClick={() => setActiveTab('knownhosts')}>
             Known Hosts
@@ -210,7 +210,7 @@ export default function SettingsPanel() {
 
       <section className="panel-section">
         <h3>Backup and transfer</h3>
-        <p className="form-hint" style={{ marginTop: 0 }}>
+        <p className="form-hint form-hint-flush">
           Everything saved here goes into one file: hosts, identities, keys, tunnels, codeprints,
           themes, settings and known hosts. It is encrypted under a passphrase you choose for it,
           separate from your master key, which is what lets it open on another machine. Importing

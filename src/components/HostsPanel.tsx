@@ -38,7 +38,7 @@ export default function HostsPanel() {
         <div className="panel-title-row">
           <div className="panel-title">Hosts</div>
         </div>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+        <div className="panel-toolbar">
           <button className="btn-primary btn-sm" onClick={() => { setEditServer(null); setShowServerForm(true); }}>
             + Add Host
           </button>

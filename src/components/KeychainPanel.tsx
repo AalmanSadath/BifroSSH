@@ -267,8 +267,8 @@ export default function KeychainPanel() {
 
   return (
     <div className="panel keychain-panel" onContextMenu={(e) => { if ((e.target as HTMLElement).closest('button, input, textarea, select, label, a')) return; e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, kind: 'panel' }); }}>
-      <div className="panel-title" style={{ marginBottom: 6 }}>Keychain</div>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+      <div className="panel-title panel-title-tight">Keychain</div>
+      <div className="panel-toolbar">
 
         {/* Add Key split-style button */}
         <div style={{ position: 'relative' }}>
@@ -354,8 +354,7 @@ export default function KeychainPanel() {
               />
               <button
                 type="button"
-                className="btn-secondary btn-sm"
-                style={{ alignSelf: 'flex-start' }}
+                className="btn-secondary btn-sm self-start"
                 onClick={() => keyFileInputRef.current?.click()}
               >
                 Import from key file
@@ -424,10 +423,9 @@ export default function KeychainPanel() {
               )}
               <button
                 type="button"
-                className="btn-secondary btn-sm"
+                className="btn-secondary btn-sm self-start"
                 onClick={handleGenerate}
                 disabled={generating}
-                style={{ alignSelf: 'flex-start' }}
               >
                 {generating ? 'Generating…' : genResult ? 'Regenerate' : 'Generate Key'}
               </button>
@@ -472,7 +470,7 @@ export default function KeychainPanel() {
                       {key.encrypted_passphrase === '[stored]' && ' · passphrase'}
                     </span>
                   </div>
-                  <button className="kc-card-edit-btn" onClick={(e) => { e.stopPropagation(); handleOpenEditKey(key); }} title={hint('Edit')} disabled={editKeyLoading}>
+                  <button className="card-edit-btn" onClick={(e) => { e.stopPropagation(); handleOpenEditKey(key); }} title={hint('Edit')} disabled={editKeyLoading}>
                     <EditIcon />
                   </button>
                 </div>
@@ -633,7 +631,7 @@ export default function KeychainPanel() {
                         {isPromptAuth ? 'prompt' : isAgentAuth ? 'ssh-agent' : isPasswordAuth ? 'password' : key ? key.name : <span className="warn-text">key deleted</span>}
                       </span>
                     </div>
-                    <button className="kc-card-edit-btn" onClick={(e) => { e.stopPropagation(); openEditIdentity(id); }} title={hint('Edit')}>
+                    <button className="card-edit-btn" onClick={(e) => { e.stopPropagation(); openEditIdentity(id); }} title={hint('Edit')}>
                       <EditIcon />
                     </button>
                   </div>

@@ -496,3 +496,42 @@ button { cursor: pointer; font-family: inherit; }
   font-size: 11px;
   color: var(--text-muted);
 }
+
+/*
+ * The default .form-hint margin is wrong for over half its uses: a hint
+ * directly under a heading or a status line wants to sit against it.
+ */
+.form-hint-flush { margin-top: 0; }
+
+/* The row of buttons at the top of a panel. */
+.panel-toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.panel-title-tight { margin-bottom: 6px; }
+
+.self-start { align-self: flex-start; }
+
+/*
+ * The pencil that appears on a card when you point at it.
+ *
+ * Two copies of this existed, on the keychain cards and the port forwarding
+ * ones, identical but for a pixel of padding and which muted grey they used.
+ * Neither difference was chosen.
+ */
+.card-edit-btn {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.1s, background 0.1s, color 0.1s;
+}

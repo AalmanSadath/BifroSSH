@@ -794,7 +794,7 @@ export default function PortForwardingPanel() {
                     <span className="card-sub">{pfCardDesc(pf)}</span>
                   </div>
                   <button
-                    className="pf-card-edit-btn"
+                    className="card-edit-btn"
                     onClick={(e) => { e.stopPropagation(); editExisting(pf); }}
                     title="Edit"
                   >

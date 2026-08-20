@@ -99,10 +99,10 @@ export default function MasterKeySection() {
       <h3>Master key</h3>
 
       {!status ? (
-        <p className="form-hint" style={{ marginTop: 0 }}>Checking…</p>
+        <p className="form-hint form-hint-flush">Checking…</p>
       ) : (
         <>
-          <p className="form-hint" style={{ marginTop: 0 }}>
+          <p className="form-hint form-hint-flush">
             Your saved passwords and private keys are encrypted with one key, held{' '}
             <strong>{where[status.source]}</strong>. {detail(status)}
           </p>
@@ -142,7 +142,7 @@ export default function MasterKeySection() {
                 </>
               )}
               {error && <p className="form-hint form-hint-error">{error}</p>}
-              <div className="modal-actions" style={{ justifyContent: 'flex-start', paddingTop: 4 }}>
+              <div className="modal-actions modal-actions-start modal-actions-pad">
                 {status.passphrase_set ? (
                   <button className="btn-secondary" onClick={() => { reset(); setMode('remove'); }}>
                     Remove passphrase
@@ -169,7 +169,7 @@ export default function MasterKeySection() {
                       </p>
                     </>
                   ) : (
-                    <p className="form-hint" style={{ marginTop: 0 }}>
+                    <p className="form-hint form-hint-flush">
                       The key is removed from disk and your passphrase replaces it. Your keyring
                       still unlocks BifroSSH without asking, so you will only be prompted on a
                       machine where the keyring is unavailable. You cannot be locked out: either
@@ -235,7 +235,7 @@ export default function MasterKeySection() {
 
               {error && <p className="form-hint form-hint-error">{error}</p>}
 
-              <div className="modal-actions" style={{ justifyContent: 'flex-start' }}>
+              <div className="modal-actions modal-actions-start">
                 <button className="btn-secondary" onClick={reset} disabled={busy}>
                   Cancel
                 </button>

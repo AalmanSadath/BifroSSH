@@ -65,27 +65,13 @@
   border-left: 2px solid var(--warning);
 }
 
-.kc-card-edit-btn {
-  flex-shrink: 0;
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 4px;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transition: opacity 0.1s, background 0.1s;
-}
 
-.kc-card--clickable:hover .kc-card-edit-btn,
-.kc-card-edit-btn:focus-visible {
+.kc-card--clickable:hover .card-edit-btn,
+.card-edit-btn:focus-visible {
   opacity: 1;
 }
 
-.kc-card-edit-btn:hover {
+.card-edit-btn:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
@@ -194,8 +180,8 @@
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
 }
 
-.host-card:hover .kc-card-edit-btn,
-.kc-card-edit-btn:focus-visible {
+.host-card:hover .card-edit-btn,
+.card-edit-btn:focus-visible {
   opacity: 1;
 }
 

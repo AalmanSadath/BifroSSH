@@ -475,3 +475,7 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* Actions that read as a continuation of the section rather than a footer. */
+.modal-actions-start { justify-content: flex-start; }
+.modal-actions-pad { padding-top: 4px; }
