@@ -1,6 +1,6 @@
 [package]
 name = "bifrossh"
-version = "0.11.2"
+version = "0.12.0"
 description = "GUI SSH client with built-in SFTP and keychain management"
 authors = ["Aalman Sadath"]
 license = "GPL-3.0-or-later"

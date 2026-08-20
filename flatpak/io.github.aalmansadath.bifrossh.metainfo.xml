@@ -85,6 +85,32 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.12.0" date="2026-08-20">
+      <description>
+        <p>
+          The app theme can now follow your desktop. System joins Dark, Light
+          and AMOLED, and switches with the desktop as you change it, without
+          a restart.
+        </p>
+        <p>
+          The accent colour can be set to anything you like. It follows your
+          desktop's own accent until you pick one, and a button gives it back
+          whenever you want. Text drawn on the accent picks itself so it stays
+          readable whatever colour you choose.
+        </p>
+        <p>
+          The sidebar is ordered by how often you reach for things. Hosts, SFTP
+          and Port Forwarding stay at the top; Keychain and Known Hosts, which
+          are set up once and then left alone, move down beside Settings.
+        </p>
+        <p>
+          Collapsing the sidebar no longer shifts everything in it. The header
+          stays one row tall either way, so an icon is in the same place
+          whether the sidebar is open or shut, and the labels no longer wrap
+          and spring back while it widens.
+        </p>
+      </description>
+    </release>
     <release version="0.11.2" date="2026-08-20">
       <description>
         <p>
