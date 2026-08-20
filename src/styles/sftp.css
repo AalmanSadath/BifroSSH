@@ -179,7 +179,6 @@
 }
 
 .sftp-breadcrumb::-webkit-scrollbar { height: 2px; }
-.sftp-breadcrumb::-webkit-scrollbar-thumb { background: var(--border); }
 
 .sftp-crumb-item {
   display: flex;

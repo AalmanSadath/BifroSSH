@@ -136,6 +136,7 @@ export default function SettingsPanel() {
             <label>Size</label>
             <input
               type="number"
+              className="no-spinner"
               min={8}
               max={32}
               value={settings.font_size}

@@ -209,12 +209,6 @@
   font-style: italic;
 }
 
-.form-hint {
-  margin: 4px 0 0;
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
 /* ── Theme picker ──────────────────────────────────────────── */
 
 .theme-picker {

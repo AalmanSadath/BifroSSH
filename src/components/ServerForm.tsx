@@ -140,7 +140,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
             </div>
             <div className="form-group port-group">
               <label>Port</label>
-              <input type="number" value={port} min={1} max={65535} onChange={(e) => setPort(Number(e.target.value))} />
+              <input type="number" className="no-spinner" value={port} min={1} max={65535} onChange={(e) => setPort(Number(e.target.value))} />
             </div>
           </div>
 
