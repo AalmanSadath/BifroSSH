@@ -3,6 +3,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import * as ipc from '../ipc';
 import { listen } from '@tauri-apps/api/event';
 import { useAppStore } from '../store/appStore';
@@ -187,7 +188,19 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
     const searchAddon = new SearchAddon();
     term.loadAddon(fitAddon);
     term.loadAddon(searchAddon);
-    term.loadAddon(new WebLinksAddon());
+    // With no handler the addon falls back to window.open, which the webview
+    // refuses, so clicking a link in a session did nothing at all. The opener
+    // plugin was registered on the Rust side and its JavaScript half had never
+    // been imported.
+    //
+    // The URL comes out of the remote server's output, so it is not trusted.
+    // Two things keep that narrow: the addon's own link matcher only produces
+    // http and https URLs, and `opener:default` permits only those two plus
+    // mailto and tel. A server cannot get file:// or some registered scheme
+    // handler opened by printing it.
+    term.loadAddon(new WebLinksAddon((_event, uri) => {
+      openUrl(uri).catch((e) => console.error('Could not open link', uri, e));
+    }));
     term.open(containerRef.current);
     fitAddon.fit();
 
