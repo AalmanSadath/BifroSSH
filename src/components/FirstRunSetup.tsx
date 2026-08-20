@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import PassphraseInput from './shared/PassphraseInput';
+import GeneratedPassphraseField from './shared/GeneratedPassphraseField';
 
 type Mode = 'secret-file' | 'passphrase-only' | 'keyring-and-passphrase';
 
@@ -23,7 +23,6 @@ export default function FirstRunSetup({ keyringAvailable, onReady }: Props) {
   const [passphrase, setPassphrase] = useState('');
   const [generated, setGenerated] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,29 +37,9 @@ export default function FirstRunSetup({ keyringAvailable, onReady }: Props) {
     setPassphrase('');
     setGenerated(false);
     setSaved(false);
-    setCopied(false);
-  }
+      }
 
-  async function roll() {
-    setError(null);
-    try {
-      setPassphrase(await invoke<string>('generate_passphrase'));
-      setGenerated(true);
-      setSaved(false);
-      setCopied(false);
-    } catch (e) {
-      setError(String(e));
-    }
-  }
 
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(passphrase);
-      setCopied(true);
-    } catch {
-      setError('Could not reach the clipboard. Write it down instead.');
-    }
-  }
 
   async function create() {
     setBusy(true);
@@ -132,42 +111,15 @@ export default function FirstRunSetup({ keyringAvailable, onReady }: Props) {
 
         {needsPassphrase && (
           <>
-            <div className="setup-pass-row">
-              {generated ? (
-                // Shown in full rather than on one scrolling line: this is
-                // meant to be copied down by hand, and a phrase you cannot see
-                // all of at once is one you transcribe wrong.
-                <textarea
-                  className="setup-phrase"
-                  value={passphrase}
-                  readOnly
-                  rows={2}
-                  spellCheck={false}
-                  onFocus={(e) => e.currentTarget.select()}
-                />
-              ) : (
-                <PassphraseInput
-                  value={passphrase}
-                  placeholder="Passphrase"
-                  onChange={(v) => {
-                    setPassphrase(v);
-                    setSaved(false);
-                  }}
-                />
-              )}
-              <button
-                type="button"
-                className="btn-secondary"
-                title={generated ? 'Generate a different one' : 'Generate one'}
-                onClick={roll}
-              >
-                🎲
-              </button>
-            </div>
-
-            {generated && (
-              <div className="hostkey-warn">
-                <strong>Write this down before continuing.</strong>
+            <GeneratedPassphraseField
+              passphrase={passphrase}
+              onChange={(v, gen) => { setPassphrase(v); setGenerated(gen); }}
+              generated={generated}
+              saved={saved}
+              onSavedChange={setSaved}
+              placeholder="Passphrase"
+              onError={setError}
+              warning={
                 <p>
                   Eight words, and the only copy is on your screen.{' '}
                   {mode === 'keyring-and-passphrase'
@@ -175,24 +127,8 @@ export default function FirstRunSetup({ keyringAvailable, onReady }: Props) {
                     : 'It is asked for every launch, and nothing else can open your data.'}{' '}
                   Capitals and how you space it do not matter when you type it back.
                 </p>
-                <div className="setup-phrase-actions">
-                  <button type="button" className="btn-secondary" onClick={copy}>
-                    {copied ? 'Copied' : 'Copy'}
-                  </button>
-                  <button
-                    type="button"
-                    className="link-btn"
-                    onClick={() => { setPassphrase(''); setGenerated(false); setSaved(false); setCopied(false); }}
-                  >
-                    Type my own instead
-                  </button>
-                </div>
-                <label className="checkbox-row setup-saved-row">
-                  <input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} />
-                  <span>I have saved this somewhere safe</span>
-                </label>
-              </div>
-            )}
+              }
+            />
           </>
         )}
 

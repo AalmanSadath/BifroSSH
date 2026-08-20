@@ -28,11 +28,6 @@ export interface Server {
   proxy_jump: string | null;
 }
 
-/**
- * One jump host as the backend expects it. The chain is walked and its
- * credentials resolved on this side; a key here is still just an id, and the
- * backend goes to the keychain for the material.
- */
 /** What `sftp_upload`, `sftp_download` and `sftp_copy_remote_to_remote` return. */
 export interface TransferSummary {
   files: number;
@@ -43,6 +38,11 @@ export interface TransferSummary {
   cancelled: boolean;
 }
 
+/**
+ * One jump host as the backend expects it. The chain is walked and its
+ * credentials resolved on this side; a key here is still just an id, and the
+ * backend goes to the keychain for the material.
+ */
 export interface JumpHopParams {
   host: string;
   port: number;
@@ -248,6 +248,37 @@ export interface TransferCounts {
   codeprints: number;
   custom_themes: number;
   known_hosts: number;
+}
+
+/** Singular and plural for each thing an export or import counts. */
+const COUNT_NAMES: Record<keyof TransferCounts, [string, string]> = {
+  servers: ['host', 'hosts'],
+  identities: ['identity', 'identities'],
+  keys: ['key', 'keys'],
+  port_forwardings: ['tunnel', 'tunnels'],
+  codeprints: ['codeprint', 'codeprints'],
+  custom_themes: ['theme', 'themes'],
+  known_hosts: ['known host', 'known hosts'],
+};
+
+/**
+ * "3 hosts, 1 identity and 2 keys", from whatever the counts hold.
+ *
+ * The export modal hand-wrote all seven clauses into one sentence, each with
+ * its own pluralisation. Adding an eighth collection on the Rust side would
+ * have left it silently unmentioned, which is the failure worth avoiding: the
+ * sentence exists to tell the user what went into the file.
+ *
+ * Zeroes are left out. A list of things that did not happen is noise, and if
+ * everything is zero the caller wants to say so in its own words.
+ */
+export function describeCounts(counts: TransferCounts): string {
+  const parts = (Object.keys(COUNT_NAMES) as (keyof TransferCounts)[])
+    .filter((k) => counts[k] > 0)
+    .map((k) => `${counts[k]} ${COUNT_NAMES[k][counts[k] === 1 ? 0 : 1]}`);
+  if (parts.length === 0) return 'nothing';
+  if (parts.length === 1) return parts[0];
+  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
 }
 
 export interface ExportResult {

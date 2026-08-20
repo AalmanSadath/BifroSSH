@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import PassphraseInput from './shared/PassphraseInput';
+import GeneratedPassphraseField from './shared/GeneratedPassphraseField';
 import FilePickerModal from './FilePickerModal';
+import { describeCounts } from '../types';
 import type { ExportResult } from '../types';
 import Modal from './shared/Modal';
 
@@ -29,7 +31,6 @@ export default function ExportDataModal({ onClose }: Props) {
   const [passphrase, setPassphrase] = useState('');
   const [confirmPass, setConfirmPass] = useState('');
   const [generated, setGenerated] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
   const [includeSecrets, setIncludeSecrets] = useState(true);
   const [overwrite, setOverwrite] = useState(false);
@@ -46,28 +47,7 @@ export default function ExportDataModal({ onClose }: Props) {
       .catch((e) => setError(String(e)));
   }, []);
 
-  async function roll() {
-    setError('');
-    try {
-      const phrase = await invoke<string>('generate_passphrase');
-      setPassphrase(phrase);
-      setConfirmPass(phrase);
-      setGenerated(true);
-      setCopied(false);
-      setSaved(false);
-    } catch (e) {
-      setError(String(e));
-    }
-  }
 
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(passphrase);
-      setCopied(true);
-    } catch {
-      setError('Could not reach the clipboard. Write it down instead.');
-    }
-  }
 
   const matched = passphrase.length > 0 && passphrase === confirmPass;
   // A generated phrase is nowhere but the screen until the user says otherwise.
@@ -125,15 +105,7 @@ export default function ExportDataModal({ onClose }: Props) {
     >
       {result ? (
         <>
-          <p className="hostkey-body">
-            Wrote {result.counts.servers} host{result.counts.servers === 1 ? '' : 's'},{' '}
-            {result.counts.identities} identit{result.counts.identities === 1 ? 'y' : 'ies'},{' '}
-            {result.counts.keys} key{result.counts.keys === 1 ? '' : 's'},{' '}
-            {result.counts.port_forwardings} tunnel{result.counts.port_forwardings === 1 ? '' : 's'},{' '}
-            {result.counts.codeprints} codeprint{result.counts.codeprints === 1 ? '' : 's'},{' '}
-            {result.counts.custom_themes} theme{result.counts.custom_themes === 1 ? '' : 's'} and{' '}
-            {result.counts.known_hosts} known host{result.counts.known_hosts === 1 ? '' : 's'}.
-          </p>
+          <p className="hostkey-body">Wrote {describeCounts(result.counts)}.</p>
           <p className="transfer-path">{result.path}</p>
           <p className="form-hint">
             {result.secrets_included
@@ -168,32 +140,22 @@ export default function ExportDataModal({ onClose }: Props) {
             </p>
           )}
 
-          <div className="setup-pass-row">
-            {generated ? (
-              <textarea
-                className="setup-phrase"
-                value={passphrase}
-                readOnly
-                rows={2}
-                spellCheck={false}
-                onFocus={(e) => e.currentTarget.select()}
-              />
-            ) : (
-              <PassphraseInput
-                value={passphrase}
-                placeholder="Passphrase for this file"
-                onChange={(v) => { setPassphrase(v); setSaved(false); }}
-              />
-            )}
-            <button
-              type="button"
-              className="btn-secondary"
-              title={generated ? 'Generate a different one' : 'Generate one'}
-              onClick={roll}
-            >
-              🎲
-            </button>
-          </div>
+          <GeneratedPassphraseField
+            passphrase={passphrase}
+            onChange={(v, gen) => { setPassphrase(v); setGenerated(gen); }}
+            generated={generated}
+            saved={saved}
+            onSavedChange={setSaved}
+            placeholder="Passphrase for this file"
+            onError={setError}
+            onReset={() => setConfirmPass('')}
+            warning={
+              <p>
+                It is the only thing that opens the file, it is not stored anywhere, and it
+                cannot be recovered. Capitals and spacing do not matter when you type it back.
+              </p>
+            }
+          />
 
           {!generated && (
             <PassphraseInput
@@ -209,37 +171,6 @@ export default function ExportDataModal({ onClose }: Props) {
             </p>
           )}
 
-          {generated && (
-            <div className="hostkey-warn">
-              <strong>Write this down before continuing.</strong>
-              <p>
-                It is the only thing that opens the file, it is not stored anywhere, and it
-                cannot be recovered. Capitals and spacing do not matter when you type it back.
-              </p>
-              <div className="setup-phrase-actions">
-                <button type="button" className="btn-secondary" onClick={copy}>
-                  {copied ? 'Copied' : 'Copy'}
-                </button>
-                <button
-                  type="button"
-                  className="link-btn"
-                  onClick={() => {
-                    setPassphrase('');
-                    setConfirmPass('');
-                    setGenerated(false);
-                    setCopied(false);
-                    setSaved(false);
-                  }}
-                >
-                  Type my own instead
-                </button>
-              </div>
-              <label className="checkbox-row setup-saved-row">
-                <input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} />
-                <span>I have saved this somewhere safe</span>
-              </label>
-            </div>
-          )}
 
           {error && <p className="form-hint form-hint-error">{error}</p>}
 
