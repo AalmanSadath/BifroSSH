@@ -3,9 +3,34 @@ import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '../store/appStore';
 import ConnectLog, { formatLogs } from './ConnectLog';
 import { THEMES } from '../styles/themes';
+import type { NamedTheme } from '../styles/themes';
 
 interface Props {
   activeSessionId: string | null;
+}
+
+
+/**
+ * The three-bar preview of a colour scheme.
+ *
+ * Written out twice in this file, once for saved themes and once for built-in
+ * ones, and a third time in ThemePicker, which already had .theme-thumb-bar
+ * for it. Only the colours are dynamic.
+ */
+function ThemeSwatch({ theme }: { theme: NamedTheme }) {
+  // Optional in NamedTheme: a custom theme need not set every colour.
+  const bars: [string, string | undefined][] = [
+    ['65%', theme.green],
+    ['45%', theme.foreground],
+    ['55%', theme.blue],
+  ];
+  return (
+    <div className="term-sidebar-theme-swatch" style={{ background: theme.background }}>
+      {bars.map(([width, color], i) => (
+        <div key={i} className="theme-thumb-bar" style={{ width, background: color }} />
+      ))}
+    </div>
+  );
 }
 
 export default function TerminalSidebar({ activeSessionId }: Props) {
@@ -188,11 +213,7 @@ export default function TerminalSidebar({ activeSessionId }: Props) {
                   onClick={() => activeSessionId && setSessionTheme(activeSessionId, id)}
                   title={hint(t.name)}
                 >
-                  <div className="term-sidebar-theme-swatch" style={{ background: t.background }}>
-                    <div style={{ width: '65%', height: 3, background: t.green, borderRadius: 1, marginBottom: 2 }} />
-                    <div style={{ width: '45%', height: 3, background: t.foreground, borderRadius: 1, marginBottom: 2 }} />
-                    <div style={{ width: '55%', height: 3, background: t.blue, borderRadius: 1 }} />
-                  </div>
+                  <ThemeSwatch theme={t} />
                   <span className="term-sidebar-theme-name">{t.name}</span>
                 </button>
               ))}
@@ -206,11 +227,7 @@ export default function TerminalSidebar({ activeSessionId }: Props) {
               onClick={() => activeSessionId && setSessionTheme(activeSessionId, id)}
               title={hint(t.name)}
             >
-              <div className="term-sidebar-theme-swatch" style={{ background: t.background }}>
-                <div style={{ width: '65%', height: 3, background: t.green, borderRadius: 1, marginBottom: 2 }} />
-                <div style={{ width: '45%', height: 3, background: t.foreground, borderRadius: 1, marginBottom: 2 }} />
-                <div style={{ width: '55%', height: 3, background: t.blue, borderRadius: 1 }} />
-              </div>
+              <ThemeSwatch theme={t} />
               <span className="term-sidebar-theme-name">{t.name}</span>
             </button>
           ))}

@@ -8,6 +8,7 @@ import Drawer from './shared/Drawer';
 import PassphraseInput from './shared/PassphraseInput';
 import { cardKeys } from './shared/cardKeys';
 import { EditIcon } from './shared/icons';
+import PortalDropdown, { CHEVRON } from './shared/PortalDropdown';
 
 const KEY_ALGORITHMS = [
   { value: 'ed25519', label: 'ED25519' },
@@ -58,7 +59,6 @@ export default function KeychainPanel() {
   const [agentError, setAgentError] = useState('');
   const [idKeyId, setIdKeyId] = useState('');
   const [idPassword, setIdPassword] = useState('');
-  const [idKeyDropdownOpen, setIdKeyDropdownOpen] = useState(false);
   const [idError, setIdError] = useState('');
   const [savingId, setSavingId] = useState(false);
 
@@ -284,9 +284,7 @@ export default function KeychainPanel() {
               onClick={(e) => { e.stopPropagation(); setShowKeyDropdown((d) => !d); }}
               aria-label="More key options"
             >
-              <svg width="10" height="10" viewBox="0 0 10 6" fill="currentColor">
-                <path d="M0 0l5 6 5-6z"/>
-              </svg>
+              {CHEVRON}
             </button>
           </div>
           {showKeyDropdown && (
@@ -560,25 +558,16 @@ export default function KeychainPanel() {
                 </div>
               ) : idAuthType === 'keyboard-interactive' ? null : idAuthType === 'key' ? (
                 <div className="form-group">
-                  <div className="picker" style={{ position: 'relative' }}>
-                    <button
-                      type="button"
-                      className="picker-btn"
-                      onClick={() => setIdKeyDropdownOpen((o) => !o)}
-                    >
-                      <span>{keys.find((k) => k.id === idKeyId)?.name ?? 'Select key…'}</span>
-                      <svg width="10" height="6" viewBox="0 0 10 6" fill="currentColor"><path d="M0 0l5 6 5-6z"/></svg>
-                    </button>
-                    {idKeyDropdownOpen && (
-                      <>
-                        <div className="dropdown-scrim" onClick={() => setIdKeyDropdownOpen(false)} />
-                        <div className="picker-menu">
+                  <div className="picker">
+                    <PortalDropdown label={keys.find((k) => k.id === idKeyId)?.name ?? 'Select key…'}>
+                      {(close) => (
+                        <>
                           {keys.map((k) => (
                             <button
                               key={k.id}
                               type="button"
                               className={`picker-item${idKeyId === k.id ? ' selected' : ''}`}
-                              onClick={() => { setIdKeyId(k.id); setIdKeyDropdownOpen(false); }}
+                              onMouseDown={(e) => { e.preventDefault(); setIdKeyId(k.id); close(); }}
                             >
                               {k.name}
                             </button>
@@ -587,13 +576,13 @@ export default function KeychainPanel() {
                           <button
                             type="button"
                             className="picker-item picker-add"
-                            onClick={() => { setIdKeyDropdownOpen(false); setShowKeyForm(true); resetKeyForm(); }}
+                            onMouseDown={(e) => { e.preventDefault(); close(); setShowKeyForm(true); resetKeyForm(); }}
                           >
                             + Add Key…
                           </button>
-                        </div>
-                      </>
-                    )}
+                        </>
+                      )}
+                    </PortalDropdown>
                   </div>
                 </div>
               ) : (
