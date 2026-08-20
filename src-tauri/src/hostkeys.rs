@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex as StdMutex;
 
 use anyhow::Result;
-use base64::engine::general_purpose::{STANDARD as B64, STANDARD_NO_PAD as B64_NOPAD};
+use base64::engine::general_purpose::{STANDARD as BASE64, STANDARD_NO_PAD as BASE64_NOPAD};
 use base64::Engine as _;
 use hmac::{Hmac, Mac};
 use russh_keys::key::PublicKey;
@@ -87,7 +87,7 @@ fn algo_from_blob(blob: &[u8]) -> Option<String> {
 fn fingerprint_from_blob(blob: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(blob);
-    format!("SHA256:{}", B64_NOPAD.encode(hasher.finalize()))
+    format!("SHA256:{}", BASE64_NOPAD.encode(hasher.finalize()))
 }
 
 pub fn fingerprint(key: &PublicKey) -> String {
@@ -203,7 +203,7 @@ fn host_matches(field: &str, target: &str) -> bool {
         let (Some(salt_b64), Some(hash_b64)) = (parts.next(), parts.next()) else {
             return false;
         };
-        let (Ok(salt), Ok(hash)) = (B64.decode(salt_b64), B64.decode(hash_b64)) else {
+        let (Ok(salt), Ok(hash)) = (BASE64.decode(salt_b64), BASE64.decode(hash_b64)) else {
             return false;
         };
         let Ok(mut mac) = Hmac::<Sha1>::new_from_slice(&salt) else {
@@ -245,7 +245,7 @@ pub fn check_host(host: &str, port: u16, key: &PublicKey) -> KnownHostStatus {
             }
             // Unparseable or unsupported (sk-*, ssh-dss) entries are skipped, never
             // fatal — one bad line must not make the host permanently unverifiable.
-            let Ok(line_blob) = B64.decode(line.b64.as_bytes()) else {
+            let Ok(line_blob) = BASE64.decode(line.b64.as_bytes()) else {
                 continue;
             };
             let Some(line_algo) = algo_from_blob(&line_blob) else {
@@ -290,7 +290,7 @@ fn format_line(host: &str, port: u16, key: &PublicKey) -> Option<String> {
         "{} {} {}",
         host_spec(host, port),
         algo,
-        B64.encode(&blob)
+        BASE64.encode(&blob)
     ))
 }
 
@@ -305,7 +305,7 @@ pub fn learn_host(host: &str, port: u16, key: &PublicKey) -> Result<()> {
     if scan(&path).iter().any(|l| {
         l.marker.is_none()
             && host_matches(&l.hosts, &host_spec(host, port))
-            && l.b64 == B64.encode(key.public_key_bytes())
+            && l.b64 == BASE64.encode(key.public_key_bytes())
     }) {
         return Ok(());
     }
@@ -376,7 +376,7 @@ fn remove_lines(host: &str, port: u16, algo: Option<&str>) -> Result<usize> {
             }
             match algo {
                 None => true,
-                Some(want) => B64
+                Some(want) => BASE64
                     .decode(l.b64.as_bytes())
                     .ok()
                     .and_then(|b| algo_from_blob(&b))
@@ -427,7 +427,7 @@ pub fn list_known_hosts() -> Result<Vec<KnownHostEntry>> {
     for (source, path) in sources {
         let Some(path) = path else { continue };
         for line in scan(&path) {
-            let Ok(blob) = B64.decode(line.b64.as_bytes()) else {
+            let Ok(blob) = BASE64.decode(line.b64.as_bytes()) else {
                 continue;
             };
             let Some(algo) = algo_from_blob(&blob) else {
@@ -506,7 +506,7 @@ struct HostEntry {
 
 fn parse_line(line: &str) -> Option<HostEntry> {
     let l = split_line(line)?;
-    let blob = B64.decode(l.b64.as_bytes()).ok()?;
+    let blob = BASE64.decode(l.b64.as_bytes()).ok()?;
     Some(HostEntry {
         marker: l.marker.map(str::to_string),
         hosts: l.hosts.to_string(),
@@ -606,7 +606,7 @@ mod tests {
 
     #[test]
     fn fingerprint_matches_ssh_keygen() {
-        let blob = B64.decode(ED25519_B64).unwrap();
+        let blob = BASE64.decode(ED25519_B64).unwrap();
         assert_eq!(
             fingerprint_from_blob(&blob),
             "SHA256:BZpjiB9yqu9UsdcMZfJ/is2DOjRTZmTnZZ09hnmtcnQ"
@@ -943,9 +943,9 @@ mod tests {
 
     /// The same algorithm, different key material.
     fn other_key_b64() -> String {
-        let mut blob = B64.decode(ED25519_B64).unwrap();
+        let mut blob = BASE64.decode(ED25519_B64).unwrap();
         *blob.last_mut().unwrap() ^= 0xff;
-        B64.encode(blob)
+        BASE64.encode(blob)
     }
 
     fn line(host: &str, b64: &str) -> String {

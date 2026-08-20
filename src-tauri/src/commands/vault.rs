@@ -82,8 +82,7 @@ pub async fn unlock_vault(passphrase: String, state: State<'_, AppState>) -> Cmd
         return Ok(());
     }
     let dir = crate::store::get_data_dir()?;
-    let key = crate::keystore::unlock_with_passphrase(&dir, &passphrase)
-        ?;
+    let key = crate::keystore::unlock_with_passphrase(&dir, &passphrase)?;
 
     // Load before publishing the key, so a data file that will not open leaves
     // the app locked rather than half started with an empty AppData that the
@@ -158,8 +157,7 @@ pub async fn remove_master_passphrase(
     state: State<'_, AppState>,
 ) -> CmdResult<()> {
     let dir = crate::store::get_data_dir()?;
-    let key = crate::keystore::unlock_with_passphrase(&dir, &passphrase)
-        ?;
+    let key = crate::keystore::unlock_with_passphrase(&dir, &passphrase)?;
     if key != state.key()? {
         return Err("That passphrase does not match this keystore".to_string().into());
     }

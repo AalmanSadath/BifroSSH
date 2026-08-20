@@ -88,8 +88,7 @@ pub async fn import_data(
     // merged anything into the copy in memory.
     let master = state.key()?;
     let mut data = state.data.lock().await;
-    let report = crate::transfer::apply_merge(payload, &export_key, &master, &mut data, &options)
-        ?;
+    let report = crate::transfer::apply_merge(payload, &export_key, &master, &mut data, &options)?;
     save_app_data(&data, &master)?;
     Ok(report)
 }

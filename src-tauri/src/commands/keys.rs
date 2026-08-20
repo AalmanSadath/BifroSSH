@@ -257,8 +257,7 @@ pub async fn generate_key(algorithm: String, passphrase: Option<String>) -> CmdR
     };
 
     let public_openssh = key.public_key()
-        .to_openssh()
-        ?;
+        .to_openssh()?;
 
     let private_pem = match passphrase.as_deref().filter(|p| !p.is_empty()) {
         Some(p) => key.encrypt(&mut rng, p)

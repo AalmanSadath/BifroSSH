@@ -4,7 +4,7 @@
 //! Supports ED25519, RSA, and ECDSA (P-256/P-384/P-521).
 
 use anyhow::{anyhow, bail, Context, Result};
-use base64::prelude::*;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
@@ -158,7 +158,7 @@ fn read_base64_lines(lines: &[&str], idx: &mut usize, n: usize) -> Result<Vec<u8
         b64.push_str(lines[*idx]);
         *idx += 1;
     }
-    Ok(BASE64_STANDARD.decode(&b64)?)
+    Ok(BASE64.decode(&b64)?)
 }
 
 // ── Decryption ────────────────────────────────────────────────────────────────
@@ -411,7 +411,7 @@ fn build_openssh_pem(public_blob: &[u8], private_key_data: &[u8], comment: &str)
 
     ssh_write_bytes(&mut buf, &priv_section);
 
-    let b64 = BASE64_STANDARD.encode(&buf);
+    let b64 = BASE64.encode(&buf);
     let lines: String = b64.as_bytes()
         .chunks(70)
         .map(|c| std::str::from_utf8(c).unwrap())

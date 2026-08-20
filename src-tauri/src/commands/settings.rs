@@ -53,7 +53,10 @@ pub async fn list_fonts() -> CmdResult<Vec<String>> {
         .map(str::to_string)
         .collect();
 
+    // Both steps compare the same way. Sorting case-insensitively and then
+    // deduplicating case-sensitively let "Fira Code" and "fira code" sit next
+    // to each other in the list and both survive.
     families.sort_unstable_by_key(|f| f.to_lowercase());
-    families.dedup();
+    families.dedup_by_key(|f| f.to_lowercase());
     Ok(families)
 }
