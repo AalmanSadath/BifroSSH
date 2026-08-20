@@ -7,6 +7,19 @@
  */
 export const UNKNOWN_OS = 'server';
 
+/**
+ * What the backend puts in `encrypted_password` in place of the ciphertext.
+ *
+ * The password itself never crosses; a record that has one is marked, and
+ * `resolveServerAuth` asks for the real thing only when it is about to
+ * connect. The exact string is `STORED` in `commands/records.rs`, and the two
+ * must agree.
+ */
+export const STORED = '[stored]';
+
+/** How a connection proves who it is. Spelled `auth_type` on the wire. */
+export type AuthType = 'key' | 'password' | 'keyboard-interactive' | 'agent';
+
 export interface Server {
   id: string;
   name: string;
@@ -28,6 +41,16 @@ export interface Server {
   proxy_jump: string | null;
 }
 
+/** Payload of the `sftp-progress` event, emitted as bytes move. */
+export interface TransferProgress {
+  file_name: string;
+  transferred: number;
+  total: number;
+  /** 1-based position within a batch; 1/1 for a single file. */
+  file_index: number;
+  file_count: number;
+}
+
 /** What `sftp_upload`, `sftp_download` and `sftp_copy_remote_to_remote` return. */
 export interface TransferSummary {
   files: number;
@@ -47,8 +70,37 @@ export interface JumpHopParams {
   host: string;
   port: number;
   username: string;
-  auth_type: string;
+  auth_type: AuthType;
   auth_value: string;
+}
+
+/**
+ * Everything `ssh_connect` needs. Sent as one object rather than a dozen
+ * arguments because the backend takes it as one struct.
+ */
+export interface ConnectRequest {
+  server_id: string;
+  username: string;
+  auth_type: AuthType;
+  auth_value: string;
+  cols: number;
+  rows: number;
+  /** Names the channel the connection log is narrated on. */
+  connect_id: string;
+  jumps: JumpHopParams[];
+}
+
+/** The same, for a host that was typed in rather than saved. */
+export interface QuickConnectRequest {
+  host: string;
+  port: number;
+  username: string;
+  auth_type: AuthType;
+  auth_value: string;
+  cols: number;
+  rows: number;
+  connect_id: string;
+  jumps: JumpHopParams[];
 }
 
 /**
@@ -78,11 +130,24 @@ export interface KeyEntry {
   algorithm: string | null;
 }
 
+/** The material behind a saved key, decrypted for the one caller that asked. */
+export interface KeyContent {
+  private_pem: string;
+  /** Derived from the private key, so absent only when it could not be read. */
+  public_openssh: string | null;
+  passphrase: string | null;
+}
+
+export interface GeneratedKey {
+  private_pem: string;
+  public_openssh: string;
+}
+
 export interface Settings {
   theme: string;
   font_size: number;
   font_family: string;
-  cursor_style: string;
+  cursor_style: CursorStyle;
   cursor_blink: boolean;
   app_theme: 'dark' | 'light' | 'amoled';
   connection_timeout_secs: number;
@@ -92,6 +157,9 @@ export interface Settings {
   /** Seconds between keepalives on terminal and tunnel connections; 0 is off. */
   keepalive_interval_secs: number;
 }
+
+/** How the user chose to keep the master key on the first run screen. */
+export type VaultInitMode = 'secret-file' | 'passphrase-only' | 'keyring-and-passphrase';
 
 /** State of the master key at startup. */
 export interface VaultStatus {
@@ -116,6 +184,8 @@ export interface KeystoreStatus {
   /** Present but locked, which the user can undo by unlocking it. */
   keyring_locked: boolean;
 }
+
+export type CursorStyle = 'block' | 'underline' | 'bar';
 
 /** A mismatched key is blocked under all three policies. */
 export type HostKeyPolicy = 'ask' | 'accept-new' | 'strict';
@@ -227,6 +297,17 @@ export interface PortForwarding {
   dest_address: string;
   dest_port: number | null;
 }
+
+/**
+ * What `save_server` and `save_identity` accept.
+ *
+ * Everything is optional but the fields that identify the record, matching the
+ * `#[serde(default)]`s on the Rust structs: a form that has not been shown a
+ * field should not have to invent a value for it. An empty `id` creates.
+ */
+export type ServerInput = Partial<Server> & { name: string; host: string; port: number };
+
+export type IdentityInput = Partial<Identity> & { name: string; username: string };
 
 /** A local file or directory, as `sftp_list_local` reports it. */
 export interface FileEntry {

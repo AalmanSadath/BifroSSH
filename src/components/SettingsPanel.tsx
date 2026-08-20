@@ -6,16 +6,16 @@ import MasterKeySection from './MasterKeySection';
 import ExportDataModal from './ExportDataModal';
 import ImportDataModal from './ImportDataModal';
 import { useAppStore, reportFailure } from '../store/appStore';
-import type { Settings } from '../types';
+import type { CursorStyle, Settings } from '../types';
 
-const CURSOR_STYLES = [
+const CURSOR_STYLES: PickerOption<CursorStyle>[] = [
   { value: 'block', label: 'Block' },
   { value: 'underline', label: 'Underline' },
   { value: 'bar', label: 'Bar' },
 ];
 
-interface PickerOption {
-  value: string;
+interface PickerOption<T extends string> {
+  value: T;
   label: string;
 }
 
@@ -25,15 +25,15 @@ interface PickerOption {
  * `previewFont` renders each option in the family it names, which is the whole
  * point of a font list: the names mean little until you can see them.
  */
-function Picker({
+function Picker<T extends string>({
   value,
   options,
   onChange,
   previewFont = false,
 }: {
-  value: string;
-  options: PickerOption[];
-  onChange: (v: string) => void;
+  value: T;
+  options: PickerOption<T>[];
+  onChange: (v: T) => void;
   previewFont?: boolean;
 }) {
   const label = options.find((o) => o.value === value)?.label ?? value;

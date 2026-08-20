@@ -1,8 +1,8 @@
 import { create } from 'zustand';
-import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { UNKNOWN_OS } from '../types';
-import type { Codeprint, Identity, JumpHopParams, KeyEntry, LogEntry, PortForwarding, Server, SessionTab, Settings } from '../types';
+import * as ipc from '../ipc';
+import { STORED, UNKNOWN_OS } from '../types';
+import type { AuthType, Codeprint, GeneratedKey, Identity, IdentityInput, JumpHopParams, KeyContent, KeyEntry, LogEntry, PortForwarding, Server, ServerInput, SessionTab, Settings } from '../types';
 import type { NamedTheme } from '../styles/themes';
 
 // These three collections used to live here. They are now kept in the Rust
@@ -18,11 +18,11 @@ const PORT_FORWARDINGS_KEY = 'bifrossh_port_forwardings';
  * Deliberately fire-and-forget: these are edited far more often than they fail
  * to save, and blocking the UI on a disk write would be worse than logging it.
  */
-function persist(command: string, items: unknown) {
+function persist(save: () => Promise<void>) {
   // Reported rather than only logged. The state has already been changed by
   // the time this runs, so a failure here means the screen and the disk have
   // parted company, which is exactly the thing worth saying out loud.
-  invoke(command, { items }).catch(reportFailure);
+  save().catch(reportFailure);
 }
 
 function readLegacy<T>(key: string, fallback: T): T {
@@ -50,7 +50,7 @@ async function migrateLegacyStorage(current: {
 
   const legacyPfs = readLegacy<PortForwarding[]>(PORT_FORWARDINGS_KEY, []);
   if (legacyPfs.length > 0 && current.portForwardings.length === 0) {
-    await invoke('save_port_forwardings', { items: legacyPfs });
+    await ipc.savePortForwardings(legacyPfs);
     result.portForwardings = legacyPfs;
   }
   if (legacyPfs.length === 0 || result.portForwardings === legacyPfs) {
@@ -59,7 +59,7 @@ async function migrateLegacyStorage(current: {
 
   const legacyCps = readLegacy<Codeprint[]>(CODEPRINTS_KEY, []);
   if (legacyCps.length > 0 && current.codeprints.length === 0) {
-    await invoke('save_codeprints', { items: legacyCps });
+    await ipc.saveCodeprints(legacyCps);
     result.codeprints = legacyCps;
   }
   if (legacyCps.length === 0 || result.codeprints === legacyCps) {
@@ -68,7 +68,7 @@ async function migrateLegacyStorage(current: {
 
   const legacyThemes = readLegacy<Record<string, NamedTheme>>(CUSTOM_THEMES_KEY, {});
   if (Object.keys(legacyThemes).length > 0 && Object.keys(current.customThemes).length === 0) {
-    await invoke('save_custom_themes', { items: legacyThemes });
+    await ipc.saveCustomThemes(legacyThemes);
     result.customThemes = legacyThemes;
   }
   if (Object.keys(legacyThemes).length === 0 || result.customThemes === legacyThemes) {
@@ -133,18 +133,18 @@ interface AppStore {
   actionError: string | null;
   setActionError: (message: string | null) => void;
 
-  saveServer: (server: Partial<Server> & { name: string; host: string; port: number }, password?: string) => Promise<void>;
+  saveServer: (server: ServerInput, password?: string) => Promise<void>;
   deleteServer: (id: string) => Promise<void>;
-  detectServerOs: (serverId: string, username: string, authType: string, authValue: string, jumps?: JumpHopParams[]) => Promise<void>;
+  detectServerOs: (serverId: string, username: string, authType: AuthType, authValue: string, jumps?: JumpHopParams[]) => Promise<void>;
 
   importKey: (name: string, path: string, passphrase: string | null, storeContent: boolean) => Promise<void>;
   saveKeyFromContent: (name: string, content: string, passphrase: string | null) => Promise<void>;
-  generateKey: (algorithm: string, passphrase?: string | null) => Promise<{ private_pem: string; public_openssh: string }>;
-  getKeyContent: (keyId: string) => Promise<{ private_pem: string; public_openssh: string | null; passphrase: string | null }>;
+  generateKey: (algorithm: string, passphrase?: string | null) => Promise<GeneratedKey>;
+  getKeyContent: (keyId: string) => Promise<KeyContent>;
   updateKey: (keyId: string, name: string, content: string, passphrase: string | null) => Promise<void>;
   deleteKey: (id: string) => Promise<void>;
 
-  saveIdentity: (identity: Partial<Identity> & { name: string; username: string }, password?: string) => Promise<void>;
+  saveIdentity: (identity: IdentityInput, password?: string) => Promise<void>;
   deleteIdentity: (id: string) => Promise<void>;
 
   saveSettings: (settings: Settings) => Promise<void>;
@@ -175,14 +175,14 @@ interface AppStore {
   updateSessionError: (connectId: string, error: string) => void;
   appendSessionLog: (connectId: string, entry: LogEntry) => void;
   openSession: (serverId: string) => Promise<void>;
-  quickConnect: (host: string, port: number, username: string, authType: string, authValue: string) => Promise<void>;
+  quickConnect: (host: string, port: number, username: string, authType: AuthType, authValue: string) => Promise<void>;
   setActiveTab: (id: string | null) => void;
 }
 
 /** How a server's credentials resolve for a connect. */
 export interface ResolvedAuth {
   username: string;
-  authType: 'key' | 'password' | 'keyboard-interactive' | 'agent';
+  authType: AuthType;
   authValue: string;
 }
 
@@ -212,11 +212,11 @@ export async function resolveServerAuth(
         authValue: identity.agent_fingerprint ?? '',
       };
     }
-    if (identity.encrypted_password === '[stored]') {
+    if (identity.encrypted_password === STORED) {
       return {
         username: identity.username,
         authType: 'password',
-        authValue: await invoke<string>('get_identity_password', { identityId: identity.id }),
+        authValue: await ipc.getIdentityPassword(identity.id),
       };
     }
     if (identity.key_id) {
@@ -236,11 +236,11 @@ export async function resolveServerAuth(
   if (server.key_id) {
     return { username: server.username, authType: 'key', authValue: server.key_id };
   }
-  if (server.encrypted_password === '[stored]') {
+  if (server.encrypted_password === STORED) {
     return {
       username: server.username,
       authType: 'password',
-      authValue: await invoke<string>('get_server_password', { serverId: server.id }),
+      authValue: await ipc.getServerPassword(server.id),
     };
   }
   return null;
@@ -334,13 +334,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const [servers, identities, keys, settings, portForwardings, codeprints, customThemes] =
         await Promise.all([
-          invoke<Server[]>('list_servers'),
-          invoke<Identity[]>('list_identities'),
-          invoke<KeyEntry[]>('list_keys'),
-          invoke<Settings>('get_settings'),
-          invoke<PortForwarding[]>('get_port_forwardings'),
-          invoke<Codeprint[]>('get_codeprints'),
-          invoke<Record<string, NamedTheme>>('get_custom_themes'),
+          ipc.listServers(),
+          ipc.listIdentities(),
+          ipc.listKeys(),
+          ipc.getSettings(),
+          ipc.getPortForwardings(),
+          ipc.getCodeprints(),
+          ipc.getCustomThemes(),
         ]);
 
       cacheAppTheme(settings.app_theme);
@@ -362,10 +362,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   saveServer: async (server, password) => {
-    const saved = await invoke<Server>('save_server', {
-      server: { id: server.id ?? '', ...server },
-      password: password ?? null,
-    });
+    const saved = await ipc.saveServer({ id: server.id ?? '', ...server }, password ?? null);
     set((s) => {
       const exists = s.servers.some((x) => x.id === saved.id);
       return {
@@ -377,15 +374,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   deleteServer: async (id) => {
-    await invoke('delete_server', { serverId: id });
+    await ipc.deleteServer(id);
     set((s) => ({ servers: s.servers.filter((x) => x.id !== id) }));
   },
 
   detectServerOs: async (serverId, username, authType, authValue, jumps) => {
     try {
-      const detectedOs = await invoke<string>('detect_server_os', {
-        serverId, username, authType, authValue, jumps,
-      });
+      const detectedOs = await ipc.detectServerOs(serverId, username, authType, authValue, jumps ?? []);
       set((s) => ({
         servers: s.servers.map((srv) =>
           srv.id === serverId ? { ...srv, os: detectedOs } : srv
@@ -404,46 +399,38 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   importKey: async (name, path, passphrase, storeContent) => {
-    const key = await invoke<KeyEntry>('import_key_from_path', {
-      name,
-      path,
-      passphrase,
-      storeContent,
-    });
+    const key = await ipc.importKeyFromPath(name, path, passphrase, storeContent);
     set((s) => ({ keys: [...s.keys, key] }));
   },
 
   saveKeyFromContent: async (name, content, passphrase) => {
-    const key = await invoke<KeyEntry>('save_key_from_content', { name, content, passphrase });
+    const key = await ipc.saveKeyFromContent(name, content, passphrase);
     set((s) => ({ keys: [...s.keys, key] }));
   },
 
   generateKey: async (algorithm, passphrase) => {
-    return invoke<{ private_pem: string; public_openssh: string }>('generate_key', { algorithm, passphrase: passphrase ?? null });
+    return ipc.generateKey(algorithm, passphrase ?? null);
   },
 
   getKeyContent: async (keyId) => {
-    return invoke<{ private_pem: string; public_openssh: string | null; passphrase: string | null }>('get_key_content', { keyId });
+    return ipc.getKeyContent(keyId);
   },
 
   updateKey: async (keyId, name, content, passphrase) => {
-    await invoke('update_key', { keyId, name, content, passphrase });
-    const keys = await invoke<KeyEntry[]>('list_keys');
+    await ipc.updateKey(keyId, name, content, passphrase);
+    const keys = await ipc.listKeys();
     set({ keys });
   },
 
   deleteKey: async (id) => {
-    await invoke('delete_key', { keyId: id });
+    await ipc.deleteKey(id);
     set((s) => ({
       keys: s.keys.filter((k) => k.id !== id),
     }));
   },
 
   saveIdentity: async (identity, password?) => {
-    const saved = await invoke<Identity>('save_identity', {
-      identity: { id: identity.id ?? '', ...identity },
-      password: password ?? null,
-    });
+    const saved = await ipc.saveIdentity({ id: identity.id ?? '', ...identity }, password ?? null);
     set((s) => {
       const exists = s.identities.some((x) => x.id === saved.id);
       return {
@@ -455,7 +442,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   deleteIdentity: async (id) => {
-    await invoke('delete_identity', { identityId: id });
+    await ipc.deleteIdentity(id);
     set((s) => ({
       identities: s.identities.filter((x) => x.id !== id),
       servers: s.servers.map((srv) =>
@@ -465,7 +452,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   saveSettings: async (settings) => {
-    await invoke('save_settings', { settings });
+    await ipc.saveSettings(settings);
     cacheAppTheme(settings.app_theme);
     set({ settings });
   },
@@ -473,7 +460,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   saveCustomTheme: (id, theme) => {
     set((s) => {
       const next = { ...s.customThemes, [id]: theme };
-      persist('save_custom_themes', next);
+      persist(() => ipc.saveCustomThemes(next));
       return { customThemes: next };
     });
   },
@@ -482,7 +469,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set((s) => {
       const next = { ...s.customThemes };
       delete next[id];
-      persist('save_custom_themes', next);
+      persist(() => ipc.saveCustomThemes(next));
       return { customThemes: next };
     });
   },
@@ -495,7 +482,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const next = exists
         ? s.portForwardings.map((x) => (x.id === id ? entry : x))
         : [...s.portForwardings, entry];
-      persist('save_port_forwardings', next);
+      persist(() => ipc.savePortForwardings(next));
       return { portForwardings: next };
     });
   },
@@ -503,7 +490,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   deletePortForwarding: (id) => {
     set((s) => {
       const next = s.portForwardings.filter((x) => x.id !== id);
-      persist('save_port_forwardings', next);
+      persist(() => ipc.savePortForwardings(next));
       return { portForwardings: next };
     });
   },
@@ -516,21 +503,21 @@ export const useAppStore = create<AppStore>((set, get) => ({
     if (!server) throw new Error('Server not found');
 
     let username: string;
-    let authType: string;
+    let authType: AuthType;
     let authValue: string;
 
     const resolved = await resolveServerAuth(server, identities);
     if (!resolved) throw new Error('No credentials configured for this server');
     ({ username, authType, authValue } = resolved);
 
-    await invoke('tunnel_start', {
+    await ipc.tunnelStart({
       pfId: pf.id,
       pfType: pf.type,
       bindAddress: pf.bind_address,
-      localPort: pf.local_port ?? undefined,
-      remotePort: pf.remote_port ?? undefined,
-      destHost: pf.dest_address || undefined,
-      destPort: pf.dest_port ?? undefined,
+      localPort: pf.local_port,
+      remotePort: pf.remote_port,
+      destHost: pf.dest_address || null,
+      destPort: pf.dest_port,
       serverId,
       username,
       authType,
@@ -541,14 +528,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   stopTunnel: async (pfId) => {
-    await invoke('tunnel_stop', { pfId });
+    await ipc.tunnelStop(pfId);
     set((s) => { const n = new Set(s.activeTunnelIds); n.delete(pfId); return { activeTunnelIds: n }; });
   },
 
   addCodeprint: (cp) => {
     set((s) => {
       const next = [...s.codeprints, { id: crypto.randomUUID(), ...cp }];
-      persist('save_codeprints', next);
+      persist(() => ipc.saveCodeprints(next));
       return { codeprints: next };
     });
   },
@@ -556,7 +543,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   updateCodeprint: (id, cp) => {
     set((s) => {
       const next = s.codeprints.map((c) => c.id === id ? { ...c, ...cp } : c);
-      persist('save_codeprints', next);
+      persist(() => ipc.saveCodeprints(next));
       return { codeprints: next };
     });
   },
@@ -564,7 +551,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   deleteCodeprint: (id) => {
     set((s) => {
       const next = s.codeprints.filter((c) => c.id !== id);
-      persist('save_codeprints', next);
+      persist(() => ipc.saveCodeprints(next));
       return { codeprints: next };
     });
   },
@@ -636,7 +623,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
     // Resolve credentials: identity takes priority, then server-direct credentials
     let username: string;
-    let authType: string;
+    let authType: AuthType;
     let authValue: string;
 
     const connectId = crypto.randomUUID();
@@ -687,17 +674,15 @@ export const useAppStore = create<AppStore>((set, get) => ({
       },
       async () => {
         jumps = await buildJumpChain(server, servers, identities);
-        return invoke<string>('ssh_connect', {
-          request: {
-            server_id: serverId,
-            username,
-            auth_type: authType,
-            auth_value: authValue,
-            cols: 80,
-            rows: 24,
-            connect_id: connectId,
-            jumps,
-          },
+        return ipc.sshConnect({
+          server_id: serverId,
+          username,
+          auth_type: authType,
+          auth_value: authValue,
+          cols: 80,
+          rows: 24,
+          connect_id: connectId,
+          jumps,
         });
       },
     );
@@ -718,8 +703,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
         logs: [],
         quick_info: { host, port, username },
       },
-      () => invoke<string>('ssh_connect_quick', {
-        request: { host, port, username, auth_type: authType, auth_value: authValue, cols: 80, rows: 24, connect_id: connectId },
+      () => ipc.sshConnectQuick({
+        host, port, username,
+        auth_type: authType,
+        auth_value: authValue,
+        cols: 80, rows: 24,
+        connect_id: connectId,
+        jumps: [],
       }),
     );
   },
