@@ -111,6 +111,22 @@
   gap: 2px;
 }
 
+/* Keychain and Known Hosts, pushed to the foot of the nav and fenced off.
+   What you work in sits above the line; what you set up once sits below it,
+   next to the app's own settings.
+
+   Bled out past the nav's 6px side padding so the rule spans the sidebar the
+   way the one above Theme Editor does, while the buttons stay in line with
+   the three above them. */
+.sidebar-nav-setup {
+  margin: auto -6px 0;
+  padding: 8px 6px 0;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .sidebar-nav-bottom {
   padding: 8px 6px;
   display: flex;

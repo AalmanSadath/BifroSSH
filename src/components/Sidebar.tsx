@@ -63,34 +63,6 @@ export default function Sidebar() {
           {!collapsed && 'SFTP'}
         </button>
         <button
-          className={`nav-btn ${activePanel === 'keychain' ? 'active' : ''}`}
-          onClick={() => setActiveTab('keychain')}
-          title={collapsed ? 'Keychain' : undefined}
-        >
-          <span className="nav-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="7.5" cy="7.5" r="4.5"/>
-              <path d="M10.5 10.5L21 21"/>
-              <path d="M17 17l2-2"/>
-              <path d="M19 15l2-2"/>
-            </svg>
-          </span>
-          {!collapsed && 'Keychain'}
-        </button>
-        <button
-          className={`nav-btn ${activePanel === 'knownhosts' ? 'active' : ''}`}
-          onClick={() => setActiveTab('knownhosts')}
-          title={collapsed ? 'Known Hosts' : undefined}
-        >
-          <span className="nav-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 3l7 3v5.5c0 4.2-2.9 7.6-7 8.5-4.1-.9-7-4.3-7-8.5V6z"/>
-              <path d="M9 12l2 2 4-4"/>
-            </svg>
-          </span>
-          {!collapsed && 'Known Hosts'}
-        </button>
-        <button
           className={`nav-btn ${activePanel === 'portforwarding' ? 'active' : ''}`}
           onClick={() => setActiveTab('portforwarding')}
           title={collapsed ? 'Port Forwarding' : undefined}
@@ -104,6 +76,38 @@ export default function Sidebar() {
           </span>
           {!collapsed && 'Port Forwarding'}
         </button>
+        {/* Set up once and left alone, so they sit with the app's own
+            settings rather than with the three you actually work in. */}
+        <div className="sidebar-nav-setup">
+          <button
+            className={`nav-btn ${activePanel === 'keychain' ? 'active' : ''}`}
+            onClick={() => setActiveTab('keychain')}
+            title={collapsed ? 'Keychain' : undefined}
+          >
+            <span className="nav-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="7.5" cy="7.5" r="4.5"/>
+                <path d="M10.5 10.5L21 21"/>
+                <path d="M17 17l2-2"/>
+                <path d="M19 15l2-2"/>
+              </svg>
+            </span>
+            {!collapsed && 'Keychain'}
+          </button>
+          <button
+            className={`nav-btn ${activePanel === 'knownhosts' ? 'active' : ''}`}
+            onClick={() => setActiveTab('knownhosts')}
+            title={collapsed ? 'Known Hosts' : undefined}
+          >
+            <span className="nav-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 3l7 3v5.5c0 4.2-2.9 7.6-7 8.5-4.1-.9-7-4.3-7-8.5V6z"/>
+                <path d="M9 12l2 2 4-4"/>
+              </svg>
+            </span>
+            {!collapsed && 'Known Hosts'}
+          </button>
+        </div>
       </nav>
       <nav className="sidebar-nav-bottom">
         <button
