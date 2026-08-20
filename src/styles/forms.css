@@ -357,3 +357,18 @@ button { cursor: pointer; font-family: inherit; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* A labelled number box on one line; see shared/NumberSetting. */
+.settings-num-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.settings-num-row label {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.settings-num-row input { width: 80px; }
