@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import * as ipc from '../ipc';
 import PassphraseInput from './shared/PassphraseInput';
 
 interface Props {
@@ -29,7 +29,7 @@ export default function UnlockScreen({ fatal, keyringLocked, onUnlocked }: Props
     setBusy(true);
     setError(null);
     try {
-      await invoke('unlock_vault', { passphrase });
+      await ipc.unlockVault(passphrase);
       onUnlocked();
     } catch (err) {
       setError(String(err));

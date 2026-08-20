@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import * as ipc from './ipc';
 import { listen } from '@tauri-apps/api/event';
 import { useAppStore } from './store/appStore';
 import type { AuthPromptEvent, HostKeyPromptEvent, SessionTab, VaultStatus } from './types';
@@ -85,7 +85,7 @@ export default function App() {
   const [vault, setVault] = useState<VaultStatus | null>(null);
 
   useEffect(() => {
-    invoke<VaultStatus>('vault_status')
+    ipc.vaultStatus()
       .then((v) => {
         setVault(v);
         if (!v.locked) loadAll();
@@ -153,7 +153,7 @@ export default function App() {
   function handleCloseTab(sessionId: string, e: React.MouseEvent) {
     e.stopPropagation();
     const session = sessions.find((s) => s.session_id === sessionId);
-    if (session?.status === 'connected') invoke('ssh_disconnect', { sessionId }).catch(() => {});
+    if (session?.status === 'connected') ipc.sshDisconnect(sessionId).catch(() => {});
     removeSession(sessionId);
   }
 

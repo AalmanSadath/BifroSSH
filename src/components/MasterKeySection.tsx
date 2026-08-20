@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import * as ipc from '../ipc';
 import PassphraseInput from './shared/PassphraseInput';
 import type { KeystoreStatus } from '../types';
 
@@ -22,7 +22,7 @@ export default function MasterKeySection() {
   const [alwaysAsk, setAlwaysAsk] = useState(false);
 
   const refresh = () =>
-    invoke<KeystoreStatus>('keystore_status')
+    ipc.keystoreStatus()
       .then(setStatus)
       .catch((e) => setError(String(e)));
 
@@ -45,10 +45,9 @@ export default function MasterKeySection() {
     }
     setBusy(true);
     try {
-      await invoke(mode === 'set' ? 'set_master_passphrase' : 'remove_master_passphrase', {
-        passphrase: pass,
-        ...(mode === 'set' ? { alwaysAsk } : {}),
-      });
+      await (mode === 'set'
+        ? ipc.setMasterPassphrase(pass, alwaysAsk)
+        : ipc.removeMasterPassphrase(pass));
       setNote(
         mode === 'set'
           ? alwaysAsk
@@ -122,7 +121,7 @@ export default function MasterKeySection() {
                         setBusy(true);
                         setError(null);
                         try {
-                          await invoke('set_always_ask', { alwaysAsk: e.target.checked });
+                          await ipc.setAlwaysAsk(e.target.checked);
                           setNote(null);
                           await refresh();
                         } catch (err) {

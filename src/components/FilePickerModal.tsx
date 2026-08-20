@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import * as ipc from '../ipc';
 import type { FileEntry } from '../types';
 import Modal from './shared/Modal';
 
@@ -53,7 +53,7 @@ export default function FilePickerModal({
   async function navigate(path: string) {
     setLoading(true);
     try {
-      const listed = await invoke<FileEntry[]>('sftp_list_local', { path });
+      const listed = await ipc.sftpListLocal(path);
       setEntries(listed);
       setDir(path);
       setTypedPath(path);
@@ -70,7 +70,7 @@ export default function FilePickerModal({
 
   useEffect(() => {
     (async () => {
-      const home = await invoke<string>('sftp_local_home').catch(() => '/');
+      const home = await ipc.sftpLocalHome().catch(() => '/');
       await navigate(startDir || home);
       if (mode === 'save') nameRef.current?.select();
     })();

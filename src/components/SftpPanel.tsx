@@ -1,21 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import * as ipc from '../ipc';
 import { listen } from '@tauri-apps/api/event';
 import { useAppStore, buildJumpChain, resolveServerAuth } from '../store/appStore';
 import OsIcon from './OsIcon';
-import type { FileEntry, LogEntry, Server, TransferSummary } from '../types';
+import type { FileEntry, LogEntry, Server, TransferProgress, TransferSummary } from '../types';
 import ConnectingView from './ConnectingView';
 import ContextMenu from './shared/ContextMenu';
 import { useDismissOnOutside } from './shared/useDismissOnOutside';
-
-interface TransferProgress {
-  file_name: string;
-  transferred: number;
-  total: number;
-  /** 1-based position within a batch; 1/1 for a single file. */
-  file_index: number;
-  file_count: number;
-}
 
 function formatSize(bytes: number, isDir: boolean): string {
   if (isDir) return '- -';
@@ -658,7 +649,7 @@ function usePane(initialMode: PaneMode) {
     if (path !== local.path) setNotice('');
     setLocal((l) => ({ ...l, path, loading: true, error: '' }));
     try {
-      const entries = await invoke<FileEntry[]>('sftp_list_local', { path });
+      const entries = await ipc.sftpListLocal(path);
       setLocal((l) => ({ ...l, entries, loading: false }));
     } catch (e) {
       setLocal((l) => ({ ...l, error: String(e), loading: false }));
@@ -670,7 +661,7 @@ function usePane(initialMode: PaneMode) {
     if (path !== remote.path) setNotice('');
     setRemote((r) => ({ ...r, path, loading: true, error: '' }));
     try {
-      const entries = await invoke<FileEntry[]>('sftp_list_remote', { sessionId: sid, path });
+      const entries = await ipc.sftpListRemote(sid, path);
       setRemote((r) => ({ ...r, entries, loading: false }));
     } catch (e) {
       // A failed listing on a live session means the session is gone. Dropping
@@ -688,7 +679,7 @@ function usePane(initialMode: PaneMode) {
   async function goLocal() {
     setMode('local');
     if (!local.path) {
-      const home = await invoke<string>('sftp_local_home').catch(() => '/');
+      const home = await ipc.sftpLocalHome().catch(() => '/');
       await navigateLocal(home);
     }
   }
@@ -721,14 +712,14 @@ function usePane(initialMode: PaneMode) {
     });
 
     try {
-      const newSid = await invoke<string>('sftp_connect_remote', {
-        serverId: server.id,
+      const newSid = await ipc.sftpConnectRemote(
+        server.id,
         username,
         authType,
         authValue,
         connectId,
-        jumps: await buildJumpChain(server, servers, identities),
-      });
+        await buildJumpChain(server, servers, identities),
+      );
       setSid(newSid);
       setServerId(server.id);
       setServerName(server.name);
@@ -736,8 +727,8 @@ function usePane(initialMode: PaneMode) {
       setDisconnected(false);
       setRemote((r) => ({ ...r, error: '', loading: true }));
 
-      const home = await invoke<string>('sftp_get_home', { sessionId: newSid });
-      const entries = await invoke<FileEntry[]>('sftp_list_remote', { sessionId: newSid, path: home });
+      const home = await ipc.sftpGetHome(newSid);
+      const entries = await ipc.sftpListRemote(newSid, home);
       setRemote({ path: home, entries, loading: false, error: '' });
     } catch (e) {
       // Stay on the connecting screen so the log explaining the failure, and
@@ -753,7 +744,7 @@ function usePane(initialMode: PaneMode) {
 
   async function disconnect() {
     if (sid) {
-      await invoke('sftp_disconnect_remote', { sessionId: sid }).catch(() => {});
+      await ipc.sftpDisconnectRemote(sid).catch(() => {});
     }
     setMode('idle');
     setSid(null);
@@ -774,11 +765,26 @@ function usePane(initialMode: PaneMode) {
   // The six operations below were twelve handlers: one pair per operation,
   // differing only in which prefix they set and which navigate they called.
 
+  /**
+   * The remote session, insisted on rather than assumed.
+   *
+   * `sid` is null between a dropped connection and a reconnect, and every
+   * remote command took it as-is: the null went across the bridge and came
+   * back as a deserialize error naming a Rust type. The pane shows its
+   * reconnect view in that state so none of these should be reachable, but
+   * saying so out loud costs one line and turns an internal error into the
+   * sentence the user needs.
+   */
+  function requireSid(): string {
+    if (!sid) throw new Error('The connection to this server was lost');
+    return sid;
+  }
+
   async function newFolder(name: string) {
     const path = listing.path.replace(/\/$/, '') + '/' + name;
     try {
-      if (mode === 'local') await invoke('sftp_create_local_dir', { path });
-      else await invoke('sftp_mkdir', { sessionId: sid, path });
+      if (mode === 'local') await ipc.sftpCreateLocalDir(path);
+      else await ipc.sftpMkdir(requireSid(), path);
     } catch (e) {
       fail(String(e));
     } finally {
@@ -790,15 +796,11 @@ function usePane(initialMode: PaneMode) {
     const parent = entry.path.substring(0, entry.path.lastIndexOf('/'));
     try {
       if (mode === 'local') {
-        await invoke('sftp_rename_local', { oldPath: entry.path, newPath: parent + '/' + newName });
+        await ipc.sftpRenameLocal(entry.path, parent + '/' + newName);
       } else {
         // A file directly under the remote root would otherwise become "//name".
         const base = parent || '/';
-        await invoke('sftp_rename_remote', {
-          sessionId: sid,
-          oldPath: entry.path,
-          newPath: (base === '/' ? '' : base) + '/' + newName,
-        });
+        await ipc.sftpRenameRemote(requireSid(), entry.path, (base === '/' ? '' : base) + '/' + newName);
       }
     } catch (e) {
       fail(String(e));
@@ -809,8 +811,8 @@ function usePane(initialMode: PaneMode) {
 
   async function remove(entry: FileEntry) {
     try {
-      if (mode === 'local') await invoke('sftp_delete_local', { path: entry.path });
-      else await invoke('sftp_delete_remote', { sessionId: sid, path: entry.path, isDir: entry.is_dir });
+      if (mode === 'local') await ipc.sftpDeleteLocal(entry.path);
+      else await ipc.sftpDeleteRemote(requireSid(), entry.path, entry.is_dir);
     } catch (e) {
       fail(String(e));
     } finally {
@@ -834,7 +836,7 @@ function usePane(initialMode: PaneMode) {
     connectingId, connectError, setConnectError, connectServer, connectLogs,
     navigate: (path: string) => (mode === 'local' ? navigateLocal(path) : navigateRemote(path)),
     refresh, goLocal, connect, disconnect, reconnect,
-    newFolder, rename, remove, fail, say,
+    newFolder, rename, remove, fail, say, requireSid,
   };
 }
 
@@ -936,19 +938,12 @@ export default function SftpPanel() {
 
     const run = (): Promise<TransferSummary> => {
       if (src.mode === 'local') {
-        return invoke<TransferSummary>('sftp_upload', {
-          sessionId: dst.sid, localPath: entry.path, remoteDir: dst.listing.path,
-        });
+        return ipc.sftpUpload(dst.requireSid(), entry.path, dst.listing.path);
       }
       if (dst.mode === 'local') {
-        return invoke<TransferSummary>('sftp_download', {
-          sessionId: src.sid, remotePath: entry.path, localDir: dst.listing.path,
-        });
+        return ipc.sftpDownload(src.requireSid(), entry.path, dst.listing.path);
       }
-      return invoke<TransferSummary>('sftp_copy_remote_to_remote', {
-        srcSessionId: src.sid, srcPath: entry.path,
-        dstSessionId: dst.sid, dstDir: dst.listing.path,
-      });
+      return ipc.sftpCopyRemoteToRemote(src.requireSid(), entry.path, dst.requireSid(), dst.listing.path);
     };
 
     setTransferring(true);
@@ -1078,7 +1073,7 @@ export default function SftpPanel() {
               <button
                 type="button"
                 className="sftp-cancel-btn"
-                onClick={() => { setCancelling(true); invoke('sftp_cancel_transfer').catch(() => {}); }}
+                onClick={() => { setCancelling(true); ipc.sftpCancelTransfer().catch(() => {}); }}
                 disabled={cancelling}
               >
                 {cancelling ? 'Stopping…' : 'Cancel'}

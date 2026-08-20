@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import * as ipc from '../ipc';
 import { useAppStore, reportFailure } from '../store/appStore';
 import type { Server } from '../types';
 import ServerForm from './ServerForm';
@@ -113,7 +113,7 @@ export default function HostsPanel() {
                     <>
                       {activeSessions.map((s) => (
                         <button key={s.session_id} className="menu-item menu-item-danger" onClick={() => {
-                          if (s.status === 'connected') invoke('ssh_disconnect', { sessionId: s.session_id }).catch(() => {});
+                          if (s.status === 'connected') ipc.sshDisconnect(s.session_id).catch(() => {});
                           removeSession(s.session_id);
                           setContextMenu(null);
                         }}>

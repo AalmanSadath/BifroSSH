@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import PortalDropdown from './shared/PortalDropdown';
-import { invoke } from '@tauri-apps/api/core';
+import * as ipc from '../ipc';
 import NumberSetting from './shared/NumberSetting';
 import MasterKeySection from './MasterKeySection';
 import ExportDataModal from './ExportDataModal';
@@ -64,7 +64,7 @@ export default function SettingsPanel() {
   const [fonts, setFonts] = useState<string[]>([]);
 
   useEffect(() => {
-    invoke<string[]>('list_fonts').then(setFonts).catch(() => setFonts([]));
+    ipc.listFonts().then(setFonts).catch(() => setFonts([]));
   }, []);
 
   // `monospace` first because it is the default and the one value guaranteed to

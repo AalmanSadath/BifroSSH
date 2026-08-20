@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import * as ipc from '../ipc';
 import PassphraseInput from './shared/PassphraseInput';
 import GeneratedPassphraseField from './shared/GeneratedPassphraseField';
 import FilePickerModal from './FilePickerModal';
@@ -39,7 +39,7 @@ export default function ExportDataModal({ onClose }: Props) {
   const [result, setResult] = useState<ExportResult | null>(null);
 
   useEffect(() => {
-    invoke<string>('default_export_dir')
+    ipc.defaultExportDir()
       .then((d) => {
         setDir(d);
         setPath(`${d.replace(/\/+$/, '')}/${defaultName()}`);
@@ -57,12 +57,7 @@ export default function ExportDataModal({ onClose }: Props) {
     setBusy(true);
     setError('');
     try {
-      const res = await invoke<ExportResult>('export_data', {
-        path,
-        passphrase,
-        includeSecrets,
-        overwrite: force,
-      });
+      const res = await ipc.exportData(path, passphrase, includeSecrets, force);
       setResult(res);
     } catch (e) {
       const message = String(e);

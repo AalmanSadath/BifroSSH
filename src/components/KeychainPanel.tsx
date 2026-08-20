@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import * as ipc from '../ipc';
 import { useAppStore, reportFailure } from '../store/appStore';
 import type { AgentKeyInfo, Identity } from '../types';
 import ConfirmModal from './shared/ConfirmModal';
@@ -74,7 +74,7 @@ export default function KeychainPanel() {
     if (idAuthType !== 'agent' || !showIdForm) return;
     let cancelled = false;
     setAgentError('');
-    invoke<AgentKeyInfo[]>('list_agent_keys')
+    ipc.listAgentKeys()
       .then((k) => { if (!cancelled) setAgentKeys(k); })
       .catch((e) => { if (!cancelled) { setAgentKeys([]); setAgentError(String(e)); } });
     return () => { cancelled = true; };
@@ -122,10 +122,7 @@ export default function KeychainPanel() {
       let content = keyContent.trim();
       let passphraseToStore: string | null = keyPassphrase || null;
       if (content.startsWith('PuTTY-User-Key-File')) {
-        content = await invoke<string>('convert_ppk', {
-          content,
-          passphrase: keyPassphrase || null,
-        });
+        content = await ipc.convertPpk(content, keyPassphrase || null);
         passphraseToStore = null;
       }
       await saveKeyFromContent(keyName.trim(), content, passphraseToStore);

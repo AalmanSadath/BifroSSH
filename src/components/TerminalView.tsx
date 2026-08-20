@@ -3,7 +3,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
-import { invoke } from '@tauri-apps/api/core';
+import * as ipc from '../ipc';
 import { listen } from '@tauri-apps/api/event';
 import { useAppStore } from '../store/appStore';
 import { THEMES } from '../styles/themes';
@@ -202,7 +202,7 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
         // can miss this if the cols/rows match the xterm default (80×24).
         const { cols, rows } = term;
         if (cols > 0 && rows > 0) {
-          invoke('ssh_resize', { sessionId, cols, rows }).catch(() => {});
+          ipc.sshResize(sessionId, cols, rows).catch(() => {});
         }
       });
     });
@@ -239,11 +239,11 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
 
     term.onData((data) => {
       const bytes = Array.from(new TextEncoder().encode(data));
-      invoke('ssh_send_input', { sessionId, data: bytes }).catch(() => {});
+      ipc.sshSendInput(sessionId, bytes).catch(() => {});
     });
 
     term.onResize(({ cols, rows }) => {
-      invoke('ssh_resize', { sessionId, cols, rows }).catch(() => {});
+      ipc.sshResize(sessionId, cols, rows).catch(() => {});
     });
 
     term.onSelectionChange(() => {
@@ -289,7 +289,7 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
     // Tauri drops events nobody is listening for. Ordered after the listen so
     // nothing can arrive between the two and be written out of sequence.
     unlistenOutput
-      .then(() => invoke<string>('ssh_attach', { sessionId }))
+      .then(() => ipc.sshAttach(sessionId))
       .then((pending) => {
         if (disposed) return;
         if (pending) {

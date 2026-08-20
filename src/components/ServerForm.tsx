@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import * as ipc from '../ipc';
 import { useAppStore } from '../store/appStore';
 import ThemePicker, { ThumbNail } from './ThemePicker';
 import { THEMES } from '../styles/themes';
@@ -26,7 +26,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
 
   useEffect(() => {
     if (server?.id && server.encrypted_password === '[stored]') {
-      invoke<string>('get_server_password', { serverId: server.id })
+      ipc.getServerPassword(server.id)
         .then(setPassword)
         .catch(() => {});
     }

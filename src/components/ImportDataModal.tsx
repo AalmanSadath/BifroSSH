@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import * as ipc from '../ipc';
 import PassphraseInput from './shared/PassphraseInput';
 import FilePickerModal from './FilePickerModal';
 import { useAppStore } from '../store/appStore';
@@ -45,7 +45,7 @@ export default function ImportDataModal({ onClose }: Props) {
     setBusy(true);
     setError('');
     try {
-      const p = await invoke<MergePlan>('preview_import', { path, passphrase });
+      const p = await ipc.previewImport(path, passphrase);
       setPlan(p);
       setChosen({
         servers: p.incoming.servers > 0,
@@ -70,11 +70,7 @@ export default function ImportDataModal({ onClose }: Props) {
     setBusy(true);
     setError('');
     try {
-      const res = await invoke<ImportReport>('import_data', {
-        path,
-        passphrase,
-        options: chosen,
-      });
+      const res = await ipc.importData(path, passphrase, chosen);
       setReport(res);
       await loadAll();
     } catch (e) {

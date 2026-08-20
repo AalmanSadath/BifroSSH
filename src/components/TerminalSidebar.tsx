@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import * as ipc from '../ipc';
 import { useAppStore } from '../store/appStore';
 import ConnectLog, { formatLogs } from './ConnectLog';
 import { THEMES } from '../styles/themes';
@@ -60,7 +60,7 @@ export default function TerminalSidebar({ activeSessionId }: Props) {
     if (!activeSessionId) return;
     const payload = run ? text + '\n' : text;
     const bytes = Array.from(new TextEncoder().encode(payload));
-    invoke('ssh_send_input', { sessionId: activeSessionId, data: bytes }).catch(() => {});
+    ipc.sshSendInput(activeSessionId, bytes).catch(() => {});
   }
 
   function saveCodeprint() {

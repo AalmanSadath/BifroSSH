@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import * as ipc from '../ipc';
 import GeneratedPassphraseField from './shared/GeneratedPassphraseField';
 
 type Mode = 'secret-file' | 'passphrase-only' | 'keyring-and-passphrase';
@@ -45,7 +45,7 @@ export default function FirstRunSetup({ keyringAvailable, onReady }: Props) {
     setBusy(true);
     setError(null);
     try {
-      await invoke('initialize_vault', { mode, passphrase });
+      await ipc.initializeVault(mode, passphrase);
       onReady();
     } catch (e) {
       setError(String(e));

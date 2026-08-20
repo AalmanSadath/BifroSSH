@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import * as ipc from '../ipc';
 import type { AuthPromptEvent } from '../types';
 import Modal from './shared/Modal';
 
@@ -86,7 +86,7 @@ export default function AuthPromptModal({ event, onResolved }: Props) {
     setSubmitted(true);
     onResolved(event.request_id);
     try {
-      await invoke('respond_auth_prompt', { requestId: event.request_id, responses });
+      await ipc.respondAuthPrompt(event.request_id, responses);
     } catch (err) {
       console.error('Failed to answer auth prompt', err);
     }

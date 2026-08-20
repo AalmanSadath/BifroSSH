@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import * as ipc from '../ipc';
 import { useAppStore } from '../store/appStore';
 import type { SshConfigHost, SshConfigScan, SshConfigImportResult } from '../types';
 import Modal from './shared/Modal';
@@ -17,7 +17,7 @@ export default function SshConfigImport({ onClose }: Props) {
   const [result, setResult] = useState<SshConfigImportResult | null>(null);
 
   useEffect(() => {
-    invoke<SshConfigScan>('scan_ssh_config')
+    ipc.scanSshConfig()
       .then((s) => {
         setScan(s);
         // Everything preselected: the user is here because they want them.
@@ -39,9 +39,7 @@ export default function SshConfigImport({ onClose }: Props) {
     setBusy(true);
     setError('');
     try {
-      const res = await invoke<SshConfigImportResult>('import_ssh_config_hosts', {
-        aliases: [...selected],
-      });
+      const res = await ipc.importSshConfigHosts([...selected]);
       setResult(res);
       await loadAll();
     } catch (e) {

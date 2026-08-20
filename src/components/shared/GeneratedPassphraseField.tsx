@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import * as ipc from '../../ipc';
 import PassphraseInput from './PassphraseInput';
 
 interface Props {
@@ -47,7 +47,7 @@ export default function GeneratedPassphraseField({
 
   async function roll() {
     try {
-      onChange(await invoke<string>('generate_passphrase'), true);
+      onChange(await ipc.generatePassphrase(), true);
       onSavedChange(false);
       setCopied(false);
     } catch (e) {

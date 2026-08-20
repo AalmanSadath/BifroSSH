@@ -222,7 +222,8 @@ export const sshConnect = (request: ConnectRequest) =>
 export const sshConnectQuick = (request: QuickConnectRequest) =>
   invoke<string>('ssh_connect_quick', { request });
 
-export const sshSendInput = (sessionId: string, data: Uint8Array) =>
+/** Bytes as a plain array: a Uint8Array does not survive the bridge intact. */
+export const sshSendInput = (sessionId: string, data: number[]) =>
   invoke<void>('ssh_send_input', { sessionId, data });
 
 export const sshResize = (sessionId: string, cols: number, rows: number) =>

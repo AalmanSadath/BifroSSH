@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import * as ipc from '../ipc';
 import { useAppStore, reportFailure } from '../store/appStore';
 import type { HostKeyPolicy, KnownHostEntry } from '../types';
 import ConfirmModal from './shared/ConfirmModal';
@@ -25,7 +25,7 @@ export default function KnownHostsPanel() {
 
   const refresh = useCallback(async () => {
     try {
-      setHosts(await invoke<KnownHostEntry[]>('list_known_hosts'));
+      setHosts(await ipc.listKnownHosts());
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -58,7 +58,7 @@ export default function KnownHostsPanel() {
 
   async function forget(entry: KnownHostEntry) {
     try {
-      await invoke('forget_known_host', { host: entry.host, port: entry.port });
+      await ipc.forgetKnownHost(entry.host, entry.port);
       await refresh();
     } catch (e) {
       setError(String(e));

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import * as ipc from '../ipc';
 import type { HostKeyDecision, HostKeyPromptEvent } from '../types';
 import Modal from './shared/Modal';
 
@@ -27,7 +27,7 @@ export default function HostKeyPrompt({ event, onResolved }: Props) {
   const respond = async (decision: HostKeyDecision) => {
     onResolved(event.request_id);
     try {
-      await invoke('respond_host_key', { requestId: event.request_id, decision });
+      await ipc.respondHostKey(event.request_id, decision);
     } catch (err) {
       console.error('Failed to answer host key prompt', err);
     }
