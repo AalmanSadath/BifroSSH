@@ -672,57 +672,44 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
     ({ username, authType, authValue } = resolved);
 
-    const unlisten = await listen<LogEntry>(`ssh-connect-log:${connectId}`, (event) => {
-      get().appendSessionLog(connectId, event.payload);
-    });
-
-    set((s) => ({
-      sessions: [...s.sessions, {
+    // Resolved before the tab exists, since a broken jump chain should reach
+    // the session's own error view like any other failure to connect.
+    let jumps: JumpHopParams[] = [];
+    const ok = await startSession(
+      connectId,
+      {
         session_id: connectId,
         server_name: tabName,
         server_id: serverId,
         status: 'connecting',
         connect_id: connectId,
         logs: [],
-      }],
-      activeTabId: connectId,
-    }));
+      },
+      async () => {
+        jumps = await buildJumpChain(server, servers, identities);
+        return invoke<string>('ssh_connect', {
+          request: {
+            server_id: serverId,
+            username,
+            auth_type: authType,
+            auth_value: authValue,
+            cols: 80,
+            rows: 24,
+            connect_id: connectId,
+            jumps,
+          },
+        });
+      },
+    );
 
-    try {
-      // A broken jump chain surfaces in the session's own error view, the
-      // same as any other reason the connection could not be made.
-      const jumps = await buildJumpChain(server, servers, identities);
-      const sessionId = await invoke<string>('ssh_connect', {
-        request: {
-          server_id: serverId,
-          username,
-          auth_type: authType,
-          auth_value: authValue,
-          cols: 80,
-          rows: 24,
-          connect_id: connectId,
-          jumps,
-        },
-      });
-      // The backend's last log lines are emitted just before ssh_connect
-      // returns, and race the response over the same IPC bridge. Unlisten a
-      // moment later so the stored transcript is complete.
-      setTimeout(unlisten, 1000);
-      get().updateSessionConnected(connectId, sessionId);
-      if (server.os === '') detectServerOs(serverId, username, authType, authValue, jumps);
-    } catch (err) {
-      unlisten();
-      get().updateSessionError(connectId, String(err));
-    }
+    if (ok && server.os === '') detectServerOs(serverId, username, authType, authValue, jumps);
   },
 
   quickConnect: async (host, port, username, authType, authValue) => {
     const connectId = crypto.randomUUID();
-    const unlisten = await listen<LogEntry>(`ssh-connect-log:${connectId}`, (event) => {
-      get().appendSessionLog(connectId, event.payload);
-    });
-    set((s) => ({
-      sessions: [...s.sessions, {
+    await startSession(
+      connectId,
+      {
         session_id: connectId,
         server_name: `${username}@${host}`,
         server_id: '',
@@ -730,19 +717,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
         connect_id: connectId,
         logs: [],
         quick_info: { host, port, username },
-      }],
-      activeTabId: connectId,
-    }));
-    try {
-      const sessionId = await invoke<string>('ssh_connect_quick', {
+      },
+      () => invoke<string>('ssh_connect_quick', {
         request: { host, port, username, auth_type: authType, auth_value: authValue, cols: 80, rows: 24, connect_id: connectId },
-      });
-      setTimeout(unlisten, 1000);
-      get().updateSessionConnected(connectId, sessionId);
-    } catch (err) {
-      unlisten();
-      get().updateSessionError(connectId, String(err));
-    }
+      }),
+    );
   },
 
   setActiveTab: (id) => set({ activeTabId: id }),
@@ -761,3 +740,46 @@ export function reportFailure(e: unknown) {
   console.error(e);
   useAppStore.getState().setActionError(String(e));
 }
+
+/**
+ * Opens a session tab, runs a connect, and narrates it.
+ *
+ * The same six steps were written three times, twice here and once in the
+ * SFTP panel: mint an id, listen on the log channel it names, put a
+ * connecting tab on screen, invoke, stop listening a moment later, and turn
+ * the tab into a connected one or a failed one.
+ *
+ * The delay before unlistening is the part worth keeping in one place. The
+ * backend emits its last log lines just before the command returns, and those
+ * race the response over the same bridge, so unlistening on the response
+ * itself loses the end of the transcript.
+ *
+ * Returns the backend's session id, or null if the connect failed; the tab has
+ * already been told either way.
+ */
+async function startSession(
+  connectId: string,
+  tab: SessionTab,
+  connect: () => Promise<string>,
+): Promise<string | null> {
+  const unlisten = await listen<LogEntry>(`ssh-connect-log:${connectId}`, (event) => {
+    useAppStore.getState().appendSessionLog(connectId, event.payload);
+  });
+
+  useAppStore.setState((s) => ({
+    sessions: [...s.sessions, tab],
+    activeTabId: connectId,
+  }));
+
+  try {
+    const sessionId = await connect();
+    setTimeout(unlisten, 1000);
+    useAppStore.getState().updateSessionConnected(connectId, sessionId);
+    return sessionId;
+  } catch (err) {
+    unlisten();
+    useAppStore.getState().updateSessionError(connectId, String(err));
+    return null;
+  }
+}
+
