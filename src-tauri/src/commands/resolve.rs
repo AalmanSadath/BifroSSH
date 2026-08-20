@@ -30,7 +30,7 @@ pub(super) fn server_target(
     data: &AppData,
     secret_key: &[u8; 32],
     server_id: &str,
-    auth_type: &str,
+    auth_type: AuthMethod,
     auth_value: &str,
     jumps: Option<&[JumpHopRequest]>,
 ) -> CmdResult<ServerTarget> {
@@ -54,18 +54,17 @@ pub(super) fn server_target(
 pub(super) fn resolve_auth(
     data: &AppData,
     secret_key: &[u8; 32],
-    auth_type: &str,
+    auth_type: AuthMethod,
     auth_value: &str,
 ) -> CmdResult<SshAuth> {
     match auth_type {
         // Nothing is stored: the server asks and the user answers at connect time.
-        "keyboard-interactive" => Ok(SshAuth::KeyboardInteractive),
-        // auth_value optionally pins one agent key by fingerprint.
-        "agent" => Ok(SshAuth::Agent {
+        AuthMethod::KeyboardInteractive => Ok(SshAuth::KeyboardInteractive),
+        AuthMethod::Agent => Ok(SshAuth::Agent {
             fingerprint: (!auth_value.is_empty()).then(|| auth_value.to_string()),
         }),
-        "password" => Ok(SshAuth::Password(auth_value.to_string())),
-        _ => {
+        AuthMethod::Password => Ok(SshAuth::Password(auth_value.to_string())),
+        AuthMethod::Key => {
             let key = data
                 .keys
                 .iter()
@@ -96,7 +95,7 @@ pub struct JumpHopRequest {
     pub host: String,
     pub port: u16,
     pub username: String,
-    pub auth_type: String,
+    pub auth_type: AuthMethod,
     pub auth_value: String,
 }
 
@@ -107,7 +106,7 @@ pub(super) fn resolve_jumps(
 ) -> CmdResult<Vec<JumpHop>> {
     hops.iter()
         .map(|hop| {
-            let auth = resolve_auth(data, secret_key, &hop.auth_type, &hop.auth_value)
+            let auth = resolve_auth(data, secret_key, hop.auth_type, &hop.auth_value)
                 .map_err(|e| format!("Jump host {}: {}", hop.host, e))?;
             Ok(JumpHop {
                 host: hop.host.clone(),

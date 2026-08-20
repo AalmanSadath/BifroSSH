@@ -212,12 +212,12 @@ async fn connect_security(
 ) -> ConnectSecurity {
     let policy = {
         let data = state.data.lock().await;
-        data.settings.host_key_policy.clone()
+        data.settings.host_key_policy
     };
     ConnectSecurity::new(
         app.clone(),
         Arc::clone(&state.prompts),
-        &policy,
+        policy,
         connect_id,
         interactive,
     )

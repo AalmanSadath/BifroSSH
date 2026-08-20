@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use tauri::{AppHandle, State};
 
+use crate::models::{AuthMethod, PfKind};
 use crate::tunnel::{TunnelKind, TunnelParams};
 
 use super::{CmdError, CmdResult, connect_security, AppState};
@@ -16,7 +17,7 @@ pub async fn tunnel_start(
     state: State<'_, AppState>,
     app: AppHandle,
     pf_id: String,
-    pf_type: String,
+    pf_type: PfKind,
     bind_address: String,
     local_port: Option<u32>,
     remote_port: Option<u32>,
@@ -24,13 +25,13 @@ pub async fn tunnel_start(
     dest_port: Option<u32>,
     server_id: String,
     username: String,
-    auth_type: String,
+    auth_type: AuthMethod,
     auth_value: String,
     jumps: Option<Vec<JumpHopRequest>>,
 ) -> CmdResult<()> {
     let target = {
         let data = state.data.lock().await;
-        server_target(&data, &state.key()?, &server_id, &auth_type, &auth_value, jumps.as_deref())?
+        server_target(&data, &state.key()?, &server_id, auth_type, &auth_value, jumps.as_deref())?
     };
 
     // Check not already running
@@ -41,21 +42,20 @@ pub async fn tunnel_start(
         }
     }
 
-    let kind = match pf_type.as_str() {
-        "local" => TunnelKind::Local {
+    let kind = match pf_type {
+        PfKind::Local => TunnelKind::Local {
             local_port: local_port.ok_or("local_port required")?,
             dest_host: dest_host.ok_or("dest_host required")?,
             dest_port: dest_port.ok_or("dest_port required")?,
         },
-        "remote" => TunnelKind::Remote {
+        PfKind::Remote => TunnelKind::Remote {
             remote_port: remote_port.ok_or("remote_port required")?,
             dest_host: dest_host.ok_or("dest_host required")?,
             dest_port: dest_port.ok_or("dest_port required")?,
         },
-        "dynamic" => TunnelKind::Dynamic {
+        PfKind::Dynamic => TunnelKind::Dynamic {
             local_port: local_port.ok_or("local_port required")?,
         },
-        t => return Err(format!("Unknown tunnel type: {}", t).into()),
     };
 
     let sec = connect_security(&state, &app, None, true).await;

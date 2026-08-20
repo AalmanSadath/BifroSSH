@@ -4,6 +4,7 @@ use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
 use crate::connect::ConnectLogEvent;
+use crate::models::AuthMethod;
 use crate::ssh::{connect_ssh, SshCommand, SshConnectParams};
 
 use super::{CmdError, CmdResult, connect_security, timeout_pausable, AppState};
@@ -26,7 +27,7 @@ struct Prepared {
 fn prepare(
     data: &crate::models::AppData,
     key: &[u8; 32],
-    auth_type: &str,
+    auth_type: AuthMethod,
     auth_value: &str,
     jumps: &[JumpHopRequest],
     host_timeout: Option<u32>,
@@ -98,7 +99,7 @@ async fn start_session(
 pub struct ConnectRequest {
     pub server_id: String,
     pub username: String,
-    pub auth_type: String,
+    pub auth_type: AuthMethod,
     pub auth_value: String,
     pub cols: u32,
     pub rows: u32,
@@ -123,7 +124,7 @@ pub async fn ssh_connect(
         let prep = prepare(
             &data,
             &state.key()?,
-            &request.auth_type,
+            request.auth_type,
             &request.auth_value,
             &request.jumps,
             host_timeout,
@@ -150,7 +151,7 @@ pub struct QuickConnectRequest {
     pub host: String,
     pub port: u16,
     pub username: String,
-    pub auth_type: String,
+    pub auth_type: AuthMethod,
     pub auth_value: String,
     pub cols: u32,
     pub rows: u32,
@@ -171,7 +172,7 @@ pub async fn ssh_connect_quick(
         prepare(
             &data,
             &state.key()?,
-            &request.auth_type,
+            request.auth_type,
             &request.auth_value,
             &request.jumps,
             None,

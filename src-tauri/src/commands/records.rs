@@ -177,7 +177,7 @@ mod tests {
             port_forwardings: vec![crate::models::PortForwarding {
                 id: "pf".into(),
                 label: "rule".into(),
-                kind: "local".into(),
+                kind: crate::models::PfKind::Local,
                 bind_address: "127.0.0.1".into(),
                 local_port: Some(8080),
                 intermediate_host_id: Some("gone".into()),

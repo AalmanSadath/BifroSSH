@@ -32,8 +32,8 @@ pub async fn save_identity(
     // password behind would mean a secret surviving a change the user made to
     // stop using it.
     let stores_nothing = matches!(
-        identity.auth_kind.as_deref(),
-        Some("keyboard-interactive") | Some("agent")
+        identity.auth_kind,
+        Some(AuthKind::KeyboardInteractive) | Some(AuthKind::Agent)
     );
     if stores_nothing {
         identity.encrypted_password = None;

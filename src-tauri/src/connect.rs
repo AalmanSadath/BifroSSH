@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use tauri::{AppHandle, Emitter};
 
+use crate::models::HostKeyPolicy;
 use crate::prompts::PromptState;
 
 /// One line of the narration a connect writes to its ConnectingView.
@@ -27,26 +28,6 @@ pub(crate) fn emit_log(app: &AppHandle, connect_id: &str, kind: &str, message: &
         &format!("ssh-connect-log:{}", connect_id),
         ConnectLogEvent { message: message.to_string(), kind: kind.to_string() },
     );
-}
-
-/// What to do about a host key that is not already trusted.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HostKeyPolicy {
-    Ask,
-    AcceptNew,
-    Strict,
-}
-
-impl HostKeyPolicy {
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "accept-new" => HostKeyPolicy::AcceptNew,
-            "strict" => HostKeyPolicy::Strict,
-            // Anything unrecognised asks, which is the choice that cannot
-            // silently trust something.
-            _ => HostKeyPolicy::Ask,
-        }
-    }
 }
 
 /// Everything a connect needs in order to decide about a host key.
@@ -76,14 +57,14 @@ impl ConnectSecurity {
     pub fn new(
         app: AppHandle,
         prompts: Arc<PromptState>,
-        policy: &str,
+        policy: HostKeyPolicy,
         connect_id: Option<String>,
         interactive: bool,
     ) -> Self {
         ConnectSecurity {
             app,
             prompts,
-            policy: HostKeyPolicy::from_str(policy),
+            policy,
             connect_id,
             interactive,
             waiting: Arc::new(AtomicBool::new(false)),

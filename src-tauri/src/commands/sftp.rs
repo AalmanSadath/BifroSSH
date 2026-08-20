@@ -1,6 +1,8 @@
 use tauri::{AppHandle, State};
 use uuid::Uuid;
 
+use crate::models::AuthMethod;
+
 
 use super::{CmdError, CmdResult, connect_security, AppState};
 use super::resolve::{JumpHopRequest, server_target};
@@ -26,7 +28,7 @@ pub async fn sftp_connect_remote(
     app: AppHandle,
     server_id: String,
     username: String,
-    auth_type: String,
+    auth_type: AuthMethod,
     auth_value: String,
     // Channel the connection log is narrated on.
     connect_id: Option<String>,
@@ -35,7 +37,7 @@ pub async fn sftp_connect_remote(
     let (target, inactivity_timeout_secs) = {
         let data = state.data.lock().await;
         let target = server_target(
-            &data, &state.key()?, &server_id, &auth_type, &auth_value, jumps.as_deref(),
+            &data, &state.key()?, &server_id, auth_type, &auth_value, jumps.as_deref(),
         )?;
         (target, data.settings.sftp_inactivity_timeout_secs)
     };

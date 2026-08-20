@@ -1,5 +1,7 @@
 use tauri::{AppHandle, State};
 
+use crate::models::AuthMethod;
+
 
 use super::{CmdResult, connect_security, AppState};
 use super::resolve::{JumpHopRequest, server_target};
@@ -60,13 +62,13 @@ pub async fn detect_server_os(
     app: AppHandle,
     server_id: String,
     username: String,
-    auth_type: String,
+    auth_type: AuthMethod,
     auth_value: String,
     jumps: Option<Vec<JumpHopRequest>>,
 ) -> CmdResult<String> {
     let target = {
         let data = state.data.lock().await;
-        server_target(&data, &state.key()?, &server_id, &auth_type, &auth_value, jumps.as_deref())?
+        server_target(&data, &state.key()?, &server_id, auth_type, &auth_value, jumps.as_deref())?
     };
 
     // Non-interactive: this runs in the background with no UI to prompt from,

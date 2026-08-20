@@ -33,7 +33,7 @@ pub async fn save_server(
 
     // Keyboard-interactive answers are typed per connection and never stored,
     // so no stale password should linger alongside it.
-    let uses_prompts = server.auth_kind.as_deref() == Some("keyboard-interactive");
+    let uses_prompts = server.auth_kind == Some(AuthKind::KeyboardInteractive);
     let encrypted_password = if server.key_id.is_some() || uses_prompts { None } else { encrypted_password };
 
     let server = Server {

@@ -16,7 +16,8 @@ use async_trait::async_trait;
 use russh::client;
 use russh_keys::key::PublicKey;
 
-use crate::connect::{ConnectSecurity, HostKeyPolicy};
+use crate::connect::ConnectSecurity;
+use crate::models::HostKeyPolicy;
 use crate::hostkeys::{
     check_host, fingerprint, key_type, learn_host, replace_host, KnownHostStatus,
 };
