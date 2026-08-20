@@ -147,6 +147,48 @@ jobs:
       - name: Type check and build
         run: npm run build
 
+  # The Flatpak build itself runs only on tags, so until now a broken
+  # metainfo, .desktop or manifest was invisible until a release was already
+  # being cut. These three checks are seconds rather than the twenty minutes a
+  # sandboxed build costs, and they catch the metadata faults, which are the
+  # ones that actually happen.
+  packaging:
+    name: Packaging metadata
+    needs: decide
+    if: needs.decide.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install validators
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            appstream \
+            desktop-file-utils
+
+      # Flathub runs this on submission, so a failure here is a release that
+      # would have been rejected after being published.
+      - name: Validate metainfo
+        run: appstreamcli validate flatpak/io.github.aalmansadath.bifrossh.metainfo.xml
+
+      - name: Validate desktop entry
+        run: desktop-file-validate flatpak/io.github.aalmansadath.bifrossh.desktop
+
+      # Only that it parses and still names the pieces the build reaches for.
+      # Anything deeper belongs to the build, which runs on the tag.
+      - name: Manifest parses
+        run: |
+          python3 - <<'PY'
+          import sys, yaml
+          m = yaml.safe_load(open('flatpak/io.github.aalmansadath.bifrossh.yml'))
+          missing = [k for k in ('id', 'runtime', 'sdk', 'modules') if k not in m]
+          if missing:
+              print(f'::error::manifest is missing {", ".join(missing)}')
+              sys.exit(1)
+          print(f"{m['id']} against {m['runtime']} {m.get('runtime-version', '?')}")
+          PY
+
   backend:
     name: Backend
     needs: decide

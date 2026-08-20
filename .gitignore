@@ -20,4 +20,5 @@ src-tauri/target/
 .DS_Store
 *.suo
 *.sw?
+.claude/
 .flatpak-builder/
