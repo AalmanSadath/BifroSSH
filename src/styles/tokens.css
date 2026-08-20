@@ -37,6 +37,11 @@ input, textarea, select, [contenteditable] {
   --on-accent:    #0d1117;
   --success:      #3fb950;
   --warning:      #d29922;
+  /* A chip sitting above a card: the OS tile on a host. One step further from
+     the page than the card is, which is lighter here and lighter again on
+     amoled, but on light the page is the bright end and the step has to go
+     the other way or the tile reads as a hole punched in the card. */
+  --bg-chip:      #21262d;
   --text-primary: #e6edf3;
   --text-muted:   #8b949e;
   --text-dim:     #7d8590;
@@ -61,6 +66,7 @@ input, textarea, select, [contenteditable] {
   --on-accent:    #0d1117;
   --success:      #3fb950;
   --warning:      #d29922;
+  --bg-chip:      #111111;
   --text-primary: #ffffff;
   --text-muted:   #888888;
   --text-dim:     #767676;
@@ -68,22 +74,47 @@ input, textarea, select, [contenteditable] {
   background: var(--bg-darkest);
 }
 
+/*
+ * The surface ramp runs the same way here as in the other two, which it did
+ * not before. Dark and amoled climb monotonically: --bg-darkest is the page,
+ * and each token after it is lighter, so further along the ramp means more
+ * prominent. Light went up to white at --bg-dark and then back down, with
+ * --bg-mid and --bg-hover both ending up below the page colour. A surface
+ * built as page, then panel, then input therefore stepped up and then down,
+ * and since every component was written against a ramp that only goes one
+ * way, the result read as an inverted dark theme rather than a light one.
+ *
+ * It descends now, which is the correct mirror: prominence is distance from
+ * the page, and on a pale page that direction is darker.
+ *
+ * The page is not pure white. At #ffffff the strongest pair in the theme
+ * measured 17.7:1 against the dark theme's 16.0, so the light theme was the
+ * harsher of the two, which is the other half of why it read as an inversion
+ * rather than a lighter version of the same thing. #f4f6f9 puts it at 16.4.
+ */
 .app-light, body.app-light {
-  --bg-darkest:   #e8ecf0;
-  --bg-dark:      #ffffff;
-  --bg-mid:       #f0f3f6;
-  --bg-hover:     #dde3ea;
-  --border:       #bcc5cf;
-  --accent:       #1a63c4;
-  --accent-hover: #14509e;
+  --bg-darkest:   #f4f6f9;
+  --bg-dark:      #eaeef3;
+  --bg-mid:       #e1e6ec;
+  --bg-hover:     #d9dee5;
+  --border:       #bfc8d2;
+  --accent:       #155397;
+  --accent-hover: #0f4478;
   --danger:       #b91c1c;
   --on-danger:    #ffffff;
   --on-accent:    #ffffff;
-  --success:      #137333;
+  --success:      #0f5c29;
   --warning:      #7a5200;
-  --text-primary: #111827;
-  --text-muted:   #374151;
-  --text-dim:     #5b6270;
+  --bg-chip:      #ffffff;
+  /* Not black either. #111827 against the page was 16.4, and pulling the page
+     off white without pulling the text off black would have kept the pair at
+     its extremes. #1b2331 is 14.6. */
+  --text-primary: #1b2331;
+  /* Muted has to read as muted. At #374151 it scored 10.4 against primary's
+     16.1, a ratio of 1.55 where the dark theme's is 2.13, so nothing on the
+     page was actually de-emphasised. This holds 2.09. */
+  --text-muted:   #4b5563;
+  --text-dim:     #525c69;
   color: var(--text-primary);
   background: var(--bg-darkest);
 }
