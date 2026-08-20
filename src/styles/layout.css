@@ -201,26 +201,8 @@
 .quick-connect-input:focus { border-color: var(--accent); }
 
 /* ── Quick Auth Modal ──────────────────────────────────────── */
-.quick-auth-modal {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  background: var(--bg-mid);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 20px;
-  width: 320px;
-  z-index: 1000;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-}
-.quick-auth-target {
-  font-family: monospace;
-  font-size: 13px;
-  color: var(--accent);
-  margin-bottom: 14px;
-  font-weight: 600;
-}
+/* The dialog is a shared Modal; this only sets how wide it is. */
+.quick-auth-modal { width: 320px; }
 .quick-auth-or {
   font-size: 11px;
   color: var(--text-muted);
@@ -340,3 +322,12 @@
 }
 
 .load-error-dismiss:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+/* Spacing inside the quick-connect dialog. */
+.quick-auth-keys { margin-bottom: 14px; }
+
+.picker-empty {
+  padding: 6px 10px;
+  opacity: 0.5;
+  font-size: 12px;
+}

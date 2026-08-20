@@ -20,6 +20,9 @@ import ServerForm from './components/ServerForm';
 import TerminalSidebar from './components/TerminalSidebar';
 import PortForwardingPanel from './components/PortForwardingPanel';
 import ContextMenu from './components/shared/ContextMenu';
+import Modal from './components/shared/Modal';
+import PassphraseInput from './components/shared/PassphraseInput';
+import PortalDropdown from './components/shared/PortalDropdown';
 
 function parseSSHInput(input: string): { user: string; host: string; port: number; password?: string } | null {
   let s = input.trim();
@@ -363,48 +366,52 @@ export default function App() {
       )}
 
       {quickParsed && (
-        <>
-          <div className="drawer-backdrop" onClick={() => setQuickParsed(null)} />
-          <div className="quick-auth-modal">
-            <div className="quick-auth-target">{quickParsed.user}@{quickParsed.host}{quickParsed.port !== 22 ? `:${quickParsed.port}` : ''}</div>
-            <div className="form-group" style={{ marginBottom: 10 }}>
-              <label>Password</label>
-              <input
-                ref={quickPasswordRef}
-                type="password"
-                value={quickPassword}
-                onChange={(e) => { setQuickPassword(e.target.value); if (e.target.value) setQuickKeyId(''); }}
-                onKeyDown={(e) => { if (e.key === 'Enter') submitQuickAuth(); if (e.key === 'Escape') setQuickParsed(null); }}
-                placeholder="SSH password"
-                autoComplete="new-password"
-                disabled={!!quickKeyId}
-              />
-            </div>
-            <div className="quick-auth-or">or use a stored key</div>
-            <div className="picker" style={{ marginBottom: 14 }}>
-              <div className="picker-btn" style={{ cursor: 'default' }}>
-                <span>{keys.find((k) => k.id === quickKeyId)?.name ?? 'Select key…'}</span>
-              </div>
-              <div className="picker-menu" style={{ position: 'static', boxShadow: 'none', border: '1px solid var(--border)', marginTop: 4 }}>
-                {keys.map((k) => (
-                  <button
-                    key={k.id}
-                    type="button"
-                    className={`picker-item${quickKeyId === k.id ? ' selected' : ''}`}
-                    onClick={() => { setQuickKeyId(quickKeyId === k.id ? '' : k.id); setQuickPassword(''); }}
-                  >
-                    {k.name}
-                  </button>
-                ))}
-                {keys.length === 0 && <div style={{ padding: '6px 10px', opacity: 0.5, fontSize: 12 }}>No keys stored</div>}
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button className="btn-secondary btn-sm" onClick={() => setQuickParsed(null)}>Cancel</button>
-              <button className="btn-primary btn-sm" onClick={submitQuickAuth} disabled={!quickPassword && !quickKeyId}>Connect</button>
-            </div>
+        <Modal
+          title={`${quickParsed.user}@${quickParsed.host}${quickParsed.port !== 22 ? `:${quickParsed.port}` : ''}`}
+          className="quick-auth-modal"
+          onClose={() => setQuickParsed(null)}
+        >
+          <div className="form-group">
+            <label>Password</label>
+            <PassphraseInput
+              inputRef={quickPasswordRef}
+              value={quickPassword}
+              onChange={(v) => { setQuickPassword(v); if (v) setQuickKeyId(''); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') submitQuickAuth(); if (e.key === 'Escape') setQuickParsed(null); }}
+              placeholder="SSH password"
+              disabled={!!quickKeyId}
+            />
           </div>
-        </>
+          <div className="quick-auth-or">or use a stored key</div>
+          <div className="picker quick-auth-keys">
+            <PortalDropdown label={keys.find((k) => k.id === quickKeyId)?.name ?? 'Select key…'}>
+              {(close) => (
+                <>
+                  {keys.map((k) => (
+                    <button
+                      key={k.id}
+                      type="button"
+                      className={`picker-item${quickKeyId === k.id ? ' selected' : ''}`}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setQuickKeyId(quickKeyId === k.id ? '' : k.id);
+                        setQuickPassword('');
+                        close();
+                      }}
+                    >
+                      {k.name}
+                    </button>
+                  ))}
+                  {keys.length === 0 && <div className="picker-empty">No keys stored</div>}
+                </>
+              )}
+            </PortalDropdown>
+          </div>
+          <div className="modal-actions">
+            <button className="btn-secondary btn-sm" onClick={() => setQuickParsed(null)}>Cancel</button>
+            <button className="btn-primary btn-sm" onClick={submitQuickAuth} disabled={!quickPassword && !quickKeyId}>Connect</button>
+          </div>
+        </Modal>
       )}
 
       {tabCtx && (

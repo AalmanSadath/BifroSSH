@@ -11,6 +11,9 @@ interface Props {
   /** For the one caller that hangs a suggestion list off the field. */
   onFocus?: () => void;
   onBlur?: () => void;
+  /** Enter to submit, Escape to dismiss, where the field is the whole dialog. */
+  onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  inputRef?: React.Ref<HTMLInputElement>;
 }
 
 const EYE = (
@@ -47,13 +50,13 @@ export default function PassphraseInput({
   disabled,
   autoComplete = 'new-password',
   onFocus,
-  onBlur,
-}: Props) {
+  onBlur, onKeyDown, inputRef }: Props) {
   const [shown, setShown] = useState(false);
 
   return (
     <div className="input-with-eye">
       <input
+        ref={inputRef}
         id={id}
         type={shown ? 'text' : 'password'}
         value={value}
@@ -64,6 +67,7 @@ export default function PassphraseInput({
         spellCheck={false}
         onFocus={onFocus}
         onBlur={onBlur}
+        onKeyDown={onKeyDown}
         onChange={(e) => onChange(e.target.value)}
       />
       <button
