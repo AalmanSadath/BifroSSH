@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useDismissOnOutside } from './useDismissOnOutside';
 
 /**
  * A menu placed at a point, dismissed by any mousedown outside it.
@@ -41,13 +42,8 @@ export default function ContextMenu({
     setPos((p) => (p.top === top && p.left === left ? p : { top, left }));
   });
 
-  useEffect(() => {
-    function onDown(e: MouseEvent) {
-      if (!ref.current?.contains(e.target as Node)) onClose();
-    }
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [onClose]);
+  // A context menu only exists while it is open, so it is always listening.
+  useDismissOnOutside(ref, true, onClose);
 
   return (
     <div ref={ref} className={className} style={{ top: pos.top, left: pos.left }}>

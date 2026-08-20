@@ -8,6 +8,7 @@ import OsIcon from './OsIcon';
 import ConfirmModal from './shared/ConfirmModal';
 import ContextMenu from './shared/ContextMenu';
 import { cardKeys } from './shared/cardKeys';
+import { EditIcon } from './shared/icons';
 
 export default function HostsPanel() {
   const { servers, sessions, settings, setActiveTab, removeSession, deleteServer, openSession } = useAppStore();
@@ -88,10 +89,7 @@ export default function HostsPanel() {
                     onClick={(e) => { e.stopPropagation(); setEditServer(server); setShowServerForm(true); }}
                     title={settings.show_hover_hints ? 'Edit host' : undefined}
                   >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
-                      <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                    </svg>
+                    <EditIcon size={16} />
                   </button>
                 </div>
               );

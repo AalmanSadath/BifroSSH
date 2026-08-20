@@ -6,6 +6,7 @@ import OsIcon from './OsIcon';
 import type { FileEntry, LogEntry, Server, TransferSummary } from '../types';
 import ConnectingView from './ConnectingView';
 import ContextMenu from './shared/ContextMenu';
+import { useDismissOnOutside } from './shared/useDismissOnOutside';
 
 interface TransferProgress {
   file_name: string;
@@ -136,14 +137,7 @@ function FileBrowser({ title, icon, path, entries, loading, error, notice, onDis
     if (!onReconnect) setReconnecting(false);
   }, [onReconnect]);
 
-  useEffect(() => {
-    if (!dropdownOpen) return;
-    function onClickOutside(e: MouseEvent) {
-      if (!dropdownRef.current?.contains(e.target as Node)) setDropdownOpen(false);
-    }
-    document.addEventListener('mousedown', onClickOutside);
-    return () => document.removeEventListener('mousedown', onClickOutside);
-  }, [dropdownOpen]);
+  useDismissOnOutside(dropdownRef, dropdownOpen, () => setDropdownOpen(false));
 
   function handleNewFolderClick() {
     setDropdownOpen(false);
