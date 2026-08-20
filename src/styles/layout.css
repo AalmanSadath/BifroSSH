@@ -177,6 +177,15 @@
   width: 100%;
   text-align: left;
   transition: background 0.1s, color 0.1s;
+  /* The label is rendered or not by React, instantly, while the sidebar's
+     width animates over 0.18s. Expanding therefore drops the full text into a
+     button still 48px wide: without this it wrapped onto three lines, the
+     button grew, the active highlight grew with it, and both sprang back as
+     the animation caught up. Clipped instead, so the text is revealed by the
+     widening rather than reflowing inside it. The brand text above solves the
+     same problem the same way. */
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .nav-btn:hover {
@@ -189,7 +198,8 @@
   color: var(--accent);
 }
 
-.nav-icon { font-size: 20px; }
+/* Never squeezed by a label that is briefly wider than the button. */
+.nav-icon { font-size: 20px; flex-shrink: 0; }
 
 /* ── Quick Connect Bar ─────────────────────────────────────── */
 .quick-connect-bar {
