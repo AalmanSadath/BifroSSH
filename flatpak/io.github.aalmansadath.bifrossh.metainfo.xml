@@ -85,6 +85,38 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.11.2" date="2026-08-20">
+      <description>
+        <p>
+          An SFTP transfer no longer hangs when the server goes away. A host
+          that reboots mid-copy leaves the connection open with nothing behind
+          it, and the transfer waited on it forever: the progress bar sat at
+          whatever percentage it had reached, still showing a speed and a
+          countdown, and Cancel did nothing. It now says when nothing has moved
+          for ten seconds, gives up after a minute with a reason, and can be
+          cancelled at any point.
+        </p>
+        <p>
+          A transfer that ended early is no longer reported as finished. If the
+          connection died part way through a file, the short copy was counted
+          as a success and left in place beside the complete ones. It is now
+          reported as the failure it is, and the partial file is removed.
+        </p>
+        <p>
+          Links in a terminal open in your browser. Clicking one has never done
+          anything until now.
+        </p>
+        <p>
+          Copy logs moves down beside Start over on the connection failure
+          screen, next to the log it copies, and confirms that it worked.
+        </p>
+        <p>
+          A host that has never been connected to shows a generic server icon
+          rather than claiming to be Linux, and keyboard focus rings are no
+          longer clipped at the edge of a drawer or a scrolling list.
+        </p>
+      </description>
+    </release>
     <release version="0.11.1" date="2026-08-20">
       <description>
         <p>
