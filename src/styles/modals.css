@@ -433,6 +433,8 @@
   gap: 5px;
   max-height: 200px;
   overflow-y: auto;
+  /* Room for a focused key's ring; see .drawer-body .inline-form. */
+  padding: 4px;
 }
 
 .agentkey {

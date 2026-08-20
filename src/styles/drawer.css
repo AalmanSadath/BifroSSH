@@ -135,7 +135,9 @@
 .drawer-body {
   flex: 1;
   overflow-y: hidden;
-  padding: 20px;
+  /* 16 here and 4 on the scroller inside adds up to the 20 this always had.
+     See .drawer-body .inline-form for why it is split. */
+  padding: 16px;
 }
 
 .drawer-footer {
@@ -146,8 +148,12 @@
   justify-content: space-between;
 }
 
+/* This, not .drawer-body, is the element that scrolls, and overflow clips at
+   the padding box. With no padding a focused field's ring had nowhere to go:
+   it reaches 4px past the input, 2 of offset and 2 of width, and the field is
+   as wide as the form, so the ring was sliced off flat against both edges. */
 .drawer-body .inline-form {
-  padding: 0;
+  padding: 4px;
   border: none;
   background: none;
   height: 100%;
@@ -217,7 +223,10 @@
   gap: 8px;
   max-height: 420px;
   overflow-y: auto;
-  padding-right: 2px;
+  /* Room for a focused card's ring, which overflow would otherwise clip at the
+     padding box; see .drawer-body .inline-form. The 2px on the right was for
+     the scrollbar and 4px covers that too. */
+  padding: 4px;
 }
 
 .theme-card {

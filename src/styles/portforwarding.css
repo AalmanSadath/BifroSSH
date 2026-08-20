@@ -242,6 +242,13 @@
   overflow-y: auto;
 }
 
+/* The rows sit flush against the list's own border, so there is nowhere to put
+   a ring outside them and padding the list would break that flush edge. Drawn
+   just inside instead, which is visible and cannot be clipped. */
+.pf-host-item:focus-visible {
+  outline-offset: -2px;
+}
+
 /* The picker is the only thing in the drawer while it is open, so it takes the
    whole height rather than scrolling inside a box of its own. Laying it out
    this way instead of capping the list keeps Back and the title pinned, and
