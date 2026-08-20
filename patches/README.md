@@ -1,29 +1,24 @@
 # Vendored crates
 
-Four crates are built from this directory instead of from crates.io, wired up
-by `[patch.crates-io]` at the bottom of `src-tauri/Cargo.toml`. Each is the
+One crate is built from this directory instead of from crates.io, wired up by
+`[patch.crates-io]` at the bottom of `src-tauri/Cargo.toml`. It is the
 published source of that exact version with a small edit on top.
 
-A fork nobody can explain is a fork nobody dares remove, and one of these is a
-copy of the entire Tauri core, mobile trees included. So: what each one
-changes, why, and what would let it go.
+There were four. A fork nobody can explain is a fork nobody dares remove, so
+this file records what the survivor changes and why, and what happened to the
+other three.
 
-| Crate | Files changed | Kind |
-|---|---|---|
-| `russh-keys-0.44.0` | `src/agent/client.rs` | behaviour BifroSSH needs |
-| `cookie-0.18.1` | `src/expiration.rs` | build fix |
-| `tauri-2.11.2` | `src/event/mod.rs`, `src/ipc/mod.rs` | build fix |
-| `tauri-utils-2.9.2` | `src/acl/value.rs`, `src/assets.rs` | build fix |
-
-Regenerate any of these diffs with the published source:
+Regenerate the diff against the published source:
 
 ```sh
-curl -sSfLO https://static.crates.io/crates/tauri/tauri-2.11.2.crate
-tar xzf tauri-2.11.2.crate -C /tmp
-diff -ru /tmp/tauri-2.11.2 patches/tauri-2.11.2
+curl -sSfLO https://static.crates.io/crates/russh-keys/russh-keys-0.44.0.crate
+tar xzf russh-keys-0.44.0.crate -C /tmp
+diff -ru /tmp/russh-keys-0.44.0 patches/russh-keys-0.44.0
 ```
 
 ## `russh-keys-0.44.0` — the one that is ours
+
+One file, `src/agent/client.rs`.
 
 `request_identities` pushed `parse_public_key(..)?`, so a single identity the
 crate cannot parse aborted the whole listing. Agents routinely hold FIDO
@@ -32,48 +27,42 @@ this crate does not support, and one of them made every other key in the agent
 unusable. The patch skips what it cannot parse and keeps the rest. The blob and
 comment are read before parsing, so the reader stays in sync.
 
-This one is not a build fix and does not go away with a version bump. It is
-also the only one with its reason written at the edit itself, in
-`src/agent/client.rs`.
+This is a behaviour BifroSSH needs, not a build fix, so no version bump
+retires it. Its reason is also written at the edit itself.
 
-## The other three — Rust 1.96
+## `cookie`, `tauri` and `tauri-utils` — removed 2026-08-20
 
-All three split a blanket `impl<T: Bound> From<T> for X` into concrete impls:
+All three were build fixes, not choices. Each split a blanket
+`impl<T: Bound> From<T> for X` into concrete impls so the tree would compile
+under rustc 1.96, and each was pinned to the version that was current when the
+toolchain moved:
 
-- `cookie`: `Expiration` from `T: Into<Option<OffsetDateTime>>` becomes `From<OffsetDateTime>` and `From<Option<OffsetDateTime>>`.
-- `tauri`: `EventTarget` from `T: AsRef<str>` becomes `&str`, `String`, `&String`; `InvokeError` from `T: Serialize` becomes `String`, `&str`, `&String`, `serde_json::Value`, and `reject` does the serialising itself.
-- `tauri-utils`: acl `Value` from `T: Into<Number>` becomes `i64`, `f64`, `u64`, `i32`, `u32`; `AssetKey` from `P: AsRef<Path>` moves its body into a free `path_to_asset_key`.
+- `cookie 0.18.1`: `Expiration` from `T: Into<Option<OffsetDateTime>>`.
+- `tauri 2.11.2`: `EventTarget` from `T: AsRef<str>`, `InvokeError` from `T: Serialize`.
+- `tauri-utils 2.9.2`: acl `Value` from `T: Into<Number>`, `AssetKey` from `P: AsRef<Path>`.
 
-Nothing in the app depends on these being different. They exist so the tree
-compiles, and they are pinned to the versions that were current when the
-toolchain moved.
+Nothing in the app depended on any of it. Dropping them from
+`[patch.crates-io]` lets cargo resolve to `cookie 0.18.2`, `tauri 2.11.5` and
+`tauri-utils 2.9.3`, on which `cargo check`, the full test suite and clippy all
+pass. That removed a fork of the entire Tauri core, mobile trees included, from
+the maintenance surface: 2.6MB of vendored source that had to be re-applied by
+hand on every upgrade.
 
-## These three can probably go
-
-Measured on 2026-08-20 with rustc 1.96.0, by deleting them from
-`[patch.crates-io]` and letting cargo resolve freely:
-
-```
-cargo check --lib   ok
-cargo test --lib    178 passed
-cargo clippy        clean
-```
-
-Cargo picks `cookie 0.18.2`, `tauri 2.11.5` and `tauri-utils 2.9.3`, and the
-problem is gone. Note it is the *point release* that fixes it and not the
-source shape — `tauri 2.11.5` still carries the blanket
+Worth knowing if this ever comes back: it is the point release that fixes it,
+not the source shape. `tauri 2.11.5` still carries the blanket
 `impl<T: AsRef<str>> From<T> for EventTarget`, so whatever the toolchain
-objected to is not simply that line.
+objected to is not simply that line, and grepping for the old impl is not a
+way to tell whether a version is safe. Build it and see.
 
-Keeping only the `russh-keys` patch builds, tests and lints clean too, which is
-the configuration to aim for.
+## Adding one back
 
-Not done yet, because it is a dependency upgrade rather than a tidy-up and
-wants its own change:
+If a future toolchain breaks an upstream crate again, prefer waiting for the
+point release. A patch here costs a manual re-apply on every upgrade and it is
+invisible until it is in the way. If one is unavoidable:
 
-1. Run the app. A Tauri minor bump touches the webview, the IPC bridge and the
-   window; none of that is covered by `cargo test`.
-2. Regenerate `flatpak/cargo-sources.json` — `Cargo.lock` moves a long way, and
-   CI checks the vendored sources cover it.
-3. `./install.sh flatpak`, the only build that runs offline against the
-   vendored manifests.
+1. Vendor the exact version, edit it, and leave a `PATCH (BifroSSH):` comment
+   at the edit saying what and why.
+2. Add the entry with a comment pointing at that.
+3. Write it up here, including what would let it go.
+4. Regenerate `flatpak/cargo-sources.json`; the crate comes from the source
+   tree rather than the registry, and CI checks the two agree.
