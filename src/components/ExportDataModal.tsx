@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import * as ipc from '../ipc';
+import { localStyle } from '../paths';
 import PassphraseInput from './shared/PassphraseInput';
 import GeneratedPassphraseField from './shared/GeneratedPassphraseField';
 import FilePickerModal from './FilePickerModal';
@@ -42,7 +43,7 @@ export default function ExportDataModal({ onClose }: Props) {
     ipc.defaultExportDir()
       .then((d) => {
         setDir(d);
-        setPath(`${d.replace(/\/+$/, '')}/${defaultName()}`);
+        setPath(localStyle().join(d, defaultName()));
       })
       .catch((e) => setError(String(e)));
   }, []);
@@ -77,8 +78,8 @@ export default function ExportDataModal({ onClose }: Props) {
       <FilePickerModal
         mode="save"
         title="Where should the export go?"
-        startDir={path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : dir}
-        defaultName={path.slice(path.lastIndexOf('/') + 1) || defaultName()}
+        startDir={localStyle().parent(path) ?? dir}
+        defaultName={localStyle().basename(path) || defaultName()}
         extensions={['.bfx']}
         onCancel={() => setPicking(false)}
         onChoose={(chosen) => {

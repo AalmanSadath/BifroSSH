@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import * as ipc from '../ipc';
+import { localStyle } from '../paths';
 import type { FileEntry } from '../types';
 import Modal from './shared/Modal';
 
@@ -70,7 +71,7 @@ export default function FilePickerModal({
 
   useEffect(() => {
     (async () => {
-      const home = await ipc.sftpLocalHome().catch(() => '/');
+      const home = await ipc.sftpLocalHome().catch(() => localStyle().defaultRoot);
       await navigate(startDir || home);
       if (mode === 'save') nameRef.current?.select();
     })();
@@ -118,9 +119,8 @@ export default function FilePickerModal({
     if (!trimmed) return;
     // A folder highlighted in save mode is a target to write into, not the
     // file itself, so the name is always appended to the directory shown.
-    const base = (selected && entries.find((e) => e.path === selected)?.is_dir ? selected : dir)
-      .replace(/\/+$/, '');
-    onChoose(`${base}/${trimmed}`);
+    const base = selected && entries.find((e) => e.path === selected)?.is_dir ? selected : dir;
+    onChoose(localStyle().join(base, trimmed));
   }
 
   const canConfirm = mode === 'open' ? Boolean(selected) : name.trim().length > 0;
