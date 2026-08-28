@@ -91,7 +91,15 @@ mod tests {
         let e = list_local(missing).unwrap_err();
         let shown = format!("{e:#}");
         assert!(shown.contains(missing), "listing: {shown}");
-        assert!(shown.contains("No such file"), "listing lost the cause: {shown}");
+        // On the cause itself rather than on how it reads: the OS wording
+        // differs ("No such file or directory" against "The system cannot find
+        // the path specified"), and what matters is that the context wrapped
+        // the original error rather than replacing it.
+        assert_eq!(
+            e.root_cause().downcast_ref::<std::io::Error>().map(|io| io.kind()),
+            Some(std::io::ErrorKind::NotFound),
+            "listing lost the cause: {shown}"
+        );
 
         let e = delete_local(missing).unwrap_err();
         assert!(format!("{e:#}").contains(missing), "delete: {e:#}");
