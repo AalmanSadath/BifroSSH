@@ -97,7 +97,7 @@
 /* A generated phrase gets read back off a screen or a scrap of paper, so it
    needs to be unambiguous rather than pretty. */
 .setup-pass-row input[type='text'] {
-  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SF Mono', Menlo, 'Cascadia Mono', Consolas, monospace;
   font-size: 12.5px;
 }
 
@@ -113,7 +113,7 @@
   border-radius: 5px;
   padding: 8px 11px;
   color: var(--text-primary);
-  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SF Mono', Menlo, 'Cascadia Mono', Consolas, monospace;
   font-size: 13px;
   line-height: 1.5;
   resize: none;

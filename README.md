@@ -1,12 +1,14 @@
 # BifroSSH
 
-A GUI SSH client for Linux. Terminal, SFTP, port forwarding and key management in one window, with your hosts and credentials encrypted at rest.
+A GUI SSH client for Linux and Windows. Terminal, SFTP, port forwarding and key management in one window, with your hosts and credentials encrypted at rest.
 
-Built with Tauri 2, React and Rust. Distributed as a Flatpak; ssh-agent and desktop keyring integration are Unix-specific and no other platform is currently supported.
+Built with Tauri 2, React and Rust. Distributed as a Flatpak on Linux and an installer on Windows. macOS is not supported.
 
 ![A terminal session](screenshots/ActiveSession.png)
 
 ## Install
+
+### Linux
 
 Install using Flatpak.
 
@@ -24,6 +26,14 @@ flatpak update io.github.aalmansadath.bifrossh     # update
 flatpak uninstall io.github.aalmansadath.bifrossh  # remove
 flatpak remote-delete bifrossh                     # and drop the remote
 ```
+
+### Windows
+
+Download `BifroSSH_x.y.z_x64-setup.exe` from the [latest release](https://github.com/AalmanSadath/BifroSSH/releases/latest) and run it. It installs for the current user only, so there is no administrator prompt, and it uninstalls from Settings > Apps.
+
+The installer is not code signed, so SmartScreen shows **"Windows protected your PC"** on first run. **More info** then **Run anyway** gets past it. Signing needs a certificate that has to be bought and renewed; there is no way to make that warning go away without one.
+
+Windows 10 1803 or later. WebView2 is already present on Windows 11 and on current Windows 10; the installer fetches it if it is not.
 
 ## Features
 
@@ -43,7 +53,7 @@ flatpak remote-delete bifrossh                     # and drop the remote
 
 **SSH keys.** Generate Ed25519, RSA and ECDSA keys in the app, or import existing ones. Private keys are stored encrypted and never written to disk in the clear.
 
-**ssh-agent.** Authenticate with keys held by a running agent instead of importing them, so the key never enters the app. This is how to use PIV smartcards and YubiKeys, whose keys cannot be exported. FIDO keys (`ed25519-sk`, `ecdsa-sk`) are not supported yet.
+**ssh-agent.** Authenticate with keys held by a running agent instead of importing them, so the key never enters the app. This is how to use PIV smartcards and YubiKeys, whose keys cannot be exported. On Linux the agent named by `SSH_AUTH_SOCK`; on Windows the OpenSSH agent service over its named pipe, or any agent that advertises its own pipe through `SSH_AUTH_SOCK`. Pageant is not supported, and neither are FIDO keys (`ed25519-sk`, `ecdsa-sk`) yet.
 
 **Two-factor and keyboard-interactive.** Servers that ask challenge questions at login work, including PAM setups with `PasswordAuthentication` off and providers like Duo and TOTP apps. Where the server offers a choice of factors they appear as buttons. Password and key logins fall back to this automatically.
 
@@ -71,23 +81,27 @@ flatpak remote-delete bifrossh                     # and drop the remote
 
 ![Confirming a fingerprint on first connection](screenshots/HostKeyPrompt.png)
 
-Trusted keys live in `~/.local/share/bifrossh/known_hosts` in standard OpenSSH format. Your `~/.ssh/known_hosts` is also read, so anything you have already connected to from a terminal never prompts. That file is only ever read, never modified.
+Trusted keys live in BifroSSH's own `known_hosts`, in standard OpenSSH format, alongside the rest of its data: `~/.local/share/bifrossh` on Linux and `%APPDATA%\BifroSSH` on Windows. Your OpenSSH `known_hosts` (`~/.ssh/known_hosts`, or `%USERPROFILE%\.ssh\known_hosts`) is also read, so anything you have already connected to from a terminal never prompts. That file is only ever read, never modified.
 
 **Everything saved is encrypted** with a single master key. The whole of `data.json` is encrypted rather than just the credentials, so hostnames, usernames, jump chains, forwarding rules and saved commands are not left in the clear either.
 
 On first launch you choose where that master key lives, and can change it later in Settings:
 
-- **Desktop keyring, with a passphrase to fall back on.** Unlocks without asking. The key is not kept on disk, and the passphrase means the keyring going missing cannot lock you out.
+- **The system keyring, with a passphrase to fall back on.** Unlocks without asking. On Linux that is the desktop keyring, through the Secret portal inside Flatpak and the Secret Service outside it. On Windows it is DPAPI, which seals a key against your Windows account: the sealed file is worthless to another account and on another machine. Either way the key is not usable from disk alone, and the passphrase means the keyring going missing cannot lock you out.
 - **Passphrase only.** Asked at every launch. The key exists nowhere until you type it. The only option that protects your keys from something already running as your user, and the only one where forgetting the passphrase loses them.
-- **A file, no passphrase.** Nothing to remember. The key sits beside your data, readable only by your account.
+- **A file, no passphrase.** Nothing to remember. The key sits beside your data, protected only by the permissions on it.
 
 Settings always shows which of these is actually in use. Where a passphrase is wanted, a dice button generates an eight-word phrase from the [BIP-39](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki) English list (88 bits, hashed with Argon2id); capitalisation and spacing are ignored when you type it back. A passphrase you write yourself is taken exactly as typed.
 
-None of this defends against malware running as you while the app is unlocked, and on Linux nothing can. What it buys is that copying your home directory no longer copies the key along with the data.
+None of this defends against malware running as you while the app is unlocked, and neither platform offers a way to. What it buys is that copying your home directory no longer copies the key along with the data.
+
+How the data directory itself is protected differs. On Linux it and everything in it is `0700`/`0600`, set at creation rather than after, so no other account can read it. Windows has no equivalent and BifroSSH does not write an ACL of its own: `%APPDATA%\BifroSSH` inherits the permissions on your user profile, which keeps out other standard accounts but not an administrator.
 
 ---
 
 ## Build from source
+
+### Linux
 
 Package names below are Fedora's; adjust for your distro.
 
@@ -129,6 +143,19 @@ npm install
 | `./install.sh flatpak` | Build and install as Flatpak |
 | `./install.sh uninstall-flatpak` | Remove Flatpak and local repo |
 | `./install.sh clean` | Delete build artefacts (`dist/`, `src-tauri/target/`, `flatpak/.build/`, `flatpak/.repo/`) without touching the installed app |
+
+### Windows
+
+Needs [Rust](https://rustup.rs), [Node.js 22+](https://nodejs.org) and the Visual Studio Build Tools with the "Desktop development with C++" workload. Then:
+
+```powershell
+git clone https://github.com/AalmanSadath/BifroSSH.git
+cd BifroSSH
+npm install
+npm run tauri -- build --bundles nsis
+```
+
+The installer lands in `src-tauri\target\release\bundle\nsis`. `npm run tauri -- dev` runs it without packaging. `install.sh` is Linux only.
 
 ---
 

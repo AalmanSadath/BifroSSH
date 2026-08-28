@@ -122,8 +122,8 @@ export default function SettingsPanel() {
           {settings.app_theme === 'system' && (
             <p className="form-hint">
               {systemAppearance.color_scheme === 'dark'
-                ? 'Following this desktop, which is set to dark.'
-                : 'Following this desktop, which is set to light.'}
+                ? 'Following the system theme, which is set to dark.'
+                : 'Following the system theme, which is set to light.'}
             </p>
           )}
         </div>
@@ -147,10 +147,10 @@ export default function SettingsPanel() {
           </div>
           <p className="form-hint">
             {settings.accent_color !== null
-              ? 'Your own colour. Reset it to follow the desktop again.'
+              ? 'Your own colour. Reset it to follow the system again.'
               : systemAppearance.accent
-                ? "Following this desktop's accent, and changes with it."
-                : 'This desktop exposes no accent, so the theme\u2019s own is used.'}
+                ? "Following the system accent, and changes with it."
+                : 'The system exposes no accent, so the theme\u2019s own is used.'}
           </p>
         </div>
       </section>

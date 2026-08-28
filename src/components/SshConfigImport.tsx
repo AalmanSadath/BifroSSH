@@ -55,7 +55,7 @@ export default function SshConfigImport({ onClose }: Props) {
   };
 
   return (
-    <Modal title="Import from ssh config" subtitle="~/.ssh/config" onClose={onClose}>
+    <Modal title="Import from ssh config" subtitle="Your OpenSSH config" onClose={onClose}>
       {error && <p className="form-hint form-hint-error">{error}</p>}
 
       {result ? (
@@ -71,10 +71,10 @@ export default function SshConfigImport({ onClose }: Props) {
           </div>
         </>
       ) : !scan ? (
-        <p className="form-hint">Reading ~/.ssh/config…</p>
+        <p className="form-hint">Reading your OpenSSH config…</p>
       ) : scan.hosts.length === 0 ? (
         <>
-          <p className="hostkey-body">No importable hosts found in ~/.ssh/config.</p>
+          <p className="hostkey-body">No importable hosts found in your OpenSSH config.</p>
           <div className="modal-actions">
             <button className="btn-secondary" onClick={onClose}>Close</button>
           </div>

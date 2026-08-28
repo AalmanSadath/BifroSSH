@@ -80,7 +80,7 @@
 .hostkey-meta { font-size: 11px; color: var(--text-muted); }
 
 .hostkey-fp {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, 'Cascadia Mono', Consolas, monospace;
   font-size: 12px;
   background: var(--bg-mid);
   border: 1px solid var(--border);
@@ -186,7 +186,7 @@
 
 .authprompt-option-key {
   flex-shrink: 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, 'Cascadia Mono', Consolas, monospace;
   font-size: 11px;
   color: var(--text-dim);
   border: 1px solid var(--border);
@@ -314,7 +314,7 @@
 .sshconfig-target {
   flex: 1;
   min-width: 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, 'Cascadia Mono', Consolas, monospace;
   font-size: 11px;
   color: var(--text-muted);
   overflow: hidden;
@@ -341,7 +341,7 @@
 .transfer-path {
   flex: 1;
   min-width: 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, 'Cascadia Mono', Consolas, monospace;
   font-size: 11px;
   color: var(--text-muted);
   word-break: break-all;
@@ -371,14 +371,14 @@
 .transfer-conflicts {
   margin: 6px 0 0;
   padding-left: 18px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, 'Cascadia Mono', Consolas, monospace;
   font-size: 11px;
 }
 
 /* ── Local file picker ─────────────────────────────────────── */
 
 .picker-path {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, 'Cascadia Mono', Consolas, monospace;
   font-size: 11px;
 }
 
@@ -458,7 +458,7 @@
 .agentkey-name { font-size: 13px; color: var(--text-primary); }
 
 .agentkey-meta {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, 'Cascadia Mono', Consolas, monospace;
   font-size: 11px;
   color: var(--text-muted);
   word-break: break-all;
