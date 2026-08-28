@@ -19,6 +19,17 @@ on:
 permissions:
   contents: read
 
+# Repeated rather than inherited. A workflow-level `env` does not cross into a
+# called workflow, and the release workflow needs its own copy for the version
+# check, so there is no one place to put this. Passing it as an input would not
+# help: the `env` context is not allowed in a reusable workflow's `with`, so the
+# caller would have to spell the literal out there instead.
+#
+# Getting this wrong is loud. Without it the manifest path becomes
+# `flatpak/.yml` and flatpak-builder stops on the first step.
+env:
+  APP_ID: io.github.aalmansadath.bifrossh
+
 jobs:
   build:
     name: Build
