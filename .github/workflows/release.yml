@@ -85,64 +85,39 @@ jobs:
           [ "$fail" -eq 0 ] && echo "versions agree"
           exit $fail
 
-  # The Windows installer, published to the same release as the Flatpak bundle.
-  # action-gh-release is additive on an existing release, so which of the two
-  # jobs finishes first does not matter.
+  # The build itself lives in its own workflow, which pull requests also run,
+  # so a change is testable on Windows before it is tagged rather than after.
   windows:
     name: Windows installer
     needs: [check, versions]
-    runs-on: windows-latest
+    uses: ./.github/workflows/windows-installer.yml
+    # A called workflow inherits the caller's permissions unless told
+    # otherwise, and this workflow can write releases. Building cannot.
+    permissions:
+      contents: read
+
+  # Attaching is separate from building because the build is shared with pull
+  # requests, and a pull request must not be able to write to a release.
+  # action-gh-release is additive, so this and the Flatpak job can target one
+  # release without ordering between them.
+  #
+  # The installer is unsigned, so SmartScreen warns on first run until the
+  # download builds reputation. Said in the README rather than left as a
+  # surprise.
+  windows-release:
+    name: Publish the Windows installer
+    needs: windows
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-
-      - run: npm ci
-
-      # NSIS only. The MSI that `targets: "all"` would also build needs WiX and
-      # installs per machine, which means an admin prompt for an app that keeps
-      # everything it owns under the user's profile anyway.
-      - name: Build the installer
-        run: npm run tauri -- build --bundles nsis
-
-      - name: Name the artefact
-        id: artefact
-        shell: bash
-        run: |
-          exe=$(ls src-tauri/target/release/bundle/nsis/*-setup.exe | head -1)
-          if [ -z "$exe" ]; then
-            echo "::error::tauri build produced no NSIS installer"
-            exit 1
-          fi
-          echo "path=$exe" >> "$GITHUB_OUTPUT"
-          ls -lh "$exe"
-
-      # So a workflow_dispatch run on a branch produces something installable.
-      # Without this the only way to get a Windows build is to tag one, which
-      # is a poor way to find out it does not start.
-      - name: Upload the installer as a run artefact
-        uses: actions/upload-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: bifrossh-windows-installer
-          path: ${{ steps.artefact.outputs.path }}
-          if-no-files-found: error
+          path: installer
 
-      # Unsigned, so SmartScreen warns on first run until the download builds
-      # reputation. Documented in the README rather than left as a surprise.
-      - name: Attach the installer to the GitHub release
-        if: github.ref_type == 'tag'
-        uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v2
         with:
-          files: ${{ steps.artefact.outputs.path }}
+          files: installer/*-setup.exe
           generate_release_notes: true
 
   build:

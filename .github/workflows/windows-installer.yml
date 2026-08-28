@@ -1,0 +1,64 @@
+name: Windows installer
+
+# Three doors into the same build.
+#
+# `pull_request` is the one that matters day to day: it produces an installer
+# anyone can download and run, which is the only way to find out that a change
+# starts on Windows. Nothing here publishes, so a pull request reaching it is
+# safe in a way that reaching the Flatpak publish would not be.
+#
+# `workflow_call` is how the release workflow builds the same thing, so the
+# steps exist once.
+on:
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: windows-installer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      # NSIS only. The MSI that `targets: "all"` would also build needs WiX and
+      # installs per machine, which means an admin prompt for an app that keeps
+      # everything it owns under the user's profile anyway.
+      - name: Build the installer
+        run: npm run tauri -- build --bundles nsis
+
+      - name: Find the installer
+        id: artefact
+        shell: bash
+        run: |
+          exe=$(ls src-tauri/target/release/bundle/nsis/*-setup.exe | head -1)
+          if [ -z "$exe" ]; then
+            echo "::error::tauri build produced no NSIS installer"
+            exit 1
+          fi
+          echo "path=$exe" >> "$GITHUB_OUTPUT"
+          ls -lh "$exe"
+
+      - name: Upload the installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: bifrossh-windows-installer
+          path: ${{ steps.artefact.outputs.path }}
+          if-no-files-found: error
