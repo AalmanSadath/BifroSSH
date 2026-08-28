@@ -1,130 +1,41 @@
-//! Getting the wrapping key out of the desktop keyring.
+//! The Linux backend: the Secret portal inside Flatpak, the Secret Service
+//! outside it.
 //!
-//! Two backends behind one answer: the Secret portal inside Flatpak, the
-//! Secret Service over D-Bus outside it. Which one runs is decided here, and
-//! neither is visible to the rest of the app.
-//!
-//! Split out of `keystore` because it is platform plumbing rather than policy.
-//! `keystore` decides what to do when the keyring is missing or locked; this
-//! only reports which of those it is, and hands back a key when there is one.
-//!
-//! Nothing here protects a secret from another process running as the same
-//! user, because on Linux nothing can: the Secret Service has no per
-//! application access control for host processes. What it buys is that the key
-//! is not in the file tree, and that inside Flatpak the portal scopes the
-//! secret to this application id so other sandboxed apps get a different one.
+//! Which one runs is decided here by whether we are sandboxed, because the two
+//! answer different questions. Inside Flatpak the portal hands out a secret
+//! scoped to this application id, so other sandboxed apps cannot ask for ours.
+//! On the host the portal has no application id to scope by and returns the
+//! same secret to every unsandboxed caller, so the Secret Service is used
+//! directly there instead, with an item of our own.
 
 use std::io::Read;
 use std::path::Path;
-use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use rand::RngCore;
-use sha2::{Digest, Sha256};
+
+use super::Outcome;
 
 /// The application id, which is what the Secret portal scopes its secret to
 /// and what names the Secret Service item.
 const APP_ID: &str = "io.github.aalmansadath.bifrossh";
 
-/// A keyring that is present but locked will sit waiting for a prompter that,
-/// under a bare window manager, may not exist. Startup must not hang on that.
-const KEYRING_TIMEOUT: Duration = Duration::from_secs(5);
-
-/// The keyring hands back an opaque blob of whatever length it likes (the
-/// portal returns 64 bytes here), so it is hashed down to a key rather than
-/// being used raw.
-fn kek_from_secret(secret: &[u8]) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(b"bifrossh-master-key-wrap-v1");
-    hasher.update(secret);
-    hasher.finalize().into()
-}
-
-
-
-/// Inside Flatpak the portal is the right door: it hands out a secret scoped
-/// to this application id, so other sandboxed apps cannot ask for ours. On the
-/// host the portal has no application id to scope by and returns the same
-/// secret to every unsandboxed caller, so the Secret Service is used directly
-/// there instead, with an item of our own.
 fn in_flatpak() -> bool {
     Path::new("/.flatpak-info").exists()
 }
 
-/// Runs `f` on a scratch thread so a keyring that never answers cannot hold up
-/// startup. A timed out thread is left behind blocked on D-Bus; it holds
-/// nothing the rest of the app needs and dies with the process.
-fn with_timeout<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Option<T> {
-    let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = tx.send(f());
-    });
-    rx.recv_timeout(KEYRING_TIMEOUT).ok()
-}
-
-/// Why the keyring did or did not produce a key, which is not the same
-/// question as whether it produced one.
-///
-/// A locked keyring and a keyring that has lost our key look identical from
-/// the outside and want opposite handling. Locked is temporary: the secret is
-/// still in there, the wrapper written against it is still good, and the cure
-/// is for the user to unlock it. Lost is permanent: the wrapper will never
-/// open again and has to be rewritten. Treating locked as lost would rewrite a
-/// perfectly good wrapper against whatever the keyring hands back later, and
-/// telling the user their key is gone when it is merely asleep sends them
-/// looking for a problem they do not have.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum KeyringStatus {
-    Ready(Box<[u8; 32]>),
-    /// Our item exists but the collection holding it will not open.
-    Locked,
-    /// The service answered and has nothing of ours, so one can be made.
-    Missing,
-    /// No keyring at all, or it failed in a way worth neither of the above.
-    Unavailable(String),
-}
-
-pub fn keyring_status() -> KeyringStatus {
-    let Some(result) = with_timeout(|| {
-        if in_flatpak() {
-            // The portal gives no way to tell these apart, so anything other
-            // than a secret is reported as simply unavailable.
-            portal_secret().map(Outcome::Secret)
-        } else {
-            secret_service_secret()
-        }
-    }) else {
-        return KeyringStatus::Unavailable("the keyring did not answer in time".to_string());
-    };
-
-    match result {
-        Ok(Outcome::Secret(bytes)) => KeyringStatus::Ready(Box::new(kek_from_secret(&bytes))),
-        Ok(Outcome::Locked) => KeyringStatus::Locked,
-        Err(e) => KeyringStatus::Unavailable(format!("{e:#}")),
+pub(super) fn secret() -> Result<Outcome> {
+    if in_flatpak() {
+        // The portal gives no way to tell a missing secret from a locked
+        // keyring, so anything other than a secret is reported as simply
+        // unavailable.
+        portal_secret().map(Outcome::Secret)
+    } else {
+        secret_service_secret()
     }
 }
 
-pub(crate) enum Outcome {
-    Secret(Vec<u8>),
-    Locked,
-}
 
-pub fn keyring_kek() -> Option<[u8; 32]> {
-    match keyring_status() {
-        KeyringStatus::Ready(kek) => Some(*kek),
-        KeyringStatus::Locked => {
-            eprintln!("The desktop keyring is locked, so it cannot open BifroSSH right now.");
-            None
-        }
-        KeyringStatus::Missing => None,
-        KeyringStatus::Unavailable(why) => {
-            eprintln!("Desktop keyring unavailable: {why}");
-            None
-        }
-    }
-}
-
-#[cfg(unix)]
 fn portal_secret() -> Result<Vec<u8>> {
     use std::os::unix::net::UnixStream;
     use zbus::blocking::{Connection, Proxy};
@@ -194,7 +105,6 @@ fn portal_secret() -> Result<Vec<u8>> {
 /// session does, and the alternative (a DH handshake) protects against an
 /// attacker who can already read your session bus, which is to say one who has
 /// already lost you the game.
-#[cfg(unix)]
 fn secret_service_secret() -> Result<Outcome> {
     use std::collections::HashMap;
     use zbus::blocking::{Connection, Proxy};
@@ -279,17 +189,4 @@ fn secret_service_secret() -> Result<Outcome> {
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Different secrets must not wrap to the same key, and the same secret
-    /// must keep opening what it wrapped before.
-    #[test]
-    fn the_key_encryption_key_depends_on_the_keyring_secret() {
-        assert_ne!(kek_from_secret(b"one"), kek_from_secret(b"two"));
-        assert_eq!(kek_from_secret(b"one"), kek_from_secret(b"one"));
-    }
 }

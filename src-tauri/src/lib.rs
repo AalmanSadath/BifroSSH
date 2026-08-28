@@ -14,7 +14,9 @@ mod sftp;
 mod socks5;
 mod sshconfig;
 mod ssh;
-#[cfg(test)]
+// The patched russh-keys agent listing is driven over a real Unix socket, so
+// the whole module is Unix only.
+#[cfg(all(test, unix))]
 mod agent_tests;
 #[cfg(test)]
 mod ssh_auth_tests;
@@ -172,6 +174,8 @@ fn start(
             commands::delete_identity,
             commands::get_identity_password,
             commands::system_appearance,
+            commands::platform,
+            commands::data_dir,
             commands::get_settings,
             commands::save_settings,
             commands::list_fonts,

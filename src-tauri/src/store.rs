@@ -33,6 +33,10 @@ fn set_mode(path: &Path, mode: u32) -> Result<()> {
     Ok(())
 }
 
+/// Windows has no mode bits, and the decision is to inherit the ACL the user
+/// profile already carries rather than to build a DACL by hand. That is weaker
+/// than 0600: it keeps out other standard accounts, but not an administrator.
+/// The README says so where it says what protects the vault.
 #[cfg(not(unix))]
 fn set_mode(_path: &Path, _mode: u32) -> Result<()> {
     Ok(())
@@ -91,9 +95,25 @@ pub fn write_new_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     file.sync_all()
 }
 
+/// Where everything this app owns lives.
+///
+/// The Unix arm spells out `~/.local/share/bifrossh` rather than asking
+/// `dirs::data_dir()` because that would follow a set `XDG_DATA_HOME` and move
+/// the vault out from under every existing install. Windows has no such
+/// history, so it takes the platform answer.
 pub fn get_data_dir() -> Result<PathBuf> {
-    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("No home directory found"))?;
-    let dir = home.join(".local").join("share").join("bifrossh");
+    #[cfg(windows)]
+    let dir = dirs::data_dir()
+        .ok_or_else(|| anyhow::anyhow!("No application data directory found"))?
+        .join("BifroSSH");
+
+    #[cfg(not(windows))]
+    let dir = dirs::home_dir()
+        .ok_or_else(|| anyhow::anyhow!("No home directory found"))?
+        .join(".local")
+        .join("share")
+        .join("bifrossh");
+
     fs::create_dir_all(&dir)?;
     let _ = set_mode(&dir, DIR_MODE);
     Ok(dir)

@@ -55,7 +55,7 @@ pub struct AgentKeyInfo {
 /// while parsing, so there is no `user@host` label to show.
 #[tauri::command]
 pub async fn list_agent_keys() -> CmdResult<Vec<AgentKeyInfo>> {
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     {
         let (_agent, identities) = crate::ssh::agent_identities().await?;
 
@@ -67,9 +67,9 @@ pub async fn list_agent_keys() -> CmdResult<Vec<AgentKeyInfo>> {
             })
             .collect())
     }
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     {
-        Err("ssh-agent is only supported on Unix".to_string().into())
+        Err("ssh-agent is not supported on this platform".to_string().into())
     }
 }
 

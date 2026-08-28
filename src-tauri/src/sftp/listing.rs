@@ -11,6 +11,7 @@ use anyhow::{anyhow, Context, Result};
 use tokio::sync::Mutex;
 use russh_sftp::client::SftpSession;
 
+#[cfg(unix)]
 fn format_mode(mode: u32) -> String {
     let bits = [
         (0o400, 'r'), (0o200, 'w'), (0o100, 'x'),

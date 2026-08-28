@@ -178,6 +178,52 @@ impl AuthContext {
     }
 }
 
+/// The stream an ssh-agent speaks over on this platform.
+///
+/// `AgentClient` is generic over any `AsyncRead + AsyncWrite`, so the protocol
+/// half of the crate needs nothing platform-specific -- only the connect does.
+/// That is why this is a type alias and one small function rather than a type
+/// parameter threaded through `agent_identities` and `agent_auth`.
+#[cfg(unix)]
+pub(crate) type AgentStream = tokio::net::UnixStream;
+#[cfg(windows)]
+pub(crate) type AgentStream = tokio::net::windows::named_pipe::NamedPipeClient;
+
+/// Where the agent listens.
+///
+/// Unix: the socket named by `SSH_AUTH_SOCK`, which is the only place to look.
+///
+/// Windows: a named pipe. The OpenSSH agent service always uses
+/// `\\.\pipe\openssh-ssh-agent` and sets no environment variable, so that is
+/// the default -- but `SSH_AUTH_SOCK` is honoured when set, because the agents
+/// that replace the built-in one (1Password, a WSL bridge) advertise their own
+/// pipe that way.
+#[cfg(unix)]
+async fn agent_stream() -> Result<AgentStream> {
+    let sock = std::env::var("SSH_AUTH_SOCK").map_err(|_| {
+        anyhow!("Could not reach ssh-agent: SSH_AUTH_SOCK is not set, so no agent is running for this session.")
+    })?;
+    tokio::net::UnixStream::connect(&sock).await.map_err(|e| {
+        anyhow!("Could not reach ssh-agent at {} ({}). Check that an agent is running.", sock, e)
+    })
+}
+
+#[cfg(windows)]
+async fn agent_stream() -> Result<AgentStream> {
+    const DEFAULT_PIPE: &str = r"\\.\pipe\openssh-ssh-agent";
+    let pipe = std::env::var("SSH_AUTH_SOCK").unwrap_or_else(|_| DEFAULT_PIPE.to_string());
+    tokio::net::windows::named_pipe::ClientOptions::new()
+        .open(&pipe)
+        .map_err(|e| {
+            anyhow!(
+                "Could not reach ssh-agent at {} ({}). Start it with `Start-Service ssh-agent`, \
+                 or set it to start automatically in Services.",
+                pipe,
+                e
+            )
+        })
+}
+
 /// Connects to the running ssh-agent and asks what it holds.
 ///
 /// Both callers want the same two steps and the same two messages, and a
@@ -187,16 +233,12 @@ impl AuthContext {
 ///
 /// Identities this build cannot parse are skipped rather than aborting the
 /// listing; see the russh-keys patch under patches/.
-#[cfg(unix)]
-pub(crate) async fn agent_identities() -> Result<(
-    russh_keys::agent::client::AgentClient<tokio::net::UnixStream>,
-    Vec<russh_keys::key::PublicKey>,
-)> {
+#[cfg(any(unix, windows))]
+pub(crate) async fn agent_identities(
+) -> Result<(russh_keys::agent::client::AgentClient<AgentStream>, Vec<russh_keys::key::PublicKey>)> {
     use russh_keys::agent::client::AgentClient;
 
-    let mut agent = AgentClient::connect_env().await.map_err(|e| {
-        anyhow!("Could not reach ssh-agent ({}). Check that an agent is running and SSH_AUTH_SOCK is set.", e)
-    })?;
+    let mut agent = AgentClient::connect(agent_stream().await?);
 
     let identities = agent
         .request_identities()
@@ -210,7 +252,7 @@ pub(crate) async fn agent_identities() -> Result<(
 ///
 /// The agent does the signing, so the private key never enters this process.
 /// That is the only way to use hardware-backed keys, which cannot be exported.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(crate) async fn agent_auth<H: client::Handler>(
     handle: &mut client::Handle<H>,
     username: &str,
@@ -332,13 +374,15 @@ pub async fn authenticate<H: client::Handler>(
                 false => Err(anyhow!("Authentication failed")),
             };
         }
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         SshAuth::Agent { fingerprint } => {
             ctx.log("network", "Authenticating using ssh-agent");
             agent_auth(handle, &ctx.username, fingerprint.as_deref(), ctx).await?
         }
-        #[cfg(not(unix))]
-        SshAuth::Agent { .. } => return Err(anyhow!("ssh-agent is only supported on Unix")),
+        #[cfg(not(any(unix, windows)))]
+        SshAuth::Agent { .. } => {
+            return Err(anyhow!("ssh-agent is not supported on this platform"))
+        }
     };
 
     if authenticated {
