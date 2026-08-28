@@ -11,21 +11,21 @@ concurrency:
   group: flatpak-repo
   cancel-in-progress: false
 
+# Only the two publish jobs write anything. The builds, and the CI run they
+# depend on, get read and nothing more.
 permissions:
-  contents: write
+  contents: read
 
 env:
   APP_ID: io.github.aalmansadath.bifrossh
 
 jobs:
-  # The publish below builds in a sandbox and never runs the test suite, so
-  # without this a tag could ship code that CI would have failed. Same checks
-  # as an ordinary push, reached from here so that publishing depends on them.
+  # The builds below run in a sandbox and never run the test suite, so without
+  # this a tag could ship code that CI would have failed. Same checks as an
+  # ordinary push, reached from here so that publishing depends on them.
   check:
+    name: CI
     uses: ./.github/workflows/ci.yml
-    # This workflow needs contents: write to publish, and a called workflow
-    # inherits the caller's permissions unless told otherwise. Running the
-    # tests does not need to be able to write anything.
     permissions:
       contents: read
 
@@ -85,237 +85,98 @@ jobs:
           [ "$fail" -eq 0 ] && echo "versions agree"
           exit $fail
 
-  # The build itself lives in its own workflow, which pull requests also run,
-  # so a change is testable on Windows before it is tagged rather than after.
+
+  # Both builds run from their own workflow, so the graph reads the same on
+  # each side and a pull request can build the Windows one without reaching
+  # anything in here that publishes.
   windows:
     name: Windows installer
     needs: [check, versions]
     uses: ./.github/workflows/windows-installer.yml
-    # A called workflow inherits the caller's permissions unless told
-    # otherwise, and this workflow can write releases. Building cannot.
     permissions:
       contents: read
 
-  # Attaching is separate from building because the build is shared with pull
-  # requests, and a pull request must not be able to write to a release.
-  # action-gh-release is additive, so this and the Flatpak job can target one
-  # release without ordering between them.
+  flatpak:
+    name: Flatpak bundle
+    needs: [check, versions]
+    uses: ./.github/workflows/flatpak-bundle.yml
+    permissions:
+      contents: read
+    secrets:
+      FLATPAK_GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+      FLATPAK_GPG_PASSPHRASE: ${{ secrets.FLATPAK_GPG_PASSPHRASE }}
+
+  # One release carrying both artefacts, rather than each build attaching its
+  # own. A release holding half of what it should is worse than one that fails
+  # outright, because nobody notices the missing half.
   #
-  # The installer is unsigned, so SmartScreen warns on first run until the
-  # download builds reputation. Said in the README rather than left as a
-  # surprise.
-  windows-release:
-    name: Publish the Windows installer
-    needs: windows
+  # A plain runner: this wants the two files and the write permission, not the
+  # privileged container that produced them.
+  publish-release:
+    name: Publish release
+    needs: [flatpak, windows]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: bifrossh-windows-installer
-          path: installer
+          name: bifrossh-flatpak-bundle
+          path: artefacts
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: bifrossh-windows-installer
+          path: artefacts
+
+      - run: ls -lh artefacts
+
+      # The Windows installer is unsigned, so SmartScreen warns on first run
+      # until the download builds reputation. Said in the README rather than
+      # left as a surprise.
       - uses: softprops/action-gh-release@v2
         with:
-          files: installer/*-setup.exe
+          files: |
+            artefacts/bifrossh.flatpak
+            artefacts/*-setup.exe
           generate_release_notes: true
 
-  build:
-    needs: [check, versions]
+  # Last, because publishing here is what hands the update to everyone already
+  # installed. Doing it before the release exists would leave the repo offering
+  # a version with nothing behind it.
+  #
+  # always() with an explicit result check rather than a bare needs: a
+  # workflow_dispatch run has no tag, so publish-release is skipped, and this
+  # still has to run or the manual re-publish path disappears. A skipped
+  # release is fine here; a failed one is not.
+  publish-pages:
+    name: Publish GitHub Pages
+    needs: [flatpak, publish-release]
+    if: |
+      always()
+      && needs.flatpak.result == 'success'
+      && needs.publish-release.result != 'failure'
+      && needs.publish-release.result != 'cancelled'
     runs-on: ubuntu-latest
-    container:
-      # gnome-50 matches `runtime-version: '50'` in the manifest. Bumping one
-      # without the other means the SDK that builds the app is not the runtime
-      # it runs against.
-      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
-      options: --privileged
-
+    permissions:
+      contents: write
     steps:
-      - name: Check out
-        uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
-          # The ostree repo is assembled at the workspace root, so the source
-          # tree gets its own directory. The manifest's `type: dir, path: ..`
-          # copies everything under here, and pulling gh-pages in alongside it
-          # would drag the whole published repo into the build.
-          path: bifrossh
+          name: bifrossh-ostree-repo
 
-      # The vendored sources are checked by the CI workflow this one calls, so
-      # a stale manifest fails on the push that introduced it rather than at
-      # the tag, when it is a release that breaks instead of a branch build.
-
-      - name: Fetch existing repo so updates are incremental
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Unpack the ostree repo
         run: |
-          # The published ostree repo lives at the *root* of gh-pages, not in a
-          # subdirectory, because that is the URL already baked into every
-          # installed client's remote. Do not move it.
-          url="https://github.com/${{ github.repository }}.git"
-          if git ls-remote --exit-code --heads "$url" gh-pages >/dev/null 2>&1; then
-            echo "gh-pages exists, fetching so the publish is incremental"
-            git clone --branch gh-pages --single-branch --depth 1 \
-              "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" \
-              pages
-
-            # This job publishes the exact contents of pages/ and deletes what
-            # is not there, so pruning actually shrinks the branch. That only
-            # holds if the clone really produced the existing repo; a partial
-            # clone here would otherwise wipe every published object.
-            if [ ! -f pages/config ]; then
-              echo "::error::gh-pages exists but the clone has no ostree config. Refusing to publish over it."
-              exit 1
-            fi
-            # git cannot store empty directories, so a cloned ostree repo comes
-            # back missing several of them and build-update-repo then fails with
-            # "Listing refs: opendir(refs/remotes): No such file or directory".
-            # Recreating them is enough; ostree only needs them to exist.
-            mkdir -p pages/refs/heads pages/refs/mirrors pages/refs/remotes \
-                     pages/objects pages/tmp/cache pages/state pages/extensions
-
-            # A stale lock from a previous run makes ostree refuse to write.
-            rm -f pages/.lock
-          else
-            echo "gh-pages does not exist yet, starting a fresh ostree repo"
-            mkdir -p pages
-          fi
-
-      - name: Import signing key
-        env:
-          GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
-          GPG_PASSPHRASE: ${{ secrets.FLATPAK_GPG_PASSPHRASE }}
-        run: |
-          if [ -z "$GPG_PRIVATE_KEY" ]; then
-            echo "::error::FLATPAK_GPG_PRIVATE_KEY secret is not set."
-            echo "It must be the same key already published in bifrossh.flatpakrepo;"
-            echo "signing with a different one locks out every existing install."
-            exit 1
-          fi
-          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
-          key_id=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec:/{print $5; exit}')
-          echo "GPG_KEY_ID=$key_id" >> "$GITHUB_ENV"
-
-          # A passphrase-protected key cannot be used unattended without this;
-          # a passphrase-free key ignores it, so the same config covers both.
-          mkdir -p ~/.gnupg
-          echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
-          echo "pinentry-mode loopback" >> ~/.gnupg/gpg.conf
-          gpgconf --reload gpg-agent || true
-          if [ -n "$GPG_PASSPHRASE" ]; then
-            # Prime the agent cache so ostree's own gpg invocations, which take
-            # no passphrase arguments, find the key already unlocked.
-            echo test | gpg --batch --yes --pinentry-mode loopback \
-              --passphrase "$GPG_PASSPHRASE" --local-user "$key_id" \
-              --sign --output /dev/null
-          fi
-
-          # Verify the key can actually sign before spending a build on it.
-          echo test | gpg --batch --yes --local-user "$key_id" --sign --output /dev/null
-          echo "signing key $key_id ready"
-
-      - name: Build and export into the ostree repo
-        run: |
-          # The container has no flathub remote at user scope, and
-          # --install-deps-from=flathub resolves against user remotes, so
-          # without this it fails with "No remote refs found for 'flathub'".
-          flatpak remote-add --user --if-not-exists flathub \
-            https://dl.flathub.org/repo/flathub.flatpakrepo
-
-          # npm and cargo both run inside the sandbox against the pre-vendored
-          # flatpak/node-sources.json and flatpak/cargo-sources.json, so there
-          # is no host pre-build. A Cargo.lock that has drifted from
-          # cargo-sources.json fails here with a cargo offline error.
-          flatpak-builder --user --disable-rofiles-fuse --force-clean \
-            --install-deps-from=flathub \
-            --repo=pages \
-            --gpg-sign="$GPG_KEY_ID" \
-            build "bifrossh/flatpak/${APP_ID}.yml"
-
-      - name: Update repo metadata and prune old objects
-        run: |
-          # Without pruning, every release keeps its objects forever and the
-          # Pages branch grows without bound.
-          flatpak build-update-repo \
-            --generate-static-deltas \
-            --prune --prune-depth=3 \
-            --gpg-sign="$GPG_KEY_ID" \
-            pages
-
-      - name: Verify the signed repo installs
-        run: |
-          # The one failure this pipeline cannot afford is publishing a repo
-          # whose signatures do not verify: it breaks updates for everyone
-          # already installed, and it is only visible on a client. Installing
-          # from the repo here, with GPG verification on, catches it while the
-          # bad artefact is still local.
-          gpg --export "$GPG_KEY_ID" > /tmp/pub.gpg
-          flatpak remote-add --user --gpg-import=/tmp/pub.gpg \
-            verify-repo "file://$PWD/pages"
-          flatpak install --user --assumeyes verify-repo "$APP_ID"
-          flatpak remote-delete --user --force verify-repo
-          echo "signatures verify and the app installs"
-
-      - name: Build single-file bundle
-        run: |
-          # A bundle installs without adding a remote first, but embedding the
-          # repo URL and public key means flatpak registers the origin anyway,
-          # so a bundle install still receives updates instead of going stale.
-          # --runtime-repo lets flatpak fetch org.gnome.Platform for anyone who
-          # does not already have it; the bundle contains only the app.
-          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          flatpak build-bundle pages bifrossh.flatpak "$APP_ID" \
-            --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
-            --repo-url="https://${OWNER}.github.io/${{ github.event.repository.name }}/" \
-            --gpg-keys=/tmp/pub.gpg
-          ls -lh bifrossh.flatpak
-
-      - name: Attach bundle to the GitHub release
-        # Only tags produce releases; workflow_dispatch runs still build the
-        # bundle above, which keeps the step honest without publishing anything.
-        if: github.ref_type == 'tag'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: bifrossh.flatpak
-          generate_release_notes: true
-
-      - name: Write repo description file
-        run: |
-          # bifrossh.flatpakrepo carries the GPG key that existing clients
-          # pinned when they added the remote. Regenerating it from a `gpg
-          # --export` that is byte-different, even for the same key, is a risk
-          # with no upside, so an already-published file is left alone.
-          if [ -f pages/bifrossh.flatpakrepo ]; then
-            echo "keeping the published bifrossh.flatpakrepo"
-          else
-            gpg --export "$GPG_KEY_ID" | base64 -w0 > /tmp/key.b64
-            # github.repository_owner keeps the account's original casing, but
-            # Pages is always served from the lowercase host. Both resolve,
-            # since hostnames are case-insensitive, but only the lowercase form
-            # matches the URL documented in the README.
-            OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-            cat > pages/bifrossh.flatpakrepo <<EOF
-          [Flatpak Repo]
-          Title=BifroSSH
-          Url=https://${OWNER}.github.io/${{ github.event.repository.name }}
-          Homepage=https://github.com/${{ github.repository }}
-          Comment=GUI SSH client with built-in SFTP and keychain management
-          Description=Self-hosted Flatpak repository for BifroSSH
-          Icon=https://raw.githubusercontent.com/${{ github.repository }}/main/src-tauri/icons/128x128.png
-          GPGKey=$(cat /tmp/key.b64)
-          EOF
-          fi
-
-          gpg --export "$GPG_KEY_ID" > pages/bifrossh.gpg
-
-          # Jekyll would otherwise skip ostree paths that begin with an underscore.
-          touch pages/.nojekyll
-
-          # An ostree lock has no meaning once the repo is served over HTTP.
-          rm -f pages/.lock
-
-          # The clone's own history is not part of what gets published, and the
-          # publish action reconstructs the branch from this directory.
+          mkdir -p pages
+          tar -xf ostree-repo.tar -C pages
+          # A partial or wrong tree here would be published over the live repo
+          # and break updates for everyone installed, so it is checked before
+          # anything is pushed rather than after.
+          test -f pages/config || {
+            echo "::error::the unpacked repo has no ostree config"; exit 1; }
           rm -rf pages/.git
+          ls -la pages | head
 
       - name: Publish to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
@@ -324,7 +185,7 @@ jobs:
           publish_dir: pages
           publish_branch: gh-pages
           # Deliberately NOT keep_files. The existing repo was cloned into
-          # pages/ at the start of the job, so nothing is lost, and mirroring
+          # pages/ at the start of the build, so nothing is lost, and mirroring
           # the directory exactly is what lets --prune actually remove objects
           # instead of leaving them in git history forever.
           force_orphan: false
