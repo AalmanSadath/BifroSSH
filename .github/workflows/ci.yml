@@ -250,3 +250,36 @@ jobs:
       # drift here would break packaging rather than just being untidy.
       - name: Cargo.lock is up to date
         run: git diff --exit-code src-tauri/Cargo.lock
+
+  # A second job rather than a matrix on `backend`. The Linux job installs
+  # seven apt packages and asserts that ssh-agent and ssh-keygen are present,
+  # none of which applies here, and the Cargo.lock check belongs to exactly one
+  # of the two. A matrix whose two arms share no steps is a matrix in name only.
+  backend-windows:
+    name: Backend (Windows)
+    needs: decide
+    if: needs.decide.outputs.run == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Build
+        working-directory: src-tauri
+        run: cargo build --lib --locked
+
+      - name: Clippy
+        working-directory: src-tauri
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      # Fewer tests than the Linux run: the ones that chmod a file, follow a
+      # symlink or boot a real ssh-agent assert Unix guarantees that do not
+      # exist here, and are gated rather than weakened.
+      - name: Test
+        working-directory: src-tauri
+        run: cargo test --lib --locked

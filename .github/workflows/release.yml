@@ -1,4 +1,4 @@
-name: Build and publish flatpak repo
+name: Release
 
 on:
   push:
@@ -29,25 +29,14 @@ jobs:
     permissions:
       contents: read
 
-  build:
-    needs: check
+  # Its own job because two builds depend on it, and because it costs seconds:
+  # a mistake here should not be discovered twenty minutes into a sandboxed
+  # Flatpak build or an NSIS package.
+  versions:
+    name: Versions agree
     runs-on: ubuntu-latest
-    container:
-      # gnome-50 matches `runtime-version: '50'` in the manifest. Bumping one
-      # without the other means the SDK that builds the app is not the runtime
-      # it runs against.
-      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
-      options: --privileged
-
     steps:
-      - name: Check out
-        uses: actions/checkout@v4
-        with:
-          # The ostree repo is assembled at the workspace root, so the source
-          # tree gets its own directory. The manifest's `type: dir, path: ..`
-          # copies everything under here, and pulling gh-pages in alongside it
-          # would drag the whole published repo into the build.
-          path: bifrossh
+      - uses: actions/checkout@v4
 
       - name: Check versions agree
         # Runs before the expensive steps so a mistake costs seconds, not a full
@@ -55,7 +44,6 @@ jobs:
         # so tagging without adding a <release> entry ships an app that updates
         # correctly and then reports the wrong version: a quiet failure that is
         # easy to make and annoying to diagnose.
-        working-directory: bifrossh
         run: |
           META="flatpak/${APP_ID}.metainfo.xml"
 
@@ -96,6 +84,86 @@ jobs:
 
           [ "$fail" -eq 0 ] && echo "versions agree"
           exit $fail
+
+  # The Windows installer, published to the same release as the Flatpak bundle.
+  # action-gh-release is additive on an existing release, so which of the two
+  # jobs finishes first does not matter.
+  windows:
+    name: Windows installer
+    needs: [check, versions]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      # NSIS only. The MSI that `targets: "all"` would also build needs WiX and
+      # installs per machine, which means an admin prompt for an app that keeps
+      # everything it owns under the user's profile anyway.
+      - name: Build the installer
+        run: npm run tauri -- build --bundles nsis
+
+      - name: Name the artefact
+        id: artefact
+        shell: bash
+        run: |
+          exe=$(ls src-tauri/target/release/bundle/nsis/*-setup.exe | head -1)
+          if [ -z "$exe" ]; then
+            echo "::error::tauri build produced no NSIS installer"
+            exit 1
+          fi
+          echo "path=$exe" >> "$GITHUB_OUTPUT"
+          ls -lh "$exe"
+
+      # So a workflow_dispatch run on a branch produces something installable.
+      # Without this the only way to get a Windows build is to tag one, which
+      # is a poor way to find out it does not start.
+      - name: Upload the installer as a run artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bifrossh-windows-installer
+          path: ${{ steps.artefact.outputs.path }}
+          if-no-files-found: error
+
+      # Unsigned, so SmartScreen warns on first run until the download builds
+      # reputation. Documented in the README rather than left as a surprise.
+      - name: Attach the installer to the GitHub release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.artefact.outputs.path }}
+          generate_release_notes: true
+
+  build:
+    needs: [check, versions]
+    runs-on: ubuntu-latest
+    container:
+      # gnome-50 matches `runtime-version: '50'` in the manifest. Bumping one
+      # without the other means the SDK that builds the app is not the runtime
+      # it runs against.
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
+      options: --privileged
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          # The ostree repo is assembled at the workspace root, so the source
+          # tree gets its own directory. The manifest's `type: dir, path: ..`
+          # copies everything under here, and pulling gh-pages in alongside it
+          # would drag the whole published repo into the build.
+          path: bifrossh
 
       # The vendored sources are checked by the CI workflow this one calls, so
       # a stale manifest fails on the push that introduced it rather than at
