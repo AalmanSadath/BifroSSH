@@ -12,6 +12,31 @@ interface Props {
   onClose: () => void;
 }
 
+/**
+ * Whether the export can go ahead.
+ *
+ * A pure function, and tested, because the generated branch was dead: the
+ * confirm field is rendered only for a typed passphrase, but the check asked
+ * for a match either way, so generating one left the button greyed for ever
+ * with nothing on screen to say why.
+ *
+ * A generated phrase has nothing to confirm. Nobody typed it, so there is no
+ * typo to catch. What it needs instead is the tick saying it has been written
+ * down somewhere, which is what `saved` carries, because it exists nowhere but
+ * the screen until then.
+ */
+export function canExport(s: {
+  path: string;
+  passphrase: string;
+  confirmPass: string;
+  generated: boolean;
+  saved: boolean;
+  busy: boolean;
+}): boolean {
+  if (!s.path || s.busy || s.passphrase.length === 0) return false;
+  return s.generated ? s.saved : s.passphrase === s.confirmPass;
+}
+
 function defaultName(): string {
   const now = new Date();
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -51,8 +76,7 @@ export default function ExportDataModal({ onClose }: Props) {
 
 
   const matched = passphrase.length > 0 && passphrase === confirmPass;
-  // A generated phrase is nowhere but the screen until the user says otherwise.
-  const ready = Boolean(path) && matched && (!generated || saved) && !busy;
+  const ready = canExport({ path, passphrase, confirmPass, generated, saved, busy });
 
   async function run(force: boolean) {
     setBusy(true);
