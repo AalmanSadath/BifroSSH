@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import * as ipc from '../ipc';
+import { localStyle } from '../paths';
 import PassphraseInput from './shared/PassphraseInput';
 import FilePickerModal from './FilePickerModal';
 import { useAppStore } from '../store/appStore';
@@ -85,7 +86,7 @@ export default function ImportDataModal({ onClose }: Props) {
       <FilePickerModal
         mode="open"
         title="Choose an export file"
-        startDir={path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : undefined}
+        startDir={localStyle().parent(path) ?? undefined}
         extensions={['.bfx']}
         onCancel={() => setPicking(false)}
         onChoose={(file) => {

@@ -109,7 +109,7 @@ export default function KnownHostsPanel() {
             {hosts.length > 0 && (
               <span className="kh-count">
                 {ownCount} in BifroSSH
-                {opensshCount > 0 && ` · ${opensshCount} from ~/.ssh`}
+                {opensshCount > 0 && ` · ${opensshCount} from OpenSSH`}
               </span>
             )}
           </h3>
@@ -148,7 +148,7 @@ export default function KnownHostsPanel() {
                   <div className="kh-host">
                     <span className="kh-name">{label(h)}</span>
                     <span className={`kh-tag kh-tag-${h.source}`}>
-                      {h.source === 'bifrossh' ? 'BifroSSH' : '~/.ssh'}
+                      {h.source === 'bifrossh' ? 'BifroSSH' : 'OpenSSH'}
                     </span>
                   </div>
                   <button

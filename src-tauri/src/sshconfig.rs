@@ -36,8 +36,9 @@ pub fn config_path() -> Option<PathBuf> {
     path.exists().then_some(path)
 }
 
+/// `~/` and, on Windows where OpenSSH accepts either separator, `~\`.
 fn expand_home(value: &str) -> String {
-    if let Some(rest) = value.strip_prefix("~/") {
+    if let Some(rest) = value.strip_prefix("~/").or_else(|| value.strip_prefix("~\\")) {
         if let Some(home) = dirs::home_dir() {
             return home.join(rest).to_string_lossy().into_owned();
         }

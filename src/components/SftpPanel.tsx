@@ -7,6 +7,7 @@ import type { FileEntry, LogEntry, Server, TransferProgress, TransferSummary } f
 import ConnectingView from './ConnectingView';
 import ContextMenu from './shared/ContextMenu';
 import { useDismissOnOutside } from './shared/useDismissOnOutside';
+import { localStyle, styleFor, type PathStyle } from '../paths';
 
 function formatSize(bytes: number, isDir: boolean): string {
   if (isDir) return '- -';
@@ -22,15 +23,6 @@ function formatDate(ts: number | null): string {
     month: 'numeric', day: 'numeric', year: 'numeric',
     hour: 'numeric', minute: '2-digit',
   });
-}
-
-function pathSegments(path: string): { label: string; path: string }[] {
-  if (!path) return [];
-  const parts = path.split('/').filter(Boolean);
-  return parts.map((part, i) => ({
-    label: part,
-    path: '/' + parts.slice(0, i + 1).join('/'),
-  }));
 }
 
 function FolderIcon({ size = 16 }: { size?: number }) {
@@ -90,16 +82,19 @@ interface FileBrowserProps {
   onDragLeave?: () => void;
   onFileDrop?: (entry: FileEntry, fromSide: 'left' | 'right') => void;
   onReconnect?: () => void;
+  /** How to take this pane's paths apart: POSIX remotely, native locally. */
+  pathStyle: PathStyle;
 }
 
 function FileBrowser({ title, icon, path, entries, loading, error, notice, onDismissNotice, onNavigate,
   onRefresh, onNewFolder, extraActions, onLocalBtn,
   canCopyToTarget, onCopyToTarget, onRename, onDelete,
-  side, isDropTarget, transferring, onDragEnter: onDragEnterCb, onDragLeave: onDragLeaveCb, onFileDrop, onReconnect
+  side, isDropTarget, transferring, onDragEnter: onDragEnterCb, onDragLeave: onDragLeaveCb, onFileDrop, onReconnect,
+  pathStyle,
 }: FileBrowserProps) {
   const { settings } = useAppStore();
   const hint = (t: string) => settings.show_hover_hints ? t : undefined;
-  const segments = pathSegments(path);
+  const segments = pathStyle.segments(path);
   const [colWidths, setColWidths] = useState(DEFAULT_COL_WIDTHS);
   const [sortCol, setSortCol] = useState<SortCol>('Name');
   const [sortAsc, setSortAsc] = useState(true);
@@ -362,7 +357,7 @@ function FileBrowser({ title, icon, path, entries, loading, error, notice, onDis
             ) : (() => {
               const dotdot = entries.filter(en => en.name === '..');
               const rest = entries
-                .filter(en => en.name !== '..' && (showHidden || !en.name.startsWith('.')))
+                .filter(en => en.name !== '..' && (showHidden || !en.hidden))
                 .sort((a, b) => {
                   if (dirsOnTop && a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
                   let cmp = 0;
@@ -648,6 +643,7 @@ function usePane(initialMode: PaneMode) {
 
   /** The listing the pane is currently showing, whichever side it is on. */
   const listing = mode === 'local' ? local : remote;
+  const style = styleFor(mode === 'local' ? 'local' : 'remote');
 
   async function navigateLocal(path: string) {
     if (path !== local.path) setNotice('');
@@ -683,7 +679,7 @@ function usePane(initialMode: PaneMode) {
   async function goLocal() {
     setMode('local');
     if (!local.path) {
-      const home = await ipc.sftpLocalHome().catch(() => '/');
+      const home = await ipc.sftpLocalHome().catch(() => localStyle().defaultRoot);
       await navigateLocal(home);
     }
   }
@@ -785,7 +781,7 @@ function usePane(initialMode: PaneMode) {
   }
 
   async function newFolder(name: string) {
-    const path = listing.path.replace(/\/$/, '') + '/' + name;
+    const path = style.join(listing.path, name);
     try {
       if (mode === 'local') await ipc.sftpCreateLocalDir(path);
       else await ipc.sftpMkdir(requireSid(), path);
@@ -797,15 +793,18 @@ function usePane(initialMode: PaneMode) {
   }
 
   async function rename(entry: FileEntry, newName: string) {
-    const parent = entry.path.substring(0, entry.path.lastIndexOf('/'));
+    // The style knows where the parent ends, which is the whole reason it
+    // exists: on Windows this is a backslash and the old lastIndexOf('/')
+    // renamed the file into the root of the disk.
+    const parent = style.parent(entry.path);
+    if (parent === null) {
+      fail(`Cannot rename ${entry.name}: it has no parent folder`);
+      return;
+    }
     try {
-      if (mode === 'local') {
-        await ipc.sftpRenameLocal(entry.path, parent + '/' + newName);
-      } else {
-        // A file directly under the remote root would otherwise become "//name".
-        const base = parent || '/';
-        await ipc.sftpRenameRemote(requireSid(), entry.path, (base === '/' ? '' : base) + '/' + newName);
-      }
+      const target = style.join(parent, newName);
+      if (mode === 'local') await ipc.sftpRenameLocal(entry.path, target);
+      else await ipc.sftpRenameRemote(requireSid(), entry.path, target);
     } catch (e) {
       fail(String(e));
     } finally {
@@ -835,7 +834,7 @@ function usePane(initialMode: PaneMode) {
   }
 
   return {
-    mode, setMode, listing, local, remote, notice, dismissNotice: () => setNotice(''),
+    mode, setMode, listing, style, local, remote, notice, dismissNotice: () => setNotice(''),
     sid, serverId, serverName, disconnected,
     connectingId, connectError, setConnectError, connectServer, connectLogs,
     navigate: (path: string) => (mode === 'local' ? navigateLocal(path) : navigateRemote(path)),
@@ -998,6 +997,7 @@ export default function SftpPanel() {
   function renderPane(pane: Pane, other: Pane, side: 'left' | 'right') {
     const browser = (
       <FileBrowser
+        pathStyle={pane.style}
         title={pane.mode === 'local' ? 'Local' : pane.serverName}
         icon={pane.mode === 'local' ? LOCAL_ICON : REMOTE_ICON}
         path={pane.listing.path}

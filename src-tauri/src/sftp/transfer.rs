@@ -47,9 +47,11 @@ fn single_file_summary(step: Step) -> TransferSummary {
 /// chunked copy loop, the tree walk and the batch bookkeeping existed three
 /// times each and had to be kept in step by hand.
 ///
-/// Paths are `&str` on both sides, and both sides join them the same way. That
-/// holds because the app is Linux only, so a local path is a POSIX path and
-/// `join_remote` is correct for it too.
+/// Paths are `&str` on both sides, but the two sides do not join them the same
+/// way: a remote path is POSIX whatever this machine is, and a local path uses
+/// this machine's own separator. Hence `join` on the trait rather than one
+/// free function, which is what let `C:\\dst` and a relative `sub/file` end up
+/// concatenated with the wrong slash.
 #[async_trait]
 trait FileSide {
     type Reader: tokio::io::AsyncRead + Unpin + Send;
@@ -74,9 +76,28 @@ trait FileSide {
     /// Best effort: this only ever runs on a file this process just made and
     /// then abandoned, and there is nothing useful to say if it will not go.
     async fn remove_file(&self, path: &str);
+
+    /// `dir` and a path relative to it, joined the way this side spells paths.
+    ///
+    /// `rel` always arrives POSIX-separated: both tree walks record it that
+    /// way, so it is one shape whichever side produced it, and only the local
+    /// implementation has any translating to do.
+    fn join(&self, dir: &str, rel: &str) -> String;
 }
 
 struct Local;
+
+/// A POSIX-separated relative path in this machine's own spelling. Both tree
+/// walks record `rel` with forward slashes, whichever side produced it.
+#[cfg(windows)]
+fn native(rel: &str) -> String {
+    rel.replace('/', "\\")
+}
+
+#[cfg(not(windows))]
+fn native(rel: &str) -> &str {
+    rel
+}
 
 #[async_trait]
 impl FileSide for Local {
@@ -113,6 +134,13 @@ impl FileSide for Local {
 
     async fn remove_file(&self, path: &str) {
         let _ = tokio::fs::remove_file(path).await;
+    }
+
+    /// `Path::join` rather than string concatenation, because it is the one
+    /// that knows a Windows drive root ends in its own separator already and
+    /// that `C:` alone is not a directory.
+    fn join(&self, dir: &str, rel: &str) -> String {
+        Path::new(dir).join(native(rel)).to_string_lossy().into_owned()
     }
 }
 
@@ -165,6 +193,10 @@ impl FileSide for Remote {
         sftp.create(path)
             .await
             .with_context(|| path.to_string())
+    }
+
+    fn join(&self, dir: &str, rel: &str) -> String {
+        join_remote(dir, rel)
     }
 
     async fn remove_file(&self, path: &str) {
@@ -329,12 +361,12 @@ async fn transfer<S: FileSide, D: FileSide>(
         .context("Invalid source path")?
         .to_string_lossy()
         .into_owned();
-    // Refused rather than joined: `join_remote` would turn an empty directory
-    // into an absolute path and write to the root of whichever side this is.
+    // Refused rather than joined: an empty directory would join to a bare
+    // relative name and write wherever the process happens to be.
     if dst_dir.is_empty() {
         return Err(anyhow!("No destination directory"));
     }
-    let dest_root = join_remote(dst_dir, &name);
+    let dest_root = dst.join(dst_dir, &name);
 
     if !src.is_dir(src_path).await? {
         let at = Position { index: 1, count: 1 };
@@ -351,7 +383,7 @@ async fn transfer<S: FileSide, D: FileSide>(
     dst.ensure_dir(&dest_root).await?;
     let mut directories = 0u32;
     for item in items.iter().filter(|i| i.is_dir) {
-        dst.ensure_dir(&join_remote(&dest_root, &item.rel)).await?;
+        dst.ensure_dir(&dst.join(&dest_root, &item.rel)).await?;
         directories += 1;
     }
 
@@ -360,9 +392,9 @@ async fn transfer<S: FileSide, D: FileSide>(
         let step = transfer_one(
             app,
             src,
-            &join_remote(src_path, &item.rel),
+            &src.join(src_path, &item.rel),
             dst,
-            &join_remote(&dest_root, &item.rel),
+            &dst.join(&dest_root, &item.rel),
             at,
             cancel,
         )
@@ -425,6 +457,36 @@ pub async fn copy_remote_path(
 
 #[cfg(test)]
 mod tests {
+    /// The two sides spell paths differently, and `rel` always arrives
+    /// POSIX-separated. Downloading a folder onto Windows is the case that
+    /// used to concatenate a backslash directory with a forward-slash
+    /// relative path.
+    #[test]
+    fn each_side_joins_the_way_it_spells_paths() {
+        use super::{FileSide, Local};
+        let local = Local;
+
+        // Remote is always POSIX, whatever this machine is. Constructing one
+        // needs a live session, so the free function it delegates to stands in
+        // for it; `Remote::join` is one line calling exactly this.
+        assert_eq!(super::join_remote("/home/x", "a/b.txt"), "/home/x/a/b.txt");
+        assert_eq!(super::join_remote("/", "f.txt"), "/f.txt");
+
+        #[cfg(unix)]
+        {
+            assert_eq!(local.join("/home/x", "a/b.txt"), "/home/x/a/b.txt");
+            assert_eq!(local.join("/home/x/", "f.txt"), "/home/x/f.txt");
+            assert_eq!(local.join("/", "f.txt"), "/f.txt");
+        }
+        #[cfg(windows)]
+        {
+            assert_eq!(local.join("C:\\dst", "a/b.txt"), "C:\\dst\\a\\b.txt");
+            // A drive root already ends in its own separator.
+            assert_eq!(local.join("C:\\", "f.txt"), "C:\\f.txt");
+            assert_eq!(local.join("C:\\dst\\", "f.txt"), "C:\\dst\\f.txt");
+        }
+    }
+
     use super::*;
     use std::io;
 

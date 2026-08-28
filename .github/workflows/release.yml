@@ -1,4 +1,4 @@
-name: Build and publish flatpak repo
+name: Release
 
 on:
   push:
@@ -29,25 +29,14 @@ jobs:
     permissions:
       contents: read
 
-  build:
-    needs: check
+  # Its own job because two builds depend on it, and because it costs seconds:
+  # a mistake here should not be discovered twenty minutes into a sandboxed
+  # Flatpak build or an NSIS package.
+  versions:
+    name: Versions agree
     runs-on: ubuntu-latest
-    container:
-      # gnome-50 matches `runtime-version: '50'` in the manifest. Bumping one
-      # without the other means the SDK that builds the app is not the runtime
-      # it runs against.
-      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
-      options: --privileged
-
     steps:
-      - name: Check out
-        uses: actions/checkout@v4
-        with:
-          # The ostree repo is assembled at the workspace root, so the source
-          # tree gets its own directory. The manifest's `type: dir, path: ..`
-          # copies everything under here, and pulling gh-pages in alongside it
-          # would drag the whole published repo into the build.
-          path: bifrossh
+      - uses: actions/checkout@v4
 
       - name: Check versions agree
         # Runs before the expensive steps so a mistake costs seconds, not a full
@@ -55,7 +44,6 @@ jobs:
         # so tagging without adding a <release> entry ships an app that updates
         # correctly and then reports the wrong version: a quiet failure that is
         # easy to make and annoying to diagnose.
-        working-directory: bifrossh
         run: |
           META="flatpak/${APP_ID}.metainfo.xml"
 
@@ -96,6 +84,61 @@ jobs:
 
           [ "$fail" -eq 0 ] && echo "versions agree"
           exit $fail
+
+  # The build itself lives in its own workflow, which pull requests also run,
+  # so a change is testable on Windows before it is tagged rather than after.
+  windows:
+    name: Windows installer
+    needs: [check, versions]
+    uses: ./.github/workflows/windows-installer.yml
+    # A called workflow inherits the caller's permissions unless told
+    # otherwise, and this workflow can write releases. Building cannot.
+    permissions:
+      contents: read
+
+  # Attaching is separate from building because the build is shared with pull
+  # requests, and a pull request must not be able to write to a release.
+  # action-gh-release is additive, so this and the Flatpak job can target one
+  # release without ordering between them.
+  #
+  # The installer is unsigned, so SmartScreen warns on first run until the
+  # download builds reputation. Said in the README rather than left as a
+  # surprise.
+  windows-release:
+    name: Publish the Windows installer
+    needs: windows
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: bifrossh-windows-installer
+          path: installer
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: installer/*-setup.exe
+          generate_release_notes: true
+
+  build:
+    needs: [check, versions]
+    runs-on: ubuntu-latest
+    container:
+      # gnome-50 matches `runtime-version: '50'` in the manifest. Bumping one
+      # without the other means the SDK that builds the app is not the runtime
+      # it runs against.
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
+      options: --privileged
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          # The ostree repo is assembled at the workspace root, so the source
+          # tree gets its own directory. The manifest's `type: dir, path: ..`
+          # copies everything under here, and pulling gh-pages in alongside it
+          # would drag the whole published repo into the build.
+          path: bifrossh
 
       # The vendored sources are checked by the CI workflow this one calls, so
       # a stale manifest fails on the push that introduced it rather than at

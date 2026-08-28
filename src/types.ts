@@ -349,6 +349,12 @@ export interface FileEntry {
   modified: number | null;
   permissions: string;
   kind: string;
+  /**
+   * Decided by the backend, not from the name. A leading dot is a naming
+   * convention; on Windows hidden is a file attribute, which is the only thing
+   * marking desktop.ini.
+   */
+  hidden: boolean;
 }
 
 /** Per-collection tallies, shared by every export and import result. */

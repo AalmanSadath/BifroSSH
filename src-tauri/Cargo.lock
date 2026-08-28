@@ -297,7 +297,7 @@ dependencies = [
 
 [[package]]
 name = "bifrossh"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -322,6 +322,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tokio",
  "uuid",
+ "windows",
  "zbus",
 ]
 

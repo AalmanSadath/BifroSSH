@@ -123,6 +123,10 @@ export const listFonts = () => invoke<string[]>('list_fonts');
 
 /** Never fails; a desktop that cannot be asked reports no preference. */
 export const systemAppearance = () => invoke<SystemAppearance>('system_appearance');
+/** 'linux' | 'windows' | 'macos' | whatever else Rust's env::consts::OS names. */
+export const platform = () => invoke<string>('platform');
+/** Where the vault, keystore and backups live. Differs by platform. */
+export const dataDir = () => invoke<string>('data_dir');
 
 // ── ssh_config import ────────────────────────────────────────────────────
 

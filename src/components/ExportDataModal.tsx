@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import * as ipc from '../ipc';
+import { localStyle } from '../paths';
 import PassphraseInput from './shared/PassphraseInput';
 import GeneratedPassphraseField from './shared/GeneratedPassphraseField';
 import FilePickerModal from './FilePickerModal';
@@ -9,6 +10,31 @@ import Modal from './shared/Modal';
 
 interface Props {
   onClose: () => void;
+}
+
+/**
+ * Whether the export can go ahead.
+ *
+ * A pure function, and tested, because the generated branch was dead: the
+ * confirm field is rendered only for a typed passphrase, but the check asked
+ * for a match either way, so generating one left the button greyed for ever
+ * with nothing on screen to say why.
+ *
+ * A generated phrase has nothing to confirm. Nobody typed it, so there is no
+ * typo to catch. What it needs instead is the tick saying it has been written
+ * down somewhere, which is what `saved` carries, because it exists nowhere but
+ * the screen until then.
+ */
+export function canExport(s: {
+  path: string;
+  passphrase: string;
+  confirmPass: string;
+  generated: boolean;
+  saved: boolean;
+  busy: boolean;
+}): boolean {
+  if (!s.path || s.busy || s.passphrase.length === 0) return false;
+  return s.generated ? s.saved : s.passphrase === s.confirmPass;
 }
 
 function defaultName(): string {
@@ -42,7 +68,7 @@ export default function ExportDataModal({ onClose }: Props) {
     ipc.defaultExportDir()
       .then((d) => {
         setDir(d);
-        setPath(`${d.replace(/\/+$/, '')}/${defaultName()}`);
+        setPath(localStyle().join(d, defaultName()));
       })
       .catch((e) => setError(String(e)));
   }, []);
@@ -50,8 +76,7 @@ export default function ExportDataModal({ onClose }: Props) {
 
 
   const matched = passphrase.length > 0 && passphrase === confirmPass;
-  // A generated phrase is nowhere but the screen until the user says otherwise.
-  const ready = Boolean(path) && matched && (!generated || saved) && !busy;
+  const ready = canExport({ path, passphrase, confirmPass, generated, saved, busy });
 
   async function run(force: boolean) {
     setBusy(true);
@@ -77,8 +102,8 @@ export default function ExportDataModal({ onClose }: Props) {
       <FilePickerModal
         mode="save"
         title="Where should the export go?"
-        startDir={path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : dir}
-        defaultName={path.slice(path.lastIndexOf('/') + 1) || defaultName()}
+        startDir={localStyle().parent(path) ?? dir}
+        defaultName={localStyle().basename(path) || defaultName()}
         extensions={['.bfx']}
         onCancel={() => setPicking(false)}
         onChoose={(chosen) => {

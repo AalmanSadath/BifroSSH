@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import * as ipc from '../ipc';
+import { localStyle } from '../paths';
 import type { FileEntry } from '../types';
 import Modal from './shared/Modal';
 
@@ -47,6 +48,18 @@ export default function FilePickerModal({
   const matches = (entry: FileEntry) =>
     !extensions || extensions.some((ext) => entry.name.toLowerCase().endsWith(ext));
 
+  /**
+   * The extension the caller asked for, added when the typed name has none of
+   * them. Every save dialog does this, and without it a name typed over the
+   * suggested one produced a file the app itself would not offer to open
+   * again, because `matches` filters on exactly these.
+   */
+  const withExtension = (typed: string) => {
+    if (!typed || !extensions?.length) return typed;
+    const has = extensions.some((ext) => typed.toLowerCase().endsWith(ext));
+    return has ? typed : typed + extensions[0];
+  };
+
   /** In save mode only folders can be picked; the name comes from the field. */
   const selectable = (entry: FileEntry) => entry.is_dir || (mode === 'open' && matches(entry));
 
@@ -70,7 +83,7 @@ export default function FilePickerModal({
 
   useEffect(() => {
     (async () => {
-      const home = await ipc.sftpLocalHome().catch(() => '/');
+      const home = await ipc.sftpLocalHome().catch(() => localStyle().defaultRoot);
       await navigate(startDir || home);
       if (mode === 'save') nameRef.current?.select();
     })();
@@ -114,14 +127,21 @@ export default function FilePickerModal({
       if (selected) onChoose(selected);
       return;
     }
-    const trimmed = name.trim();
+    const trimmed = withExtension(name.trim());
     if (!trimmed) return;
     // A folder highlighted in save mode is a target to write into, not the
     // file itself, so the name is always appended to the directory shown.
-    const base = (selected && entries.find((e) => e.path === selected)?.is_dir ? selected : dir)
-      .replace(/\/+$/, '');
-    onChoose(`${base}/${trimmed}`);
+    const base = selected && entries.find((e) => e.path === selected)?.is_dir ? selected : dir;
+    onChoose(localStyle().join(base, trimmed));
   }
+
+  /**
+   * Hidden files are left out, with no toggle to bring them back: this picker
+   * exists to choose somewhere to put a file, and a hidden one is not it. On
+   * Windows that matters more than it sounds, because every folder Windows has
+   * customised holds a desktop.ini.
+   */
+  const shown = entries.filter((e) => e.name === '..' || !e.hidden);
 
   const canConfirm = mode === 'open' ? Boolean(selected) : name.trim().length > 0;
 
@@ -141,10 +161,10 @@ export default function FilePickerModal({
       {error && <p className="form-hint form-hint-error">{error}</p>}
 
       <div className="picker-list">
-        {loading && entries.length === 0 ? (
+        {loading && shown.length === 0 ? (
           <p className="form-hint">Reading…</p>
         ) : (
-          entries.map((entry) => (
+          shown.map((entry) => (
             <div
               key={entry.path}
               className={[

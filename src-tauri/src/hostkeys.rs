@@ -57,12 +57,39 @@ pub struct KnownHostEntry {
     pub line: usize,
 }
 
+/// A scratch directory standing in for the real home, for the one test that
+/// needs both known_hosts files somewhere disposable.
+///
+/// The obvious way to do that is to set `$HOME`, and this used to. It is wrong
+/// twice: it mutates process-wide state that every other test shares, and on
+/// Windows it does nothing at all, because `dirs` reads the profile known
+/// folder rather than the variable. So the test wrote into the real
+/// `%APPDATA%\BifroSSH`, and then `forget_host` deleted from it.
+#[cfg(test)]
+static SCRATCH_HOME: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+
+#[cfg(test)]
+fn scratch_home() -> Option<PathBuf> {
+    SCRATCH_HOME.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+#[cfg(not(test))]
+fn scratch_home() -> Option<PathBuf> {
+    None
+}
+
 pub fn bifrossh_known_hosts_path() -> Result<PathBuf> {
+    if let Some(dir) = scratch_home() {
+        return Ok(dir.join("known_hosts"));
+    }
     Ok(get_data_dir()?.join("known_hosts"))
 }
 
 pub fn openssh_known_hosts_path() -> Option<PathBuf> {
-    let path = dirs::home_dir()?.join(".ssh").join("known_hosts");
+    let path = scratch_home()
+        .or_else(dirs::home_dir)?
+        .join(".ssh")
+        .join("known_hosts");
     path.exists().then_some(path)
 }
 
@@ -759,15 +786,17 @@ mod tests {
         assert!(host_matches(l.hosts, &target));
     }
 
-    /// Full learn/check/replace/forget lifecycle against a scratch HOME, with
+    /// Full learn/check/replace/forget lifecycle against a scratch home, with
     /// real `ssh-keygen -F` confirming OpenSSH can read what we wrote.
     ///
-    /// Sets $HOME, so it must be the only test that does.
+    /// Sets SCRATCH_HOME, which is global, so it must be the only test that
+    /// touches either known_hosts file.
     #[test]
     fn lifecycle_and_openssh_interop() {
         let home = std::env::temp_dir().join(format!("bifrossh-life-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&home);
         fs::create_dir_all(&home).unwrap();
-        std::env::set_var("HOME", &home);
+        *SCRATCH_HOME.lock().unwrap() = Some(home.clone());
 
         let key = russh_keys::parse_public_key_base64(ED25519_B64).unwrap();
         let other = russh_keys::parse_public_key_base64(
@@ -925,6 +954,7 @@ mod tests {
         ));
 
         fs::remove_dir_all(&home).ok();
+        *SCRATCH_HOME.lock().unwrap() = None;
     }
 
     #[test]

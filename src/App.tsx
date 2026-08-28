@@ -3,6 +3,7 @@ import * as ipc from './ipc';
 import { listen } from '@tauri-apps/api/event';
 import { useAppStore, resolveAccent, resolveAppTheme } from './store/appStore';
 import { accentTokens } from './styles/accent';
+import { setLocalPlatform } from './paths';
 import type { AuthPromptEvent, HostKeyPromptEvent, SessionTab, SystemAppearance, VaultStatus } from './types';
 import HostKeyPrompt from './components/HostKeyPrompt';
 import AuthPromptModal from './components/AuthPromptModal';
@@ -146,7 +147,14 @@ export default function App() {
     };
   }, []);
 
-  // Asked once at startup, then followed: the portal reports a desktop that
+  // Asked once and never again: local paths are separated differently on
+  // Windows, and every breadcrumb and rename target is built from that. Before
+  // the answer arrives the app assumes POSIX, which is what it always did.
+  useEffect(() => {
+    ipc.platform().then(setLocalPlatform).catch(() => {});
+  }, []);
+
+  // Asked once at startup, then followed: the system reports a desktop that
   // changes its mind, so a theme set to system switches without a restart.
   useEffect(() => {
     ipc.systemAppearance().then(setSystemAppearance).catch(() => {});

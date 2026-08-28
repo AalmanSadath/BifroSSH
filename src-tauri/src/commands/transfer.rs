@@ -12,7 +12,9 @@ use super::AppState;
 #[tauri::command]
 pub async fn default_export_dir() -> CmdResult<String> {
     let home = dirs::home_dir().ok_or("Could not find your home directory")?;
-    let downloads = home.join("Downloads");
+    // The platform answer first, since a localised Windows install spells the
+    // folder in the user's own language and a Linux one follows XDG.
+    let downloads = dirs::download_dir().unwrap_or_else(|| home.join("Downloads"));
     let dir = if downloads.is_dir() { downloads } else { home };
     Ok(dir.to_string_lossy().into_owned())
 }

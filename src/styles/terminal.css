@@ -62,7 +62,7 @@
 .term-search-detail {
   flex-basis: 100%;
   margin: 2px 2px 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, 'Cascadia Mono', Consolas, monospace;
   font-size: 11px;
   line-height: 1.4;
   color: var(--danger);
@@ -97,7 +97,7 @@
 .crash-card h1 { font-size: 16px; font-weight: 700; color: var(--text-primary); }
 
 .crash-message {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, 'Cascadia Mono', Consolas, monospace;
   font-size: 12px;
   color: var(--danger);
   word-break: break-word;
@@ -106,7 +106,7 @@
 .crash-stack {
   height: 200px;
   resize: none;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, 'Cascadia Mono', Consolas, monospace;
   font-size: 11px;
   white-space: pre;
   overflow: auto;

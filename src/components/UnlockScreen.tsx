@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import * as ipc from '../ipc';
 import PassphraseInput from './shared/PassphraseInput';
 
@@ -20,8 +20,15 @@ interface Props {
  */
 export default function UnlockScreen({ fatal, keyringLocked, onUnlocked }: Props) {
   const [passphrase, setPassphrase] = useState('');
+  // Asked for rather than spelled out: the directory differs by platform, and
+  // recovery advice that names the wrong one sends the user to an empty folder.
+  const [dataDir, setDataDir] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    ipc.dataDir().then(setDataDir).catch(() => {});
+  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -53,8 +60,8 @@ export default function UnlockScreen({ fatal, keyringLocked, onUnlocked }: Props
             <p className="form-hint">
               Nothing has been changed on disk. Your data is still there and still encrypted;
               what is missing is the key that opens it. Restoring{' '}
-              <code>~/.local/share/bifrossh</code> from a backup, keyring and all, is the way
-              back.
+              {dataDir ? <code>{dataDir}</code> : 'the BifroSSH data folder'} from a backup,
+              keyring and all, is the way back.
             </p>
           </>
         ) : (

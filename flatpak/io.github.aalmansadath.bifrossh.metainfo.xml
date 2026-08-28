@@ -85,6 +85,33 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.13.0" date="2026-08-29">
+      <description>
+        <p>
+          BifroSSH now runs on Windows, installed from a downloadable
+          installer. Everything the Linux build does it does there too:
+          terminals, SFTP, port forwarding, jump hosts and the encrypted
+          vault.
+        </p>
+        <p>
+          The master key is held by DPAPI on Windows, in place of the desktop
+          keyring, so the app unlocks without asking and the sealed key is
+          useless to any other account. The app theme and accent follow the
+          Windows setting and change with it. ssh-agent works through the
+          OpenSSH agent service. The font list comes from the same font
+          collection the rest of the system draws with.
+        </p>
+        <p>
+          Several fixes that were never specific to one platform. A generated
+          passphrase can now encrypt an export, where before it left the
+          button disabled with nothing on screen to explain it. The file
+          picker leaves hidden files out and completes the extension of a name
+          you type. Uninstalling and asking for your data to be deleted now
+          deletes it, after asking once more, rather than saying so and
+          leaving it behind.
+        </p>
+      </description>
+    </release>
     <release version="0.12.0" date="2026-08-20">
       <description>
         <p>

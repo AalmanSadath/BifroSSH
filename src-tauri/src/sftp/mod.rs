@@ -106,6 +106,12 @@ pub struct FileEntry {
     pub modified: Option<u64>,
     pub permissions: String,
     pub kind: String,
+    /// Kept out of the listing unless the panel is asked for hidden files.
+    ///
+    /// Decided here rather than in the frontend, because "hidden" is not one
+    /// question. A leading dot is a naming convention; on Windows it is a file
+    /// attribute, and the two do not overlap.
+    pub hidden: bool,
 }
 
 pub struct SftpClientState {

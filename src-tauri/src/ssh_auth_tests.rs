@@ -15,9 +15,12 @@ use russh::{Channel, MethodSet};
 use russh_keys::key::{KeyPair, PublicKey};
 use tokio::sync::Mutex;
 
+#[cfg(unix)]
 use base64::Engine as _;
 
-use crate::ssh::{agent_auth, keyboard_interactive, AuthPrompter};
+use crate::ssh::{keyboard_interactive, AuthPrompter};
+#[cfg(unix)]
+use crate::ssh::agent_auth;
 
 // ── Test server ──────────────────────────────────────────────────────────────
 
@@ -374,7 +377,12 @@ async fn endless_prompts_are_capped() {
 }
 
 // ── ssh-agent authentication ─────────────────────────────────────────────────
+//
+// Unix only: these boot a real `ssh-agent` over a real Unix socket and stop it
+// again with `kill`. The Windows agent is a named pipe behind a service, which
+// a test cannot stand up and tear down the same way.
 
+#[cfg(unix)]
 /// A server that accepts exactly one public key, by blob comparison.
 #[derive(Clone)]
 struct PubkeyServer {
@@ -382,6 +390,7 @@ struct PubkeyServer {
     offered: Arc<Mutex<Vec<String>>>,
 }
 
+#[cfg(unix)]
 impl server::Server for PubkeyServer {
     type Handler = Self;
     fn new_client(&mut self, _: Option<std::net::SocketAddr>) -> Self {
@@ -389,6 +398,7 @@ impl server::Server for PubkeyServer {
     }
 }
 
+#[cfg(unix)]
 #[async_trait]
 impl server::Handler for PubkeyServer {
     type Error = russh::Error;
@@ -417,10 +427,12 @@ impl server::Handler for PubkeyServer {
     }
 }
 
+#[cfg(unix)]
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
+#[cfg(unix)]
 async fn spawn_pubkey_server(accepted: Vec<u8>) -> (u16, Arc<Mutex<Vec<String>>>) {
     let offered = Arc::new(Mutex::new(Vec::new()));
     let server = PubkeyServer {
@@ -448,6 +460,7 @@ async fn spawn_pubkey_server(accepted: Vec<u8>) -> (u16, Arc<Mutex<Vec<String>>>
     (port, offered)
 }
 
+#[cfg(unix)]
 /// Boots a real `ssh-agent` and loads the given keys into it.
 /// Returns the socket path plus the public key blob of each loaded key.
 fn spawn_ssh_agent(count: usize) -> Option<(std::path::PathBuf, Vec<Vec<u8>>, AgentGuard)> {
@@ -510,6 +523,7 @@ fn spawn_ssh_agent(count: usize) -> Option<(std::path::PathBuf, Vec<Vec<u8>>, Ag
     Some((sock, blobs, guard))
 }
 
+#[cfg(unix)]
 /// Stops the agent and removes its directory when the test ends, so a test run
 /// does not leave stray agents on the machine.
 struct AgentGuard {
@@ -517,6 +531,7 @@ struct AgentGuard {
     dir: std::path::PathBuf,
 }
 
+#[cfg(unix)]
 impl Drop for AgentGuard {
     fn drop(&mut self) {
         let _ = std::process::Command::new("kill")
@@ -526,8 +541,10 @@ impl Drop for AgentGuard {
     }
 }
 
+#[cfg(unix)]
 struct SilentPrompter;
 
+#[cfg(unix)]
 #[async_trait]
 impl AuthPrompter for SilentPrompter {
     fn interactive(&self) -> bool { true }
@@ -535,6 +552,7 @@ impl AuthPrompter for SilentPrompter {
     async fn ask(&self, _: &str, _: &str, _: &[Prompt]) -> Option<Vec<String>> { None }
 }
 
+#[cfg(unix)]
 /// Exercises the agent path against a real `ssh-agent` and a real server.
 ///
 /// Both halves live in one test on purpose: they mutate SSH_AUTH_SOCK, which is
