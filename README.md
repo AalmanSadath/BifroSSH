@@ -31,6 +31,8 @@ flatpak remote-delete bifrossh                     # and drop the remote
 
 Download `BifroSSH_x.y.z_x64-setup.exe` from the [latest release](https://github.com/AalmanSadath/BifroSSH/releases/latest) and run it. It installs for the current user only, so there is no administrator prompt, and it uninstalls from Settings > Apps.
 
+Uninstalling leaves `%APPDATA%\BifroSSH` alone unless you tick **Delete the application data**, which asks once more before removing it, because nothing else holds a copy of your keys. An update never removes it.
+
 The installer is not code signed, so SmartScreen shows **"Windows protected your PC"** on first run. **More info** then **Run anyway** gets past it. Signing needs a certificate that has to be bought and renewed; there is no way to make that warning go away without one.
 
 Windows 10 1803 or later. WebView2 is already present on Windows 11 and on current Windows 10; the installer fetches it if it is not.
