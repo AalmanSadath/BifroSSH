@@ -357,7 +357,7 @@ function FileBrowser({ title, icon, path, entries, loading, error, notice, onDis
             ) : (() => {
               const dotdot = entries.filter(en => en.name === '..');
               const rest = entries
-                .filter(en => en.name !== '..' && (showHidden || !en.name.startsWith('.')))
+                .filter(en => en.name !== '..' && (showHidden || !en.hidden))
                 .sort((a, b) => {
                   if (dirsOnTop && a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
                   let cmp = 0;

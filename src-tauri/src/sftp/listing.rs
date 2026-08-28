@@ -47,6 +47,46 @@ fn file_kind(name: &str, is_dir: bool) -> String {
     }.into()
 }
 
+/// Whether the browser should keep this out of the list unless asked for.
+///
+/// A leading dot on both platforms: it is the convention the remote side uses,
+/// and a dotfile that reached a Windows disk came from something that meant it
+/// to be hidden.
+///
+/// On Windows also the Hidden and System attributes, which is what Explorer
+/// honours and the only thing marking `desktop.ini`, the file Windows drops in
+/// every folder whose icon or name it has customised. Without this the panel
+/// showed one in every single directory.
+#[cfg(windows)]
+fn is_hidden(name: &str, meta: &fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    // FILE_ATTRIBUTE_HIDDEN and FILE_ATTRIBUTE_SYSTEM. Spelled out rather than
+    // pulled from the windows crate, which would mean another feature for two
+    // integers that have not changed since Windows 95.
+    const HIDDEN: u32 = 0x0000_0002;
+    const SYSTEM: u32 = 0x0000_0004;
+    name.starts_with('.') || meta.file_attributes() & (HIDDEN | SYSTEM) != 0
+}
+
+#[cfg(not(windows))]
+fn is_hidden(name: &str, _meta: &fs::Metadata) -> bool {
+    name.starts_with('.')
+}
+
+/// The parent of a remote path.
+///
+/// String work rather than `Path::parent`, because `std::path` is this
+/// machine's idea of a path, not the server's. On Windows it treats a
+/// backslash as a separator, so a remote directory with one in its name would
+/// have its ".." row point somewhere that does not exist.
+fn parent_remote(path: &str) -> String {
+    let trimmed = path.trim_end_matches('/');
+    match trimmed.rfind('/') {
+        Some(0) | None => "/".to_string(),
+        Some(cut) => trimmed[..cut].to_string(),
+    }
+}
+
 pub fn get_local_home() -> String {
     dirs::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("/"))
@@ -77,6 +117,7 @@ pub fn list_local(path: &str) -> Result<Vec<FileEntry>> {
                 modified: None,
                 permissions: String::new(),
                 kind: "folder".into(),
+                hidden: false,
             });
         }
     }
@@ -102,7 +143,8 @@ pub fn list_local(path: &str) -> Result<Vec<FileEntry>> {
         let kind = file_kind(&name, is_dir);
         let file_path = path_obj.join(&name).to_string_lossy().into_owned();
 
-        entries.push(FileEntry { name, path: file_path, is_dir, size, modified, permissions, kind });
+        let hidden = is_hidden(&name, &meta);
+        entries.push(FileEntry { name, path: file_path, is_dir, size, modified, permissions, kind, hidden });
     }
 
     if entries.len() > 1 {
@@ -137,17 +179,15 @@ pub async fn list_remote(
     let mut entries: Vec<FileEntry> = Vec::new();
 
     if path != "/" {
-        let parent = Path::new(path).parent()
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "/".to_string());
         entries.push(FileEntry {
             name: "..".into(),
-            path: parent,
+            path: parent_remote(path),
             is_dir: true,
             size: 0,
             modified: None,
             permissions: String::new(),
             kind: "folder".into(),
+            hidden: false,
         });
     }
 
@@ -165,7 +205,8 @@ pub async fn list_remote(
         let file_path = if path == "/" { format!("/{}", name) }
             else { format!("{}/{}", path.trim_end_matches('/'), name) };
 
-        entries.push(FileEntry { name, path: file_path, is_dir, size, modified, permissions, kind });
+        let hidden = name.starts_with('.');
+        entries.push(FileEntry { name, path: file_path, is_dir, size, modified, permissions, kind, hidden });
     }
 
     if entries.len() > 1 {
@@ -323,6 +364,18 @@ mod tests {
         assert!(pos("x") < pos("x/y"));
         assert!(pos("x/y") < pos("x/y/z"));
         assert!(pos("x/y/z") < pos("x/y/z/f.txt"));
+    }
+
+    /// `Path::parent` would be this machine's answer, not the server's.
+    #[test]
+    fn a_remote_parent_is_worked_out_the_way_the_server_spells_paths() {
+        assert_eq!(parent_remote("/home/a/b"), "/home/a");
+        assert_eq!(parent_remote("/home/a/"), "/home");
+        assert_eq!(parent_remote("/home"), "/");
+        assert_eq!(parent_remote("/"), "/");
+        // A backslash is an ordinary character in a POSIX name, and on Windows
+        // Path::parent would have cut the path here.
+        assert_eq!(parent_remote("/home/a\\b/c"), "/home/a\\b");
     }
 
     /// A link pointing at an ancestor would otherwise be walked forever.
