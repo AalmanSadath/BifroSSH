@@ -1,10 +1,26 @@
 # BifroSSH
 
-A GUI SSH client for Linux and Windows. Terminal, SFTP, port forwarding and key management in one window, with your hosts and credentials encrypted at rest.
+[![CI](https://github.com/AalmanSadath/BifroSSH/actions/workflows/ci.yml/badge.svg)](https://github.com/AalmanSadath/BifroSSH/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/AalmanSadath/BifroSSH)](https://github.com/AalmanSadath/BifroSSH/releases/latest)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 
-Built with Tauri 2, React and Rust. Distributed as a Flatpak on Linux and an installer on Windows. macOS is not supported.
+A desktop SSH client for Linux and Windows. Tabbed terminal, SFTP, jump-host
+chains, port forwarding and key management in one window.
 
-![A terminal session](screenshots/ActiveSession.png)
+Most SSH clients that save your servers leave the list of them sitting in
+plaintext next to the encrypted passwords. BifroSSH encrypts the whole store,
+including hostnames, usernames, jump chains, forwarding rules, saved commands
+and keys, under one master key held in the system keyring, or behind a
+passphrase, or both. Copying your home directory does not copy the key with it.
+
+Host keys are verified before authentication, the same way OpenSSH does it.
+Keys can stay in your ssh-agent and never enter the app at all, which is how
+PIV smartcards and YubiKeys work here.
+
+Built in Rust with Tauri 2, russh and xterm.js. Flatpak on Linux, NSIS
+installer on Windows. macOS is not supported.
+
+![Multiple Hosts](screenshots/HostList.png)
 
 ## Install
 
@@ -40,8 +56,6 @@ Windows 10 1803 or later. WebView2 is already present on Windows 11 and on curre
 ## Features
 
 **Hosts.** Import straight from `~/.ssh/config` or add them by hand. Per-host username, key or password, port, OS tag and default theme, or shared identities reused across servers. Quick-connect from the sidebar.
-
-![Saved hosts](screenshots/HostList.png)
 
 **Jump hosts.** Reach a server through a bastion, the same as ssh's `ProxyJump`, chained as deep as you need. Each hop authenticates with its own credentials and has its own host key verified, so a bastion on an agent key and a target on a password work together unchanged. Terminal, SFTP and tunnels all follow the chain.
 
