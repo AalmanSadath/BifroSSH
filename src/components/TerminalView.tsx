@@ -167,6 +167,7 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
 
   useEffect(() => {
     if (!containerRef.current) return;
+    const container = containerRef.current;
 
     const theme = resolveTheme();
     const term = new Terminal({
@@ -201,7 +202,7 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
     term.loadAddon(new WebLinksAddon((_event, uri) => {
       openUrl(uri).catch((e) => console.error('Could not open link', uri, e));
     }));
-    term.open(containerRef.current);
+    term.open(container);
     fitAddon.fit();
 
     termRef.current = term;
@@ -229,6 +230,33 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
 
     // Matched on ev.code rather than ev.key: code is the physical key, so
     // these keep working on a layout where that key does not produce an F.
+    // term.paste rather than sending the bytes ourselves: it wraps the text
+    // in the bracketed paste markers when the remote application has asked for
+    // them, which is what stops a multi-line paste being run a line at a time
+    // by the shell, or auto-indented by vim.
+    //
+    // The browser first, the backend only if it refuses. readText wants a
+    // user activation, which a keypress is and a right click is not, so the
+    // keyboard route never reaches the fallback and the right-click route
+    // always does. Asking the browser first keeps the common path in the
+    // webview and the backend read for the case that has no alternative.
+    const pasteFromClipboard = () => {
+      navigator.clipboard.readText()
+        .catch(() => ipc.clipboardReadText())
+        .then((text) => { if (text) term.paste(text); })
+        .catch((e) => console.error('Could not read the clipboard', e));
+    };
+
+    // Right-click pastes, the way a terminal is expected to. main.tsx already
+    // suppresses the context menu everywhere, so nothing is being taken away.
+    // Capture phase: xterm registers its own contextmenu handler on the
+    // element inside this container.
+    const onContextMenu = (ev: MouseEvent) => {
+      ev.preventDefault();
+      pasteFromClipboard();
+    };
+    container.addEventListener('contextmenu', onContextMenu, true);
+
     // Returning false tells xterm not to act on the key. It does not stop the
     // browser, which has its own Ctrl+Shift+C and Ctrl+Shift+V, and xterm
     // listens for the native copy and paste events those raise. Without
@@ -254,13 +282,7 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
         }
         if (ev.code === 'KeyV') {
           ev.preventDefault();
-          // term.paste rather than sending the bytes ourselves: it wraps the
-          // text in the bracketed paste markers when the remote application
-          // has asked for them, which is what stops a multi-line paste being
-          // run a line at a time by the shell, or auto-indented by vim.
-          navigator.clipboard.readText()
-            .then((text) => { if (text) term.paste(text); })
-            .catch(() => {});
+          pasteFromClipboard();
           return false;
         }
       }
@@ -339,6 +361,7 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
 
     return () => {
       disposed = true;
+      container.removeEventListener('contextmenu', onContextMenu, true);
       unlistenOutput.then((fn) => fn());
       unlistenClose.then((fn) => fn());
       term.dispose();

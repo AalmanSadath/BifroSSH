@@ -44,6 +44,12 @@ zbus = { version = "5", default-features = false, features = ["blocking-api", "t
 # DPAPI for the wrapping key, the registry for the system theme and accent,
 # and DirectWrite for the font list. Pinned to the version the Tauri graph
 # already resolves, so this adds no second copy of the crate.
+[target.'cfg(target_os = "linux")'.dependencies]
+# Already in the tree by way of tao, so this is a name for something the app
+# links either way rather than a new dependency. Reading the clipboard needs
+# the toolkit's own answer: see src/clipboard/mod.rs.
+gtk = "0.18"
+
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = [
     "Win32_Foundation",
@@ -51,6 +57,8 @@ windows = { version = "0.61", features = [
     "Win32_System_Registry",
     "Win32_Graphics_DirectWrite",
     "Win32_Globalization",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
 ] }
 
 [dev-dependencies]

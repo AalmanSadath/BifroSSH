@@ -307,6 +307,7 @@ dependencies = [
  "base64 0.22.1",
  "cbc",
  "dirs 5.0.1",
+ "gtk",
  "hmac",
  "rand",
  "russh",
