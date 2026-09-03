@@ -229,21 +229,31 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
 
     // Matched on ev.code rather than ev.key: code is the physical key, so
     // these keep working on a layout where that key does not produce an F.
+    // Returning false tells xterm not to act on the key. It does not stop the
+    // browser, which has its own Ctrl+Shift+C and Ctrl+Shift+V, and xterm
+    // listens for the native copy and paste events those raise. Without
+    // preventDefault both halves run: a paste arrived twice whenever the
+    // clipboard was readable, which is exactly when the page had written it
+    // itself, so text copied out of a terminal pasted double and text copied
+    // from another application did not.
     term.attachCustomKeyEventHandler((ev) => {
       if (ev.type === 'keydown' && ev.ctrlKey && ev.shiftKey) {
         // Ctrl+Shift+F, not Ctrl+F: a bare Ctrl+F is a control character the
         // remote shell, less and vim all want, and taking it would break them.
         if (ev.code === 'KeyF') {
+          ev.preventDefault();
           setSearchOpen(true);
           requestAnimationFrame(() => searchInputRef.current?.select());
           return false;
         }
         if (ev.code === 'KeyC') {
+          ev.preventDefault();
           const sel = term.getSelection();
           if (sel) navigator.clipboard.writeText(sel).catch(() => {});
           return false;
         }
         if (ev.code === 'KeyV') {
+          ev.preventDefault();
           // term.paste rather than sending the bytes ourselves: it wraps the
           // text in the bracketed paste markers when the remote application
           // has asked for them, which is what stops a multi-line paste being
