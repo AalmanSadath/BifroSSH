@@ -178,6 +178,21 @@ jobs:
       - name: Validate desktop entry
         run: desktop-file-validate flatpak/io.github.aalmansadath.bifrossh.desktop
 
+      # The .deb and .rpm install their own entry, built from a handlebars
+      # template, so the file in the tree is not one desktop-file-validate can
+      # read. Filling the variables with plausible values is enough to catch
+      # the faults that matter here, which are a missing required key or a
+      # Categories line the spec does not allow.
+      - name: Validate the packaged desktop entry
+        run: |
+          sed -e 's/{{name}}/BifroSSH/' \
+              -e 's/{{comment}}/GUI SSH client/' \
+              -e 's/{{exec}}/bifrossh/g' \
+              -e 's/{{exec_arg}}//' \
+              -e 's/{{icon}}/bifrossh/' \
+              src-tauri/packaging/bifrossh.desktop > /tmp/packaged.desktop
+          desktop-file-validate /tmp/packaged.desktop
+
       # Only that it parses and still names the pieces the build reaches for.
       # Anything deeper belongs to the build, which runs on the tag.
       - name: Manifest parses

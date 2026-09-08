@@ -1,0 +1,13 @@
+# Installed by the .deb and .rpm. The handlebars variables are filled in by
+# the Tauri bundler; see src-tauri/tauri.conf.json.
+[Desktop Entry]
+Name={{name}}
+GenericName=SSH Client
+Comment={{comment}}
+Exec={{exec}}{{exec_arg}}
+Icon={{icon}}
+Type=Application
+Categories=Network;RemoteAccess;TerminalEmulator;
+Keywords=ssh;terminal;remote;sftp;
+StartupNotify=true
+StartupWMClass={{exec}}
