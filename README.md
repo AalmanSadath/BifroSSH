@@ -17,8 +17,8 @@ Host keys are verified before authentication, the same way OpenSSH does it.
 Keys can stay in your ssh-agent and never enter the app at all, which is how
 PIV smartcards and YubiKeys work here.
 
-Built in Rust with Tauri 2, russh and xterm.js. Flatpak on Linux, NSIS
-installer on Windows. macOS is not supported.
+Built in Rust with Tauri 2, russh and xterm.js. Flatpak, `.deb` and `.rpm` on
+Linux, NSIS installer on Windows. macOS is not supported.
 
 ![Multiple Hosts](screenshots/HostList.png)
 
@@ -42,6 +42,28 @@ flatpak update io.github.aalmansadath.bifrossh     # update
 flatpak uninstall io.github.aalmansadath.bifrossh  # remove
 flatpak remote-delete bifrossh                     # and drop the remote
 ```
+
+#### Or a .deb or .rpm
+
+Both are on the [latest release](https://github.com/AalmanSadath/BifroSSH/releases/latest).
+
+```bash
+sudo dnf install ./BifroSSH-x.y.z-1.x86_64.rpm   # Fedora, RHEL, openSUSE
+sudo apt install ./BifroSSH_x.y.z_amd64.deb      # Debian, Ubuntu
+```
+
+Both install the binary as `/usr/bin/bifrossh` and the package is named
+`bifro-ssh`, so removal is `sudo dnf remove bifro-ssh` or
+`sudo apt remove bifro-ssh`. Neither touches `~/.local/share/bifrossh`, which
+is where your hosts and keys live.
+
+They are built on Ubuntu 24.04, so they need glibc 2.39 or newer. An older
+distribution will refuse to install them and should use the Flatpak, which
+carries its own runtime and does not care.
+
+Neither package is signed, and neither comes from a repository, so nothing
+updates them: a new version means downloading the file again. The Flatpak
+updates itself from the remote above, which is the reason to prefer it.
 
 ### Windows
 

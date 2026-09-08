@@ -86,13 +86,20 @@ jobs:
           exit $fail
 
 
-  # Both builds run from their own workflow, so the graph reads the same on
+  # Every build runs from its own workflow, so the graph reads the same on
   # each side and a pull request can build the Windows one without reaching
   # anything in here that publishes.
   windows:
     name: Windows installer
     needs: [check, versions]
     uses: ./.github/workflows/windows-installer.yml
+    permissions:
+      contents: read
+
+  linux:
+    name: Linux packages
+    needs: [check, versions]
+    uses: ./.github/workflows/linux-packages.yml
     permissions:
       contents: read
 
@@ -106,15 +113,15 @@ jobs:
       FLATPAK_GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
       FLATPAK_GPG_PASSPHRASE: ${{ secrets.FLATPAK_GPG_PASSPHRASE }}
 
-  # One release carrying both artefacts, rather than each build attaching its
+  # One release carrying every artefact, rather than each build attaching its
   # own. A release holding half of what it should is worse than one that fails
   # outright, because nobody notices the missing half.
   #
-  # A plain runner: this wants the two files and the write permission, not the
-  # privileged container that produced them.
+  # A plain runner: this wants the files and the write permission, not the
+  # privileged container that produced one of them.
   publish-release:
     name: Publish release
-    needs: [flatpak, windows]
+    needs: [flatpak, windows, linux]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     permissions:
@@ -130,6 +137,11 @@ jobs:
           name: bifrossh-windows-installer
           path: artefacts
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: bifrossh-linux-packages
+          path: artefacts
+
       - run: ls -lh artefacts
 
       # The Windows installer is unsigned, so SmartScreen warns on first run
@@ -140,6 +152,8 @@ jobs:
           files: |
             artefacts/bifrossh.flatpak
             artefacts/*-setup.exe
+            artefacts/*.deb
+            artefacts/*.rpm
           generate_release_notes: true
 
   # Last, because publishing here is what hands the update to everyone already

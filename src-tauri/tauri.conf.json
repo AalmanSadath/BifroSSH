@@ -37,6 +37,23 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "linux": {
+      "deb": {
+        "depends": [
+          "libayatana-appindicator3-1"
+        ],
+        "desktopTemplate": "packaging/bifrossh.desktop"
+      },
+      "rpm": {
+        "depends": [
+          "webkit2gtk4.1",
+          "gtk3",
+          "openssl",
+          "libappindicator-gtk3"
+        ],
+        "desktopTemplate": "packaging/bifrossh.desktop"
+      }
+    },
     "windows": {
       "nsis": {
         "installMode": "currentUser",
