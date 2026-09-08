@@ -316,6 +316,12 @@ button { cursor: pointer; font-family: inherit; }
   color: var(--danger);
 }
 
+/* Something the user should see but that did not stop the operation, so not
+   --danger. Matches .warn-text in drawer.css. */
+.form-hint-warn {
+  color: var(--warning);
+}
+
 /* A button that fills its column. Ten copies of an inline `width: 100%` in the
    port forwarding wizard, where every step ends in one. */
 .btn-block {

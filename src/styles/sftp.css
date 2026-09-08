@@ -346,6 +346,16 @@
   flex-shrink: 0;
 }
 
+.sftp-link-tag {
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 5px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
 .sftp-status-cell {
   text-align: center;
   padding: 32px 16px !important;

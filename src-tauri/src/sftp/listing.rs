@@ -118,13 +118,30 @@ pub fn list_local(path: &str) -> Result<Vec<FileEntry>> {
                 permissions: String::new(),
                 kind: "folder".into(),
                 hidden: false,
+                symlink: false,
             });
         }
     }
 
     for e in read {
         let Ok(e) = e else { continue; };
-        let Ok(meta) = e.metadata() else { continue; };
+        // DirEntry::metadata does not traverse links, so a link to a directory
+        // reported is_dir false and a size of zero: it listed as an empty
+        // file that could not be opened. What the user wants to see is what
+        // the link points at, so it is followed here.
+        //
+        // Not so for `hidden`, which stays with the link's own metadata. On
+        // Windows the hidden and system attributes sit on the junction rather
+        // than on its target, and that is what keeps My Music and My Pictures
+        // out of an ordinary listing of the user's profile.
+        let Ok(link_meta) = e.metadata() else { continue; };
+        let symlink = link_meta.file_type().is_symlink();
+        // A broken link keeps the link's own metadata rather than dropping out
+        // of the listing, so it can still be seen and deleted.
+        let meta = match symlink {
+            true => fs::metadata(e.path()).unwrap_or_else(|_| link_meta.clone()),
+            false => link_meta.clone(),
+        };
         let name = e.file_name().to_string_lossy().into_owned();
         let is_dir = meta.is_dir();
         let size = if is_dir { 0 } else { meta.len() };
@@ -143,8 +160,8 @@ pub fn list_local(path: &str) -> Result<Vec<FileEntry>> {
         let kind = file_kind(&name, is_dir);
         let file_path = path_obj.join(&name).to_string_lossy().into_owned();
 
-        let hidden = is_hidden(&name, &meta);
-        entries.push(FileEntry { name, path: file_path, is_dir, size, modified, permissions, kind, hidden });
+        let hidden = is_hidden(&name, &link_meta);
+        entries.push(FileEntry { name, path: file_path, is_dir, size, modified, permissions, kind, hidden, symlink });
     }
 
     if entries.len() > 1 {
@@ -188,13 +205,31 @@ pub async fn list_remote(
             permissions: String::new(),
             kind: "folder".into(),
             hidden: false,
+            symlink: false,
         });
     }
 
     for entry in dir_entries {
         let name = entry.file_name();
         if name == "." || name == ".." { continue; }
-        let meta = entry.metadata();
+        let file_path = if path == "/" { format!("/{}", name) }
+            else { format!("{}/{}", path.trim_end_matches('/'), name) };
+
+        // READDIR answers with the equivalent of lstat, so a link to a
+        // directory arrives as a zero length file. One extra round trip per
+        // link resolves it, and only for entries that are links: a directory
+        // holding none costs nothing. `metadata` is stat and
+        // `symlink_metadata` is lstat, the same names std uses.
+        let link_meta = entry.metadata();
+        let symlink = link_meta.file_type().is_symlink();
+        let meta = match symlink {
+            // A link the server will not stat, broken or pointing somewhere
+            // it will not follow, keeps what READDIR said rather than
+            // dropping out of the listing.
+            true => sftp.metadata(&file_path).await.unwrap_or(link_meta),
+            false => link_meta,
+        };
+
         let is_dir = meta.is_dir();
         let size = meta.len();
         let modified = meta.modified().ok()
@@ -202,11 +237,9 @@ pub async fn list_remote(
             .map(|d| d.as_secs());
         let permissions = String::new();
         let kind = file_kind(&name, is_dir);
-        let file_path = if path == "/" { format!("/{}", name) }
-            else { format!("{}/{}", path.trim_end_matches('/'), name) };
 
         let hidden = name.starts_with('.');
-        entries.push(FileEntry { name, path: file_path, is_dir, size, modified, permissions, kind, hidden });
+        entries.push(FileEntry { name, path: file_path, is_dir, size, modified, permissions, kind, hidden, symlink });
     }
 
     if entries.len() > 1 {
@@ -397,6 +430,62 @@ mod tests {
             "the loop must not be entered"
         );
         assert!(items.iter().any(|i| i.rel == "real/f.txt"));
+    }
+
+    /// A link to a directory used to list as a zero length file, because
+    /// DirEntry::metadata does not traverse links. On Windows the same thing
+    /// made My Music and My Pictures, which are junctions, look like empty
+    /// files in the user's profile.
+    #[cfg(unix)]
+    #[test]
+    fn a_link_to_a_directory_lists_as_a_directory() {
+        let tree = temp_tree("link-dir");
+        fs::create_dir(tree.0.join("real")).unwrap();
+        fs::write(tree.0.join("real/inside.txt"), b"hello").unwrap();
+        std::os::unix::fs::symlink(tree.0.join("real"), tree.0.join("link")).unwrap();
+
+        let entries = list_local(&tree.0.to_string_lossy()).unwrap();
+        let link = entries.iter().find(|e| e.name == "link").expect("the link is listed");
+
+        assert!(link.is_dir, "a link to a directory is a directory");
+        assert_eq!(link.kind, "folder");
+        assert!(link.symlink, "and it is still known to be a link");
+
+        let real = entries.iter().find(|e| e.name == "real").unwrap();
+        assert!(real.is_dir);
+        assert!(!real.symlink, "the directory itself is not a link");
+    }
+
+    /// The target's size and type, so a link is as useful in the listing as
+    /// what it points at.
+    #[cfg(unix)]
+    #[test]
+    fn a_link_to_a_file_carries_the_target_size() {
+        let tree = temp_tree("link-file");
+        fs::write(tree.0.join("real.txt"), b"0123456789").unwrap();
+        std::os::unix::fs::symlink(tree.0.join("real.txt"), tree.0.join("link.txt")).unwrap();
+
+        let entries = list_local(&tree.0.to_string_lossy()).unwrap();
+        let link = entries.iter().find(|e| e.name == "link.txt").unwrap();
+
+        assert!(!link.is_dir);
+        assert_eq!(link.size, 10, "the target's size, not the link's");
+        assert!(link.symlink);
+    }
+
+    /// Following the link must not be able to remove an entry from the
+    /// listing, or a broken link would become impossible to see and delete.
+    #[cfg(unix)]
+    #[test]
+    fn a_broken_link_is_still_listed() {
+        let tree = temp_tree("link-broken");
+        std::os::unix::fs::symlink(tree.0.join("gone"), tree.0.join("dangling")).unwrap();
+
+        let entries = list_local(&tree.0.to_string_lossy()).unwrap();
+        let link = entries.iter().find(|e| e.name == "dangling").expect("a broken link is listed");
+
+        assert!(!link.is_dir, "nothing is known about a target that is not there");
+        assert!(link.symlink);
     }
 
     #[test]
