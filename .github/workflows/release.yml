@@ -57,16 +57,22 @@ jobs:
             | head -1 | sed -E 's/.*"([^"]*)"$/\1/')
           npm_ver=$(grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' package.json \
             | head -1 | sed -E 's/.*"([^"]*)"$/\1/')
+          # The root version, which is the first one in the file, after "name".
+          # npm ci does not object to this being stale, so nothing else catches
+          # it: the lock sat on 0.12.0 through the whole of 0.13.0.
+          lock_ver=$(grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' package-lock.json \
+            | head -1 | sed -E 's/.*"([^"]*)"$/\1/')
 
           echo "metainfo (newest release): $meta_ver"
           echo "src-tauri/Cargo.toml:      $cargo_ver"
           echo "src-tauri/tauri.conf.json: $tauri_ver"
           echo "package.json:              $npm_ver"
+          echo "package-lock.json:         $lock_ver"
 
           fail=0
-          for v in "$cargo_ver" "$tauri_ver" "$npm_ver"; do
+          for v in "$cargo_ver" "$tauri_ver" "$npm_ver" "$lock_ver"; do
             if [ "$v" != "$meta_ver" ]; then
-              echo "::error::Version mismatch between metainfo, Cargo.toml, tauri.conf.json and package.json"
+              echo "::error::Version mismatch between metainfo, Cargo.toml, tauri.conf.json, package.json and package-lock.json"
               fail=1
               break
             fi
