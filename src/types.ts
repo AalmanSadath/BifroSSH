@@ -355,6 +355,11 @@ export interface FileEntry {
    * marking desktop.ini.
    */
   hidden: boolean;
+  /**
+   * A symbolic link. Every other field describes its target, which is followed
+   * so a link to a folder is a folder rather than a zero-byte file.
+   */
+  symlink: boolean;
 }
 
 /** Per-collection tallies, shared by every export and import result. */

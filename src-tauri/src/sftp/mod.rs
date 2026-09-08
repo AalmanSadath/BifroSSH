@@ -112,6 +112,12 @@ pub struct FileEntry {
     /// question. A leading dot is a naming convention; on Windows it is a file
     /// attribute, and the two do not overlap.
     pub hidden: bool,
+    /// A symbolic link, whose target is what every other field describes.
+    ///
+    /// Worth saying, because once the link is followed it is otherwise
+    /// indistinguishable from the thing it points at, and a link is not a
+    /// safe thing to delete or copy without knowing it is one.
+    pub symlink: bool,
 }
 
 pub struct SftpClientState {

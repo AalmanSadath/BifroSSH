@@ -395,6 +395,11 @@ function FileBrowser({ title, icon, path, entries, loading, error, notice, onDis
                     ) : (
                       <span className="sftp-name-text">{entry.name}</span>
                     )}
+                    {!renamingEntry && entry.symlink && (
+                      <span className="sftp-link-tag" title="A symbolic link. Size and type are its target's.">
+                        link
+                      </span>
+                    )}
                     {!renamingEntry && entry.permissions && (
                       <span className="sftp-perms">{entry.permissions}</span>
                     )}
