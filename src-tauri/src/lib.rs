@@ -1,4 +1,5 @@
 mod appearance;
+mod clipboard;
 mod commands;
 mod connect;
 mod crypto;
@@ -176,6 +177,7 @@ fn start(
             commands::system_appearance,
             commands::platform,
             commands::data_dir,
+            commands::clipboard_read_text,
             commands::get_settings,
             commands::save_settings,
             commands::list_fonts,

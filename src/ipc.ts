@@ -127,6 +127,13 @@ export const systemAppearance = () => invoke<SystemAppearance>('system_appearanc
 export const platform = () => invoke<string>('platform');
 /** Where the vault, keystore and backups live. Differs by platform. */
 export const dataDir = () => invoke<string>('data_dir');
+/**
+ * The clipboard as text, read by the backend.
+ *
+ * Only for the paste routes the webview refuses: `navigator.clipboard.readText`
+ * needs a user activation and a right click is not one.
+ */
+export const clipboardReadText = () => invoke<string>('clipboard_read_text');
 
 // ── ssh_config import ────────────────────────────────────────────────────
 

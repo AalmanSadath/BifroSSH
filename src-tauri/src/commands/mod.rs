@@ -238,6 +238,7 @@ mod ssh;
 mod sftp;
 mod tunnel;
 mod vault;
+mod clipboard;
 mod records;
 mod resolve;
 
@@ -254,6 +255,7 @@ pub use ssh::*;
 pub use sftp::*;
 pub use tunnel::*;
 pub use vault::*;
+pub use clipboard::*;
 
 #[cfg(test)]
 mod error_tests {
