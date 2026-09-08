@@ -160,6 +160,11 @@ jobs:
             artefacts/*-setup.exe
             artefacts/*.deb
             artefacts/*.rpm
+          # A pattern matching nothing is a release missing an artefact, which
+          # is what happened to 0.13.1: the .deb and .rpm were built and
+          # uploaded, the glob did not match where they landed, and this step
+          # published four files short and called it a success.
+          fail_on_unmatched_files: true
           generate_release_notes: true
 
   # Last, because publishing here is what hands the update to everyone already
