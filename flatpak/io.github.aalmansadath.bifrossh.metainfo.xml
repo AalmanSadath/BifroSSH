@@ -85,6 +85,32 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.13.1" date="2026-09-08">
+      <description>
+        <p>
+          Linux now has a .deb and an .rpm on the release page, next to the
+          Flatpak. They install the binary as /usr/bin/bifrossh and leave your
+          data alone when removed. Neither updates itself; the Flatpak still
+          does, which is the reason to prefer it.
+        </p>
+        <p>
+          Right click pastes in the terminal. Pasting with Ctrl+Shift+V no
+          longer pastes twice, which it did whenever the text had been copied
+          out of the app itself.
+        </p>
+        <p>
+          A symbolic link to a directory now lists as a directory in SFTP and
+          opens, instead of appearing as an empty file that would not open.
+          Windows folders like My Music are junctions and were affected by
+          this. Links are marked as links in the file list.
+        </p>
+        <p>
+          Importing from your OpenSSH config follows Include, so hosts kept in
+          config.d are offered too, and a multi-hop ProxyJump now links every
+          bastion in the chain rather than only the first.
+        </p>
+      </description>
+    </release>
     <release version="0.13.0" date="2026-08-29">
       <description>
         <p>
