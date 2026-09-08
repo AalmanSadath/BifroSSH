@@ -81,10 +81,19 @@ export default function SshConfigImport({ onClose }: Props) {
         </>
       ) : (
         <>
-          {scan.has_includes && (
+          {scan.unreadable_includes.length > 0 && (
+            <p className="form-hint form-hint-warn">
+              {scan.unreadable_includes.length === 1 ? 'This file was' : 'These files were'}{' '}
+              named by <code>Include</code> and could not be read, so hosts defined in{' '}
+              {scan.unreadable_includes.length === 1 ? 'it' : 'them'} are missing:{' '}
+              {scan.unreadable_includes.join(', ')}
+            </p>
+          )}
+
+          {scan.included_files.length > 0 && (
             <p className="form-hint">
-              This config uses <code>Include</code>, which is not followed. Hosts defined in
-              included files will not appear here.
+              Following <code>Include</code> added {scan.included_files.length}{' '}
+              {scan.included_files.length === 1 ? 'file' : 'files'} to this list.
             </p>
           )}
 
@@ -102,7 +111,7 @@ export default function SshConfigImport({ onClose }: Props) {
                 {h.proxy_jump && (
                   <span
                     className="checklist-tag"
-                    title={`Reached through ${h.proxy_jump}. Import that host too for the link to be made.`}
+                    title={`Reached through ${h.proxy_jump}. Every hop has to be imported in the same run for the link to be made.`}
                   >
                     jump
                   </span>

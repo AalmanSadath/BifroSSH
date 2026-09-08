@@ -246,14 +246,23 @@ export interface SshConfigHost {
   user: string | null;
   port: number | null;
   identity_file: string | null;
-  /** ProxyJump is not supported yet; recorded so the UI can warn. */
+  /**
+   * The config's ProxyJump value, verbatim, hops and all. Resolved to saved
+   * servers on import, but only when every hop is imported alongside it.
+   */
   proxy_jump: string | null;
 }
 
 export interface SshConfigScan {
   hosts: SshConfigHost[];
-  /** Include directives are not followed, so an import may be partial. */
-  has_includes: boolean;
+  /** Files pulled in by `Include`, in the order they were read. */
+  included_files: string[];
+  /**
+   * Files an `Include` named that could not be read. A pattern matching
+   * nothing is normal and is not in here, so anything present means hosts are
+   * missing.
+   */
+  unreadable_includes: string[];
 }
 
 export interface SshConfigImportResult {

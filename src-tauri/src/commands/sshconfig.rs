@@ -106,19 +106,40 @@ pub async fn import_ssh_config_hosts(
     // A jump host that was not imported alongside its target cannot be linked
     // to anything, so that host is left as a direct connection rather than
     // pointing at a server that does not exist.
+    //
+    // The config writes a chain outermost first, `ProxyJump a,b` meaning a is
+    // dialled directly and b is reached through it. The saved model points the
+    // other way, from a server to the host it is reached through, so the chain
+    // is linked backwards: the target through the last hop, that hop through
+    // the one before it, and the first hop not at all.
     for alias in &aliases {
         let Some(entry) = scan.hosts.iter().find(|h| &h.alias == alias) else { continue };
-        let Some(jump) = entry.proxy_jump.as_deref().and_then(crate::sshconfig::jump_alias) else { continue };
-        let Some(jump_id) = by_alias.get(jump) else { continue };
-        let Some(server_id) = by_alias.get(alias) else { continue };
-        if jump_id == server_id {
-            continue; // A host declaring itself its own jump host is a loop.
+        let Some(proxy_jump) = entry.proxy_jump.as_deref() else { continue };
+        let Some(server_id) = by_alias.get(alias).cloned() else { continue };
+
+        let hops = crate::sshconfig::jump_aliases(proxy_jump);
+        let Some(links) = crate::sshconfig::chain_links(&server_id, &hops, &by_alias) else { continue };
+
+        // A hop is a shared record: two targets can name the same bastion with
+        // different chains, and a hop may carry a ProxyJump of its own. What is
+        // already linked wins, and the rest of this chain is abandoned rather
+        // than half written.
+        let writable = links.iter().all(|(id, through)| {
+            data.servers
+                .iter()
+                .find(|s| &s.id == id)
+                .is_some_and(|s| s.proxy_jump.is_none() || s.proxy_jump.as_ref() == Some(through))
+        });
+        if !writable {
+            continue;
         }
-        let jump_id = jump_id.clone();
-        if let Some(server) = data.servers.iter_mut().find(|s| &s.id == server_id) {
-            server.proxy_jump = Some(jump_id);
-            result.jumps_linked += 1;
+
+        for (id, through) in links {
+            if let Some(server) = data.servers.iter_mut().find(|s| s.id == id) {
+                server.proxy_jump = Some(through);
+            }
         }
+        result.jumps_linked += 1;
     }
 
     state.save(&data)?;
