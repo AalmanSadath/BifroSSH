@@ -85,6 +85,20 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.13.2" date="2026-09-15">
+      <description>
+        <p>
+          Copying a directory with thousands of files, such as a Python
+          virtual environment, no longer stops part way with a handle limit
+          error and then shows the connection as lost.
+        </p>
+        <p>
+          Several files can be selected and moved, copied or deleted together.
+          Shift-click selects the rows between two clicks as they are shown,
+          not in disk order.
+        </p>
+      </description>
+    </release>
     <release version="0.13.1" date="2026-09-08">
       <description>
         <p>
