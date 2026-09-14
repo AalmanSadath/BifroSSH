@@ -73,6 +73,13 @@ trait FileSide {
 
     async fn create_write(&self, path: &str) -> Result<Self::Writer>;
 
+    /// Finishes with a reader. Best effort: nothing was written through it.
+    async fn close_read(&self, reader: Self::Reader);
+
+    /// Finishes with a writer. An error here is a file that may not be
+    /// complete, which is why this one is not best effort.
+    async fn close_write(&self, writer: Self::Writer) -> Result<()>;
+
     /// Best effort: this only ever runs on a file this process just made and
     /// then abandoned, and there is nothing useful to say if it will not go.
     async fn remove_file(&self, path: &str);
@@ -130,6 +137,13 @@ impl FileSide for Local {
         tokio::fs::File::create(path)
             .await
             .with_context(|| path.to_string())
+    }
+
+    // A local file is closed by dropping it; the OS does the bookkeeping.
+    async fn close_read(&self, _reader: Self::Reader) {}
+
+    async fn close_write(&self, _writer: Self::Writer) -> Result<()> {
+        Ok(())
     }
 
     async fn remove_file(&self, path: &str) {
@@ -193,6 +207,23 @@ impl FileSide for Remote {
         sftp.create(path)
             .await
             .with_context(|| path.to_string())
+    }
+
+    // Dropping a russh_sftp File sends the CLOSE without waiting for it, and
+    // that path never decrements the client's count of open handles. Only the
+    // awaited close, reached through shutdown, does. The client refuses to
+    // open anything once that count reaches the limit the server advertised,
+    // so a transfer that only ever dropped its files failed with "handle limit
+    // reached" a few hundred files into a directory and took the session with
+    // it. No lock: the handle belongs to the file, not the session.
+    async fn close_read(&self, mut reader: Self::Reader) {
+        use tokio::io::AsyncWriteExt;
+        let _ = reader.shutdown().await;
+    }
+
+    async fn close_write(&self, mut writer: Self::Writer) -> Result<()> {
+        use tokio::io::AsyncWriteExt;
+        writer.shutdown().await.context("closing the file on the server")
     }
 
     fn join(&self, dir: &str, rel: &str) -> String {
@@ -332,16 +363,27 @@ async fn transfer_one<S: FileSide, D: FileSide>(
     }
     .await;
 
-    // A part written file is not a shorter file, it is a corrupt one, and
-    // nothing here can resume it. Removing it is the honest outcome; leaving
-    // it puts something that looks complete beside the files that are. This
-    // now covers a failure as well as a cancel: before, an error left the
-    // stub behind.
-    if !matches!(outcome, Ok(Step::Finished)) {
-        drop(writer);
-        dst.remove_file(dst_path).await;
+    // Closed on every path, not dropped. On the remote side the difference is
+    // whether the server's handle is counted as released; see Remote.
+    src.close_read(reader).await;
+
+    match outcome {
+        Ok(Step::Finished) => {
+            dst.close_write(writer).await?;
+            Ok(Step::Finished)
+        }
+        // A part written file is not a shorter file, it is a corrupt one, and
+        // nothing here can resume it. Removing it is the honest outcome;
+        // leaving it puts something that looks complete beside the files that
+        // are. This covers a failure as well as a cancel. The close comes
+        // first so the server is not asked to remove a file it still holds
+        // open.
+        other => {
+            let _ = dst.close_write(writer).await;
+            dst.remove_file(dst_path).await;
+            other
+        }
     }
-    outcome
 }
 
 /// Copies `src_path` into `dst_dir`, recursing if it names a directory.

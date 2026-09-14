@@ -72,15 +72,15 @@ interface FileBrowserProps {
   extraActions?: React.ReactNode;
   onLocalBtn?: () => void;
   canCopyToTarget?: boolean;
-  onCopyToTarget?: (entry: FileEntry) => void;
+  onCopyToTarget?: (entries: FileEntry[]) => void;
   onRename?: (entry: FileEntry, newName: string) => void;
-  onDelete?: (entry: FileEntry) => void;
+  onDelete?: (entries: FileEntry[]) => void;
   side?: 'left' | 'right';
   isDropTarget?: boolean;
   transferring?: boolean;
   onDragEnter?: () => void;
   onDragLeave?: () => void;
-  onFileDrop?: (entry: FileEntry, fromSide: 'left' | 'right') => void;
+  onFileDrop?: (entries: FileEntry[], fromSide: 'left' | 'right') => void;
   onReconnect?: () => void;
   /** How to take this pane's paths apart: POSIX remotely, native locally. */
   pathStyle: PathStyle;
@@ -103,7 +103,7 @@ function FileBrowser({ title, icon, path, entries, loading, error, notice, onDis
   const [dirsOnTop, setDirsOnTop] = useState(true);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; entry: FileEntry | null } | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<FileEntry | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<FileEntry[] | null>(null);
   const [newFolderName, setNewFolderName] = useState<string | null>(null);
   const [renamingEntry, setRenamingEntry] = useState<{ entry: FileEntry; value: string } | null>(null);
   const [reconnecting, setReconnecting] = useState(false);
@@ -179,12 +179,36 @@ function FileBrowser({ title, icon, path, entries, loading, error, notice, onDis
     window.addEventListener('mouseup', onUp);
   }
 
+  /**
+   * The rows in the order they are drawn: `..` first, then the rest sorted and
+   * with hidden files left out unless asked for. Row indexes mean this order,
+   * so anything that turns an index back into entries has to use it too. The
+   * shift range used to slice `entries`, the unsorted prop, so a range over
+   * rows 3 to 6 selected whichever files happened to sit at 3 to 6 in
+   * directory order.
+   */
+  const visible: FileEntry[] = (() => {
+    const dotdot = entries.filter(en => en.name === '..');
+    const rest = entries
+      .filter(en => en.name !== '..' && (showHidden || !en.hidden))
+      .sort((a, b) => {
+        if (dirsOnTop && a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
+        let cmp = 0;
+        if (sortCol === 'Name') cmp = a.name.localeCompare(b.name);
+        else if (sortCol === 'Date Modified') cmp = (a.modified ?? 0) - (b.modified ?? 0);
+        else if (sortCol === 'Size') cmp = a.size - b.size;
+        else if (sortCol === 'Type') cmp = a.kind.localeCompare(b.kind);
+        return sortAsc ? cmp : -cmp;
+      });
+    return [...dotdot, ...rest];
+  })();
+
   function handleRowClick(e: React.MouseEvent, entry: FileEntry, idx: number) {
     if (entry.name === '..') return;
     if (e.shiftKey && lastClickIdxRef.current >= 0) {
       const start = Math.min(lastClickIdxRef.current, idx);
       const end = Math.max(lastClickIdxRef.current, idx);
-      const range = entries.slice(start, end + 1).filter(en => en.name !== '..');
+      const range = visible.slice(start, end + 1).filter(en => en.name !== '..');
       setSelectedPaths(prev => {
         const next = (e.ctrlKey || e.metaKey) ? new Set(prev) : new Set<string>();
         range.forEach(en => next.add(en.path));
@@ -204,8 +228,19 @@ function FileBrowser({ title, icon, path, entries, loading, error, notice, onDis
     }
   }
 
+  /**
+   * The entries an action on `entry` applies to: the whole selection when the
+   * entry is part of it, otherwise that entry alone. Dragging one row of a
+   * highlighted set used to carry only that row, so a multi-select copied one
+   * file and quietly dropped the rest.
+   */
+  function batchFor(entry: FileEntry): FileEntry[] {
+    if (!selectedPaths.has(entry.path)) return [entry];
+    return visible.filter((en) => en.name !== '..' && selectedPaths.has(en.path));
+  }
+
   function handleDragStart(e: React.DragEvent, entry: FileEntry) {
-    e.dataTransfer.setData('text/plain', JSON.stringify({ side, entry }));
+    e.dataTransfer.setData('text/plain', JSON.stringify({ side, entries: batchFor(entry) }));
     e.dataTransfer.effectAllowed = 'copy';
   }
 
@@ -236,8 +271,11 @@ function FileBrowser({ title, icon, path, entries, loading, error, notice, onDis
     const raw = e.dataTransfer.getData('text/plain');
     if (!raw) return;
     try {
-      const { side: fromSide, entry } = JSON.parse(raw) as { side: 'left' | 'right'; entry: FileEntry };
-      if (fromSide !== side) onFileDrop(entry, fromSide);
+      const { side: fromSide, entries: dropped } = JSON.parse(raw) as {
+        side: 'left' | 'right';
+        entries: FileEntry[];
+      };
+      if (fromSide !== side && dropped.length > 0) onFileDrop(dropped, fromSide);
     } catch {
       // A drag from outside the app carries whatever that app put on the
       // clipboard, which is not this payload. Nothing to do and nothing worth
@@ -354,21 +392,7 @@ function FileBrowser({ title, icon, path, entries, loading, error, notice, onDis
               <tr><td colSpan={4} className="sftp-status-cell">Loading…</td></tr>
             ) : error ? (
               <tr><td colSpan={4} className="sftp-status-cell sftp-cell-error">{error}</td></tr>
-            ) : (() => {
-              const dotdot = entries.filter(en => en.name === '..');
-              const rest = entries
-                .filter(en => en.name !== '..' && (showHidden || !en.hidden))
-                .sort((a, b) => {
-                  if (dirsOnTop && a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
-                  let cmp = 0;
-                  if (sortCol === 'Name') cmp = a.name.localeCompare(b.name);
-                  else if (sortCol === 'Date Modified') cmp = (a.modified ?? 0) - (b.modified ?? 0);
-                  else if (sortCol === 'Size') cmp = a.size - b.size;
-                  else if (sortCol === 'Type') cmp = a.kind.localeCompare(b.kind);
-                  return sortAsc ? cmp : -cmp;
-                });
-              return [...dotdot, ...rest];
-            })().map((entry, idx) => (
+            ) : visible.map((entry, idx) => (
               <tr
                 key={entry.path}
                 className={`sftp-row${selectedPaths.has(entry.path) ? ' sftp-row-selected' : ''}`}
@@ -432,7 +456,7 @@ function FileBrowser({ title, icon, path, entries, loading, error, notice, onDis
           {contextMenu.entry ? (
             <>
               {canCopyToTarget && (
-                <button className="menu-item" onClick={() => { onCopyToTarget?.(contextMenu.entry!); setContextMenu(null); }}>
+                <button className="menu-item" onClick={() => { onCopyToTarget?.(batchFor(contextMenu.entry!)); setContextMenu(null); }}>
                   Copy to Target
                 </button>
               )}
@@ -440,7 +464,7 @@ function FileBrowser({ title, icon, path, entries, loading, error, notice, onDis
                 Rename
               </button>
               <div className="menu-divider" />
-              <button className="menu-item menu-item-danger" onClick={() => { setConfirmDelete(contextMenu.entry); setContextMenu(null); }}>
+              <button className="menu-item menu-item-danger" onClick={() => { setConfirmDelete(batchFor(contextMenu.entry!)); setContextMenu(null); }}>
                 Delete
               </button>
             </>
@@ -480,7 +504,11 @@ function FileBrowser({ title, icon, path, entries, loading, error, notice, onDis
       {confirmDelete && (
         <div className="sftp-confirm-overlay">
           <div className="sftp-confirm-dialog">
-            <p className="sftp-confirm-title">Delete "{confirmDelete.name}"?</p>
+            <p className="sftp-confirm-title">
+              {confirmDelete.length === 1
+                ? `Delete "${confirmDelete[0].name}"?`
+                : `Delete ${confirmDelete.length} items?`}
+            </p>
             <p className="sftp-confirm-sub">This cannot be undone.</p>
             <div className="sftp-confirm-actions">
               <button className="sftp-action-btn" onClick={() => setConfirmDelete(null)}>Cancel</button>
@@ -817,10 +845,14 @@ function usePane(initialMode: PaneMode) {
     }
   }
 
-  async function remove(entry: FileEntry) {
+  async function removeMany(batch: FileEntry[]) {
     try {
-      if (mode === 'local') await ipc.sftpDeleteLocal(entry.path);
-      else await ipc.sftpDeleteRemote(requireSid(), entry.path, entry.is_dir);
+      // The first failure stops the batch. The ones before it are gone, the
+      // ones after it are untouched, and the refresh below shows exactly that.
+      for (const entry of batch) {
+        if (mode === 'local') await ipc.sftpDeleteLocal(entry.path);
+        else await ipc.sftpDeleteRemote(requireSid(), entry.path, entry.is_dir);
+      }
     } catch (e) {
       fail(String(e));
     } finally {
@@ -844,7 +876,7 @@ function usePane(initialMode: PaneMode) {
     connectingId, connectError, setConnectError, connectServer, connectLogs,
     navigate: (path: string) => (mode === 'local' ? navigateLocal(path) : navigateRemote(path)),
     refresh, goLocal, connect, disconnect, reconnect,
-    newFolder, rename, remove, fail, say, requireSid,
+    newFolder, rename, removeMany, fail, say, requireSid,
   };
 }
 
@@ -963,12 +995,12 @@ export default function SftpPanel() {
    * cancelled, and in the last two cases there is still something new on the
    * destination to show.
    */
-  async function handleDrop(target: 'left' | 'right', entry: FileEntry) {
+  async function handleDrop(target: 'left' | 'right', batch: FileEntry[]) {
     const dst = target === 'left' ? left : right;
     const src = target === 'left' ? right : left;
     if (!canMove(src, dst)) return;
 
-    const run = (): Promise<TransferSummary> => {
+    const run = (entry: FileEntry): Promise<TransferSummary> => {
       if (src.mode === 'local') {
         return ipc.sftpUpload(dst.requireSid(), entry.path, dst.listing.path);
       }
@@ -982,7 +1014,21 @@ export default function SftpPanel() {
     setTransferTarget(target);
     setDropTarget(null);
     try {
-      const summary = await run();
+      // One after another rather than all at once: the backend runs one
+      // transfer at a time per session, the progress bar describes one, and
+      // the cancel flag stops the one in flight. A cancel ends the batch too,
+      // since carrying on with the next file is not what "stop" means.
+      const summary: TransferSummary = { files: 0, directories: 0, skipped_symlinks: 0, cancelled: false };
+      for (const entry of batch) {
+        const one = await run(entry);
+        summary.files += one.files;
+        summary.directories += one.directories;
+        summary.skipped_symlinks += one.skipped_symlinks;
+        if (one.cancelled) {
+          summary.cancelled = true;
+          break;
+        }
+      }
       const said = describeTransfer(summary);
       if (said) dst.say(said);
     } catch (e) {
@@ -1015,9 +1061,9 @@ export default function SftpPanel() {
         onRefresh={pane.refresh}
         onNewFolder={pane.newFolder}
         canCopyToTarget={canMove(pane, other)}
-        onCopyToTarget={(entry) => handleDrop(side === 'left' ? 'right' : 'left', entry)}
+        onCopyToTarget={(batch) => handleDrop(side === 'left' ? 'right' : 'left', batch)}
         onRename={pane.rename}
-        onDelete={pane.remove}
+        onDelete={pane.removeMany}
         onLocalBtn={() => pane.setMode('idle')}
         extraActions={closeConnectionActions(
           pane.mode === 'local' ? () => pane.setMode('idle') : pane.disconnect,
@@ -1027,7 +1073,7 @@ export default function SftpPanel() {
         transferring={transferring && transferTarget === side}
         onDragEnter={() => setDropTarget(side)}
         onDragLeave={() => setDropTarget((p) => (p === side ? null : p))}
-        onFileDrop={(entry) => handleDrop(side, entry)}
+        onFileDrop={(batch) => handleDrop(side, batch)}
         onReconnect={pane.mode === 'connected' ? pane.reconnect : undefined}
       />
     );
