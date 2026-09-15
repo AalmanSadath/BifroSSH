@@ -16,6 +16,20 @@ use russh_sftp::client::SftpSession;
 use tauri::Emitter;
 use tokio::sync::Mutex;
 
+/// Where progress goes. The app sends it to the window as an event; a test
+/// has no window and throws it away. This is the one thing a transfer needed
+/// from Tauri, and it is what stopped any transfer running under `cargo test`.
+pub trait Progress: Sync {
+    fn report(&self, progress: TransferProgress);
+}
+
+impl Progress for tauri::AppHandle {
+    fn report(&self, progress: TransferProgress) {
+        // Nothing to do if the window is gone; the transfer finishes anyway.
+        let _ = self.emit("sftp-progress", progress);
+    }
+}
+
 /// How long one chunk may sit with nothing happening before the transfer is
 /// called dead.
 ///
@@ -293,7 +307,7 @@ where
 /// Chunked rather than read whole into memory, so a large file does not have to
 /// fit in RAM.
 async fn transfer_one<S: FileSide, D: FileSide>(
-    app: &tauri::AppHandle,
+    app: &impl Progress,
     src: &S,
     src_path: &str,
     dst: &D,
@@ -331,16 +345,13 @@ async fn transfer_one<S: FileSide, D: FileSide>(
                 Waited::Cancelled => return Ok(Step::Cancelled),
             }
             transferred += n as u64;
-            let _ = app.emit(
-                "sftp-progress",
-                TransferProgress {
-                    file_name: file_name.clone(),
-                    transferred,
-                    total,
-                    file_index: at.index,
-                    file_count: at.count,
-                },
-            );
+            app.report(TransferProgress {
+                file_name: file_name.clone(),
+                transferred,
+                total,
+                file_index: at.index,
+                file_count: at.count,
+            });
         }
 
         // A stream that ends early is not a shorter file, it is an incomplete
@@ -391,7 +402,7 @@ async fn transfer_one<S: FileSide, D: FileSide>(
 /// The destination keeps the source's own name, so this is "drop it in here"
 /// rather than "write it as this".
 async fn transfer<S: FileSide, D: FileSide>(
-    app: &tauri::AppHandle,
+    app: &impl Progress,
     src: &S,
     src_path: &str,
     dst: &D,
@@ -458,7 +469,7 @@ async fn transfer<S: FileSide, D: FileSide>(
 
 /// Uploads a file, or a directory tree rooted at `local_path`.
 pub async fn upload_path(
-    app: &tauri::AppHandle,
+    app: &impl Progress,
     sftp_state: &SftpClientState,
     session_id: &str,
     local_path: &str,
@@ -471,7 +482,7 @@ pub async fn upload_path(
 
 /// Downloads a file, or a directory tree rooted at `remote_path`.
 pub async fn download_path(
-    app: &tauri::AppHandle,
+    app: &impl Progress,
     sftp_state: &SftpClientState,
     session_id: &str,
     remote_path: &str,
@@ -484,7 +495,7 @@ pub async fn download_path(
 
 /// Copies a file, or a directory tree, between two remote sessions.
 pub async fn copy_remote_path(
-    app: &tauri::AppHandle,
+    app: &impl Progress,
     sftp_state: &SftpClientState,
     src_session_id: &str,
     src_path: &str,

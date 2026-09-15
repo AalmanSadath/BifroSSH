@@ -229,7 +229,8 @@ jobs:
             libssl-dev \
             libsoup-3.0-dev \
             build-essential \
-            file
+            file \
+            openssh-server
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -237,13 +238,17 @@ jobs:
         with:
           workspaces: src-tauri
 
-      # The host key tests compare against ssh-keygen's own output, and the
-      # agent tests drive a real ssh-agent, so both binaries must be present.
+      # The host key tests compare against ssh-keygen's own output, the agent
+      # tests drive a real ssh-agent, and the SFTP tests boot a real sshd on a
+      # loopback port, so all three binaries must be present. The SFTP tests
+      # skip with a message rather than fail when sshd is missing, which is
+      # exactly the quiet loss of coverage this assertion exists to prevent.
       - name: Check ssh tooling is available
         run: |
           ssh-keygen --help 2>&1 | head -1 || true
           command -v ssh-agent
           command -v ssh-keygen
+          test -x /usr/sbin/sshd
 
       - name: Build
         working-directory: src-tauri
