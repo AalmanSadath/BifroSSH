@@ -21,6 +21,8 @@ export interface PathStyle {
   readonly defaultRoot: string;
   /** True when `path` has no parent left. */
   isRoot(path: string): boolean;
+  /** True when `path` names a place from the root rather than from here. */
+  isAbsolute(path: string): boolean;
   /** The containing directory, or null at the root. */
   parent(path: string): string | null;
   /** `dir` and `name` joined, with exactly one separator between them. */
@@ -37,6 +39,7 @@ export const posix: PathStyle = {
   defaultRoot: '/',
 
   isRoot: (path) => path === '/' || path === '',
+  isAbsolute: (path) => path.startsWith('/'),
 
   parent(path) {
     if (this.isRoot(path)) return null;
@@ -74,6 +77,7 @@ export const windows: PathStyle = {
   defaultRoot: 'C:\\',
 
   isRoot: (path) => rootOf(path) !== null && stripRoot(path) === '',
+  isAbsolute: (path) => rootOf(path) !== null,
 
   parent(path) {
     const root = rootOf(path);
@@ -141,4 +145,40 @@ export const remoteStyle: PathStyle = posix;
 /** The style for whichever side of the SFTP panel is in view. */
 export function styleFor(mode: 'local' | 'remote'): PathStyle {
   return mode === 'local' ? local : remoteStyle;
+}
+
+/**
+ * What a path typed into the bar means, or null when it means nothing.
+ *
+ * `~` is the home directory, when one is known; `~/x` is under it. A path
+ * from the root is taken as it is. Anything else is relative to `current`,
+ * including `..`, which is left for the listing to resolve the way the
+ * server would. A trailing separator is dropped unless the result is a root,
+ * and on the Windows style forward slashes become backslashes, since that
+ * style accepts both on the way in and writes one.
+ */
+export function resolveTyped(
+  input: string,
+  current: string,
+  home: string | null,
+  style: PathStyle,
+): string | null {
+  let typed = input.trim();
+  if (typed === '') return null;
+  if (style === windows) typed = typed.replace(/\//g, '\\');
+
+  let resolved: string;
+  if (typed === '~' || typed.startsWith('~' + style.sep)) {
+    if (home === null) return null;
+    resolved = typed === '~' ? home : style.join(home, typed.slice(2));
+  } else if (style.isAbsolute(typed)) {
+    resolved = typed;
+  } else {
+    resolved = style.join(current, typed);
+  }
+
+  while (resolved.endsWith(style.sep) && !style.isRoot(resolved)) {
+    resolved = resolved.slice(0, -1);
+  }
+  return resolved;
 }

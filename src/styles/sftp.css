@@ -180,6 +180,29 @@
 
 .sftp-breadcrumb::-webkit-scrollbar { height: 2px; }
 
+/* The empty part of the bar opens the text field, so it says so. The crumbs
+   keep their own pointer. */
+.sftp-breadcrumb { cursor: text; }
+.sftp-breadcrumb-typing { cursor: default; overflow: hidden; }
+
+/* Same height as the crumbs it replaces, so the list below does not move
+   when the bar switches between the two. */
+.sftp-path-input {
+  user-select: text;
+  -webkit-user-select: text;
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 1px 6px;
+  font-size: 12px;
+  font-family: monospace;
+  background: var(--bg-mid);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--text-primary);
+  outline: none;
+}
+
 .sftp-crumb-item {
   display: flex;
   align-items: center;
