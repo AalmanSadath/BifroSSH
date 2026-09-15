@@ -113,6 +113,9 @@ function FileBrowser({ title, icon, path, entries, loading, error, notice, onDis
   const renameInputRef = useRef<HTMLInputElement>(null);
   const dragCountRef = useRef(0);
   const lastClickIdxRef = useRef(-1);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  /** The row the arrow keys move from. An index into `visible`, or -1. */
+  const cursorRef = useRef(-1);
 
   useEffect(() => {
     setSelectedPaths(new Set());
@@ -205,6 +208,8 @@ function FileBrowser({ title, icon, path, entries, loading, error, notice, onDis
 
   function handleRowClick(e: React.MouseEvent, entry: FileEntry, idx: number) {
     if (entry.name === '..') return;
+    cursorRef.current = idx;
+    wrapRef.current?.focus();
     if (e.shiftKey && lastClickIdxRef.current >= 0) {
       const start = Math.min(lastClickIdxRef.current, idx);
       const end = Math.max(lastClickIdxRef.current, idx);
@@ -225,6 +230,77 @@ function FileBrowser({ title, icon, path, entries, loading, error, notice, onDis
     } else {
       setSelectedPaths(new Set([entry.path]));
       lastClickIdxRef.current = idx;
+    }
+  }
+
+  /** Selects the rows between the anchor and `idx`, both ends included. */
+  function selectRange(idx: number) {
+    const anchor = lastClickIdxRef.current >= 0 ? lastClickIdxRef.current : idx;
+    const start = Math.min(anchor, idx);
+    const end = Math.max(anchor, idx);
+    setSelectedPaths(new Set(
+      visible.slice(start, end + 1).filter((en) => en.name !== '..').map((en) => en.path),
+    ));
+  }
+
+  /**
+   * Keys on the list. Row indexes mean `visible`, the same as a click, so a
+   * resort moves the cursor with the rows rather than leaving it pointing at
+   * a position. The rename and new-folder fields sit inside this container
+   * and own their own keys, so anything from an input is left alone.
+   */
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if ((e.target as HTMLElement).tagName === 'INPUT') return;
+    const rows = visible;
+    const selectable = (i: number) => i >= 0 && i < rows.length && rows[i].name !== '..';
+
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+      e.preventDefault();
+      setSelectedPaths(new Set(rows.filter((en) => en.name !== '..').map((en) => en.path)));
+      return;
+    }
+    if (e.key === 'Escape') {
+      setSelectedPaths(new Set());
+      return;
+    }
+    if (e.key === 'Delete') {
+      const chosen = rows.filter((en) => en.name !== '..' && selectedPaths.has(en.path));
+      if (chosen.length > 0 && onDelete) {
+        e.preventDefault();
+        setConfirmDelete(chosen);
+      }
+      return;
+    }
+    if (e.key === 'Enter') {
+      const chosen = rows.filter((en) => selectedPaths.has(en.path));
+      if (chosen.length === 1 && chosen[0].is_dir) {
+        e.preventDefault();
+        onNavigate(chosen[0].path);
+      }
+      return;
+    }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const step = e.key === 'ArrowDown' ? 1 : -1;
+      // From the cursor if there is one, else onto the first real row.
+      let next = cursorRef.current >= 0 ? cursorRef.current + step : rows.findIndex((en) => en.name !== '..');
+      // `..` is not a row the cursor stops on.
+      if (next >= 0 && next < rows.length && rows[next].name === '..') next += step;
+      if (!selectable(next)) return;
+      cursorRef.current = next;
+      if (e.shiftKey) {
+        selectRange(next);
+      } else {
+        setSelectedPaths(new Set([rows[next].path]));
+        lastClickIdxRef.current = next;
+      }
+      // By index attribute rather than nth .sftp-row: the new-folder input
+      // row shares the class and would put the count off by one.
+      requestAnimationFrame(() => {
+        wrapRef.current
+          ?.querySelector<HTMLElement>(`[data-idx="${next}"]`)
+          ?.scrollIntoView({ block: 'nearest' });
+      });
     }
   }
 
@@ -344,6 +420,9 @@ function FileBrowser({ title, icon, path, entries, loading, error, notice, onDis
 
       <div
         className="sftp-table-wrap"
+        ref={wrapRef}
+        tabIndex={0}
+        onKeyDown={handleKeyDown}
         onDragOver={handleDragOver}
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
@@ -395,6 +474,7 @@ function FileBrowser({ title, icon, path, entries, loading, error, notice, onDis
             ) : visible.map((entry, idx) => (
               <tr
                 key={entry.path}
+                data-idx={idx}
                 className={`sftp-row${selectedPaths.has(entry.path) ? ' sftp-row-selected' : ''}`}
                 draggable={entry.name !== '..'}
                 onClick={(e) => handleRowClick(e, entry, idx)}
