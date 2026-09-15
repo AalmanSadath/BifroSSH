@@ -275,6 +275,9 @@ export const sftpGetHome = (sessionId: string) =>
 export const sftpListRemote = (sessionId: string, path: string) =>
   invoke<FileEntry[]>('sftp_list_remote', { sessionId, path });
 
+/** Whether the session still answers. Asked only after a listing has failed. */
+export const sftpProbeRemote = (sessionId: string) =>
+  invoke<boolean>('sftp_probe_remote', { sessionId });
 export const sftpDisconnectRemote = (sessionId: string) =>
   invoke<void>('sftp_disconnect_remote', { sessionId });
 

@@ -118,3 +118,16 @@ pub(super) async fn get_session(
         .cloned()
         .context("SFTP session not found")
 }
+
+/// Whether the session still answers.
+///
+/// The SSH handle is dropped once the channel is up, so the channel is the
+/// only thing left to ask. `realpath` of `.` is what the OpenSSH client sends
+/// first on every connection, and it is the cheapest request that needs the
+/// server to do anything at all. Sent only after a listing has already
+/// failed, to tell a bad path from a dead link.
+pub async fn probe_remote(sftp_state: &SftpClientState, session_id: &str) -> bool {
+    let Ok(sftp_arc) = get_session(sftp_state, session_id).await else { return false };
+    let sftp = sftp_arc.lock().await;
+    sftp.canonicalize(".").await.is_ok()
+}

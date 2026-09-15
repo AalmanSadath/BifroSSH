@@ -257,6 +257,23 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
     };
     container.addEventListener('contextmenu', onContextMenu, true);
 
+    // Highlighting copies, the way a terminal emulator does. On mouseup
+    // rather than on xterm's onSelectionChange, which fires on every mouse
+    // move during a drag and would write the clipboard dozens of times per
+    // selection; mouseup is the one moment a drag, a double-click word and a
+    // triple-click line all pass through. The onSelectionChange handler
+    // below, which clears a selection that runs past the cursor, has already
+    // run by then, so a cleared selection is never copied. Ctrl+Shift+C
+    // stays for anyone who reaches for it.
+    // Left button only: the right button is the paste, and copying on its
+    // release would overwrite the clipboard with the selection just after
+    // reading it.
+    const onMouseUp = (ev: MouseEvent) => {
+      if (ev.button !== 0 || !term.hasSelection()) return;
+      navigator.clipboard.writeText(term.getSelection()).catch(() => {});
+    };
+    container.addEventListener('mouseup', onMouseUp);
+
     // Returning false tells xterm not to act on the key. It does not stop the
     // browser, which has its own Ctrl+Shift+C and Ctrl+Shift+V, and xterm
     // listens for the native copy and paste events those raise. Without
@@ -362,6 +379,7 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
     return () => {
       disposed = true;
       container.removeEventListener('contextmenu', onContextMenu, true);
+      container.removeEventListener('mouseup', onMouseUp);
       unlistenOutput.then((fn) => fn());
       unlistenClose.then((fn) => fn());
       term.dispose();

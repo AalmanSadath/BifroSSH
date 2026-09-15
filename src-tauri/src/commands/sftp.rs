@@ -77,6 +77,19 @@ pub async fn sftp_list_remote(
     crate::sftp::list_remote(&state.sftp_state, &session_id, &path).await.map_err(CmdError::from)
 }
 
+/// Whether the session still answers, asked after a listing has failed.
+///
+/// A listing fails for a bad path as readily as for a dead link, and the
+/// panel used to treat every failure as the second. One cheap request tells
+/// them apart.
+#[tauri::command]
+pub async fn sftp_probe_remote(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> CmdResult<bool> {
+    Ok(crate::sftp::probe_remote(&state.sftp_state, &session_id).await)
+}
+
 #[tauri::command]
 pub async fn sftp_disconnect_remote(
     state: State<'_, AppState>,

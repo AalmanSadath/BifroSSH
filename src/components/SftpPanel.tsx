@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import * as ipc from '../ipc';
 import { listen } from '@tauri-apps/api/event';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useAppStore, buildJumpChain, resolveServerAuth } from '../store/appStore';
 import OsIcon from './OsIcon';
 import type { FileEntry, LogEntry, Server, TransferProgress, TransferSummary } from '../types';
@@ -113,6 +114,9 @@ function FileBrowser({ title, icon, path, entries, loading, error, notice, onDis
   const renameInputRef = useRef<HTMLInputElement>(null);
   const dragCountRef = useRef(0);
   const lastClickIdxRef = useRef(-1);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  /** The row the arrow keys move from. An index into `visible`, or -1. */
+  const cursorRef = useRef(-1);
 
   useEffect(() => {
     setSelectedPaths(new Set());
@@ -205,6 +209,8 @@ function FileBrowser({ title, icon, path, entries, loading, error, notice, onDis
 
   function handleRowClick(e: React.MouseEvent, entry: FileEntry, idx: number) {
     if (entry.name === '..') return;
+    cursorRef.current = idx;
+    wrapRef.current?.focus();
     if (e.shiftKey && lastClickIdxRef.current >= 0) {
       const start = Math.min(lastClickIdxRef.current, idx);
       const end = Math.max(lastClickIdxRef.current, idx);
@@ -225,6 +231,77 @@ function FileBrowser({ title, icon, path, entries, loading, error, notice, onDis
     } else {
       setSelectedPaths(new Set([entry.path]));
       lastClickIdxRef.current = idx;
+    }
+  }
+
+  /** Selects the rows between the anchor and `idx`, both ends included. */
+  function selectRange(idx: number) {
+    const anchor = lastClickIdxRef.current >= 0 ? lastClickIdxRef.current : idx;
+    const start = Math.min(anchor, idx);
+    const end = Math.max(anchor, idx);
+    setSelectedPaths(new Set(
+      visible.slice(start, end + 1).filter((en) => en.name !== '..').map((en) => en.path),
+    ));
+  }
+
+  /**
+   * Keys on the list. Row indexes mean `visible`, the same as a click, so a
+   * resort moves the cursor with the rows rather than leaving it pointing at
+   * a position. The rename and new-folder fields sit inside this container
+   * and own their own keys, so anything from an input is left alone.
+   */
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if ((e.target as HTMLElement).tagName === 'INPUT') return;
+    const rows = visible;
+    const selectable = (i: number) => i >= 0 && i < rows.length && rows[i].name !== '..';
+
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+      e.preventDefault();
+      setSelectedPaths(new Set(rows.filter((en) => en.name !== '..').map((en) => en.path)));
+      return;
+    }
+    if (e.key === 'Escape') {
+      setSelectedPaths(new Set());
+      return;
+    }
+    if (e.key === 'Delete') {
+      const chosen = rows.filter((en) => en.name !== '..' && selectedPaths.has(en.path));
+      if (chosen.length > 0 && onDelete) {
+        e.preventDefault();
+        setConfirmDelete(chosen);
+      }
+      return;
+    }
+    if (e.key === 'Enter') {
+      const chosen = rows.filter((en) => selectedPaths.has(en.path));
+      if (chosen.length === 1 && chosen[0].is_dir) {
+        e.preventDefault();
+        onNavigate(chosen[0].path);
+      }
+      return;
+    }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const step = e.key === 'ArrowDown' ? 1 : -1;
+      // From the cursor if there is one, else onto the first real row.
+      let next = cursorRef.current >= 0 ? cursorRef.current + step : rows.findIndex((en) => en.name !== '..');
+      // `..` is not a row the cursor stops on.
+      if (next >= 0 && next < rows.length && rows[next].name === '..') next += step;
+      if (!selectable(next)) return;
+      cursorRef.current = next;
+      if (e.shiftKey) {
+        selectRange(next);
+      } else {
+        setSelectedPaths(new Set([rows[next].path]));
+        lastClickIdxRef.current = next;
+      }
+      // By index attribute rather than nth .sftp-row: the new-folder input
+      // row shares the class and would put the count off by one.
+      requestAnimationFrame(() => {
+        wrapRef.current
+          ?.querySelector<HTMLElement>(`[data-idx="${next}"]`)
+          ?.scrollIntoView({ block: 'nearest' });
+      });
     }
   }
 
@@ -344,6 +421,9 @@ function FileBrowser({ title, icon, path, entries, loading, error, notice, onDis
 
       <div
         className="sftp-table-wrap"
+        ref={wrapRef}
+        tabIndex={0}
+        onKeyDown={handleKeyDown}
         onDragOver={handleDragOver}
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
@@ -388,13 +468,14 @@ function FileBrowser({ title, icon, path, entries, loading, error, notice, onDis
                 </td>
               </tr>
             )}
-            {loading ? (
+            {loading && entries.length === 0 ? (
               <tr><td colSpan={4} className="sftp-status-cell">Loading…</td></tr>
             ) : error ? (
               <tr><td colSpan={4} className="sftp-status-cell sftp-cell-error">{error}</td></tr>
             ) : visible.map((entry, idx) => (
               <tr
                 key={entry.path}
+                data-idx={idx}
                 className={`sftp-row${selectedPaths.has(entry.path) ? ' sftp-row-selected' : ''}`}
                 draggable={entry.name !== '..'}
                 onClick={(e) => handleRowClick(e, entry, idx)}
@@ -678,27 +759,41 @@ function usePane(initialMode: PaneMode) {
   const listing = mode === 'local' ? local : remote;
   const style = styleFor(mode === 'local' ? 'local' : 'remote');
 
+  // The path and the rows change together, once the listing is in hand.
+  // Switching the path first and the rows after showed the new crumbs over a
+  // "Loading…" row, and a listing that then failed switched everything back:
+  // a flicker for a directory the user could not read.
   async function navigateLocal(path: string) {
     if (path !== local.path) setNotice('');
-    setLocal((l) => ({ ...l, path, loading: true, error: '' }));
+    setLocal((l) => ({ ...l, loading: true, error: '' }));
     try {
       const entries = await ipc.sftpListLocal(path);
-      setLocal((l) => ({ ...l, entries, loading: false }));
+      setLocal((l) => ({ ...l, path, entries, loading: false }));
     } catch (e) {
-      setLocal((l) => ({ ...l, error: String(e), loading: false }));
+      setLocal((l) => ({ ...l, loading: false }));
+      fail(String(e));
     }
   }
 
   async function navigateRemote(path: string) {
     if (!sid) return;
     if (path !== remote.path) setNotice('');
-    setRemote((r) => ({ ...r, path, loading: true, error: '' }));
+    setRemote((r) => ({ ...r, loading: true, error: '' }));
     try {
       const entries = await ipc.sftpListRemote(sid, path);
-      setRemote((r) => ({ ...r, entries, loading: false }));
+      setRemote((r) => ({ ...r, path, entries, loading: false }));
     } catch (e) {
-      // A failed listing on a live session means the session is gone. Dropping
-      // the id is what puts the reconnect button up.
+      // A listing fails for a path that is not there, or not readable, as
+      // readily as for a link that has died, and every failure used to be
+      // read as the second: a mistyped path put up the reconnect button. The
+      // session is asked whether it still answers, and only silence is a
+      // disconnect.
+      const alive = await ipc.sftpProbeRemote(sid).catch(() => false);
+      if (alive) {
+        setRemote((r) => ({ ...r, loading: false }));
+        fail(String(e));
+        return;
+      }
       setRemote((r) => ({ ...r, error: String(e), loading: false }));
       setDisconnected(true);
       setSid(null);
@@ -931,6 +1026,44 @@ export default function SftpPanel() {
   // button says so rather than looking like it did nothing.
   const [cancelling, setCancelling] = useState(false);
 
+  /**
+   * Drops from outside the app. The webview reports these itself, with real
+   * filesystem paths, which an HTML5 drop event never carries. The event is
+   * window-wide, so the pane under the cursor is found from the position.
+   *
+   * Linux only, by configuration rather than by code: tauri.linux.conf.json
+   * enables the webview's drag and drop, and tauri.conf.json leaves it off
+   * because on Windows enabling it disables HTML5 drag and drop, which is
+   * what moves files between the two panes. On Windows this listener is
+   * registered and never fires.
+   */
+  useEffect(() => {
+    // The type says physical; the number is not. On WebKitGTK the position
+    // comes from GTK's drag_motion, which reports logical widget coordinates,
+    // and wry 0.55 passes them through unscaled (webkitgtk/drag_drop.rs:96).
+    // Dividing by devicePixelRatio, as the type invites, halved x on a HiDPI
+    // display and put every drop on the left pane. This listener only ever
+    // fires on Linux, so the GTK behaviour is the only one that matters.
+    const paneAt = (position: { x: number; y: number }): 'left' | 'right' | null => {
+      const el = document.elementFromPoint(position.x, position.y);
+      const side = el?.closest<HTMLElement>('[data-side]')?.dataset.side;
+      return side === 'left' || side === 'right' ? side : null;
+    };
+    const unlisten = getCurrentWebview().onDragDropEvent((event) => {
+      const p = event.payload;
+      if (p.type === 'enter' || p.type === 'over') {
+        setDropTarget(paneAt(p.position));
+      } else if (p.type === 'leave') {
+        setDropTarget(null);
+      } else if (p.type === 'drop') {
+        const target = paneAt(p.position);
+        setDropTarget(null);
+        if (target && p.paths.length > 0) void externalDropRef.current(target, p.paths);
+      }
+    });
+    return () => { unlisten.then((f) => f()); };
+  }, []);
+
   useEffect(() => {
     const unlisten = listen<TransferProgress>('sftp-progress', (e) => {
       setProgress((prev) => ({
@@ -1010,6 +1143,34 @@ export default function SftpPanel() {
       return ipc.sftpCopyRemoteToRemote(src.requireSid(), entry.path, dst.requireSid(), dst.listing.path);
     };
 
+    await runBatch(target, batch, run);
+  }
+
+  /**
+   * Files dragged in from the desktop, which arrive as paths rather than as
+   * entries from the other pane. Only a connected remote pane can take them:
+   * the local pane is the desktop, and copying a file to where it already is
+   * is not a thing this does.
+   */
+  async function handleExternalDrop(target: 'left' | 'right', paths: string[]) {
+    const dst = target === 'left' ? left : right;
+    if (dst.mode !== 'connected' || transferring) return;
+    const sid = dst.requireSid();
+    await runBatch(target, paths, (path) => ipc.sftpUpload(sid, path, dst.listing.path));
+  }
+
+  // The drag-drop event fires from a listener registered once, so it reads
+  // the handler through a ref rather than closing over the first render's
+  // panes, which would upload into whatever directory was open at startup.
+  const externalDropRef = useRef(handleExternalDrop);
+  externalDropRef.current = handleExternalDrop;
+
+  async function runBatch<T>(
+    target: 'left' | 'right',
+    batch: T[],
+    run: (item: T) => Promise<TransferSummary>,
+  ) {
+    const dst = target === 'left' ? left : right;
     setTransferring(true);
     setTransferTarget(target);
     setDropTarget(null);
@@ -1019,8 +1180,8 @@ export default function SftpPanel() {
       // the cancel flag stops the one in flight. A cancel ends the batch too,
       // since carrying on with the next file is not what "stop" means.
       const summary: TransferSummary = { files: 0, directories: 0, skipped_symlinks: 0, cancelled: false };
-      for (const entry of batch) {
-        const one = await run(entry);
+      for (const item of batch) {
+        const one = await run(item);
         summary.files += one.files;
         summary.directories += one.directories;
         summary.skipped_symlinks += one.skipped_symlinks;
@@ -1118,9 +1279,9 @@ export default function SftpPanel() {
   return (
     <div className="sftp-container">
       <div className="sftp-panels-row">
-        <div className="sftp-file-panel">{renderPane(left, right, 'left')}</div>
+        <div className="sftp-file-panel" data-side="left">{renderPane(left, right, 'left')}</div>
         <div className="sftp-divider" />
-        <div className="sftp-file-panel sftp-remote-panel">{renderPane(right, left, 'right')}</div>
+        <div className="sftp-file-panel sftp-remote-panel" data-side="right">{renderPane(right, left, 'right')}</div>
       </div>
       {progress && (() => {
         const pct = progress.total > 0 ? Math.min(100, Math.round((progress.transferred / progress.total) * 100)) : 0;

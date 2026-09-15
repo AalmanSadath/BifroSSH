@@ -217,6 +217,9 @@
   flex: 1;
   overflow-y: auto;
   position: relative;
+  /* Focusable for the keyboard. The selected row is the focus indicator; a
+     ring round the whole list on top of it says nothing extra. */
+  outline: none;
 }
 
 .sftp-table-wrap::-webkit-scrollbar { width: 6px; }

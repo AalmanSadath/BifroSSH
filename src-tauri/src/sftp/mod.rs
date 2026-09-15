@@ -18,12 +18,14 @@ mod listing;
 mod ops;
 mod session;
 mod transfer;
+#[cfg(all(test, unix))]
+mod sshd_tests;
 
 pub use listing::{get_local_home, get_remote_home, list_local, list_remote};
 pub use ops::{
     create_local_dir, delete_local, delete_remote, mkdir, rename_local, rename_remote,
 };
-pub use session::{connect_sftp, disconnect_sftp};
+pub use session::{connect_sftp, disconnect_sftp, probe_remote};
 pub use transfer::{copy_remote_path, download_path, upload_path};
 
 /// Chunk size for a streamed copy.
