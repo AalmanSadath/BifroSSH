@@ -193,6 +193,28 @@ jobs:
               src-tauri/packaging/bifrossh.desktop > /tmp/packaged.desktop
           desktop-file-validate /tmp/packaged.desktop
 
+      # tauri.linux.conf.json exists to flip one key, dragDropEnabled, and has
+      # to carry the whole window object to do it, because the platform
+      # override is a JSON merge patch and a merge patch replaces arrays. So
+      # the other keys are a copy that will drift the first time the main
+      # window config changes. This holds them equal.
+      - name: Linux window override matches the main config
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          main = json.load(open('src-tauri/tauri.conf.json'))['app']['windows'][0]
+          linux = json.load(open('src-tauri/tauri.linux.conf.json'))['app']['windows'][0]
+          differing = [k for k in set(main) | set(linux)
+                       if k != 'dragDropEnabled' and main.get(k) != linux.get(k)]
+          if differing:
+              print(f'::error::tauri.linux.conf.json differs from tauri.conf.json in {differing}; only dragDropEnabled may differ')
+              sys.exit(1)
+          if not linux.get('dragDropEnabled') or main.get('dragDropEnabled'):
+              print('::error::the override exists to enable dragDropEnabled on Linux alone')
+              sys.exit(1)
+          print('window override in step')
+          PY
+
       # Only that it parses and still names the pieces the build reaches for.
       # Anything deeper belongs to the build, which runs on the tag.
       - name: Manifest parses

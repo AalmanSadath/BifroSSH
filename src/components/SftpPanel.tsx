@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import * as ipc from '../ipc';
 import { listen } from '@tauri-apps/api/event';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useAppStore, buildJumpChain, resolveServerAuth } from '../store/appStore';
 import OsIcon from './OsIcon';
 import type { FileEntry, LogEntry, Server, TransferProgress, TransferSummary } from '../types';
@@ -1025,6 +1026,44 @@ export default function SftpPanel() {
   // button says so rather than looking like it did nothing.
   const [cancelling, setCancelling] = useState(false);
 
+  /**
+   * Drops from outside the app. The webview reports these itself, with real
+   * filesystem paths, which an HTML5 drop event never carries. The event is
+   * window-wide, so the pane under the cursor is found from the position.
+   *
+   * Linux only, by configuration rather than by code: tauri.linux.conf.json
+   * enables the webview's drag and drop, and tauri.conf.json leaves it off
+   * because on Windows enabling it disables HTML5 drag and drop, which is
+   * what moves files between the two panes. On Windows this listener is
+   * registered and never fires.
+   */
+  useEffect(() => {
+    // The type says physical; the number is not. On WebKitGTK the position
+    // comes from GTK's drag_motion, which reports logical widget coordinates,
+    // and wry 0.55 passes them through unscaled (webkitgtk/drag_drop.rs:96).
+    // Dividing by devicePixelRatio, as the type invites, halved x on a HiDPI
+    // display and put every drop on the left pane. This listener only ever
+    // fires on Linux, so the GTK behaviour is the only one that matters.
+    const paneAt = (position: { x: number; y: number }): 'left' | 'right' | null => {
+      const el = document.elementFromPoint(position.x, position.y);
+      const side = el?.closest<HTMLElement>('[data-side]')?.dataset.side;
+      return side === 'left' || side === 'right' ? side : null;
+    };
+    const unlisten = getCurrentWebview().onDragDropEvent((event) => {
+      const p = event.payload;
+      if (p.type === 'enter' || p.type === 'over') {
+        setDropTarget(paneAt(p.position));
+      } else if (p.type === 'leave') {
+        setDropTarget(null);
+      } else if (p.type === 'drop') {
+        const target = paneAt(p.position);
+        setDropTarget(null);
+        if (target && p.paths.length > 0) void externalDropRef.current(target, p.paths);
+      }
+    });
+    return () => { unlisten.then((f) => f()); };
+  }, []);
+
   useEffect(() => {
     const unlisten = listen<TransferProgress>('sftp-progress', (e) => {
       setProgress((prev) => ({
@@ -1104,6 +1143,34 @@ export default function SftpPanel() {
       return ipc.sftpCopyRemoteToRemote(src.requireSid(), entry.path, dst.requireSid(), dst.listing.path);
     };
 
+    await runBatch(target, batch, run);
+  }
+
+  /**
+   * Files dragged in from the desktop, which arrive as paths rather than as
+   * entries from the other pane. Only a connected remote pane can take them:
+   * the local pane is the desktop, and copying a file to where it already is
+   * is not a thing this does.
+   */
+  async function handleExternalDrop(target: 'left' | 'right', paths: string[]) {
+    const dst = target === 'left' ? left : right;
+    if (dst.mode !== 'connected' || transferring) return;
+    const sid = dst.requireSid();
+    await runBatch(target, paths, (path) => ipc.sftpUpload(sid, path, dst.listing.path));
+  }
+
+  // The drag-drop event fires from a listener registered once, so it reads
+  // the handler through a ref rather than closing over the first render's
+  // panes, which would upload into whatever directory was open at startup.
+  const externalDropRef = useRef(handleExternalDrop);
+  externalDropRef.current = handleExternalDrop;
+
+  async function runBatch<T>(
+    target: 'left' | 'right',
+    batch: T[],
+    run: (item: T) => Promise<TransferSummary>,
+  ) {
+    const dst = target === 'left' ? left : right;
     setTransferring(true);
     setTransferTarget(target);
     setDropTarget(null);
@@ -1113,8 +1180,8 @@ export default function SftpPanel() {
       // the cancel flag stops the one in flight. A cancel ends the batch too,
       // since carrying on with the next file is not what "stop" means.
       const summary: TransferSummary = { files: 0, directories: 0, skipped_symlinks: 0, cancelled: false };
-      for (const entry of batch) {
-        const one = await run(entry);
+      for (const item of batch) {
+        const one = await run(item);
         summary.files += one.files;
         summary.directories += one.directories;
         summary.skipped_symlinks += one.skipped_symlinks;
@@ -1212,9 +1279,9 @@ export default function SftpPanel() {
   return (
     <div className="sftp-container">
       <div className="sftp-panels-row">
-        <div className="sftp-file-panel">{renderPane(left, right, 'left')}</div>
+        <div className="sftp-file-panel" data-side="left">{renderPane(left, right, 'left')}</div>
         <div className="sftp-divider" />
-        <div className="sftp-file-panel sftp-remote-panel">{renderPane(right, left, 'right')}</div>
+        <div className="sftp-file-panel sftp-remote-panel" data-side="right">{renderPane(right, left, 'right')}</div>
       </div>
       {progress && (() => {
         const pct = progress.total > 0 ? Math.min(100, Math.round((progress.transferred / progress.total) * 100)) : 0;
