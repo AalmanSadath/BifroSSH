@@ -220,6 +220,7 @@ fn start(
             commands::sftp_get_home,
             commands::sftp_list_remote,
             commands::sftp_disconnect_remote,
+            commands::sftp_probe_remote,
             commands::sftp_upload,
             commands::sftp_download,
             commands::sftp_copy_remote_to_remote,

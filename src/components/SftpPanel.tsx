@@ -388,7 +388,7 @@ function FileBrowser({ title, icon, path, entries, loading, error, notice, onDis
                 </td>
               </tr>
             )}
-            {loading ? (
+            {loading && entries.length === 0 ? (
               <tr><td colSpan={4} className="sftp-status-cell">Loading…</td></tr>
             ) : error ? (
               <tr><td colSpan={4} className="sftp-status-cell sftp-cell-error">{error}</td></tr>
@@ -678,27 +678,41 @@ function usePane(initialMode: PaneMode) {
   const listing = mode === 'local' ? local : remote;
   const style = styleFor(mode === 'local' ? 'local' : 'remote');
 
+  // The path and the rows change together, once the listing is in hand.
+  // Switching the path first and the rows after showed the new crumbs over a
+  // "Loading…" row, and a listing that then failed switched everything back:
+  // a flicker for a directory the user could not read.
   async function navigateLocal(path: string) {
     if (path !== local.path) setNotice('');
-    setLocal((l) => ({ ...l, path, loading: true, error: '' }));
+    setLocal((l) => ({ ...l, loading: true, error: '' }));
     try {
       const entries = await ipc.sftpListLocal(path);
-      setLocal((l) => ({ ...l, entries, loading: false }));
+      setLocal((l) => ({ ...l, path, entries, loading: false }));
     } catch (e) {
-      setLocal((l) => ({ ...l, error: String(e), loading: false }));
+      setLocal((l) => ({ ...l, loading: false }));
+      fail(String(e));
     }
   }
 
   async function navigateRemote(path: string) {
     if (!sid) return;
     if (path !== remote.path) setNotice('');
-    setRemote((r) => ({ ...r, path, loading: true, error: '' }));
+    setRemote((r) => ({ ...r, loading: true, error: '' }));
     try {
       const entries = await ipc.sftpListRemote(sid, path);
-      setRemote((r) => ({ ...r, entries, loading: false }));
+      setRemote((r) => ({ ...r, path, entries, loading: false }));
     } catch (e) {
-      // A failed listing on a live session means the session is gone. Dropping
-      // the id is what puts the reconnect button up.
+      // A listing fails for a path that is not there, or not readable, as
+      // readily as for a link that has died, and every failure used to be
+      // read as the second: a mistyped path put up the reconnect button. The
+      // session is asked whether it still answers, and only silence is a
+      // disconnect.
+      const alive = await ipc.sftpProbeRemote(sid).catch(() => false);
+      if (alive) {
+        setRemote((r) => ({ ...r, loading: false }));
+        fail(String(e));
+        return;
+      }
       setRemote((r) => ({ ...r, error: String(e), loading: false }));
       setDisconnected(true);
       setSid(null);
