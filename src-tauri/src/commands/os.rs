@@ -20,6 +20,20 @@ fn map_distro_id(id: &str) -> &'static str {
     }
 }
 
+/// Whether the output came from a Windows shell rather than a POSIX one.
+///
+/// The command sent is a POSIX line. On cmd.exe every word of it fails and
+/// `|| ver` at the end prints the Windows version; on PowerShell the failure
+/// text is different and `ver` may not run at all. Either sign is enough,
+/// and both are checked because which one arrives depends on the default
+/// shell the server was set up with.
+fn is_windows_shell(output: &str) -> bool {
+    let lower = output.to_lowercase();
+    lower.contains("microsoft windows")
+        || lower.contains("is not recognized as an internal or external command")
+        || lower.contains("is not recognized as the name of a cmdlet")
+}
+
 fn parse_os_release(output: &str) -> String {
     let mut id = String::new();
     let mut name = String::new();
@@ -43,6 +57,12 @@ fn parse_os_release(output: &str) -> String {
     }
     if name.contains("raspberry") || pretty_name.contains("raspberry") {
         return "raspberrypi".to_string();
+    }
+
+    // After the os-release checks, so a Linux host whose PRETTY_NAME happens
+    // to mention Windows is still what its ID= says it is.
+    if is_windows_shell(output) {
+        return "windows".to_string();
     }
 
     // Fallback: uname -s
@@ -77,7 +97,10 @@ pub async fn detect_server_os(
 
     let result = crate::ssh::exec_ssh_command(
         &target.host, target.port, &username, target.auth,
-        "cat /etc/os-release 2>/dev/null; cat /proc/device-tree/model 2>/dev/null; echo; uname -s",
+        // `|| ver` is for Windows. In sh, uname succeeds and ver never runs;
+        // in cmd.exe the line fails and ver prints the Windows version, which
+        // is the one sign that lands on stdout whatever the shell.
+        "cat /etc/os-release 2>/dev/null; cat /proc/device-tree/model 2>/dev/null; echo; uname -s || ver",
         sec,
         &target.jumps,
     )
@@ -104,4 +127,56 @@ pub async fn detect_server_os(
     // answer to "have we tried this host" is now on disk either way.
     result?;
     Ok(detected)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_distro_id_wins() {
+        assert_eq!(parse_os_release("ID=fedora\nNAME=\"Fedora Linux\"\n\nLinux\n"), "fedora");
+        assert_eq!(parse_os_release("ID=ubuntu\nID_LIKE=debian\n\nLinux\n"), "ubuntu");
+        assert_eq!(parse_os_release("ID=nixos\n\nLinux\n"), "linux");
+    }
+
+    #[test]
+    fn a_raspberry_pi_is_known_by_its_hardware_line() {
+        assert_eq!(parse_os_release("ID=debian\nRaspberry Pi 4 Model B\n\nLinux\n"), "raspberrypi");
+    }
+
+    #[test]
+    fn uname_is_the_fallback_without_os_release() {
+        assert_eq!(parse_os_release("\nDarwin\n"), "macos");
+        assert_eq!(parse_os_release("\nFreeBSD\n"), "freebsd");
+        assert_eq!(parse_os_release("\nLinux\n"), "linux");
+    }
+
+    /// cmd.exe as the default shell: the POSIX line fails as one command and
+    /// `|| ver` runs. Whether the error text reaches stdout depends on the
+    /// shell; the version line always does.
+    #[test]
+    fn a_windows_server_is_known_by_ver() {
+        assert_eq!(parse_os_release("\nMicrosoft Windows [Version 10.0.19045.4651]\n"), "windows");
+    }
+
+    /// The failure text alone, for a shell where `ver` did not run.
+    #[test]
+    fn a_windows_server_is_known_by_the_shell_error() {
+        assert_eq!(
+            parse_os_release("'cat' is not recognized as an internal or external command,\noperable program or batch file.\n"),
+            "windows",
+        );
+        assert_eq!(
+            parse_os_release("cat : The term 'cat' is not recognized as the name of a cmdlet, function, script file, or operable program.\n"),
+            "windows",
+        );
+    }
+
+    /// A real os-release that mentions Windows in passing is still Linux.
+    #[test]
+    fn a_linux_host_mentioning_windows_stays_linux() {
+        let out = "ID=ubuntu\nPRETTY_NAME=\"Ubuntu 24.04 on Microsoft Windows Subsystem for Linux\"\n\nLinux\n";
+        assert_eq!(parse_os_release(out), "ubuntu");
+    }
 }
