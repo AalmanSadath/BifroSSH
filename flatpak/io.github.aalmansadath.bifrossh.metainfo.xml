@@ -85,6 +85,27 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.13.3" date="2026-09-16">
+      <description>
+        <p>
+          The path bar above each file list can be typed into: click the
+          empty part of it, or press Ctrl+L, and type a path. Absolute,
+          relative and ~ all work.
+        </p>
+        <p>
+          The file list works from the keyboard: arrows move, shift extends,
+          Ctrl+A selects all, Delete deletes, Enter opens a folder. Files can
+          be dropped in from the desktop file manager on Linux. Highlighting
+          text in a terminal copies it.
+        </p>
+        <p>
+          A directory that cannot be read now shows a message and keeps the
+          listing you were on, instead of reporting the connection as lost.
+          Navigating no longer flashes an empty list while the next one
+          loads. A Windows OpenSSH server is recognised as Windows.
+        </p>
+      </description>
+    </release>
     <release version="0.13.2" date="2026-09-15">
       <description>
         <p>
