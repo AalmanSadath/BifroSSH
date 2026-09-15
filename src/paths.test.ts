@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { localStyle, posix, setLocalPlatform, styleFor, windows } from './paths';
+import { localStyle, posix, resolveTyped, setLocalPlatform, styleFor, windows } from './paths';
 
 afterEach(() => setLocalPlatform('linux'));
 
@@ -113,5 +113,53 @@ describe('the platform switch', () => {
     setLocalPlatform('windows');
     expect(styleFor('remote')).toBe(posix);
     expect(styleFor('local')).toBe(windows);
+  });
+});
+
+describe('a typed path', () => {
+  const home = '/home/a';
+
+  it('is nothing when blank', () => {
+    expect(resolveTyped('', '/x', home, posix)).toBeNull();
+    expect(resolveTyped('   ', '/x', home, posix)).toBeNull();
+  });
+
+  it('from the root is taken as it is', () => {
+    expect(resolveTyped('/var/log', '/home/a', home, posix)).toBe('/var/log');
+    expect(resolveTyped(' /var/log ', '/home/a', home, posix)).toBe('/var/log');
+  });
+
+  it('otherwise joins onto where the pane is', () => {
+    expect(resolveTyped('nginx', '/var/log', home, posix)).toBe('/var/log/nginx');
+    expect(resolveTyped('a/b', '/', home, posix)).toBe('/a/b');
+    // Left for the listing to resolve, the way the server would.
+    expect(resolveTyped('..', '/var/log', home, posix)).toBe('/var/log/..');
+  });
+
+  it('expands ~ to the home, when one is known', () => {
+    expect(resolveTyped('~', '/x', home, posix)).toBe('/home/a');
+    expect(resolveTyped('~/Downloads', '/x', home, posix)).toBe('/home/a/Downloads');
+    expect(resolveTyped('~', '/x', null, posix)).toBeNull();
+    expect(resolveTyped('~/Downloads', '/x', null, posix)).toBeNull();
+  });
+
+  it('does not mistake a name starting with ~ for the home', () => {
+    expect(resolveTyped('~backup', '/x', home, posix)).toBe('/x/~backup');
+  });
+
+  it('drops a trailing separator, except off a root', () => {
+    expect(resolveTyped('/var/log/', '/', home, posix)).toBe('/var/log');
+    expect(resolveTyped('/', '/x', home, posix)).toBe('/');
+    expect(resolveTyped('C:\\Users\\a\\', 'C:\\', 'C:\\Users\\a', windows)).toBe('C:\\Users\\a');
+    expect(resolveTyped('C:\\', 'C:\\Users', 'C:\\Users\\a', windows)).toBe('C:\\');
+  });
+
+  it('on Windows takes a drive or UNC root as absolute and writes backslashes', () => {
+    const h = 'C:\\Users\\a';
+    expect(resolveTyped('D:\\data', 'C:\\Users', h, windows)).toBe('D:\\data');
+    expect(resolveTyped('C:/Users/a/Documents', 'C:\\', h, windows)).toBe('C:\\Users\\a\\Documents');
+    expect(resolveTyped('\\\\server\\share\\dir', 'C:\\', h, windows)).toBe('\\\\server\\share\\dir');
+    expect(resolveTyped('Documents', 'C:\\Users\\a', h, windows)).toBe('C:\\Users\\a\\Documents');
+    expect(resolveTyped('~\\Documents', 'C:\\', h, windows)).toBe('C:\\Users\\a\\Documents');
   });
 });

@@ -8,7 +8,7 @@ import type { FileEntry, LogEntry, Server, TransferProgress, TransferSummary } f
 import ConnectingView from './ConnectingView';
 import ContextMenu from './shared/ContextMenu';
 import { useDismissOnOutside } from './shared/useDismissOnOutside';
-import { localStyle, styleFor, type PathStyle } from '../paths';
+import { localStyle, resolveTyped, styleFor, type PathStyle } from '../paths';
 
 function formatSize(bytes: number, isDir: boolean): string {
   if (isDir) return '- -';
@@ -55,6 +55,8 @@ interface FileBrowserProps {
   title: React.ReactNode;
   icon: React.ReactNode;
   path: string;
+  /** Where `~` goes when typed into the bar. Null until the pane knows. */
+  home: string | null;
   entries: FileEntry[];
   loading: boolean;
   /** The directory could not be read, so there is no list to show. */
@@ -87,7 +89,7 @@ interface FileBrowserProps {
   pathStyle: PathStyle;
 }
 
-function FileBrowser({ title, icon, path, entries, loading, error, notice, onDismissNotice, onNavigate,
+function FileBrowser({ title, icon, path, home, entries, loading, error, notice, onDismissNotice, onNavigate,
   onRefresh, onNewFolder, extraActions, onLocalBtn,
   canCopyToTarget, onCopyToTarget, onRename, onDelete,
   side, isDropTarget, transferring, onDragEnter: onDragEnterCb, onDragLeave: onDragLeaveCb, onFileDrop, onReconnect,
@@ -96,6 +98,21 @@ function FileBrowser({ title, icon, path, entries, loading, error, notice, onDis
   const { settings } = useAppStore();
   const hint = (t: string) => settings.show_hover_hints ? t : undefined;
   const segments = pathStyle.segments(path);
+  /** The bar as a text field: the text being typed, or null for crumbs. */
+  const [typedPath, setTypedPath] = useState<string | null>(null);
+  const pathInputRef = useRef<HTMLInputElement>(null);
+
+  function startTyping() {
+    setTypedPath(path);
+    setTimeout(() => { pathInputRef.current?.focus(); pathInputRef.current?.select(); }, 30);
+  }
+
+  function commitTyped() {
+    if (typedPath === null) return;
+    const target = resolveTyped(typedPath, path, home, pathStyle);
+    setTypedPath(null);
+    if (target !== null) onNavigate(target);
+  }
   const [colWidths, setColWidths] = useState(DEFAULT_COL_WIDTHS);
   const [sortCol, setSortCol] = useState<SortCol>('Name');
   const [sortAsc, setSortAsc] = useState(true);
@@ -260,6 +277,12 @@ function FileBrowser({ title, icon, path, entries, loading, error, notice, onDis
       setSelectedPaths(new Set(rows.filter((en) => en.name !== '..').map((en) => en.path)));
       return;
     }
+    // The file manager and browser key for "type a location".
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'l') {
+      e.preventDefault();
+      startTyping();
+      return;
+    }
     if (e.key === 'Escape') {
       setSelectedPaths(new Set());
       return;
@@ -407,17 +430,42 @@ function FileBrowser({ title, icon, path, entries, loading, error, notice, onDis
         </div>
       </div>
 
-      <div className="sftp-breadcrumb">
-        {segments.map((seg, i) => (
-          <span key={seg.path} className="sftp-crumb-item">
-            {i > 0 && <span className="sftp-crumb-sep">›</span>}
-            <button className="sftp-crumb-btn" onClick={() => onNavigate(seg.path)}>
-              <FolderIcon size={13} />
-              {seg.label}
-            </button>
-          </span>
-        ))}
-      </div>
+      {/* Crumbs, or a text field in their place. Clicking the bar itself,
+          rather than a crumb, is what opens the field; there is no button
+          for it, the same as in GNOME Files and Explorer. Blur puts the
+          crumbs back without navigating; Enter navigates. */}
+      {typedPath !== null ? (
+        <div className="sftp-breadcrumb sftp-breadcrumb-typing">
+          <input
+            ref={pathInputRef}
+            className="sftp-path-input"
+            value={typedPath}
+            spellCheck={false}
+            onChange={(e) => setTypedPath(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitTyped();
+              if (e.key === 'Escape') setTypedPath(null);
+            }}
+            onBlur={() => setTypedPath(null)}
+          />
+        </div>
+      ) : (
+        <div
+          className="sftp-breadcrumb"
+          title={hint('Click to type a path')}
+          onClick={(e) => { if (e.target === e.currentTarget) startTyping(); }}
+        >
+          {segments.map((seg, i) => (
+            <span key={seg.path} className="sftp-crumb-item">
+              {i > 0 && <span className="sftp-crumb-sep">›</span>}
+              <button className="sftp-crumb-btn" onClick={() => onNavigate(seg.path)}>
+                <FolderIcon size={13} />
+                {seg.label}
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
 
       <div
         className="sftp-table-wrap"
@@ -713,9 +761,11 @@ interface Listing {
   entries: FileEntry[];
   loading: boolean;
   error: string;
+  /** The home directory, once fetched, so a typed `~` has somewhere to go. */
+  home: string | null;
 }
 
-const emptyListing = (loading: boolean): Listing => ({ path: '', entries: [], loading, error: '' });
+const emptyListing = (loading: boolean): Listing => ({ path: '', entries: [], loading, error: '', home: null });
 
 /**
  * One side of the panel.
@@ -808,6 +858,7 @@ function usePane(initialMode: PaneMode) {
     setMode('local');
     if (!local.path) {
       const home = await ipc.sftpLocalHome().catch(() => localStyle().defaultRoot);
+      setLocal((l) => ({ ...l, home }));
       await navigateLocal(home);
     }
   }
@@ -857,7 +908,7 @@ function usePane(initialMode: PaneMode) {
 
       const home = await ipc.sftpGetHome(newSid);
       const entries = await ipc.sftpListRemote(newSid, home);
-      setRemote({ path: home, entries, loading: false, error: '' });
+      setRemote({ path: home, entries, loading: false, error: '', home });
     } catch (e) {
       // Stay on the connecting screen so the log explaining the failure, and
       // the retry button, are both still there.
@@ -1213,6 +1264,7 @@ export default function SftpPanel() {
         title={pane.mode === 'local' ? 'Local' : pane.serverName}
         icon={pane.mode === 'local' ? LOCAL_ICON : REMOTE_ICON}
         path={pane.listing.path}
+        home={pane.listing.home}
         entries={pane.listing.entries}
         loading={pane.listing.loading}
         error={pane.listing.error}
