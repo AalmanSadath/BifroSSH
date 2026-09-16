@@ -46,7 +46,7 @@ export default function TerminalSidebar({ activeSessionId }: Props) {
 
   // The connection transcript is kept on the session after it connects, so it
   // stays reviewable instead of vanishing with the connecting view.
-  const logs = sessions.find((s) => s.session_id === activeSessionId)?.logs ?? [];
+  const logs = sessions.find((s) => s.tab_id === activeSessionId)?.logs ?? [];
   const [showNewForm, setShowNewForm] = useState(false);
   const [newName, setNewName] = useState('');
   const [newCommand, setNewCommand] = useState('');

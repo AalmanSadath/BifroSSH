@@ -22,7 +22,7 @@ export default function HostsPanel() {
 
   async function handleDoubleClick(server: Server) {
     const existing = sessions.find((s) => s.server_id === server.id && s.status === 'connected');
-    if (existing) { setActiveTab(existing.session_id); return; }
+    if (existing) { setActiveTab(existing.tab_id); return; }
     openSession(server.id);
   }
 
@@ -112,9 +112,9 @@ export default function HostsPanel() {
                   {activeSessions.length > 0 && (
                     <>
                       {activeSessions.map((s) => (
-                        <button key={s.session_id} className="menu-item menu-item-danger" onClick={() => {
-                          if (s.status === 'connected') ipc.sshDisconnect(s.session_id).catch(() => {});
-                          removeSession(s.session_id);
+                        <button key={s.tab_id} className="menu-item menu-item-danger" onClick={() => {
+                          if (s.session_id) ipc.sshDisconnect(s.session_id).catch(() => {});
+                          removeSession(s.tab_id);
                           setContextMenu(null);
                         }}>
                           End {s.server_name}

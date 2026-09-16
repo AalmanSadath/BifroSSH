@@ -20,6 +20,41 @@ pub enum SshCommand {
     Close,
 }
 
+/// Why a session ended, sent with `ssh-closed` so the tab can tell a shell
+/// that exited from a link that died. The first closes the tab; the second
+/// keeps it, scrollback and all, with a way to reconnect.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CloseReason {
+    /// The shell ended and said so: `exit`, or the last process finishing.
+    Exited,
+    /// The user closed the tab.
+    Closed,
+    /// Anything else: the transport went away, or the channel closed
+    /// without an exit status, which is what a server dying looks like.
+    Dropped,
+}
+
+/// The reason, from what the pump loop saw.
+///
+/// An exit status arrives before the channel closes on a clean exit and
+/// never arrives on a drop, so it is the one thing that tells the two apart.
+/// A close the user asked for is known from the command that did it.
+pub fn close_reason(closed_by_user: bool, saw_exit_status: bool) -> CloseReason {
+    if closed_by_user {
+        CloseReason::Closed
+    } else if saw_exit_status {
+        CloseReason::Exited
+    } else {
+        CloseReason::Dropped
+    }
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct ClosedEvent {
+    pub reason: CloseReason,
+}
+
 /// Output produced before the terminal is listening.
 ///
 /// The shell starts writing the moment its channel opens, but the session id
@@ -586,6 +621,13 @@ pub async fn connect_ssh(
         let mut flush_tick = interval(Duration::from_millis(8));
         flush_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut outbuf: Vec<u8> = Vec::with_capacity(8192);
+        let mut saw_exit_status = false;
+        let mut closed_by_user = false;
+        // When EOF arrived, if it has. The loop stays for the close that
+        // follows, but not forever: a server that sends EOF and then nothing
+        // is a server that has gone.
+        let mut eof_at: Option<tokio::time::Instant> = None;
+        const AFTER_EOF: Duration = Duration::from_secs(3);
 
         macro_rules! flush_outbuf {
             () => {
@@ -613,7 +655,10 @@ pub async fn connect_ssh(
                         SshCommand::Resize { cols, rows } => {
                             let _ = channel.window_change(cols, rows, 0, 0).await;
                         }
-                        SshCommand::Close => break,
+                        SshCommand::Close => {
+                            closed_by_user = true;
+                            break;
+                        }
                     }
                 }
                 Some(msg) = channel.wait() => {
@@ -628,16 +673,30 @@ pub async fn connect_ssh(
                                 flush_outbuf!();
                             }
                         }
-                        ChannelMsg::Eof | ChannelMsg::Close => {
+                        // OpenSSH ends a session as EOF, then the exit
+                        // status, then CLOSE, in that order. Breaking on EOF
+                        // left before the status arrived, so a typed exit
+                        // was reported as a dropped connection.
+                        ChannelMsg::Eof => {
+                            flush_outbuf!();
+                            eof_at.get_or_insert_with(tokio::time::Instant::now);
+                        }
+                        ChannelMsg::Close => {
                             flush_outbuf!();
                             break;
                         }
-                        ChannelMsg::ExitStatus { .. } => {}
+                        // Sent by the server when the shell ends on its own.
+                        // Remembered rather than acted on: the close that
+                        // follows is what ends the loop.
+                        ChannelMsg::ExitStatus { .. } => saw_exit_status = true,
                         _ => {}
                     }
                 }
                 _ = flush_tick.tick() => {
                     flush_outbuf!();
+                    if eof_at.is_some_and(|t| t.elapsed() > AFTER_EOF) {
+                        break;
+                    }
                 }
                 else => break,
             }
@@ -647,7 +706,8 @@ pub async fn connect_ssh(
             let mut sessions = ssh_state_cleanup.sessions.lock().await;
             sessions.remove(&sid);
         }
-        let _ = app.emit(&format!("ssh-closed:{}", sid), ());
+        let reason = close_reason(closed_by_user, saw_exit_status);
+        let _ = app.emit(&format!("ssh-closed:{}", sid), ClosedEvent { reason });
     });
 
     Ok(())
@@ -656,6 +716,21 @@ pub async fn connect_ssh(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The tab closes on the first two and stays on the third.
+    #[test]
+    fn a_close_is_told_apart_from_an_exit_and_a_drop() {
+        assert_eq!(close_reason(true, false), CloseReason::Closed);
+        assert_eq!(close_reason(true, true), CloseReason::Closed, "the user's close wins");
+        assert_eq!(close_reason(false, true), CloseReason::Exited);
+        assert_eq!(close_reason(false, false), CloseReason::Dropped);
+    }
+
+    #[test]
+    fn the_reason_is_sent_as_the_word_the_frontend_matches_on() {
+        let json = serde_json::to_string(&ClosedEvent { reason: CloseReason::Dropped }).unwrap();
+        assert_eq!(json, r#"{"reason":"dropped"}"#);
+    }
 
     #[test]
     fn output_is_held_until_the_terminal_attaches() {

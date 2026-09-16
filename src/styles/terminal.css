@@ -56,6 +56,41 @@
   font-size: 12px;
 }
 
+/* A dropped connection. Same colours as .sftp-notice, since it is the same
+   kind of message, but at the top: the last lines of output are at the
+   bottom and are what the user is looking at. */
+.term-dropped {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  padding: 7px 14px;
+  background: color-mix(in srgb, var(--danger) 22%, var(--bg-dark));
+  border-bottom: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+.term-dropped-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.term-dropped-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--danger);
+}
+
+.term-dropped-error {
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--text-muted);
+  word-break: break-word;
+}
+
 .term-search-bad { border-color: var(--danger); }
 .term-search-failed { color: var(--danger); }
 
