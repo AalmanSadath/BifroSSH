@@ -197,6 +197,17 @@ export default function SettingsPanel() {
             />
           </div>
         </div>
+        <NumberSetting
+          label="Scrollback (lines)"
+          value={settings.scrollback_lines}
+          min={1000}
+          max={1000000}
+          onCommit={(v) => patch({ scrollback_lines: v })}
+        />
+        <p className="form-hint">
+          How much output a terminal keeps above the screen. Applies to open tabs as well;
+          lowering it drops what is beyond the new limit.
+        </p>
       </section>
 
       <section className="panel-section">

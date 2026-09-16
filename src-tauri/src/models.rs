@@ -226,6 +226,10 @@ pub struct Settings {
     /// the unlock screen. On by default.
     #[serde(default = "Settings::default_lock_on_suspend")]
     pub lock_on_suspend: bool,
+    /// Lines a terminal keeps above the screen. Was a constant of the same
+    /// value; a settings file from before this reads the same.
+    #[serde(default = "Settings::default_scrollback_lines")]
+    pub scrollback_lines: u32,
 }
 
 impl Default for Settings {
@@ -245,6 +249,7 @@ impl Default for Settings {
             keepalive_interval_secs: 30,
             auto_lock_minutes: 0,
             lock_on_suspend: true,
+            scrollback_lines: 10_000,
         }
     }
 }
@@ -255,6 +260,7 @@ impl Settings {
     fn default_sftp_inactivity_timeout() -> u32 { 300 }
     fn default_keepalive_interval() -> u32 { 30 }
     fn default_lock_on_suspend() -> bool { true }
+    fn default_scrollback_lines() -> u32 { 10_000 }
 }
 
 /// A saved port forwarding rule. Started on demand; never auto-connected.

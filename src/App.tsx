@@ -143,6 +143,7 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.shiftKey && e.code === 'KeyL') {
         e.preventDefault();
+        e.stopPropagation();
         void lockNow();
       }
     };
@@ -270,6 +271,64 @@ export default function App() {
     if (session?.session_id) ipc.sshDisconnect(session.session_id).catch(() => {});
     removeSession(tabId);
   }
+
+  // Read through a ref by the key handler below, which is bound once and
+  // would otherwise see the sessions and active tab of its first render.
+  const tabsRef = useRef({ sessions, activeTabId });
+  tabsRef.current = { sessions, activeTabId };
+
+  /**
+   * Tab keys. Cycling is over session tabs only, in strip order, wrapping;
+   * from a fixed tab, next lands on the first session and previous on the
+   * last. Capture phase on the window, and the event is stopped there, not
+   * just defaulted: xterm's key handler does not look at defaultPrevented,
+   * and let through it turned Ctrl+PageUp into the shell receiving "5~".
+   *
+   * Ctrl+W is left alone: it is readline's delete-word, and every shell
+   * wants it. Ctrl+Shift+W is what GNOME Terminal uses for the same reason.
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.altKey || e.metaKey) return;
+      const { sessions: tabs, activeTabId: active } = tabsRef.current;
+      const idx = tabs.findIndex((t) => t.tab_id === active);
+
+      const next = e.code === 'Tab' && !e.shiftKey || e.code === 'PageDown';
+      const prev = e.code === 'Tab' && e.shiftKey || e.code === 'PageUp';
+      if (next || prev) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (tabs.length === 0) return;
+        const target = idx < 0
+          ? (next ? 0 : tabs.length - 1)
+          : (idx + (next ? 1 : tabs.length - 1)) % tabs.length;
+        setActiveTab(tabs[target].tab_id);
+        return;
+      }
+      if (e.shiftKey && e.code === 'KeyT') {
+        e.preventDefault();
+        e.stopPropagation();
+        const current = idx >= 0 ? tabs[idx] : undefined;
+        // A quick connection has no host record to open again.
+        if (current && current.server_id) openSession(current.server_id);
+        return;
+      }
+      if (e.shiftKey && e.code === 'KeyW') {
+        e.preventDefault();
+        e.stopPropagation();
+        // Not closeTab: that reads `sessions` from the render it was made
+        // in, and this listener was made once. The tab from the ref is the
+        // live one.
+        const current = idx >= 0 ? tabs[idx] : undefined;
+        if (!current) return;
+        if (current.session_id) ipc.sshDisconnect(current.session_id).catch(() => {});
+        removeSession(current.tab_id);
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function handleTabContextMenu(e: React.MouseEvent, session: SessionTab) {
     e.preventDefault();

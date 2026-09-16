@@ -124,6 +124,7 @@ const DEFAULT_SETTINGS: Settings = {
   keepalive_interval_secs: 30,
   auto_lock_minutes: 0,
   lock_on_suspend: true,
+  scrollback_lines: 10000,
   accent_color: null,
 };
 

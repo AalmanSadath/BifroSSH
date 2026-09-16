@@ -179,6 +179,8 @@ export interface Settings {
   auto_lock_minutes: number;
   /** Lock before the machine sleeps. */
   lock_on_suspend: boolean;
+  /** Lines a terminal keeps above the screen. */
+  scrollback_lines: number;
 }
 
 /** How the user chose to keep the master key on the first run screen. */
