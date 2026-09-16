@@ -85,6 +85,31 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.14.0" date="2026-09-17">
+      <description>
+        <p>
+          The vault can be locked. Ctrl+Shift+L locks it, and Settings can
+          lock it after a period with no input or before the computer
+          sleeps. Terminal sessions and tunnels already open stay connected
+          behind the lock. Locking needs a master passphrase to be set.
+        </p>
+        <p>
+          A terminal tab whose connection drops keeps its scrollback and
+          offers to reconnect, instead of closing. Typing exit still closes
+          the tab.
+        </p>
+        <p>
+          A host can forward your ssh-agent, the same as ssh -A, so programs
+          there can use your keys without the keys leaving this machine. Off
+          unless turned on for that host.
+        </p>
+        <p>
+          Tabs switch, open and close from the keyboard: Ctrl+Tab,
+          Ctrl+PageUp and PageDown, Ctrl+Shift+T and Ctrl+Shift+W. The
+          terminal's scrollback length is a setting.
+        </p>
+      </description>
+    </release>
     <release version="0.13.3" date="2026-09-16">
       <description>
         <p>
