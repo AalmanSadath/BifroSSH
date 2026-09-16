@@ -309,14 +309,33 @@ export interface LogEntry {
 }
 
 export interface SessionTab {
-  session_id: string;
+  /**
+   * The tab's identity: the connect id it was born with, never changed.
+   * Everything that names a tab, from the strip to the theme override, uses
+   * this. It used to be the backend session id, which meant a reconnect was
+   * a new tab and the scrollback went with the old one.
+   */
+  tab_id: string;
+  /** The live backend session, or null while connecting or after a drop. */
+  session_id: string | null;
   server_name: string;
   server_id: string;
-  status: 'connecting' | 'connected' | 'error';
+  /**
+   * `dropped` is a connection that went away under a tab that is kept: the
+   * terminal stays mounted with its scrollback and offers to reconnect.
+   */
+  status: 'connecting' | 'connected' | 'dropped' | 'error';
+  /** A reconnect is in flight for a dropped tab. */
+  reconnecting?: boolean;
   connect_id?: string;
   error?: string;
   logs?: LogEntry[];
   quick_info?: { host: string; port: number; username: string };
+}
+
+/** Payload of `ssh-closed:{session_id}`. */
+export interface SshClosed {
+  reason: 'exited' | 'closed' | 'dropped';
 }
 
 export interface Codeprint {

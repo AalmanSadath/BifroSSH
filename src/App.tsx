@@ -216,11 +216,12 @@ export default function App() {
     if (tabCtx?.mode === 'rename') renameInputRef.current?.select();
   }, [tabCtx?.mode]);
 
-  function handleCloseTab(sessionId: string, e: React.MouseEvent) {
+  function handleCloseTab(tabId: string, e: React.MouseEvent) {
     e.stopPropagation();
-    const session = sessions.find((s) => s.session_id === sessionId);
-    if (session?.status === 'connected') ipc.sshDisconnect(sessionId).catch(() => {});
-    removeSession(sessionId);
+    const session = sessions.find((s) => s.tab_id === tabId);
+    // A dropped tab has no session to close; the store entry is all there is.
+    if (session?.session_id) ipc.sshDisconnect(session.session_id).catch(() => {});
+    removeSession(tabId);
   }
 
   function handleTabContextMenu(e: React.MouseEvent, session: SessionTab) {
@@ -263,7 +264,7 @@ export default function App() {
   function commitRename() {
     if (!tabCtx) return;
     const name = renameValue.trim();
-    if (name) renameSession(tabCtx.session.session_id, name);
+    if (name) renameSession(tabCtx.session.tab_id, name);
     setTabCtx(null);
   }
 
@@ -336,16 +337,16 @@ export default function App() {
         <div className={`tab-bar${sessions.length === 0 ? ' tab-bar-empty' : ''}`}>
           {sessions.map((s) => (
               <div
-                key={s.session_id}
-                className={`tab ${activeTabId === s.session_id ? 'tab-active' : ''}`}
-                onClick={() => setActiveTab(s.session_id)}
+                key={s.tab_id}
+                className={`tab ${activeTabId === s.tab_id ? 'tab-active' : ''}`}
+                onClick={() => setActiveTab(s.tab_id)}
                 onContextMenu={(e) => handleTabContextMenu(e, s)}
               >
                 <span className="tab-title">{s.server_name}</span>
-                <button className="tab-close" onClick={(e) => handleCloseTab(s.session_id, e)}>&#10005;</button>
+                <button className="tab-close" onClick={(e) => handleCloseTab(s.tab_id, e)}>&#10005;</button>
               </div>
             ))}
-            {sessions.some((s) => s.session_id === activeTabId) && (
+            {sessions.some((s) => s.tab_id === activeTabId) && (
               <button
                 className={`tab-sidebar-toggle${termSidebarOpen ? ' active' : ''}`}
                 onClick={() => setTermSidebarOpen((v) => !v)}
@@ -374,13 +375,13 @@ export default function App() {
             if (s.status === 'connecting' || s.status === 'error') {
               if (!server) return null;
               return (
-                <div key={s.session_id} style={{ display: activeTabId === s.session_id ? 'contents' : 'none' }}>
+                <div key={s.tab_id} style={{ display: activeTabId === s.tab_id ? 'contents' : 'none' }}>
                   <ConnectingView
                     server={server}
                     logs={s.logs ?? []}
                     error={s.error}
-                    onClose={() => removeSession(s.session_id)}
-                    onRetry={s.quick_info ? undefined : () => { removeSession(s.session_id); openSession(s.server_id); }}
+                    onClose={() => removeSession(s.tab_id)}
+                    onRetry={s.quick_info ? undefined : () => { removeSession(s.tab_id); openSession(s.server_id); }}
                     onEditHost={s.quick_info ? undefined : () => setEditServerId(server.id)}
                   />
                 </div>
@@ -389,10 +390,9 @@ export default function App() {
 
             return (
               <TerminalView
-                key={s.session_id}
-                sessionId={s.session_id}
-                serverId={s.server_id}
-                active={activeTabId === s.session_id}
+                key={s.tab_id}
+                tab={s}
+                active={activeTabId === s.tab_id}
               />
             );
           })}
@@ -405,7 +405,7 @@ export default function App() {
           {activeTabId === 'settings' && <SettingsPanel />}
           {activeTabId === 'theme-editor' && <ThemeEditorPanel />}
           </div>
-          {termSidebarOpen && sessions.some((s) => s.session_id === activeTabId) && (
+          {termSidebarOpen && sessions.some((s) => s.tab_id === activeTabId) && (
             <TerminalSidebar activeSessionId={activeTabId} />
           )}
         </div>
@@ -497,7 +497,7 @@ export default function App() {
                 Rename
               </button>
               <div className="menu-divider" />
-              <button className="menu-item menu-item-danger" onClick={(e) => { handleCloseTab(tabCtx.session.session_id, e); setTabCtx(null); }}>
+              <button className="menu-item menu-item-danger" onClick={(e) => { handleCloseTab(tabCtx.session.tab_id, e); setTabCtx(null); }}>
                 Close Connection
               </button>
             </>

@@ -217,15 +217,20 @@ interface AppStore {
   updateCodeprint: (id: string, cp: Omit<Codeprint, 'id'>) => void;
   deleteCodeprint: (id: string) => void;
 
+  /** Keyed by tab id. */
   sessionThemeOverrides: Record<string, string>;
-  setSessionTheme: (sessionId: string, themeKey: string) => void;
+  setSessionTheme: (tabId: string, themeKey: string) => void;
 
   addSession: (tab: SessionTab) => void;
-  removeSession: (sessionId: string) => void;
-  renameSession: (sessionId: string, name: string) => void;
-  updateSessionConnected: (connectId: string, sessionId: string) => void;
-  updateSessionError: (connectId: string, error: string) => void;
-  appendSessionLog: (connectId: string, entry: LogEntry) => void;
+  removeSession: (tabId: string) => void;
+  renameSession: (tabId: string, name: string) => void;
+  updateSessionConnected: (tabId: string, sessionId: string) => void;
+  updateSessionError: (tabId: string, error: string) => void;
+  appendSessionLog: (tabId: string, entry: LogEntry) => void;
+  /** The connection under a tab went away; the tab stays. */
+  markDropped: (tabId: string) => void;
+  /** Connects a dropped tab again, into the same terminal. */
+  reconnectSession: (tabId: string) => Promise<void>;
   openSession: (serverId: string) => Promise<void>;
   quickConnect: (host: string, port: number, username: string, authType: AuthType, authValue: string) => Promise<void>;
   setActiveTab: (id: string | null) => void;
@@ -607,65 +612,114 @@ export const useAppStore = create<AppStore>((set, get) => ({
     });
   },
 
-  setSessionTheme: (sessionId, themeKey) => {
+  setSessionTheme: (tabId, themeKey) => {
     set((s) => ({
-      sessionThemeOverrides: { ...s.sessionThemeOverrides, [sessionId]: themeKey },
+      sessionThemeOverrides: { ...s.sessionThemeOverrides, [tabId]: themeKey },
     }));
   },
 
   addSession: (tab) =>
     set((s) => ({
       sessions: [...s.sessions, tab],
-      activeTabId: tab.session_id,
+      activeTabId: tab.tab_id,
     })),
 
-  removeSession: (sessionId) =>
+  removeSession: (tabId) =>
     set((s) => {
-      const next = s.sessions.filter((x) => x.session_id !== sessionId);
+      const next = s.sessions.filter((x) => x.tab_id !== tabId);
       const nextActive =
-        s.activeTabId === sessionId
+        s.activeTabId === tabId
           ? next.length > 0
-            ? next[next.length - 1].session_id
+            ? next[next.length - 1].tab_id
             : 'hosts'
           : s.activeTabId;
-      // The override is keyed on a session id that will never be reused, so
+      // The override is keyed on a tab id that will never be reused, so
       // leaving it behind grows the map for the life of the process.
-      const { [sessionId]: _dropped, ...themeOverrides } = s.sessionThemeOverrides;
+      const { [tabId]: _dropped, ...themeOverrides } = s.sessionThemeOverrides;
       return { sessions: next, activeTabId: nextActive, sessionThemeOverrides: themeOverrides };
     }),
 
-  renameSession: (sessionId, name) =>
+  renameSession: (tabId, name) =>
     set((s) => ({
       sessions: s.sessions.map((t) =>
-        t.session_id === sessionId ? { ...t, server_name: name } : t
+        t.tab_id === tabId ? { ...t, server_name: name } : t
       ),
     })),
 
-  updateSessionConnected: (connectId, sessionId) =>
+  // The tab keeps its id; only the session under it is new. That is what
+  // lets a reconnect land in the same terminal.
+  updateSessionConnected: (tabId, sessionId) =>
     set((s) => ({
       sessions: s.sessions.map((t) =>
-        t.session_id === connectId
-          ? { ...t, session_id: sessionId, status: 'connected', connect_id: undefined, error: undefined }
+        t.tab_id === tabId
+          ? { ...t, session_id: sessionId, status: 'connected', reconnecting: false, connect_id: undefined, error: undefined }
           : t
       ),
-      activeTabId: s.activeTabId === connectId ? sessionId : s.activeTabId,
     })),
 
-  updateSessionError: (connectId, error) =>
+  updateSessionError: (tabId, error) =>
     set((s) => ({
       sessions: s.sessions.map((t) =>
-        t.session_id === connectId ? { ...t, status: 'error', error } : t
+        t.tab_id === tabId ? { ...t, status: 'error', error } : t
       ),
     })),
 
-  appendSessionLog: (connectId, entry) =>
+  appendSessionLog: (tabId, entry) =>
     set((s) => ({
       sessions: s.sessions.map((t) =>
-        t.session_id === connectId
+        t.tab_id === tabId
           ? { ...t, logs: [...(t.logs ?? []), entry] }
           : t
       ),
     })),
+
+  markDropped: (tabId) =>
+    set((s) => ({
+      sessions: s.sessions.map((t) =>
+        t.tab_id === tabId ? { ...t, status: 'dropped', session_id: null, error: undefined } : t
+      ),
+    })),
+
+  reconnectSession: async (tabId) => {
+    const { sessions, servers, identities } = get();
+    const tab = sessions.find((t) => t.tab_id === tabId);
+    if (!tab || tab.status !== 'dropped' || tab.reconnecting) return;
+    const server = servers.find((sv) => sv.id === tab.server_id);
+    if (!server) return;
+
+    // Resolved again rather than remembered: the host may have been edited
+    // since, and the credentials are whatever it says now.
+    const resolved = await resolveServerAuth(server, identities);
+    if (!resolved) {
+      get().setActionError(`No authentication is configured for "${server.name}".`);
+      return;
+    }
+
+    set((s) => ({
+      sessions: s.sessions.map((t) => (t.tab_id === tabId ? { ...t, reconnecting: true, error: undefined } : t)),
+    }));
+    try {
+      const jumps = await buildJumpChain(server, servers, identities);
+      const sessionId = await ipc.sshConnect({
+        server_id: server.id,
+        username: resolved.username,
+        auth_type: resolved.authType,
+        auth_value: resolved.authValue,
+        cols: 80,
+        rows: 24,
+        connect_id: crypto.randomUUID(),
+        jumps,
+      });
+      get().updateSessionConnected(tabId, sessionId);
+    } catch (err) {
+      // Still dropped, still there. The banner shows why it did not come back.
+      set((s) => ({
+        sessions: s.sessions.map((t) =>
+          t.tab_id === tabId ? { ...t, reconnecting: false, error: String(err) } : t
+        ),
+      }));
+    }
+  },
 
   openSession: async (serverId) => {
     const { servers, identities, sessions, detectServerOs } = get();
@@ -693,7 +747,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
           : `No authentication is configured for "${server.name}". Add a key, password or prompt auth in its settings.`;
       set((s) => ({
         sessions: [...s.sessions, {
-          session_id: connectId,
+          tab_id: connectId,
+          session_id: null,
           server_name: tabName,
           server_id: serverId,
           status: 'error',
@@ -712,7 +767,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const ok = await startSession(
       connectId,
       {
-        session_id: connectId,
+        tab_id: connectId,
+        session_id: null,
         server_name: tabName,
         server_id: serverId,
         status: 'connecting',
@@ -742,7 +798,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
     await startSession(
       connectId,
       {
-        session_id: connectId,
+        tab_id: connectId,
+        session_id: null,
         server_name: `${username}@${host}`,
         server_id: '',
         status: 'connecting',

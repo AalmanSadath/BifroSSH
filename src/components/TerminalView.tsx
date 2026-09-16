@@ -7,12 +7,13 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import * as ipc from '../ipc';
 import { listen } from '@tauri-apps/api/event';
 import { useAppStore } from '../store/appStore';
+import type { SessionTab, SshClosed } from '../types';
 import { THEMES } from '../styles/themes';
 import '@xterm/xterm/css/xterm.css';
 
 interface Props {
-  sessionId: string;
-  serverId: string;
+  /** The tab this terminal belongs to; its session may come and go. */
+  tab: SessionTab;
   active: boolean;
 }
 
@@ -22,13 +23,23 @@ interface SearchOptions {
   regex: boolean;
 }
 
-export default function TerminalView({ sessionId, serverId, active }: Props) {
+export default function TerminalView({ tab, active }: Props) {
+  const { tab_id: tabId, session_id: sessionId, server_id: serverId } = tab;
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const searchRef = useRef<SearchAddon | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const { settings, servers, removeSession, sessionThemeOverrides, customThemes } = useAppStore();
+  /**
+   * The session the terminal's own handlers send to. A ref, because the
+   * handlers are bound once when the terminal is made and the session under
+   * the tab changes on a reconnect. Null means keystrokes go nowhere.
+   */
+  const sessionIdRef = useRef<string | null>(sessionId);
+  sessionIdRef.current = sessionId;
+  /** Whether a session has been bound before, so the next one is a reconnect. */
+  const boundOnceRef = useRef(false);
+  const { settings, servers, removeSession, markDropped, reconnectSession, sessionThemeOverrides, customThemes } = useAppStore();
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -42,7 +53,7 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
   const [searchError, setSearchError] = useState<string | null>(null);
 
   function effectiveThemeKey() {
-    if (sessionThemeOverrides[sessionId]) return sessionThemeOverrides[sessionId];
+    if (sessionThemeOverrides[tabId]) return sessionThemeOverrides[tabId];
     const server = servers.find((s) => s.id === serverId);
     return server?.theme ?? settings.theme;
   }
@@ -222,8 +233,9 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
         // Explicitly push the real PTY size to the server — onResize alone
         // can miss this if the cols/rows match the xterm default (80×24).
         const { cols, rows } = term;
-        if (cols > 0 && rows > 0) {
-          ipc.sshResize(sessionId, cols, rows).catch(() => {});
+        const sid = sessionIdRef.current;
+        if (sid && cols > 0 && rows > 0) {
+          ipc.sshResize(sid, cols, rows).catch(() => {});
         }
       });
     });
@@ -307,12 +319,20 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
     });
 
     term.onData((data) => {
+      const sid = sessionIdRef.current;
+      if (!sid) {
+        // Dropped. Enter is what the hands do to a dead session anyway, so
+        // it is the reconnect; everything else goes nowhere.
+        if (data === '\r') reconnectSession(tabId);
+        return;
+      }
       const bytes = Array.from(new TextEncoder().encode(data));
-      ipc.sshSendInput(sessionId, bytes).catch(() => {});
+      ipc.sshSendInput(sid, bytes).catch(() => {});
     });
 
     term.onResize(({ cols, rows }) => {
-      ipc.sshResize(sessionId, cols, rows).catch(() => {});
+      const sid = sessionIdRef.current;
+      if (sid) ipc.sshResize(sid, cols, rows).catch(() => {});
     });
 
     term.onSelectionChange(() => {
@@ -324,12 +344,40 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
       if (pos.end.y > cursorAbsRow) term.clearSelection();
     });
 
+    return () => {
+      container.removeEventListener('contextmenu', onContextMenu, true);
+      container.removeEventListener('mouseup', onMouseUp);
+      term.dispose();
+      termRef.current = null;
+      fitRef.current = null;
+      searchRef.current = null;
+    };
+  // Once per tab. The session under it is bound by the effect below.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /**
+   * Binds the terminal to whichever session the tab has. Runs again when the
+   * session changes, which is a reconnect: the terminal and its scrollback
+   * stay, and the new session's output continues below the old.
+   */
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term || !sessionId) return;
+
     // Unsubscribing is asynchronous while disposal is not, so an event can
     // still arrive after the terminal is gone. Writing to a disposed terminal
     // throws, inside an event callback where nothing would catch it.
     let disposed = false;
     const decode = (payload: string) =>
       Uint8Array.from(atob(payload), (c) => c.charCodeAt(0));
+
+    if (boundOnceRef.current) {
+      term.write('\r\n\x1b[32m[Reconnected]\x1b[0m\r\n');
+      // The PTY on the new session is 80x24 until told otherwise.
+      if (term.cols > 0 && term.rows > 0) ipc.sshResize(sessionId, term.cols, term.rows).catch(() => {});
+    }
+    boundOnceRef.current = true;
 
     // Live chunks wait here until the backlog below has been written. The
     // backend stops holding output the moment ssh_attach returns, so without
@@ -346,10 +394,19 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
       else queued.push(buf);
     });
 
-    const unlistenClose = listen(`ssh-closed:${sessionId}`, () => {
-      // Nothing is written here: removing the session unmounts this terminal
-      // in the same tick, so any message would be gone before it was read.
-      removeSession(sessionId);
+    const unlistenClose = listen<SshClosed>(`ssh-closed:${sessionId}`, (ev) => {
+      if (disposed) return;
+      if (ev.payload.reason === 'dropped') {
+        // The tab stays, with everything on it. The line marks where the
+        // connection went in the scrollback, and the banner offers the way
+        // back.
+        term.write('\r\n\x1b[31m[Connection lost]\x1b[0m\r\n');
+        markDropped(tabId);
+        return;
+      }
+      // An exit the shell announced, or a close the user asked for. Nothing
+      // is written: removing the tab unmounts this terminal in the same tick.
+      removeSession(tabId);
     });
 
     // Collect what the shell said before the listener above existed. The
@@ -378,14 +435,8 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
 
     return () => {
       disposed = true;
-      container.removeEventListener('contextmenu', onContextMenu, true);
-      container.removeEventListener('mouseup', onMouseUp);
       unlistenOutput.then((fn) => fn());
       unlistenClose.then((fn) => fn());
-      term.dispose();
-      termRef.current = null;
-      fitRef.current = null;
-      searchRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
@@ -532,6 +583,30 @@ export default function TerminalView({ sessionId, serverId, active }: Props) {
           </button>
 
           {searchError && <p className="term-search-detail">{searchError}</p>}
+        </div>
+      )}
+
+      {tab.status === 'dropped' && (
+        // Over the terminal rather than in place of it: the scrollback is the
+        // point of keeping the tab, and it stays readable behind this.
+        <div className="term-dropped">
+          <div className="term-dropped-row">
+            <span className="term-dropped-text">
+              Connection lost.
+              {tab.quick_info && ' A quick connection cannot be reopened without the credentials typed for it.'}
+            </span>
+            {!tab.quick_info && (
+              <button
+                className="btn-primary btn-sm"
+                disabled={tab.reconnecting}
+                onClick={() => reconnectSession(tabId)}
+              >
+                {tab.reconnecting ? 'Reconnecting…' : 'Reconnect'}
+              </button>
+            )}
+            <button className="btn-secondary btn-sm" onClick={() => removeSession(tabId)}>Close</button>
+          </div>
+          {tab.error && <div className="term-dropped-error">{tab.error}</div>}
         </div>
       )}
 

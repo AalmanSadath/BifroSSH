@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { STORED } from '../types';
-import type { Identity, Server } from '../types';
+import type { Identity, Server, SessionTab } from '../types';
 
 // The store's credential resolution goes to the keychain for a stored
 // password, which is the one thing here that has to cross to Rust. Mocked so
@@ -11,7 +11,7 @@ vi.mock('../ipc', () => ({
   getServerPassword: vi.fn(async (id: string) => `server-secret:${id}`),
 }));
 
-const { buildJumpChain, resolveServerAuth } = await import('./appStore');
+const { buildJumpChain, resolveServerAuth, useAppStore } = await import('./appStore');
 const ipc = await import('../ipc');
 
 function server(over: Partial<Server> & { id: string }): Server {
@@ -176,5 +176,69 @@ describe('buildJumpChain', () => {
     await expect(buildJumpChain(target, [jump, target], [])).rejects.toThrow(
       'No credentials configured for the jump host "jump"',
     );
+  });
+});
+
+/**
+ * A tab is not its session. The tab id is minted when the tab opens and
+ * never changes; the session id is whatever backend session is under it now,
+ * and is null while there is none. Everything below is what lets a dropped
+ * connection reconnect into the same terminal instead of a new tab.
+ */
+describe('session tabs', () => {
+  const tab = (over: Partial<SessionTab> & { tab_id: string }): SessionTab => ({
+    session_id: null,
+    server_name: over.tab_id,
+    server_id: 'srv',
+    status: 'connecting',
+    ...over,
+  });
+
+  beforeEach(() => {
+    useAppStore.setState({ sessions: [], activeTabId: 'hosts', sessionThemeOverrides: {} });
+  });
+
+  it('keeps the tab id when the session connects', () => {
+    useAppStore.getState().addSession(tab({ tab_id: 't1' }));
+    useAppStore.getState().updateSessionConnected('t1', 'backend-1');
+
+    const [t] = useAppStore.getState().sessions;
+    expect(t.tab_id).toBe('t1');
+    expect(t.session_id).toBe('backend-1');
+    expect(t.status).toBe('connected');
+    expect(useAppStore.getState().activeTabId).toBe('t1');
+  });
+
+  it('keeps a dropped tab and forgets only its session', () => {
+    useAppStore.getState().addSession(tab({ tab_id: 't1', session_id: 'backend-1', status: 'connected' }));
+    useAppStore.getState().markDropped('t1');
+
+    const [t] = useAppStore.getState().sessions;
+    expect(t.status).toBe('dropped');
+    expect(t.session_id).toBeNull();
+    expect(useAppStore.getState().sessions).toHaveLength(1);
+  });
+
+  it('binds a new session to the same tab on reconnect', () => {
+    useAppStore.getState().addSession(tab({ tab_id: 't1', session_id: 'backend-1', status: 'connected' }));
+    useAppStore.getState().markDropped('t1');
+    useAppStore.getState().updateSessionConnected('t1', 'backend-2');
+
+    const [t] = useAppStore.getState().sessions;
+    expect(t.tab_id).toBe('t1');
+    expect(t.session_id).toBe('backend-2');
+    expect(t.status).toBe('connected');
+    expect(t.reconnecting).toBe(false);
+  });
+
+  it('removes by tab id and moves the active tab to the last one left', () => {
+    useAppStore.getState().addSession(tab({ tab_id: 't1' }));
+    useAppStore.getState().addSession(tab({ tab_id: 't2' }));
+    useAppStore.getState().setSessionTheme('t2', 'amoled');
+    useAppStore.getState().removeSession('t2');
+
+    expect(useAppStore.getState().sessions.map((t) => t.tab_id)).toEqual(['t1']);
+    expect(useAppStore.getState().activeTabId).toBe('t1');
+    expect(useAppStore.getState().sessionThemeOverrides).toEqual({});
   });
 });
