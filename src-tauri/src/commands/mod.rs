@@ -120,15 +120,51 @@ impl From<std::string::FromUtf8Error> for CmdError {
     }
 }
 
+/// The master key while the vault is open, and nothing while it is not.
+///
+/// Was a `OnceLock`, which can be filled once and never emptied. A lock has
+/// to empty it, so it is a lock around an option, with the three things
+/// anything ever does to it as methods.
+#[derive(Default)]
+pub struct KeyCell(std::sync::RwLock<Option<[u8; 32]>>);
+
+impl KeyCell {
+    pub fn holding(key: [u8; 32]) -> Self {
+        KeyCell(std::sync::RwLock::new(Some(key)))
+    }
+
+    pub fn get(&self) -> Option<[u8; 32]> {
+        *self.0.read().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub fn is_set(&self) -> bool {
+        self.get().is_some()
+    }
+
+    pub fn set(&self, key: [u8; 32]) {
+        *self.0.write().unwrap_or_else(|e| e.into_inner()) = Some(key);
+    }
+
+    /// Overwrites the bytes before letting go of them. The copy `get` hands
+    /// out is the caller's to look after; this is the one that lives on.
+    pub fn clear(&self) {
+        let mut slot = self.0.write().unwrap_or_else(|e| e.into_inner());
+        if let Some(key) = slot.as_mut() {
+            key.fill(0);
+        }
+        *slot = None;
+    }
+}
+
 pub struct AppState {
     pub data: tokio::sync::Mutex<AppData>,
-    /// Empty until the vault is open.
+    /// Empty until the vault is open, and again after a lock.
     ///
     /// This is what makes the locked state safe rather than merely gated:
     /// every read and every write needs the key, so a command that runs
-    /// before unlock fails on the missing key instead of quietly operating on
+    /// while locked fails on the missing key instead of quietly operating on
     /// an empty AppData and saving it over the real one.
-    pub secret_key: std::sync::OnceLock<[u8; 32]>,
+    pub secret_key: KeyCell,
     /// Set when the keystore could not be opened at all, to be shown on the
     /// unlock screen rather than lost to a terminal nobody is watching.
     pub startup_error: Option<String>,
@@ -145,7 +181,6 @@ impl AppState {
     pub fn key(&self) -> CmdResult<[u8; 32]> {
         self.secret_key
             .get()
-            .copied()
             .ok_or_else(|| CmdError::from("BifroSSH is locked. Enter your master passphrase first."))
     }
 
@@ -285,5 +320,43 @@ mod error_tests {
     fn the_context_chain_survives_the_trip_to_the_frontend() {
         let e = anyhow::anyhow!("No such file").context("/home/pi/text.txt");
         assert_eq!(CmdError::from(e).0, "/home/pi/text.txt: No such file");
+    }
+}
+
+#[cfg(test)]
+mod key_cell_tests {
+    use super::*;
+
+    fn state_with(key: Option<[u8; 32]>) -> AppState {
+        AppState {
+            data: tokio::sync::Mutex::new(AppData::default()),
+            secret_key: key.map(KeyCell::holding).unwrap_or_default(),
+            startup_error: None,
+            ssh_state: Arc::new(SshState::new()),
+            sftp_state: Arc::new(SftpClientState::new()),
+            tunnel_state: Arc::new(TunnelState::new()),
+            prompts: Arc::new(PromptState::new()),
+        }
+    }
+
+    #[test]
+    fn a_locked_state_refuses_to_hand_out_a_key() {
+        let state = state_with(None);
+        assert!(state.key().is_err(), "no key means every command fails, which is the whole guarantee");
+        assert!(!state.secret_key.is_set());
+    }
+
+    #[test]
+    fn a_cleared_key_is_gone_and_the_state_reads_as_locked() {
+        let state = state_with(Some([7u8; 32]));
+        assert_eq!(state.key().unwrap(), [7u8; 32]);
+
+        state.secret_key.clear();
+
+        assert!(state.key().is_err());
+        assert!(!state.secret_key.is_set());
+        // And a later unlock can fill it again, which a OnceLock could not.
+        state.secret_key.set([9u8; 32]);
+        assert_eq!(state.key().unwrap(), [9u8; 32]);
     }
 }

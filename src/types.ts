@@ -170,6 +170,10 @@ export interface Settings {
   accent_color: string | null;
   /** Seconds between keepalives on terminal and tunnel connections; 0 is off. */
   keepalive_interval_secs: number;
+  /** Minutes of no input before the vault locks; 0 is off. */
+  auto_lock_minutes: number;
+  /** Lock before the machine sleeps. */
+  lock_on_suspend: boolean;
 }
 
 /** How the user chose to keep the master key on the first run screen. */

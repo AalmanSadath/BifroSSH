@@ -26,7 +26,7 @@ pub struct VaultStatus {
 
 #[tauri::command]
 pub async fn vault_status(state: State<'_, AppState>) -> CmdResult<VaultStatus> {
-    let locked = state.secret_key.get().is_none();
+    let locked = !state.secret_key.is_set();
     let setup_required = locked
         && state.startup_error.is_none()
         && crate::store::get_data_dir()
@@ -63,7 +63,7 @@ pub async fn initialize_vault(
     passphrase: String,
     state: State<'_, AppState>,
 ) -> CmdResult<()> {
-    if state.secret_key.get().is_some() {
+    if state.secret_key.is_set() {
         return Err("This profile already has a key".to_string().into());
     }
     let dir = crate::store::get_data_dir()?;
@@ -71,14 +71,14 @@ pub async fn initialize_vault(
         return Err("This profile already has a key".to_string().into());
     }
     let key = crate::keystore::initialize(&dir, mode, &passphrase)?;
-    let _ = state.secret_key.set(key);
+    state.secret_key.set(key);
     Ok(())
 }
 
 /// Opens the vault and loads the data that could not be read until now.
 #[tauri::command]
 pub async fn unlock_vault(passphrase: String, state: State<'_, AppState>) -> CmdResult<()> {
-    if state.secret_key.get().is_some() {
+    if state.secret_key.is_set() {
         return Ok(());
     }
     let dir = crate::store::get_data_dir()?;
@@ -89,8 +89,43 @@ pub async fn unlock_vault(passphrase: String, state: State<'_, AppState>) -> Cmd
     // next save would write over the real one.
     let loaded = crate::store::load_app_data(&key)?;
     *state.data.lock().await = loaded;
-    let _ = state.secret_key.set(key);
+    state.secret_key.set(key);
     Ok(())
+}
+
+/// Closes the vault: the key is zeroed and dropped and the data with it, so
+/// from here every command fails the way it does before the first unlock.
+/// Sessions and tunnels already open stay open, the way a screen lock over a
+/// shell leaves the shell running; the key was used at connect time and is
+/// not what they run on.
+///
+/// Refused while no passphrase is set. The keyring would hand the key
+/// straight back on the next unlock without asking anyone, and a lock that
+/// anyone at the desk can undo with a click is a hidden window, not a lock.
+pub const LOCK_NEEDS_PASSPHRASE: &str =
+    "Set a master passphrase to enable locking. Without one the keyring would reopen the vault by itself.";
+
+pub async fn close_vault(state: &AppState, app: &tauri::AppHandle) -> CmdResult<()> {
+    if !state.secret_key.is_set() {
+        return Ok(());
+    }
+    let dir = crate::store::get_data_dir()?;
+    if !crate::keystore::has_passphrase(&dir) {
+        return Err(LOCK_NEEDS_PASSPHRASE.into());
+    }
+    // Data first, then the key: a command racing this sees either the real
+    // data with a key or nothing with nothing, never empty data with a key
+    // it could save.
+    *state.data.lock().await = crate::models::AppData::default();
+    state.secret_key.clear();
+    use tauri::Emitter;
+    let _ = app.emit("vault-locked", ());
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn lock_vault(state: State<'_, AppState>, app: tauri::AppHandle) -> CmdResult<()> {
+    close_vault(&state, &app).await
 }
 
 #[derive(serde::Serialize)]

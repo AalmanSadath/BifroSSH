@@ -212,6 +212,15 @@ pub struct Settings {
     /// sessions, and keepalive traffic would stop it ever firing.
     #[serde(default = "Settings::default_keepalive_interval")]
     pub keepalive_interval_secs: u32,
+    /// Minutes without input before the vault locks itself; 0 is off, and
+    /// off is the default. Input means the user's, not a server's: output
+    /// arriving in a terminal does not count.
+    #[serde(default)]
+    pub auto_lock_minutes: u32,
+    /// Lock before the machine sleeps, so what is on screen after resume is
+    /// the unlock screen. On by default.
+    #[serde(default = "Settings::default_lock_on_suspend")]
+    pub lock_on_suspend: bool,
 }
 
 impl Default for Settings {
@@ -229,6 +238,8 @@ impl Default for Settings {
             host_key_policy: HostKeyPolicy::Ask,
             accent_color: None,
             keepalive_interval_secs: 30,
+            auto_lock_minutes: 0,
+            lock_on_suspend: true,
         }
     }
 }
@@ -238,6 +249,7 @@ impl Settings {
     fn default_show_hover_hints() -> bool { true }
     fn default_sftp_inactivity_timeout() -> u32 { 300 }
     fn default_keepalive_interval() -> u32 { 30 }
+    fn default_lock_on_suspend() -> bool { true }
 }
 
 /// A saved port forwarding rule. Started on demand; never auto-connected.

@@ -122,6 +122,8 @@ const DEFAULT_SETTINGS: Settings = {
   sftp_inactivity_timeout_secs: 300,
   host_key_policy: 'ask',
   keepalive_interval_secs: 30,
+  auto_lock_minutes: 0,
+  lock_on_suspend: true,
   accent_color: null,
 };
 
