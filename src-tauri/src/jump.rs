@@ -128,7 +128,7 @@ pub async fn open_transport(
             HostKeyVerifier::new(sec.clone(), &hop.host, hop.port, Some(hop.username.clone()))
                 .into_jump();
         let mut handle =
-            crate::ssh::connect_verified(config, stream, verifier, |v| VerifyingHandler { v })
+            crate::ssh::connect_verified(config, stream, verifier, VerifyingHandler::new)
                 .await?;
 
         let ctx = AuthContext::new(sec.clone(), &hop.username).with_host(&hop.host);

@@ -618,6 +618,7 @@ mod tests {
             connection_timeout: None,
             auth_kind: None,
             proxy_jump: None,
+            forward_agent: false,
         }
     }
 

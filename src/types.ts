@@ -48,6 +48,11 @@ export interface Server {
    * chain of bastions is expressed one link at a time.
    */
   proxy_jump: string | null;
+  /**
+   * ssh's -A. While a session is open, programs on this host can use the
+   * local agent's keys, and so can anyone with root there. Off by default.
+   */
+  forward_agent: boolean;
 }
 
 /** Payload of the `sftp-progress` event, emitted as bytes move. */

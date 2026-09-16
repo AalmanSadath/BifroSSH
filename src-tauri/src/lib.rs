@@ -1,3 +1,4 @@
+mod agent_forward;
 mod appearance;
 mod clipboard;
 mod commands;

@@ -234,7 +234,7 @@ pub(crate) type AgentStream = tokio::net::windows::named_pipe::NamedPipeClient;
 /// that replace the built-in one (1Password, a WSL bridge) advertise their own
 /// pipe that way.
 #[cfg(unix)]
-async fn agent_stream() -> Result<AgentStream> {
+pub(crate) async fn agent_stream() -> Result<AgentStream> {
     let sock = std::env::var("SSH_AUTH_SOCK").map_err(|_| {
         anyhow!("Could not reach ssh-agent: SSH_AUTH_SOCK is not set, so no agent is running for this session.")
     })?;
@@ -244,7 +244,7 @@ async fn agent_stream() -> Result<AgentStream> {
 }
 
 #[cfg(windows)]
-async fn agent_stream() -> Result<AgentStream> {
+pub(crate) async fn agent_stream() -> Result<AgentStream> {
     const DEFAULT_PIPE: &str = r"\\.\pipe\openssh-ssh-agent";
     let pipe = std::env::var("SSH_AUTH_SOCK").unwrap_or_else(|_| DEFAULT_PIPE.to_string());
     tokio::net::windows::named_pipe::ClientOptions::new()
@@ -454,6 +454,9 @@ pub struct SshConnectParams {
     /// Jump hosts to reach this server through, outermost first. Empty for a
     /// direct connection.
     pub jumps: Vec<JumpHop>,
+    /// ssh's -A: the remote may use the local agent for as long as the
+    /// session lasts. Per host and off by default; see agent_forward.
+    pub forward_agent: bool,
 }
 
 /// russh sends a keepalive every interval and gives up after `keepalive_max`
@@ -517,7 +520,7 @@ pub async fn exec_ssh_command(
     let transport = jump::open_transport(jumps, host, port, &sec, None).await?;
 
     let verifier = HostKeyVerifier::new(sec.clone(), host, port, Some(username.to_string()));
-    let mut handle = connect_verified(config, transport, verifier, |v| VerifyingHandler { v }).await?;
+    let mut handle = connect_verified(config, transport, verifier, VerifyingHandler::new).await?;
 
     authenticate(&mut handle, &auth, &AuthContext::new(sec, username).with_host(host)).await?;
 
@@ -572,7 +575,20 @@ pub async fn connect_ssh(
     .await?;
 
     let verifier = HostKeyVerifier::new(sec.clone(), &params.host, params.port, Some(params.username.clone()));
-    let mut handle = connect_verified(config, transport, verifier, |v| VerifyingHandler { v }).await?;
+    // Forwarding is decided here, per host, and nowhere else: the handler is
+    // built allowing it or not, and a server that opens an agent channel
+    // against a handler that does not allow it gets that channel closed.
+    let forward_agent = params.forward_agent;
+    let agent_sec = sec.clone();
+    let mut handle = connect_verified(config, transport, verifier, move |v| VerifyingHandler {
+        v,
+        agent: if forward_agent {
+            crate::agent_forward::AgentForwarding::allowed(agent_sec)
+        } else {
+            crate::agent_forward::AgentForwarding::disallowed()
+        },
+    })
+    .await?;
 
     emit_log(&app, &connect_id, "auth", &format!("Authenticating to \"{}\":\"{}\" as \"{}\"", params.host, params.port, params.username));
     authenticate(&mut handle, &params.auth, &AuthContext::new(sec, &params.username).with_host(&params.host)).await?;
@@ -594,6 +610,20 @@ pub async fn connect_ssh(
         )
         .await
         .map_err(|_| anyhow!("PTY request failed"))?;
+
+    if params.forward_agent {
+        // Tried once now so the user learns at connect that there is no
+        // agent to forward, rather than at the first ssh-add -l on the far
+        // side. The request goes ahead either way; the answer to each
+        // channel is decided when it is opened.
+        match agent_stream().await {
+            Ok(_) => emit_log(&app, &connect_id, "auth", "Forwarding the local ssh-agent to this host"),
+            Err(e) => emit_log(&app, &connect_id, "error", &format!("Agent forwarding requested, but {e:#}")),
+        }
+        if let Err(e) = channel.agent_forward(true).await {
+            emit_log(&app, &connect_id, "error", &format!("Agent forwarding request failed: {e}"));
+        }
+    }
 
     emit_log(&app, &connect_id, "network", "Starting shell...");
     channel

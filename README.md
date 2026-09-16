@@ -91,7 +91,7 @@ Windows 10 1803 or later. WebView2 is already present on Windows 11 and on curre
 
 **SSH keys.** Generate Ed25519, RSA and ECDSA keys in the app, or import existing ones. Private keys are stored encrypted and never written to disk in the clear.
 
-**ssh-agent.** Authenticate with keys held by a running agent instead of importing them, so the key never enters the app. This is how to use PIV smartcards and YubiKeys, whose keys cannot be exported. On Linux the agent named by `SSH_AUTH_SOCK`; on Windows the OpenSSH agent service over its named pipe, or any agent that advertises its own pipe through `SSH_AUTH_SOCK`. Pageant is not supported, and neither are FIDO keys (`ed25519-sk`, `ecdsa-sk`) yet.
+**ssh-agent.** Authenticate with keys held by a running agent instead of importing them, so the key never enters the app. This is how to use PIV smartcards and YubiKeys, whose keys cannot be exported. On Linux the agent named by `SSH_AUTH_SOCK`; on Windows the OpenSSH agent service over its named pipe, or any agent that advertises its own pipe through `SSH_AUTH_SOCK`. Pageant is not supported, and neither are FIDO keys (`ed25519-sk`, `ecdsa-sk`) yet. A host can also be set to forward the agent, the same as `ssh -A`, so programs there can use your keys without the keys leaving this machine; that also lets anyone with root there use them while the session is open, so it is off unless you turn it on for that host.
 
 **Two-factor and keyboard-interactive.** Servers that ask challenge questions at login work, including PAM setups with `PasswordAuthentication` off and providers like Duo and TOTP apps. Where the server offers a choice of factors they appear as buttons. Password and key logins fall back to this automatically.
 
