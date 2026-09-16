@@ -50,6 +50,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
   const [themeOverride, setThemeOverride] = useState<string>(server?.theme ?? 'bifrossh-dark');
   const [timeoutSecs, setTimeoutSecs] = useState<string>(server?.connection_timeout != null ? String(server.connection_timeout) : '');
   const [proxyJump, setProxyJump] = useState(server?.proxy_jump ?? '');
+  const [forwardAgent, setForwardAgent] = useState(server?.forward_agent ?? false);
   const [themeExpanded, setThemeExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -100,6 +101,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
           // Set on the identity, not here; preserved so editing a host does not clear it.
           auth_kind: server?.auth_kind ?? null,
           proxy_jump: proxyJump || null,
+          forward_agent: forwardAgent,
         },
         (!identityId && !keyId && password.trim()) ? password.trim() : undefined,
       );
@@ -264,12 +266,23 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
                 </option>
               ))}
             </select>
-            <p className="form-hint">
-              Reach this host through another saved host, the way ssh does with
-              ProxyJump. The jump host connects with its own credentials, and its
-              own jump host is followed too.
-            </p>
           </div>
+
+          {/* Not inside a form-group: the row carries its own bottom margin,
+              and the group's on top of it put twice the gap below the box that
+              there was above it. The tradeoff of ssh -A lives in the tooltip
+              and the README rather than under the box. */}
+          <label
+            className="checkbox-row"
+            title="The same as ssh -A. Anyone with root on this host can use your agent's keys while the session is open."
+          >
+            <input
+              type="checkbox"
+              checked={forwardAgent}
+              onChange={(e) => setForwardAgent(e.target.checked)}
+            />
+            <span>Forward ssh-agent to this host</span>
+          </label>
 
           <div className="form-group">
             <label>Connection Attempt Timeout (seconds)</label>

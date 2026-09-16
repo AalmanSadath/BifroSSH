@@ -27,6 +27,8 @@ finish-args:
   - --filesystem=home
   # Desktop notifications
   - --talk-name=org.freedesktop.Notifications
+  # logind's PrepareForSleep, so the vault can lock before the machine sleeps
+  - --system-talk-name=org.freedesktop.login1
   # WebKitGTK: disable internal sandbox and compositing in Flatpak
   - --env=WEBKIT_DISABLE_SANDBOX=1
   - --env=WEBKIT_DISABLE_COMPOSITING_MODE=1

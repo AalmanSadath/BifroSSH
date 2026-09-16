@@ -216,7 +216,7 @@ where
     Fut: std::future::Future<Output = ()> + Send + 'static,
 {
     let handle: SharedHandle =
-        Arc::new(Mutex::new(connect_tunnel(&base, |v| VerifyingHandler { v }).await?));
+        Arc::new(Mutex::new(connect_tunnel(&base, VerifyingHandler::new).await?));
     let listener = TcpListener::bind(format!("{}:{}", base.bind_address, local_port)).await?;
     let (stop_tx, stop_rx) = oneshot::channel::<()>();
 

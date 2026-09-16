@@ -10,7 +10,12 @@ import type { KeystoreStatus } from '../types';
  * available. Falling back quietly to a key on disk while implying it is in the
  * keyring would be worse than not having the feature at all.
  */
-export default function MasterKeySection() {
+interface Props {
+  /** The passphrase was set or removed, which changes what else can be done. */
+  onChanged?: () => void;
+}
+
+export default function MasterKeySection({ onChanged }: Props = {}) {
   const [status, setStatus] = useState<KeystoreStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -23,9 +28,12 @@ export default function MasterKeySection() {
 
   const refresh = () =>
     ipc.keystoreStatus()
-      .then(setStatus)
+      .then((st) => { setStatus(st); onChanged?.(); })
       .catch((e) => setError(String(e)));
 
+  // Once, at mount. `refresh` closes over `onChanged`, which the parent may
+  // recreate on every render; following it would refetch on each one.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { refresh(); }, []);
 
   function reset() {

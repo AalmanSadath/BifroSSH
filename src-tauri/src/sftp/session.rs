@@ -67,7 +67,7 @@ async fn connect_sftp_inner(
 
     let verifier = HostKeyVerifier::new(sec.clone(), host, port, Some(username.to_string()));
     let mut handle =
-        crate::ssh::connect_verified(config, transport, verifier, |v| VerifyingHandler { v })
+        crate::ssh::connect_verified(config, transport, verifier, VerifyingHandler::new)
             .await
             .inspect_err(|e| sec.log("error", &format!("{e:#}")))?;
 

@@ -131,6 +131,11 @@ pub struct Server {
     /// a chain of bastions is expressed one link at a time.
     #[serde(default)]
     pub proxy_jump: Option<String>,
+    /// ssh's -A. While a session to this host is open, programs there can use
+    /// the local agent's keys, and so can anyone with root there. Off unless
+    /// the user turned it on for this host.
+    #[serde(default)]
+    pub forward_agent: bool,
 }
 
 impl Server {
@@ -212,6 +217,19 @@ pub struct Settings {
     /// sessions, and keepalive traffic would stop it ever firing.
     #[serde(default = "Settings::default_keepalive_interval")]
     pub keepalive_interval_secs: u32,
+    /// Minutes without input before the vault locks itself; 0 is off, and
+    /// off is the default. Input means the user's, not a server's: output
+    /// arriving in a terminal does not count.
+    #[serde(default)]
+    pub auto_lock_minutes: u32,
+    /// Lock before the machine sleeps, so what is on screen after resume is
+    /// the unlock screen. On by default.
+    #[serde(default = "Settings::default_lock_on_suspend")]
+    pub lock_on_suspend: bool,
+    /// Lines a terminal keeps above the screen. Was a constant of the same
+    /// value; a settings file from before this reads the same.
+    #[serde(default = "Settings::default_scrollback_lines")]
+    pub scrollback_lines: u32,
 }
 
 impl Default for Settings {
@@ -229,6 +247,9 @@ impl Default for Settings {
             host_key_policy: HostKeyPolicy::Ask,
             accent_color: None,
             keepalive_interval_secs: 30,
+            auto_lock_minutes: 0,
+            lock_on_suspend: true,
+            scrollback_lines: 10_000,
         }
     }
 }
@@ -238,6 +259,8 @@ impl Settings {
     fn default_show_hover_hints() -> bool { true }
     fn default_sftp_inactivity_timeout() -> u32 { 300 }
     fn default_keepalive_interval() -> u32 { 30 }
+    fn default_lock_on_suspend() -> bool { true }
+    fn default_scrollback_lines() -> u32 { 10_000 }
 }
 
 /// A saved port forwarding rule. Started on demand; never auto-connected.

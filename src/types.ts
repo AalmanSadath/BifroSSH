@@ -48,6 +48,11 @@ export interface Server {
    * chain of bastions is expressed one link at a time.
    */
   proxy_jump: string | null;
+  /**
+   * ssh's -A. While a session is open, programs on this host can use the
+   * local agent's keys, and so can anyone with root there. Off by default.
+   */
+  forward_agent: boolean;
 }
 
 /** Payload of the `sftp-progress` event, emitted as bytes move. */
@@ -170,6 +175,12 @@ export interface Settings {
   accent_color: string | null;
   /** Seconds between keepalives on terminal and tunnel connections; 0 is off. */
   keepalive_interval_secs: number;
+  /** Minutes of no input before the vault locks; 0 is off. */
+  auto_lock_minutes: number;
+  /** Lock before the machine sleeps. */
+  lock_on_suspend: boolean;
+  /** Lines a terminal keeps above the screen. */
+  scrollback_lines: number;
 }
 
 /** How the user chose to keep the master key on the first run screen. */

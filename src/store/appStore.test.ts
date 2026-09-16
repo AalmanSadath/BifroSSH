@@ -28,6 +28,7 @@ function server(over: Partial<Server> & { id: string }): Server {
     connection_timeout: null,
     auth_kind: null,
     proxy_jump: null,
+    forward_agent: false,
     ...over,
   };
 }

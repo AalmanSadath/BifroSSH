@@ -99,6 +99,7 @@ pub async fn import_ssh_config_hosts(
             connection_timeout: None,
             auth_kind: None,
             proxy_jump: None,
+            forward_agent: false,
         });
         result.imported += 1;
     }

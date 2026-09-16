@@ -1,3 +1,4 @@
+mod agent_forward;
 mod appearance;
 mod clipboard;
 mod commands;
@@ -22,6 +23,7 @@ mod agent_tests;
 #[cfg(test)]
 mod ssh_auth_tests;
 mod store;
+mod suspend;
 mod transfer;
 mod tunnel;
 mod wordlist;
@@ -81,7 +83,7 @@ pub fn run() {
     let data_dir = match store::get_data_dir() {
         Ok(dir) => dir,
         Err(e) => {
-            return start(std::sync::OnceLock::new(), Default::default(), Some(format!("{e:#}")))
+            return start(commands::KeyCell::default(), Default::default(), Some(format!("{e:#}")))
         }
     };
 
@@ -89,25 +91,23 @@ pub fn run() {
         // Nothing has ever been written here. The user chooses how the key
         // should be kept before one exists, rather than having a file on disk
         // picked for them and having to undo it.
-        (std::sync::OnceLock::new(), None)
+        (commands::KeyCell::default(), None)
     } else {
         match keystore::unlock(&data_dir) {
         Ok(unlocked) if unlocked.needs_passphrase => {
-            (std::sync::OnceLock::new(), None)
+            (commands::KeyCell::default(), None)
         }
         Ok(unlocked) => {
             // Repeated on every launch so a keyring that appears later, a
             // desktop installed or a login keyring unlocked, starts being used
             // without the user having to do anything.
             let _ = keystore::store_keyring_wrapper(&data_dir, &unlocked.key);
-            let cell = std::sync::OnceLock::new();
-            let _ = cell.set(unlocked.key);
-            (cell, None)
+            (commands::KeyCell::holding(unlocked.key), None)
         }
         Err(e) => {
             let message = format!("{e:#}");
             eprintln!("Cannot open the keystore: {message}");
-            (std::sync::OnceLock::new(), Some(message))
+            (commands::KeyCell::default(), Some(message))
         }
         }
     };
@@ -116,7 +116,7 @@ pub fn run() {
     // because every save needs the key and the key is not there yet.
     let (secret_key, app_data, startup_error) = match secret_key.get() {
         None => (secret_key, Default::default(), startup_error),
-        Some(key) => match load_app_data(key) {
+        Some(key) => match load_app_data(&key) {
             Ok(data) => (secret_key, data, startup_error),
             // store::load_app_data_in falls back to the backup on its own, so
             // getting here means neither copy could be read. Starting with an
@@ -124,7 +124,7 @@ pub fn run() {
             // that emptiness over a file somebody may still be able to
             // recover, so the key is dropped along with the data: the window
             // opens, says what happened, and can do nothing else.
-            Err(e) => (std::sync::OnceLock::new(), Default::default(), Some(format!("{e:#}"))),
+            Err(e) => (commands::KeyCell::default(), Default::default(), Some(format!("{e:#}"))),
         },
     };
 
@@ -137,7 +137,7 @@ pub fn run() {
 /// there is nowhere else to report a startup failure, since the only thing
 /// that can show the user anything is the window this opens.
 fn start(
-    secret_key: std::sync::OnceLock<[u8; 32]>,
+    secret_key: commands::KeyCell,
     app_data: models::AppData,
     startup_error: Option<String>,
 ) {
@@ -156,6 +156,7 @@ fn start(
         // the desktop wants light or dark, rather than flashing the default.
         .setup(|app| {
             appearance::watch(app.handle().clone());
+            suspend::watch(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -197,6 +198,7 @@ fn start(
             commands::initialize_vault,
             commands::generate_passphrase,
             commands::unlock_vault,
+            commands::lock_vault,
             commands::keystore_status,
             commands::set_master_passphrase,
             commands::set_always_ask,

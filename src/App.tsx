@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import { useAppStore, resolveAccent, resolveAppTheme } from './store/appStore';
 import { accentTokens } from './styles/accent';
 import { setLocalPlatform } from './paths';
+import { useIdleLock } from './hooks/useIdleLock';
 import type { AuthPromptEvent, HostKeyPromptEvent, SessionTab, SystemAppearance, VaultStatus } from './types';
 import HostKeyPrompt from './components/HostKeyPrompt';
 import AuthPromptModal from './components/AuthPromptModal';
@@ -64,7 +65,7 @@ export default function App() {
   const {
     loadAll, loadError, actionError, setActionError, sessions, activeTabId, setActiveTab, removeSession,
     renameSession, openSession, quickConnect, servers, settings, keys,
-    systemAppearance, setSystemAppearance,
+    systemAppearance, setSystemAppearance, clearForLock,
   } = useAppStore();
 
   const resolvedTheme = resolveAppTheme(settings.app_theme, systemAppearance);
@@ -105,6 +106,53 @@ export default function App() {
     setVault({ locked: false, setup_required: false, keyring_available: false, keyring_locked: false, error: null });
     loadAll();
   };
+
+  /**
+   * Asks the backend to close the vault. The shortcut and the idle timeout
+   * come here; the settings button calls the same command. What happens on
+   * this side happens in the `vault-locked` listener below, which is also
+   * how a lock the backend started on its own, before sleep, arrives. One
+   * path for every way of locking.
+   */
+  const lockNow = () =>
+    ipc.lockVault().catch((e) => {
+      // No passphrase set, which the settings screen explains at length. Said
+      // once here so a shortcut that did nothing is not a mystery.
+      setActionError(String(e));
+    });
+
+  // The vault is closed, whoever closed it. The backend has dropped the key
+  // and the data; this drops the copies and shows the unlock screen.
+  // Sessions stay, their shells still running behind it.
+  useEffect(() => {
+    const unlisten = listen('vault-locked', () => {
+      clearForLock();
+      setVault((v) => ({
+        ...(v ?? { setup_required: false, keyring_available: false, keyring_locked: false, error: null }),
+        locked: true,
+      }));
+    });
+    return () => { unlisten.then((f) => f()); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Ctrl+Shift+L. The terminal passes every Ctrl+Shift chord but F, C and V
+  // through, and the file list's Ctrl+L has no shift, so nothing else wants
+  // this. Capture phase so no handler below can take it first.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.code === 'KeyL') {
+        e.preventDefault();
+        e.stopPropagation();
+        void lockNow();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useIdleLock(vault && !vault.locked ? settings.auto_lock_minutes : 0, () => { void lockNow(); });
 
   // Host key prompts are emitted globally rather than per-connect, so this one
   // modal serves terminal sessions, SFTP, tunnels and OS detection alike.
@@ -224,6 +272,64 @@ export default function App() {
     removeSession(tabId);
   }
 
+  // Read through a ref by the key handler below, which is bound once and
+  // would otherwise see the sessions and active tab of its first render.
+  const tabsRef = useRef({ sessions, activeTabId });
+  tabsRef.current = { sessions, activeTabId };
+
+  /**
+   * Tab keys. Cycling is over session tabs only, in strip order, wrapping;
+   * from a fixed tab, next lands on the first session and previous on the
+   * last. Capture phase on the window, and the event is stopped there, not
+   * just defaulted: xterm's key handler does not look at defaultPrevented,
+   * and let through it turned Ctrl+PageUp into the shell receiving "5~".
+   *
+   * Ctrl+W is left alone: it is readline's delete-word, and every shell
+   * wants it. Ctrl+Shift+W is what GNOME Terminal uses for the same reason.
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.altKey || e.metaKey) return;
+      const { sessions: tabs, activeTabId: active } = tabsRef.current;
+      const idx = tabs.findIndex((t) => t.tab_id === active);
+
+      const next = e.code === 'Tab' && !e.shiftKey || e.code === 'PageDown';
+      const prev = e.code === 'Tab' && e.shiftKey || e.code === 'PageUp';
+      if (next || prev) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (tabs.length === 0) return;
+        const target = idx < 0
+          ? (next ? 0 : tabs.length - 1)
+          : (idx + (next ? 1 : tabs.length - 1)) % tabs.length;
+        setActiveTab(tabs[target].tab_id);
+        return;
+      }
+      if (e.shiftKey && e.code === 'KeyT') {
+        e.preventDefault();
+        e.stopPropagation();
+        const current = idx >= 0 ? tabs[idx] : undefined;
+        // A quick connection has no host record to open again.
+        if (current && current.server_id) openSession(current.server_id);
+        return;
+      }
+      if (e.shiftKey && e.code === 'KeyW') {
+        e.preventDefault();
+        e.stopPropagation();
+        // Not closeTab: that reads `sessions` from the render it was made
+        // in, and this listener was made once. The tab from the ref is the
+        // live one.
+        const current = idx >= 0 ? tabs[idx] : undefined;
+        if (!current) return;
+        if (current.session_id) ipc.sshDisconnect(current.session_id).catch(() => {});
+        removeSession(current.tab_id);
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function handleTabContextMenu(e: React.MouseEvent, session: SessionTab) {
     e.preventDefault();
     e.stopPropagation();
@@ -271,7 +377,9 @@ export default function App() {
   // Held back until vault_status answers, which is one synchronous read on the
   // backend, so this is a frame rather than a spinner's worth of waiting.
   if (!vault) return null;
-  if (vault.locked || vault.error) {
+  // Nothing behind the screen yet, or nothing that can be shown: the screen
+  // is all there is.
+  if (vault.error || vault.setup_required || (vault.locked && sessions.length === 0)) {
     return (
       <div
         className={`app${resolvedTheme === 'light' ? ' app-light' : resolvedTheme === 'amoled' ? ' app-amoled' : ''}`}
@@ -291,6 +399,21 @@ export default function App() {
       className={`app${resolvedTheme === 'light' ? ' app-light' : resolvedTheme === 'amoled' ? ' app-amoled' : ''}`}
       style={accentVars}
     >
+      {/* A lock with sessions open covers the app rather than replacing it,
+          so the terminals stay mounted: unmounting one disposes its xterm and
+          the scrollback with it, and drops its output listener, so nothing
+          the shell printed during the lock would be seen. The overlay is
+          opaque and takes every pointer event; the unlock field has focus. */}
+      {vault.locked && (
+        <div className="lock-overlay">
+          <UnlockScreen fatal={null} keyringLocked={vault.keyring_locked} onUnlocked={opened} />
+        </div>
+      )}
+      {/* Inert while locked: without it, Tab from the passphrase field walks
+          into the sidebar behind the overlay and Enter presses whatever it
+          lands on. `display: contents` keeps the flex layout the two children
+          were laid out by. */}
+      <div className="app-body" inert={vault.locked || undefined}>
       <Sidebar />
       <div className="main">
         {loadError && (
@@ -369,7 +492,7 @@ export default function App() {
                 host: s.quick_info.host, port: s.quick_info.port,
                 identity_id: null, theme: null, connection_timeout: null, os: '',
                 username: s.quick_info.username, encrypted_password: null, key_id: null,
-                auth_kind: null, proxy_jump: null,
+                auth_kind: null, proxy_jump: null, forward_agent: false,
               } : undefined);
 
             if (s.status === 'connecting' || s.status === 'error') {
@@ -516,6 +639,7 @@ export default function App() {
           )}
         </ContextMenu>
       )}
+      </div>
     </div>
   );
 }

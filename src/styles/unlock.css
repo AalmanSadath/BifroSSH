@@ -6,6 +6,16 @@
 
 /* Fills the window rather than floating over it: there is nothing behind this
    to look at, because no data is loaded until the passphrase opens the vault. */
+/* The unlock screen over a running app. Fixed and opaque, above everything,
+   so what is behind it is neither seen nor reachable until it goes. */
+.lock-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  background: var(--bg-darkest);
+}
+
 .unlock-screen {
   flex: 1;
   display: flex;

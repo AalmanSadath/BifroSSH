@@ -188,7 +188,7 @@ export default function TerminalView({ tab, active }: Props) {
       lineHeight: 1.2,
       cursorStyle: settings.cursor_style,
       cursorBlink: settings.cursor_blink,
-      scrollback: 10000,
+      scrollback: settings.scrollback_lines,
       allowTransparency: false,
       // The search addon highlights matches through registerDecoration, which
       // xterm still classes as proposed and refuses to hand out otherwise.
@@ -450,6 +450,7 @@ export default function TerminalView({ tab, active }: Props) {
     term.options.fontFamily = settings.font_family;
     term.options.cursorStyle = settings.cursor_style;
     term.options.cursorBlink = settings.cursor_blink;
+    term.options.scrollback = settings.scrollback_lines;
     fitRef.current?.fit();
   }, [
     resolveTheme,
@@ -457,6 +458,7 @@ export default function TerminalView({ tab, active }: Props) {
     settings.font_family,
     settings.cursor_style,
     settings.cursor_blink,
+    settings.scrollback_lines,
   ]);
 
   useEffect(() => {

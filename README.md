@@ -91,7 +91,7 @@ Windows 10 1803 or later. WebView2 is already present on Windows 11 and on curre
 
 **SSH keys.** Generate Ed25519, RSA and ECDSA keys in the app, or import existing ones. Private keys are stored encrypted and never written to disk in the clear.
 
-**ssh-agent.** Authenticate with keys held by a running agent instead of importing them, so the key never enters the app. This is how to use PIV smartcards and YubiKeys, whose keys cannot be exported. On Linux the agent named by `SSH_AUTH_SOCK`; on Windows the OpenSSH agent service over its named pipe, or any agent that advertises its own pipe through `SSH_AUTH_SOCK`. Pageant is not supported, and neither are FIDO keys (`ed25519-sk`, `ecdsa-sk`) yet.
+**ssh-agent.** Authenticate with keys held by a running agent instead of importing them, so the key never enters the app. This is how to use PIV smartcards and YubiKeys, whose keys cannot be exported. On Linux the agent named by `SSH_AUTH_SOCK`; on Windows the OpenSSH agent service over its named pipe, or any agent that advertises its own pipe through `SSH_AUTH_SOCK`. Pageant is not supported, and neither are FIDO keys (`ed25519-sk`, `ecdsa-sk`) yet. A host can also be set to forward the agent, the same as `ssh -A`, so programs there can use your keys without the keys leaving this machine; that also lets anyone with root there use them while the session is open, so it is off unless you turn it on for that host.
 
 **Two-factor and keyboard-interactive.** Servers that ask challenge questions at login work, including PAM setups with `PasswordAuthentication` off and providers like Duo and TOTP apps. Where the server offers a choice of factors they appear as buttons. Password and key logins fall back to this automatically.
 
@@ -132,6 +132,8 @@ On first launch you choose where that master key lives, and can change it later 
 Settings always shows which of these is actually in use. Where a passphrase is wanted, a dice button generates an eight-word phrase from the [BIP-39](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki) English list (88 bits, hashed with Argon2id); capitalisation and spacing are ignored when you type it back. A passphrase you write yourself is taken exactly as typed.
 
 None of this defends against malware running as you while the app is unlocked, and neither platform offers a way to. What it buys is that copying your home directory no longer copies the key along with the data.
+
+**Locking.** Ctrl+Shift+L closes the vault: the key is zeroed and dropped, and the master passphrase is needed to open it again. Settings can also lock after a period with no input from you (off unless you turn it on) and before the computer sleeps (on by default), so what is on screen when the lid opens is the unlock screen. Locking needs a passphrase to be set; with the keyring alone the vault would reopen itself. Terminal sessions and tunnels already open stay connected behind the lock, the same as a screen lock over a shell, since the key was used when they connected and is not what they run on.
 
 How the data directory itself is protected differs. On Linux it and everything in it is `0700`/`0600`, set at creation rather than after, so no other account can read it. Windows has no equivalent and BifroSSH does not write an ACL of its own: `%APPDATA%\BifroSSH` inherits the permissions on your user profile, which keeps out other standard accounts but not an administrator.
 

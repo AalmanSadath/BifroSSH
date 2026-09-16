@@ -122,6 +122,9 @@ const DEFAULT_SETTINGS: Settings = {
   sftp_inactivity_timeout_secs: 300,
   host_key_policy: 'ask',
   keepalive_interval_secs: 30,
+  auto_lock_minutes: 0,
+  lock_on_suspend: true,
+  scrollback_lines: 10000,
   accent_color: null,
 };
 
@@ -180,6 +183,13 @@ interface AppStore {
   /** Set when `loadAll` could not read the saved data; see there. */
   loadError: string | null;
   loadAll: () => Promise<void>;
+  /**
+   * What a lock does to this side. The backend has dropped its data; this
+   * drops the copies. Settings stay, because the unlock screen is drawn from
+   * them, and sessions stay, because their shells are still running behind
+   * the lock and come back with it.
+   */
+  clearForLock: () => void;
 
   /** The last action that failed with nobody to tell; see `reportFailure`. */
   actionError: string | null;
@@ -377,6 +387,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setSystemAppearance: (appearance) => set({ systemAppearance: appearance }),
 
   loadError: null,
+  clearForLock: () =>
+    set({ servers: [], identities: [], keys: [], portForwardings: [], codeprints: [] }),
   actionError: null,
   setActionError: (message) => set({ actionError: message }),
 

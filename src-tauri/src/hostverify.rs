@@ -263,8 +263,21 @@ struct KeyOffer {
 }
 
 /// The single `client::Handler` used by every connect path in the app.
+///
+/// Host key verification for every connection, and agent forwarding for the
+/// one kind that asked for it: a terminal session on a host with the box
+/// ticked. Everything else, jump hops, SFTP and tunnels included, is built
+/// with forwarding disallowed and closes any agent channel the far side
+/// opens.
 pub struct VerifyingHandler {
     pub v: HostKeyVerifier,
+    pub agent: crate::agent_forward::AgentForwarding,
+}
+
+impl VerifyingHandler {
+    pub fn new(v: HostKeyVerifier) -> Self {
+        VerifyingHandler { v, agent: crate::agent_forward::AgentForwarding::disallowed() }
+    }
 }
 
 #[async_trait]
@@ -273,6 +286,45 @@ impl client::Handler for VerifyingHandler {
 
     async fn check_server_key(&mut self, key: &PublicKey) -> Result<bool, Self::Error> {
         Ok(self.v.verify(key).await)
+    }
+
+    async fn server_channel_open_agent_forward(
+        &mut self,
+        channel: russh::ChannelId,
+        session: &mut client::Session,
+    ) -> Result<(), Self::Error> {
+        self.agent.open(channel, session).await;
+        Ok(())
+    }
+
+    // Every channel's bytes come through here as well as through the
+    // channel's own receiver; only an agent channel's are acted on.
+    async fn data(
+        &mut self,
+        channel: russh::ChannelId,
+        data: &[u8],
+        session: &mut client::Session,
+    ) -> Result<(), Self::Error> {
+        self.agent.data(channel, data, session).await;
+        Ok(())
+    }
+
+    async fn channel_eof(
+        &mut self,
+        channel: russh::ChannelId,
+        _session: &mut client::Session,
+    ) -> Result<(), Self::Error> {
+        self.agent.closed(channel);
+        Ok(())
+    }
+
+    async fn channel_close(
+        &mut self,
+        channel: russh::ChannelId,
+        _session: &mut client::Session,
+    ) -> Result<(), Self::Error> {
+        self.agent.closed(channel);
+        Ok(())
     }
 }
 
