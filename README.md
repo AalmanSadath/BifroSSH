@@ -133,6 +133,8 @@ Settings always shows which of these is actually in use. Where a passphrase is w
 
 None of this defends against malware running as you while the app is unlocked, and neither platform offers a way to. What it buys is that copying your home directory no longer copies the key along with the data.
 
+**Locking.** Ctrl+Shift+L closes the vault: the key is zeroed and dropped, and the master passphrase is needed to open it again. Settings can also lock after a period with no input from you (off unless you turn it on) and before the computer sleeps (on by default), so what is on screen when the lid opens is the unlock screen. Locking needs a passphrase to be set; with the keyring alone the vault would reopen itself. Terminal sessions and tunnels already open stay connected behind the lock, the same as a screen lock over a shell, since the key was used when they connected and is not what they run on.
+
 How the data directory itself is protected differs. On Linux it and everything in it is `0700`/`0600`, set at creation rather than after, so no other account can read it. Windows has no equivalent and BifroSSH does not write an ACL of its own: `%APPDATA%\BifroSSH` inherits the permissions on your user profile, which keeps out other standard accounts but not an administrator.
 
 ---

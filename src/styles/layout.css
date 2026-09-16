@@ -12,6 +12,9 @@
   color-scheme: dark;
 }
 .app-light, body.app-light { color-scheme: light; }
+/* A wrapper that exists to carry `inert` while the vault is locked, and
+   otherwise does not take part in layout. */
+.app-body { display: contents; }
 
 .main {
   flex: 1;

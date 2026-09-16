@@ -191,6 +191,12 @@ export const unlockVault = (passphrase: string) =>
   invoke<void>('unlock_vault', { passphrase });
 
 export const keystoreStatus = () => invoke<KeystoreStatus>('keystore_status');
+/**
+ * Closes the vault: the key is dropped and every command fails until the
+ * passphrase is entered again. Refused while no passphrase is set, since the
+ * keyring would reopen it without asking.
+ */
+export const lockVault = () => invoke<void>('lock_vault');
 
 export const setMasterPassphrase = (passphrase: string, alwaysAsk: boolean) =>
   invoke<void>('set_master_passphrase', { passphrase, alwaysAsk });

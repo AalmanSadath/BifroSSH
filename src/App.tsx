@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import { useAppStore, resolveAccent, resolveAppTheme } from './store/appStore';
 import { accentTokens } from './styles/accent';
 import { setLocalPlatform } from './paths';
+import { useIdleLock } from './hooks/useIdleLock';
 import type { AuthPromptEvent, HostKeyPromptEvent, SessionTab, SystemAppearance, VaultStatus } from './types';
 import HostKeyPrompt from './components/HostKeyPrompt';
 import AuthPromptModal from './components/AuthPromptModal';
@@ -64,7 +65,7 @@ export default function App() {
   const {
     loadAll, loadError, actionError, setActionError, sessions, activeTabId, setActiveTab, removeSession,
     renameSession, openSession, quickConnect, servers, settings, keys,
-    systemAppearance, setSystemAppearance,
+    systemAppearance, setSystemAppearance, clearForLock,
   } = useAppStore();
 
   const resolvedTheme = resolveAppTheme(settings.app_theme, systemAppearance);
@@ -105,6 +106,52 @@ export default function App() {
     setVault({ locked: false, setup_required: false, keyring_available: false, keyring_locked: false, error: null });
     loadAll();
   };
+
+  /**
+   * Asks the backend to close the vault. The shortcut and the idle timeout
+   * come here; the settings button calls the same command. What happens on
+   * this side happens in the `vault-locked` listener below, which is also
+   * how a lock the backend started on its own, before sleep, arrives. One
+   * path for every way of locking.
+   */
+  const lockNow = () =>
+    ipc.lockVault().catch((e) => {
+      // No passphrase set, which the settings screen explains at length. Said
+      // once here so a shortcut that did nothing is not a mystery.
+      setActionError(String(e));
+    });
+
+  // The vault is closed, whoever closed it. The backend has dropped the key
+  // and the data; this drops the copies and shows the unlock screen.
+  // Sessions stay, their shells still running behind it.
+  useEffect(() => {
+    const unlisten = listen('vault-locked', () => {
+      clearForLock();
+      setVault((v) => ({
+        ...(v ?? { setup_required: false, keyring_available: false, keyring_locked: false, error: null }),
+        locked: true,
+      }));
+    });
+    return () => { unlisten.then((f) => f()); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Ctrl+Shift+L. The terminal passes every Ctrl+Shift chord but F, C and V
+  // through, and the file list's Ctrl+L has no shift, so nothing else wants
+  // this. Capture phase so no handler below can take it first.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.code === 'KeyL') {
+        e.preventDefault();
+        void lockNow();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useIdleLock(vault && !vault.locked ? settings.auto_lock_minutes : 0, () => { void lockNow(); });
 
   // Host key prompts are emitted globally rather than per-connect, so this one
   // modal serves terminal sessions, SFTP, tunnels and OS detection alike.
@@ -271,7 +318,9 @@ export default function App() {
   // Held back until vault_status answers, which is one synchronous read on the
   // backend, so this is a frame rather than a spinner's worth of waiting.
   if (!vault) return null;
-  if (vault.locked || vault.error) {
+  // Nothing behind the screen yet, or nothing that can be shown: the screen
+  // is all there is.
+  if (vault.error || vault.setup_required || (vault.locked && sessions.length === 0)) {
     return (
       <div
         className={`app${resolvedTheme === 'light' ? ' app-light' : resolvedTheme === 'amoled' ? ' app-amoled' : ''}`}
@@ -291,6 +340,21 @@ export default function App() {
       className={`app${resolvedTheme === 'light' ? ' app-light' : resolvedTheme === 'amoled' ? ' app-amoled' : ''}`}
       style={accentVars}
     >
+      {/* A lock with sessions open covers the app rather than replacing it,
+          so the terminals stay mounted: unmounting one disposes its xterm and
+          the scrollback with it, and drops its output listener, so nothing
+          the shell printed during the lock would be seen. The overlay is
+          opaque and takes every pointer event; the unlock field has focus. */}
+      {vault.locked && (
+        <div className="lock-overlay">
+          <UnlockScreen fatal={null} keyringLocked={vault.keyring_locked} onUnlocked={opened} />
+        </div>
+      )}
+      {/* Inert while locked: without it, Tab from the passphrase field walks
+          into the sidebar behind the overlay and Enter presses whatever it
+          lands on. `display: contents` keeps the flex layout the two children
+          were laid out by. */}
+      <div className="app-body" inert={vault.locked || undefined}>
       <Sidebar />
       <div className="main">
         {loadError && (
@@ -516,6 +580,7 @@ export default function App() {
           )}
         </ContextMenu>
       )}
+      </div>
     </div>
   );
 }
