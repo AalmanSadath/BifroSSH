@@ -48,8 +48,8 @@ flatpak remote-delete bifrossh                     # and drop the remote
 Both are on the [latest release](https://github.com/AalmanSadath/BifroSSH/releases/latest).
 
 ```bash
-sudo dnf install ./BifroSSH-x.y.z-1.x86_64.rpm   # Fedora, RHEL, openSUSE
-sudo apt install ./BifroSSH_x.y.z_amd64.deb      # Debian, Ubuntu
+sudo dnf install ./BifroSSH*.rpm   # Fedora, RHEL, openSUSE
+sudo apt install ./BifroSSH*.deb      # Debian, Ubuntu
 ```
 
 Both install the binary as `/usr/bin/bifrossh` and the package is named
