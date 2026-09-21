@@ -80,6 +80,8 @@ interface FileBrowserProps {
   onRename?: (entry: FileEntry, newName: string) => void;
   onDelete?: (entries: FileEntry[]) => void;
   onSetMode?: (entries: FileEntry[], mode: number) => void;
+  /** A same-pane drop onto a directory row. */
+  onMove?: (entries: FileEntry[], intoDir: string) => void;
   side?: 'left' | 'right';
   isDropTarget?: boolean;
   transferring?: boolean;
@@ -93,7 +95,7 @@ interface FileBrowserProps {
 
 function FileBrowser({ title, icon, path, home, entries, loading, error, notice, onDismissNotice, onNavigate,
   onRefresh, onNewFolder, extraActions, onLocalBtn,
-  canCopyToTarget, onCopyToTarget, onRename, onDelete, onSetMode,
+  canCopyToTarget, onCopyToTarget, onRename, onDelete, onSetMode, onMove,
   side, isDropTarget, transferring, onDragEnter: onDragEnterCb, onDragLeave: onDragLeaveCb, onFileDrop, onReconnect,
   pathStyle,
 }: FileBrowserProps) {
@@ -133,6 +135,10 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
   const newFolderInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const dragCountRef = useRef(0);
+  /** A drag that started in this pane, for which the copy overlay is wrong. */
+  const dragFromHereRef = useRef(false);
+  /** The directory row a same-pane drag is hovering, for its highlight. */
+  const [rowDropPath, setRowDropPath] = useState<string | null>(null);
   const lastClickIdxRef = useRef(-1);
   const wrapRef = useRef<HTMLDivElement>(null);
   /** The row the arrow keys move from. An index into `visible`, or -1. */
@@ -344,20 +350,28 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
 
   function handleDragStart(e: React.DragEvent, entry: FileEntry) {
     e.dataTransfer.setData('text/plain', JSON.stringify({ side, entries: batchFor(entry) }));
-    e.dataTransfer.effectAllowed = 'copy';
+    e.dataTransfer.effectAllowed = 'copyMove';
+    dragFromHereRef.current = true;
+  }
+
+  function handleDragEnd() {
+    dragFromHereRef.current = false;
+    setRowDropPath(null);
   }
 
   function handleDragOver(e: React.DragEvent) {
     if (!onFileDrop) return;
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'copy';
+    e.dataTransfer.dropEffect = dragFromHereRef.current ? 'move' : 'copy';
   }
 
   function handleDragEnter(e: React.DragEvent) {
     if (!onFileDrop) return;
     e.preventDefault();
     dragCountRef.current++;
-    if (dragCountRef.current === 1) onDragEnterCb?.();
+    // A drag that began here can only move into a folder row, so the
+    // pane-wide "Drop to copy here" would promise something else.
+    if (dragCountRef.current === 1 && !dragFromHereRef.current) onDragEnterCb?.();
   }
 
   function handleDragLeave() {
@@ -366,24 +380,50 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
     if (dragCountRef.current === 0) setTimeout(() => { if (dragCountRef.current === 0) onDragLeaveCb?.(); }, 0);
   }
 
-  function handleDrop(e: React.DragEvent) {
-    e.preventDefault();
-    dragCountRef.current = 0;
-    onDragLeaveCb?.();
-    if (!onFileDrop) return;
+  /** The payload of one of our own drags, or null for anything else. */
+  function readDragPayload(e: React.DragEvent): { fromSide: 'left' | 'right'; dropped: FileEntry[] } | null {
     const raw = e.dataTransfer.getData('text/plain');
-    if (!raw) return;
+    if (!raw) return null;
     try {
       const { side: fromSide, entries: dropped } = JSON.parse(raw) as {
         side: 'left' | 'right';
         entries: FileEntry[];
       };
-      if (fromSide !== side && dropped.length > 0) onFileDrop(dropped, fromSide);
+      return dropped.length > 0 ? { fromSide, dropped } : null;
     } catch {
       // A drag from outside the app carries whatever that app put on the
       // clipboard, which is not this payload. Nothing to do and nothing worth
       // saying: the drop simply is not one of ours.
+      return null;
     }
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    dragCountRef.current = 0;
+    onDragLeaveCb?.();
+    if (!onFileDrop) return;
+    const payload = readDragPayload(e);
+    if (payload && payload.fromSide !== side) onFileDrop(payload.dropped, payload.fromSide);
+  }
+
+  /** A drop on a directory row: a move when it came from this pane. */
+  function handleRowDrop(e: React.DragEvent, dir: FileEntry) {
+    const payload = readDragPayload(e);
+    if (!payload || payload.fromSide !== side) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragCountRef.current = 0;
+    setRowDropPath(null);
+    onMove?.(payload.dropped, dir.path);
+  }
+
+  function handleRowDragOver(e: React.DragEvent, dir: FileEntry) {
+    if (!dragFromHereRef.current || !onMove) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    if (rowDropPath !== dir.path) setRowDropPath(dir.path);
   }
 
   return (
@@ -527,11 +567,15 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
               <tr
                 key={entry.path}
                 data-idx={idx}
-                className={`sftp-row${selectedPaths.has(entry.path) ? ' sftp-row-selected' : ''}`}
+                className={`sftp-row${selectedPaths.has(entry.path) ? ' sftp-row-selected' : ''}${rowDropPath === entry.path ? ' sftp-row-drop-target' : ''}`}
                 draggable={entry.name !== '..'}
                 onClick={(e) => handleRowClick(e, entry, idx)}
                 onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, entry }); }}
                 onDragStart={(e) => entry.name !== '..' && handleDragStart(e, entry)}
+                onDragEnd={handleDragEnd}
+                onDragOver={entry.is_dir ? (e) => handleRowDragOver(e, entry) : undefined}
+                onDragLeave={entry.is_dir ? () => setRowDropPath((p) => (p === entry.path ? null : p)) : undefined}
+                onDrop={entry.is_dir ? (e) => handleRowDrop(e, entry) : undefined}
                 onDoubleClick={() => entry.is_dir && onNavigate(entry.path)}
                 title={entry.is_dir ? hint('Double-click to open') : entry.name}
               >
@@ -1022,6 +1066,24 @@ function usePane(initialMode: PaneMode) {
     }
   }
 
+  async function moveInto(batch: FileEntry[], dir: string) {
+    try {
+      for (const entry of batch) {
+        if (dir === entry.path || dir.startsWith(entry.path + style.sep)) {
+          throw new Error(`Cannot move ${entry.name} into itself`);
+        }
+        if (style.parent(entry.path) === dir) continue;
+        const target = style.join(dir, entry.name);
+        if (mode === 'local') await ipc.sftpRenameLocal(entry.path, target);
+        else await ipc.sftpRenameRemote(requireSid(), entry.path, target);
+      }
+    } catch (e) {
+      fail(String(e));
+    } finally {
+      await refresh();
+    }
+  }
+
   async function setPerms(batch: FileEntry[], newMode: number) {
     try {
       // The first failure stops the batch, same as removeMany: what came
@@ -1054,7 +1116,7 @@ function usePane(initialMode: PaneMode) {
     connectingId, connectError, setConnectError, connectServer, connectLogs,
     navigate: (path: string) => (mode === 'local' ? navigateLocal(path) : navigateRemote(path)),
     refresh, goLocal, connect, disconnect, reconnect,
-    newFolder, rename, removeMany, setPerms, fail, say, requireSid,
+    newFolder, rename, removeMany, setPerms, moveInto, fail, say, requireSid,
   };
 }
 
@@ -1310,6 +1372,7 @@ export default function SftpPanel() {
         onRename={pane.rename}
         onDelete={pane.removeMany}
         onSetMode={pane.setPerms}
+        onMove={pane.moveInto}
         onLocalBtn={() => pane.setMode('idle')}
         extraActions={closeConnectionActions(
           pane.mode === 'local' ? () => pane.setMode('idle') : pane.disconnect,
