@@ -30,6 +30,13 @@ impl Progress for tauri::AppHandle {
     }
 }
 
+/// Progress with nowhere to go: tests, and transfers the panel is not
+/// showing, which is what an edit-in-place upload behind the user's back is.
+pub(super) struct Silent;
+impl Progress for Silent {
+    fn report(&self, _: TransferProgress) {}
+}
+
 /// How long one chunk may sit with nothing happening before the transfer is
 /// called dead.
 ///
@@ -478,6 +485,24 @@ pub async fn upload_path(
     let remote = Remote(get_session(sftp_state, session_id).await?);
     let cancel = sftp_state.begin_transfer();
     transfer(app, &Local, local_path, &remote, remote_dir, &cancel).await
+}
+
+/// Uploads one file with no progress and no part in the panel's cancel.
+///
+/// `upload_path` begins by clearing the shared cancel flag, which is right
+/// for a transfer the user started and wrong for one that happens because
+/// an editor saved: it would erase a cancel the user had just pressed on
+/// the download they can see. This one carries its own flag nobody raises.
+pub(super) async fn upload_quiet(
+    sftp_state: &SftpClientState,
+    session_id: &str,
+    local_path: &str,
+    remote_dir: &str,
+) -> Result<()> {
+    let remote = Remote(get_session(sftp_state, session_id).await?);
+    let cancel = AtomicBool::new(false);
+    transfer(&Silent, &Local, local_path, &remote, remote_dir, &cancel).await?;
+    Ok(())
 }
 
 /// Downloads a file, or a directory tree rooted at `remote_path`.

@@ -5,6 +5,7 @@ use super::listing::collect_remote_tree;
 use super::session::get_session;
 
 use anyhow::{Context, Result};
+use russh_sftp::protocol::FileAttributes;
 
 pub fn create_local_dir(path: &str) -> Result<()> {
     std::fs::create_dir(path).with_context(|| path.to_string())
@@ -75,6 +76,40 @@ pub async fn mkdir(
     let sftp_arc = get_session(sftp_state, session_id).await?;
     let sftp = sftp_arc.lock().await;
     sftp.create_dir(path).await.with_context(|| path.to_string())
+}
+
+pub async fn set_mode_remote(
+    sftp_state: &SftpClientState,
+    session_id: &str,
+    path: &str,
+    mode: u32,
+) -> Result<()> {
+    let sftp_arc = get_session(sftp_state, session_id).await?;
+    let sftp = sftp_arc.lock().await;
+    // `FileAttributes::default()` is not empty: it fills size, uid, gid and
+    // both times with concrete values, and permissions with 0o777 | DIR. A
+    // setstat built with `..Default::default()` here would truncate the
+    // file, hand it to root and date it 1970. `empty()` is every field
+    // `None`, so this touches only the bit the caller asked to change.
+    let attrs = FileAttributes {
+        permissions: Some(mode),
+        ..FileAttributes::empty()
+    };
+    sftp.set_metadata(path, attrs).await.with_context(|| path.to_string())
+}
+
+pub fn set_mode_local(path: &str, mode: u32) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+            .with_context(|| path.to_string())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (path, mode);
+        Err(anyhow::anyhow!("This filesystem has no Unix permission bits to set"))
+    }
 }
 
 #[cfg(test)]

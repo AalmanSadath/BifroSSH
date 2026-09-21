@@ -186,6 +186,8 @@ mod tests {
                 remote_port: None,
                 dest_address: "example.com".into(),
                 dest_port: Some(80),
+                autostart_on_launch: false,
+                autostart_on_connect: false,
             }],
             ..Default::default()
         };

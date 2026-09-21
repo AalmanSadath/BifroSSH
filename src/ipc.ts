@@ -323,6 +323,23 @@ export const sftpDeleteRemote = (sessionId: string, path: string, isDir: boolean
 export const sftpRenameRemote = (sessionId: string, oldPath: string, newPath: string) =>
   invoke<void>('sftp_rename_remote', { sessionId, oldPath, newPath });
 
+export const sftpOpenLocal = (path: string) =>
+  invoke<void>('sftp_open_local', { path });
+
+/**
+ * Downloads to a temp copy, opens it with the default application, and
+ * uploads it back after every save until the session ends. Progress is
+ * reported on `sftp-edit:{sessionId}` as an `EditEvent`.
+ */
+export const sftpOpenRemote = (sessionId: string, path: string) =>
+  invoke<void>('sftp_open_remote', { sessionId, path });
+
+export const sftpSetModeLocal = (path: string, mode: number) =>
+  invoke<void>('sftp_set_mode_local', { path, mode });
+
+export const sftpSetModeRemote = (sessionId: string, path: string, mode: number) =>
+  invoke<void>('sftp_set_mode_remote', { sessionId, path, mode });
+
 // ── tunnels ──────────────────────────────────────────────────────────────
 
 /**

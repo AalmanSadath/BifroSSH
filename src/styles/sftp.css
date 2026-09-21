@@ -165,6 +165,20 @@
   background: color-mix(in srgb, var(--danger) 20%, transparent);
 }
 
+.sftp-notice-info {
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg-dark));
+  border-top-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.sftp-notice-info .sftp-notice-text,
+.sftp-notice-info .sftp-notice-close {
+  color: var(--accent);
+}
+
+.sftp-notice-info .sftp-notice-close:hover {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
 .sftp-breadcrumb {
   display: flex;
   align-items: center;
@@ -329,6 +343,11 @@
 
 .sftp-row-selected td {
   background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.sftp-row-drop-target td {
+  background: color-mix(in srgb, var(--accent) 30%, transparent) !important;
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 .sftp-row-selected:hover td {
@@ -688,6 +707,73 @@
 
 .sftp-confirm-delete-btn:hover {
   opacity: 0.85;
+}
+
+/* Permissions dialog */
+.sftp-perms-dialog {
+  min-width: 300px;
+}
+
+.sftp-perms-grid {
+  width: 100%;
+  margin-bottom: 14px;
+  border-collapse: collapse;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.sftp-perms-grid th,
+.sftp-perms-grid td {
+  text-align: center;
+  padding: 3px 6px;
+}
+
+.sftp-perms-grid input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+.sftp-perms-grid th:first-child,
+.sftp-perms-grid td:first-child {
+  text-align: left;
+  color: var(--text-dim);
+}
+
+.sftp-perms-octal {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.sftp-perms-octal input {
+  width: 60px;
+  font-family: monospace;
+  background: var(--bg-mid);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-primary);
+  padding: 3px 6px;
+}
+
+.sftp-perms-octal-input-error {
+  border-color: var(--danger) !important;
+}
+
+.sftp-perms-apply-btn {
+  background: var(--accent) !important;
+  color: var(--on-accent, #fff) !important;
+  border-color: var(--accent) !important;
+}
+
+.sftp-perms-apply-btn:hover {
+  opacity: 0.85;
+}
+
+.sftp-perms-apply-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* Drag-and-drop */

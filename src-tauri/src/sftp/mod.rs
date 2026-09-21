@@ -14,6 +14,7 @@ use serde::Serialize;
 use tokio::sync::Mutex;
 use russh_sftp::client::SftpSession;
 
+mod edit;
 mod listing;
 mod ops;
 mod session;
@@ -21,9 +22,11 @@ mod transfer;
 #[cfg(all(test, unix))]
 mod sshd_tests;
 
+pub use edit::{open_local, open_remote};
 pub use listing::{get_local_home, get_remote_home, list_local, list_remote};
 pub use ops::{
     create_local_dir, delete_local, delete_remote, mkdir, rename_local, rename_remote,
+    set_mode_local, set_mode_remote,
 };
 pub use session::{connect_sftp, disconnect_sftp, probe_remote};
 pub use transfer::{copy_remote_path, download_path, upload_path};
@@ -107,6 +110,11 @@ pub struct FileEntry {
     pub size: u64,
     pub modified: Option<u64>,
     pub permissions: String,
+    /// The permission bits alone (`& 0o7777`), for a dialog to edit.
+    ///
+    /// `None` on a Windows local listing, where there is no POSIX mode to
+    /// show, and for `..`, which is not a file the user can chmod.
+    pub mode: Option<u32>,
     pub kind: String,
     /// Kept out of the listing unless the panel is asked for hidden files.
     ///

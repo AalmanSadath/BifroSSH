@@ -366,6 +366,10 @@ export interface PortForwarding {
   remote_port: number | null;
   dest_address: string;
   dest_port: number | null;
+  /** Start when the app opens or the vault unlocks. */
+  autostart_on_launch: boolean;
+  /** Start when a session opens to the rule's own host. */
+  autostart_on_connect: boolean;
 }
 
 /**
@@ -387,6 +391,11 @@ export interface FileEntry {
   size: number;
   modified: number | null;
   permissions: string;
+  /**
+   * The permission bits alone, for editing. Null on a Windows local listing,
+   * where there is no POSIX mode to set, and for `..`.
+   */
+  mode: number | null;
   kind: string;
   /**
    * Decided by the backend, not from the name. A leading dot is a naming
@@ -399,6 +408,13 @@ export interface FileEntry {
    * so a link to a folder is a folder rather than a zero-byte file.
    */
   symlink: boolean;
+}
+
+/** One upload by the edit-in-place watcher, successful or not. */
+export interface EditEvent {
+  remote_path: string;
+  name: string;
+  error: string | null;
 }
 
 /** Per-collection tallies, shared by every export and import result. */
