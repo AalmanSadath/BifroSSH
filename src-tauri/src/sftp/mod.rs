@@ -29,7 +29,7 @@ pub use ops::{
     set_mode_local, set_mode_remote,
 };
 pub use session::{connect_sftp, disconnect_sftp, probe_remote};
-pub use transfer::{copy_remote_path, download_path, upload_path};
+pub use transfer::{conflicts_for, copy_remote_path, download_path, upload_path, Conflict, Pairing};
 
 /// Chunk size for a streamed copy.
 const CHUNK: usize = 128 * 1024; // 128 KB
@@ -55,6 +55,9 @@ pub struct TransferSummary {
     /// until the disk fills, and recreating them is not something SFTP does
     /// portably.
     pub skipped_symlinks: u32,
+    /// Files left alone because one was already there and the policy was
+    /// to skip.
+    pub skipped_existing: u32,
     /// True when the user stopped it. The files already copied are left where
     /// they are; only the one in flight is removed. `files` counts what
     /// actually arrived, so a cancelled batch reports fewer than were asked for.

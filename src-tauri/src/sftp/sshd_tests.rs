@@ -13,7 +13,7 @@ use super::*;
 use super::listing::list_remote;
 use super::ops::{delete_remote, mkdir, rename_remote, set_mode_remote};
 use super::edit::{watch, EditEvent};
-use super::transfer::{download_path, upload_path, upload_quiet, Silent};
+use super::transfer::{conflicts, download_path, upload_path, upload_quiet, Conflict, Silent};
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -208,7 +208,7 @@ async fn a_directory_with_more_files_than_the_handle_limit_downloads() {
     write_files(&src, 100);
     let dst = server.scratch("many-out");
 
-    let summary = download_path(&Silent, &state, "s", &src.to_string_lossy(), &dst.to_string_lossy())
+    let summary = download_path(&Silent, &state, "s", &src.to_string_lossy(), &dst.to_string_lossy(), Conflict::Overwrite)
         .await
         .expect("a transfer of 100 files under a limit of 64");
     assert_eq!(summary.files, 100);
@@ -235,7 +235,7 @@ async fn an_uploaded_tree_reads_back_byte_for_byte() {
     std::fs::write(src.join("a/b/deep.txt"), b"deep").unwrap();
     let dst = server.scratch("tree-out");
 
-    let summary = upload_path(&Silent, &state, "s", &src.to_string_lossy(), &dst.to_string_lossy())
+    let summary = upload_path(&Silent, &state, "s", &src.to_string_lossy(), &dst.to_string_lossy(), Conflict::Overwrite)
         .await
         .unwrap();
     assert_eq!(summary.files, 3);
@@ -297,6 +297,64 @@ async fn setting_the_mode_touches_only_the_mode() {
     assert_eq!(std::fs::read(&path).unwrap(), b"hello world", "contents must survive a chmod");
     use std::os::unix::fs::PermissionsExt;
     assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+}
+
+/// Three answers to a file that is already there, and the question that
+/// comes before them.
+#[tokio::test]
+async fn a_file_already_there_is_overwritten_skipped_or_kept_as_asked() {
+    let Some((server, state)) = rig("conflict", None).await else { return };
+    let src = server.scratch("conflict-src");
+    let dst = server.scratch("conflict-dst");
+    std::fs::write(src.join("f.txt"), b"new").unwrap();
+    std::fs::write(dst.join("f.txt"), b"old").unwrap();
+    let (src_file, dst_dir) = (src.join("f.txt").to_string_lossy().into_owned(), dst.to_string_lossy().into_owned());
+    let up = |policy| upload_path(&Silent, &state, "s", &src_file, &dst_dir, policy);
+
+    let summary = up(Conflict::Skip).await.unwrap();
+    assert_eq!((summary.files, summary.skipped_existing), (0, 1));
+    assert_eq!(std::fs::read(dst.join("f.txt")).unwrap(), b"old", "skip leaves the old file");
+
+    let summary = up(Conflict::KeepBoth).await.unwrap();
+    assert_eq!((summary.files, summary.skipped_existing), (1, 0));
+    assert_eq!(std::fs::read(dst.join("f.txt")).unwrap(), b"old", "keep both leaves the old file too");
+    assert_eq!(std::fs::read(dst.join("f (2).txt")).unwrap(), b"new");
+    up(Conflict::KeepBoth).await.unwrap();
+    assert_eq!(std::fs::read(dst.join("f (3).txt")).unwrap(), b"new", "and counts on from there");
+
+    up(Conflict::Overwrite).await.unwrap();
+    assert_eq!(std::fs::read(dst.join("f.txt")).unwrap(), b"new");
+}
+
+/// The list the panel asks for before asking the user: exactly the files
+/// that would be written over, relative to the item, and nothing else.
+#[tokio::test]
+async fn a_tree_names_only_the_files_that_would_be_written_over() {
+    let Some((server, state)) = rig("conflicts", None).await else { return };
+    let src = server.scratch("tree-src").join("proj");
+    std::fs::create_dir_all(src.join("sub")).unwrap();
+    for n in ["a.txt", "b.txt", "sub/c.txt", "sub/d.txt"] {
+        std::fs::write(src.join(n), b"x").unwrap();
+    }
+    let dst = server.scratch("tree-dst");
+    std::fs::create_dir_all(dst.join("proj/sub")).unwrap();
+    std::fs::write(dst.join("proj/b.txt"), b"old").unwrap();
+    std::fs::write(dst.join("proj/sub/d.txt"), b"old").unwrap();
+
+    let remote = super::transfer::Remote(session::get_session(&state, "s").await.unwrap());
+    let mut found = conflicts(&super::transfer::Local, &src.to_string_lossy(), &remote, &dst.to_string_lossy()).await.unwrap();
+    found.sort();
+    assert_eq!(found, vec!["b.txt", "sub/d.txt"]);
+
+    // And a Skip on the same tree copies the other two, leaves those two.
+    let summary = upload_path(&Silent, &state, "s", &src.to_string_lossy(), &dst.to_string_lossy(), Conflict::Skip).await.unwrap();
+    assert_eq!((summary.files, summary.skipped_existing), (2, 2));
+    assert_eq!(std::fs::read(dst.join("proj/b.txt")).unwrap(), b"old");
+    assert_eq!(std::fs::read(dst.join("proj/a.txt")).unwrap(), b"x");
+
+    // A single file that is not there is no conflict at all.
+    let none = conflicts(&super::transfer::Local, &src.join("a.txt").to_string_lossy(), &remote, &server.scratch("empty").to_string_lossy()).await.unwrap();
+    assert!(none.is_empty());
 }
 
 /// The edit-in-place watcher: a save on the temp copy reaches the server,

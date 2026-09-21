@@ -9,6 +9,7 @@
   flex-direction: column;
   flex: 1;
   overflow: hidden;
+  position: relative;
   user-select: none;
   -webkit-user-select: none;
 }
@@ -774,6 +775,25 @@
 .sftp-perms-apply-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Overwrite question */
+.sftp-conflict-dialog {
+  max-width: 420px;
+}
+
+.sftp-conflict-list {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  font-size: 12px;
+  font-family: monospace;
+  color: var(--text-muted);
+  max-height: 80px;
+  overflow-y: auto;
+}
+
+.sftp-conflict-all {
+  margin-bottom: 14px;
 }
 
 /* Drag-and-drop */

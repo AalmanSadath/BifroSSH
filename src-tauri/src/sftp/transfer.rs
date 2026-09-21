@@ -74,11 +74,15 @@ fn single_file_summary(step: Step) -> TransferSummary {
 /// free function, which is what let `C:\\dst` and a relative `sub/file` end up
 /// concatenated with the wrong slash.
 #[async_trait]
-trait FileSide {
+pub(super) trait FileSide {
     type Reader: tokio::io::AsyncRead + Unpin + Send;
     type Writer: tokio::io::AsyncWrite + Unpin + Send;
 
     async fn is_dir(&self, path: &str) -> Result<bool>;
+
+    /// Whether anything is at `path`. A file the transfer is about to
+    /// write over, which is the one question the conflict policy asks.
+    async fn exists(&self, path: &str) -> bool;
 
     /// Every file and directory under `root`, plus a count of the symlinks
     /// passed over. Parents come before their children.
@@ -113,7 +117,7 @@ trait FileSide {
     fn join(&self, dir: &str, rel: &str) -> String;
 }
 
-struct Local;
+pub(super) struct Local;
 
 /// A POSIX-separated relative path in this machine's own spelling. Both tree
 /// walks record `rel` with forward slashes, whichever side produced it.
@@ -136,6 +140,10 @@ impl FileSide for Local {
         fs::metadata(path)
             .map(|m| m.is_dir())
             .with_context(|| path.to_string())
+    }
+
+    async fn exists(&self, path: &str) -> bool {
+        tokio::fs::metadata(path).await.is_ok()
     }
 
     async fn walk(&self, root: &str) -> Result<(Vec<TreeItem>, u32)> {
@@ -179,7 +187,7 @@ impl FileSide for Local {
     }
 }
 
-struct Remote(Arc<Mutex<SftpSession>>);
+pub(super) struct Remote(pub(super) Arc<Mutex<SftpSession>>);
 
 /// Each method takes the session lock and gives it back before returning. The
 /// handles outlive the guard, so a transfer holds no lock while it is copying,
@@ -196,6 +204,11 @@ impl FileSide for Remote {
             .await
             .with_context(|| path.to_string())?;
         Ok(meta.file_type().is_dir())
+    }
+
+    async fn exists(&self, path: &str) -> bool {
+        let sftp = self.0.lock().await;
+        sftp.metadata(path).await.is_ok()
     }
 
     async fn walk(&self, root: &str) -> Result<(Vec<TreeItem>, u32)> {
@@ -254,6 +267,56 @@ impl FileSide for Remote {
     async fn remove_file(&self, path: &str) {
         let sftp = self.0.lock().await;
         let _ = sftp.remove_file(path).await;
+    }
+}
+
+/// What to do with a file that is already at the destination.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Conflict {
+    Overwrite,
+    Skip,
+    KeepBoth,
+}
+
+/// `name` split into what comes before its last dot and the dot onward:
+/// `notes.txt` is `("notes", ".txt")`, `archive.tar.gz` is
+/// `("archive.tar", ".gz")`. A dotfile and a name with no dot have no
+/// extension to keep, so the number goes at the end.
+fn stem_and_ext(name: &str) -> (&str, &str) {
+    match name.rfind('.') {
+        Some(0) | None => (name, ""),
+        Some(cut) => (&name[..cut], &name[cut..]),
+    }
+}
+
+/// `name (2)`, then `name (3)`, and so on: the first one not already at
+/// the destination.
+async fn free_path<D: FileSide>(dst: &D, dir: &str, name: &str) -> String {
+    let (stem, ext) = stem_and_ext(name);
+    for n in 2.. {
+        let candidate = dst.join(dir, &format!("{stem} ({n}){ext}"));
+        if !dst.exists(&candidate).await {
+            return candidate;
+        }
+    }
+    unreachable!("an unbounded range")
+}
+
+/// Where a file goes under `policy`, or None when it is to be skipped.
+///
+/// `dir` and `name` are the destination directory and the file's name in
+/// it; the two are joined here rather than by the caller because a kept
+/// copy needs a different name and only this function knows which.
+async fn resolve_conflict<D: FileSide>(dst: &D, dir: &str, name: &str, policy: Conflict) -> Option<String> {
+    let wanted = dst.join(dir, name);
+    if policy == Conflict::Overwrite || !dst.exists(&wanted).await {
+        return Some(wanted);
+    }
+    match policy {
+        Conflict::Skip => None,
+        Conflict::KeepBoth => Some(free_path(dst, dir, name).await),
+        Conflict::Overwrite => Some(wanted),
     }
 }
 
@@ -414,6 +477,7 @@ async fn transfer<S: FileSide, D: FileSide>(
     src_path: &str,
     dst: &D,
     dst_dir: &str,
+    policy: Conflict,
     cancel: &AtomicBool,
 ) -> Result<TransferSummary> {
     let name = Path::new(src_path)
@@ -426,13 +490,15 @@ async fn transfer<S: FileSide, D: FileSide>(
     if dst_dir.is_empty() {
         return Err(anyhow!("No destination directory"));
     }
-    let dest_root = dst.join(dst_dir, &name);
-
     if !src.is_dir(src_path).await? {
+        let Some(dest) = resolve_conflict(dst, dst_dir, &name, policy).await else {
+            return Ok(TransferSummary { skipped_existing: 1, ..Default::default() });
+        };
         let at = Position { index: 1, count: 1 };
-        let step = transfer_one(app, src, src_path, dst, &dest_root, at, cancel).await?;
+        let step = transfer_one(app, src, src_path, dst, &dest, at, cancel).await?;
         return Ok(single_file_summary(step));
     }
+    let dest_root = dst.join(dst_dir, &name);
 
     let (items, skipped_symlinks) = src.walk(src_path).await?;
     let files: Vec<&TreeItem> = items.iter().filter(|i| !i.is_dir).collect();
@@ -447,14 +513,25 @@ async fn transfer<S: FileSide, D: FileSide>(
         directories += 1;
     }
 
+    let mut skipped_existing = 0u32;
     for (i, item) in files.iter().enumerate() {
         let at = Position { index: i as u32 + 1, count };
+        // A file under a directory: its parent within the tree and its own
+        // name, so a kept copy is renamed and not its whole path.
+        let (rel_dir, file_name) = match item.rel.rfind('/') {
+            Some(cut) => (dst.join(&dest_root, &item.rel[..cut]), &item.rel[cut + 1..]),
+            None => (dest_root.clone(), item.rel.as_str()),
+        };
+        let Some(dest) = resolve_conflict(dst, &rel_dir, file_name, policy).await else {
+            skipped_existing += 1;
+            continue;
+        };
         let step = transfer_one(
             app,
             src,
             &src.join(src_path, &item.rel),
             dst,
-            &dst.join(&dest_root, &item.rel),
+            &dest,
             at,
             cancel,
         )
@@ -463,15 +540,80 @@ async fn transfer<S: FileSide, D: FileSide>(
         // removed. `files` therefore counts what actually arrived.
         if step == Step::Cancelled {
             return Ok(TransferSummary {
-                files: i as u32,
+                files: i as u32 - skipped_existing,
                 directories,
                 skipped_symlinks,
+                skipped_existing,
                 cancelled: true,
             });
         }
     }
 
-    Ok(TransferSummary { files: count, directories, skipped_symlinks, cancelled: false })
+    Ok(TransferSummary {
+        files: count - skipped_existing,
+        directories,
+        skipped_symlinks,
+        skipped_existing,
+        cancelled: false,
+    })
+}
+
+/// The names, relative to `src_path`, of files a transfer would find
+/// already at the destination. What the panel asks before it asks the user.
+pub(super) async fn conflicts<S: FileSide, D: FileSide>(
+    src: &S,
+    src_path: &str,
+    dst: &D,
+    dst_dir: &str,
+) -> Result<Vec<String>> {
+    let name = Path::new(src_path)
+        .file_name()
+        .context("Invalid source path")?
+        .to_string_lossy()
+        .into_owned();
+    if !src.is_dir(src_path).await? {
+        let there = dst.exists(&dst.join(dst_dir, &name)).await;
+        return Ok(if there { vec![name] } else { vec![] });
+    }
+    let dest_root = dst.join(dst_dir, &name);
+    let (items, _) = src.walk(src_path).await?;
+    let mut found = Vec::new();
+    for item in items.iter().filter(|i| !i.is_dir) {
+        if dst.exists(&dst.join(&dest_root, &item.rel)).await {
+            found.push(item.rel.clone());
+        }
+    }
+    Ok(found)
+}
+
+/// Which pairing a conflict check or transfer is for.
+pub enum Pairing {
+    Upload { session_id: String },
+    Download { session_id: String },
+    Copy { src_session_id: String, dst_session_id: String },
+}
+
+pub async fn conflicts_for(
+    sftp_state: &SftpClientState,
+    pairing: Pairing,
+    src_path: &str,
+    dst_dir: &str,
+) -> Result<Vec<String>> {
+    match pairing {
+        Pairing::Upload { session_id } => {
+            let remote = Remote(get_session(sftp_state, &session_id).await?);
+            conflicts(&Local, src_path, &remote, dst_dir).await
+        }
+        Pairing::Download { session_id } => {
+            let remote = Remote(get_session(sftp_state, &session_id).await?);
+            conflicts(&remote, src_path, &Local, dst_dir).await
+        }
+        Pairing::Copy { src_session_id, dst_session_id } => {
+            let src = Remote(get_session(sftp_state, &src_session_id).await?);
+            let dst = Remote(get_session(sftp_state, &dst_session_id).await?);
+            conflicts(&src, src_path, &dst, dst_dir).await
+        }
+    }
 }
 
 /// Uploads a file, or a directory tree rooted at `local_path`.
@@ -481,10 +623,11 @@ pub async fn upload_path(
     session_id: &str,
     local_path: &str,
     remote_dir: &str,
+    policy: Conflict,
 ) -> Result<TransferSummary> {
     let remote = Remote(get_session(sftp_state, session_id).await?);
     let cancel = sftp_state.begin_transfer();
-    transfer(app, &Local, local_path, &remote, remote_dir, &cancel).await
+    transfer(app, &Local, local_path, &remote, remote_dir, policy, &cancel).await
 }
 
 /// Uploads one file with no progress and no part in the panel's cancel.
@@ -501,7 +644,7 @@ pub(super) async fn upload_quiet(
 ) -> Result<()> {
     let remote = Remote(get_session(sftp_state, session_id).await?);
     let cancel = AtomicBool::new(false);
-    transfer(&Silent, &Local, local_path, &remote, remote_dir, &cancel).await?;
+    transfer(&Silent, &Local, local_path, &remote, remote_dir, Conflict::Overwrite, &cancel).await?;
     Ok(())
 }
 
@@ -512,10 +655,11 @@ pub async fn download_path(
     session_id: &str,
     remote_path: &str,
     local_dir: &str,
+    policy: Conflict,
 ) -> Result<TransferSummary> {
     let remote = Remote(get_session(sftp_state, session_id).await?);
     let cancel = sftp_state.begin_transfer();
-    transfer(app, &remote, remote_path, &Local, local_dir, &cancel).await
+    transfer(app, &remote, remote_path, &Local, local_dir, policy, &cancel).await
 }
 
 /// Copies a file, or a directory tree, between two remote sessions.
@@ -526,15 +670,28 @@ pub async fn copy_remote_path(
     src_path: &str,
     dst_session_id: &str,
     dst_dir: &str,
+    policy: Conflict,
 ) -> Result<TransferSummary> {
     let src = Remote(get_session(sftp_state, src_session_id).await?);
     let dst = Remote(get_session(sftp_state, dst_session_id).await?);
     let cancel = sftp_state.begin_transfer();
-    transfer(app, &src, src_path, &dst, dst_dir, &cancel).await
+    transfer(app, &src, src_path, &dst, dst_dir, policy, &cancel).await
 }
 
 #[cfg(test)]
 mod tests {
+    /// The number goes before the extension, so a kept copy still opens
+    /// with the same application. A dotfile has no extension to keep.
+    #[test]
+    fn a_kept_copy_is_numbered_before_its_extension() {
+        use super::stem_and_ext;
+        assert_eq!(stem_and_ext("notes.txt"), ("notes", ".txt"));
+        assert_eq!(stem_and_ext("archive.tar.gz"), ("archive.tar", ".gz"));
+        assert_eq!(stem_and_ext("Makefile"), ("Makefile", ""));
+        assert_eq!(stem_and_ext(".bashrc"), (".bashrc", ""));
+        assert_eq!(stem_and_ext("trailing."), ("trailing", "."));
+    }
+
     /// The two sides spell paths differently, and `rel` always arrives
     /// POSIX-separated. Downloading a folder onto Windows is the case that
     /// used to concatenate a backslash directory with a forward-slash

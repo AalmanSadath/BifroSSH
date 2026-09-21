@@ -14,7 +14,7 @@
 use super::*;
 use super::listing::parent_remote;
 use super::session::get_session;
-use super::transfer::{download_path, upload_quiet, Silent};
+use super::transfer::{download_path, upload_quiet, Conflict, Silent};
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 
@@ -65,7 +65,7 @@ pub async fn open_remote(
         .join(uuid::Uuid::new_v4().to_string());
     std::fs::create_dir_all(&dir).with_context(|| dir.display().to_string())?;
 
-    let summary = download_path(&Silent, &sftp_state, &session_id, &remote_path, &dir.to_string_lossy()).await?;
+    let summary = download_path(&Silent, &sftp_state, &session_id, &remote_path, &dir.to_string_lossy(), Conflict::Overwrite).await?;
     if summary.cancelled {
         let _ = std::fs::remove_dir_all(&dir);
         return Ok(());

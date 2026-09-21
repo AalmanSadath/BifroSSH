@@ -71,9 +71,17 @@ export interface TransferSummary {
   directories: number;
   /** Symlinks are never copied; following one risks a loop. */
   skipped_symlinks: number;
+  /** Left alone because one was already there and the answer was skip. */
+  skipped_existing: number;
   /** True when the user stopped it; `files` then counts what arrived. */
   cancelled: boolean;
 }
+
+/** What a transfer does with a file that is already at the destination. */
+export type Conflict = 'overwrite' | 'skip' | 'keep_both';
+
+/** Which pairing a conflict check is for; decides which session ids matter. */
+export type TransferKind = 'upload' | 'download' | 'copy';
 
 /**
  * One jump host as the backend expects it. The chain is walked and its
