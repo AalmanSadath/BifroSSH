@@ -7,6 +7,7 @@ import OsIcon from './OsIcon';
 import type { FileEntry, LogEntry, Server, TransferProgress, TransferSummary } from '../types';
 import ConnectingView from './ConnectingView';
 import ContextMenu from './shared/ContextMenu';
+import PermissionsDialog from './PermissionsDialog';
 import { useDismissOnOutside } from './shared/useDismissOnOutside';
 import { localStyle, resolveTyped, styleFor, type PathStyle } from '../paths';
 
@@ -78,6 +79,7 @@ interface FileBrowserProps {
   onCopyToTarget?: (entries: FileEntry[]) => void;
   onRename?: (entry: FileEntry, newName: string) => void;
   onDelete?: (entries: FileEntry[]) => void;
+  onSetMode?: (entries: FileEntry[], mode: number) => void;
   side?: 'left' | 'right';
   isDropTarget?: boolean;
   transferring?: boolean;
@@ -91,7 +93,7 @@ interface FileBrowserProps {
 
 function FileBrowser({ title, icon, path, home, entries, loading, error, notice, onDismissNotice, onNavigate,
   onRefresh, onNewFolder, extraActions, onLocalBtn,
-  canCopyToTarget, onCopyToTarget, onRename, onDelete,
+  canCopyToTarget, onCopyToTarget, onRename, onDelete, onSetMode,
   side, isDropTarget, transferring, onDragEnter: onDragEnterCb, onDragLeave: onDragLeaveCb, onFileDrop, onReconnect,
   pathStyle,
 }: FileBrowserProps) {
@@ -122,6 +124,7 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; entry: FileEntry | null } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<FileEntry[] | null>(null);
+  const [permEntries, setPermEntries] = useState<FileEntry[] | null>(null);
   const [newFolderName, setNewFolderName] = useState<string | null>(null);
   const [renamingEntry, setRenamingEntry] = useState<{ entry: FileEntry; value: string } | null>(null);
   const [reconnecting, setReconnecting] = useState(false);
@@ -592,6 +595,11 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
               <button className="menu-item" onClick={() => handleRenameClick(contextMenu.entry!)}>
                 Rename
               </button>
+              {contextMenu.entry.mode !== null && onSetMode && (
+                <button className="menu-item" onClick={() => { setPermEntries(batchFor(contextMenu.entry!)); setContextMenu(null); }}>
+                  Permissions…
+                </button>
+              )}
               <div className="menu-divider" />
               <button className="menu-item menu-item-danger" onClick={() => { setConfirmDelete(batchFor(contextMenu.entry!)); setContextMenu(null); }}>
                 Delete
@@ -645,6 +653,14 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
             </div>
           </div>
         </div>
+      )}
+
+      {permEntries && (
+        <PermissionsDialog
+          entries={permEntries}
+          onCancel={() => setPermEntries(null)}
+          onApply={(mode) => { onSetMode?.(permEntries, mode); setPermEntries(null); }}
+        />
       )}
     </>
   );
@@ -1006,6 +1022,22 @@ function usePane(initialMode: PaneMode) {
     }
   }
 
+  async function setPerms(batch: FileEntry[], newMode: number) {
+    try {
+      // The first failure stops the batch, same as removeMany: what came
+      // before it is changed, what came after it is not, and the refresh
+      // below shows exactly that.
+      for (const entry of batch) {
+        if (mode === 'local') await ipc.sftpSetModeLocal(entry.path, newMode);
+        else await ipc.sftpSetModeRemote(requireSid(), entry.path, newMode);
+      }
+    } catch (e) {
+      fail(String(e));
+    } finally {
+      await refresh();
+    }
+  }
+
   /** Reports a failed operation without disturbing the list behind it. */
   function fail(message: string) {
     setNotice(message);
@@ -1022,7 +1054,7 @@ function usePane(initialMode: PaneMode) {
     connectingId, connectError, setConnectError, connectServer, connectLogs,
     navigate: (path: string) => (mode === 'local' ? navigateLocal(path) : navigateRemote(path)),
     refresh, goLocal, connect, disconnect, reconnect,
-    newFolder, rename, removeMany, fail, say, requireSid,
+    newFolder, rename, removeMany, setPerms, fail, say, requireSid,
   };
 }
 
@@ -1277,6 +1309,7 @@ export default function SftpPanel() {
         onCopyToTarget={(batch) => handleDrop(side === 'left' ? 'right' : 'left', batch)}
         onRename={pane.rename}
         onDelete={pane.removeMany}
+        onSetMode={pane.setPerms}
         onLocalBtn={() => pane.setMode('idle')}
         extraActions={closeConnectionActions(
           pane.mode === 'local' ? () => pane.setMode('idle') : pane.disconnect,

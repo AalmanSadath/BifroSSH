@@ -323,6 +323,12 @@ export const sftpDeleteRemote = (sessionId: string, path: string, isDir: boolean
 export const sftpRenameRemote = (sessionId: string, oldPath: string, newPath: string) =>
   invoke<void>('sftp_rename_remote', { sessionId, oldPath, newPath });
 
+export const sftpSetModeLocal = (path: string, mode: number) =>
+  invoke<void>('sftp_set_mode_local', { path, mode });
+
+export const sftpSetModeRemote = (sessionId: string, path: string, mode: number) =>
+  invoke<void>('sftp_set_mode_remote', { sessionId, path, mode });
+
 // ── tunnels ──────────────────────────────────────────────────────────────
 
 /**

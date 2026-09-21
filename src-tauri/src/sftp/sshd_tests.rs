@@ -11,7 +11,7 @@
 
 use super::*;
 use super::listing::list_remote;
-use super::ops::{delete_remote, mkdir, rename_remote};
+use super::ops::{delete_remote, mkdir, rename_remote, set_mode_remote};
 use super::transfer::{download_path, upload_path, Progress};
 
 use std::path::{Path, PathBuf};
@@ -279,6 +279,29 @@ async fn the_remote_home_is_where_the_server_started() {
     let Some((_server, state)) = rig("home", None).await else { return };
     let home = listing::get_remote_home(&state, "s").await.unwrap();
     assert_eq!(home, std::env::var("HOME").unwrap());
+}
+
+/// `FileAttributes::default()` fills size, uid, gid and both times rather
+/// than leaving them out; a setstat built from it for a mode-only change
+/// would truncate the file and reset its owner and dates. This pins the
+/// content and size staying put, on top of the mode actually landing.
+#[tokio::test]
+async fn setting_the_mode_touches_only_the_mode() {
+    let Some((server, state)) = rig("chmod", None).await else { return };
+    let root = server.scratch("chmod");
+    let path = root.join("f.txt");
+    std::fs::write(&path, b"hello world").unwrap();
+
+    set_mode_remote(&state, "s", &path.to_string_lossy(), 0o600).await.unwrap();
+
+    let entries = list_remote(&state, "s", &root.to_string_lossy()).await.unwrap();
+    let f = entries.iter().find(|e| e.name == "f.txt").unwrap();
+    assert_eq!(f.mode, Some(0o600));
+    assert_eq!(f.permissions, "-rw-------");
+
+    assert_eq!(std::fs::read(&path).unwrap(), b"hello world", "contents must survive a chmod");
+    use std::os::unix::fs::PermissionsExt;
+    assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
 }
 
 /// A listing that fails on a path is not a session that has failed. The panel

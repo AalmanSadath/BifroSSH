@@ -11,7 +11,8 @@ use anyhow::{anyhow, Context, Result};
 use tokio::sync::Mutex;
 use russh_sftp::client::SftpSession;
 
-#[cfg(unix)]
+/// Arithmetic on a permission bitmask, not a filesystem call, so it applies
+/// to a remote listing from a Windows client just as it does locally.
 fn format_mode(mode: u32) -> String {
     let bits = [
         (0o400, 'r'), (0o200, 'w'), (0o100, 'x'),
@@ -116,6 +117,7 @@ pub fn list_local(path: &str) -> Result<Vec<FileEntry>> {
                 size: 0,
                 modified: None,
                 permissions: String::new(),
+                mode: None,
                 kind: "folder".into(),
                 hidden: false,
                 symlink: false,
@@ -150,18 +152,19 @@ pub fn list_local(path: &str) -> Result<Vec<FileEntry>> {
             .map(|d| d.as_secs());
 
         #[cfg(unix)]
-        let permissions = {
+        let (mode, permissions) = {
             use std::os::unix::fs::PermissionsExt;
-            format_mode(meta.permissions().mode())
+            let full = meta.permissions().mode();
+            (Some(full & 0o7777), format_mode(full))
         };
         #[cfg(not(unix))]
-        let permissions = String::new();
+        let (mode, permissions): (Option<u32>, String) = (None, String::new());
 
         let kind = file_kind(&name, is_dir);
         let file_path = path_obj.join(&name).to_string_lossy().into_owned();
 
         let hidden = is_hidden(&name, &link_meta);
-        entries.push(FileEntry { name, path: file_path, is_dir, size, modified, permissions, kind, hidden, symlink });
+        entries.push(FileEntry { name, path: file_path, is_dir, size, modified, permissions, mode, kind, hidden, symlink });
     }
 
     if entries.len() > 1 {
@@ -203,6 +206,7 @@ pub async fn list_remote(
             size: 0,
             modified: None,
             permissions: String::new(),
+            mode: None,
             kind: "folder".into(),
             hidden: false,
             symlink: false,
@@ -235,11 +239,12 @@ pub async fn list_remote(
         let modified = meta.modified().ok()
             .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
             .map(|d| d.as_secs());
-        let permissions = String::new();
+        let mode = meta.permissions;
+        let permissions = mode.map(format_mode).unwrap_or_default();
         let kind = file_kind(&name, is_dir);
 
         let hidden = name.starts_with('.');
-        entries.push(FileEntry { name, path: file_path, is_dir, size, modified, permissions, kind, hidden, symlink });
+        entries.push(FileEntry { name, path: file_path, is_dir, size, modified, permissions, mode: mode.map(|m| m & 0o7777), kind, hidden, symlink });
     }
 
     if entries.len() > 1 {
@@ -486,6 +491,23 @@ mod tests {
 
         assert!(!link.is_dir, "nothing is known about a target that is not there");
         assert!(link.symlink);
+    }
+
+    #[test]
+    fn format_mode_reads_owner_group_other() {
+        assert_eq!(format_mode(0o100644), "-rw-r--r--");
+        assert_eq!(format_mode(0o100755), "-rwxr-xr-x");
+        assert_eq!(format_mode(0o040755), "drwxr-xr-x");
+    }
+
+    /// Setuid, setgid and sticky are not among the nine bits this prints; a
+    /// mode carrying them still shows the ordinary permission letters rather
+    /// than garbage or a panic.
+    #[test]
+    fn format_mode_ignores_bits_outside_the_nine_it_prints() {
+        assert_eq!(format_mode(0o104755), "-rwxr-xr-x");
+        assert_eq!(format_mode(0o102755), "-rwxr-xr-x");
+        assert_eq!(format_mode(0o101755), "-rwxr-xr-x");
     }
 
     #[test]

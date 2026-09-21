@@ -690,6 +690,73 @@
   opacity: 0.85;
 }
 
+/* Permissions dialog */
+.sftp-perms-dialog {
+  min-width: 300px;
+}
+
+.sftp-perms-grid {
+  width: 100%;
+  margin-bottom: 14px;
+  border-collapse: collapse;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.sftp-perms-grid th,
+.sftp-perms-grid td {
+  text-align: center;
+  padding: 3px 6px;
+}
+
+.sftp-perms-grid input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+.sftp-perms-grid th:first-child,
+.sftp-perms-grid td:first-child {
+  text-align: left;
+  color: var(--text-dim);
+}
+
+.sftp-perms-octal {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.sftp-perms-octal input {
+  width: 60px;
+  font-family: monospace;
+  background: var(--bg-mid);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-primary);
+  padding: 3px 6px;
+}
+
+.sftp-perms-octal-input-error {
+  border-color: var(--danger) !important;
+}
+
+.sftp-perms-apply-btn {
+  background: var(--accent) !important;
+  color: var(--on-accent, #fff) !important;
+  border-color: var(--accent) !important;
+}
+
+.sftp-perms-apply-btn:hover {
+  opacity: 0.85;
+}
+
+.sftp-perms-apply-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* Drag-and-drop */
 .sftp-drop-overlay,
 .sftp-transfer-overlay {

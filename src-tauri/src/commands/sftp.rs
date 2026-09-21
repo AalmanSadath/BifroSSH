@@ -187,3 +187,18 @@ pub async fn sftp_rename_remote(
 ) -> CmdResult<()> {
     crate::sftp::rename_remote(&state.sftp_state, &session_id, &old_path, &new_path).await.map_err(CmdError::from)
 }
+
+#[tauri::command]
+pub fn sftp_set_mode_local(path: String, mode: u32) -> CmdResult<()> {
+    crate::sftp::set_mode_local(&path, mode).map_err(CmdError::from)
+}
+
+#[tauri::command]
+pub async fn sftp_set_mode_remote(
+    state: State<'_, AppState>,
+    session_id: String,
+    path: String,
+    mode: u32,
+) -> CmdResult<()> {
+    crate::sftp::set_mode_remote(&state.sftp_state, &session_id, &path, mode).await.map_err(CmdError::from)
+}

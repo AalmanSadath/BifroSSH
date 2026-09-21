@@ -387,6 +387,11 @@ export interface FileEntry {
   size: number;
   modified: number | null;
   permissions: string;
+  /**
+   * The permission bits alone, for editing. Null on a Windows local listing,
+   * where there is no POSIX mode to set, and for `..`.
+   */
+  mode: number | null;
   kind: string;
   /**
    * Decided by the backend, not from the name. A leading dot is a naming
