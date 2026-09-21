@@ -275,3 +275,43 @@ describe('broadcastTargets', () => {
     expect(broadcastTargets(tabs, 'nope')).toEqual([]);
   });
 });
+
+describe('split panes', () => {
+  const tab = (id: string): SessionTab => ({
+    tab_id: id, session_id: `s-${id}`, server_name: id, server_id: 'srv', status: 'connected',
+  });
+
+  beforeEach(() => {
+    useAppStore.setState({ sessions: [tab('a'), tab('b'), tab('c')], activeTabId: 'a', splitGroup: [], sessionThemeOverrides: {} });
+  });
+
+  it('starts a group from the anchor and keeps strip order', () => {
+    useAppStore.getState().splitWith('b', 'a');
+    expect(useAppStore.getState().splitGroup).toEqual(['a', 'b']);
+    useAppStore.getState().splitWith('a', 'c');
+    expect(useAppStore.getState().splitGroup).toEqual(['a', 'b', 'c']);
+  });
+
+  it('ignores a tab dropped on itself, one already in, and one that is not a tab', () => {
+    useAppStore.getState().splitWith('a', 'a');
+    useAppStore.getState().splitWith('a', 'nope');
+    expect(useAppStore.getState().splitGroup).toEqual([]);
+    useAppStore.getState().splitWith('a', 'b');
+    useAppStore.getState().splitWith('b', 'a');
+    expect(useAppStore.getState().splitGroup).toEqual(['a', 'b']);
+  });
+
+  /** A pane on its own is a plain tab again, not a split of one. */
+  it('dissolves when one member is left, on unsplit and on close', () => {
+    useAppStore.getState().splitWith('a', 'b');
+    useAppStore.getState().unsplit('a');
+    expect(useAppStore.getState().splitGroup).toEqual([]);
+
+    useAppStore.getState().splitWith('a', 'b');
+    useAppStore.getState().splitWith('a', 'c');
+    useAppStore.getState().removeSession('b');
+    expect(useAppStore.getState().splitGroup).toEqual(['a', 'c']);
+    useAppStore.getState().removeSession('c');
+    expect(useAppStore.getState().splitGroup).toEqual([]);
+  });
+});

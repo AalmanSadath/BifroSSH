@@ -14,7 +14,12 @@ import '@xterm/xterm/css/xterm.css';
 interface Props {
   /** The tab this terminal belongs to; its session may come and go. */
   tab: SessionTab;
-  active: boolean;
+  /** On screen: the active tab, or beside it in a split. */
+  visible: boolean;
+  /** The one the keyboard goes to. Never true without `visible`. */
+  focused: boolean;
+  /** Split only: the pane header, with the tab's name and a way out. */
+  header?: React.ReactNode;
 }
 
 interface SearchOptions {
@@ -23,7 +28,7 @@ interface SearchOptions {
   regex: boolean;
 }
 
-export default function TerminalView({ tab, active }: Props) {
+export default function TerminalView({ tab, visible, focused, header }: Props) {
   const { tab_id: tabId, session_id: sessionId, server_id: serverId } = tab;
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -39,7 +44,7 @@ export default function TerminalView({ tab, active }: Props) {
   sessionIdRef.current = sessionId;
   /** Whether a session has been bound before, so the next one is a reconnect. */
   const boundOnceRef = useRef(false);
-  const { settings, servers, removeSession, markDropped, reconnectSession, sendInput, sessionThemeOverrides, customThemes } = useAppStore();
+  const { settings, servers, removeSession, markDropped, reconnectSession, sendInput, setActiveTab, sessionThemeOverrides, customThemes } = useAppStore();
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -460,16 +465,22 @@ export default function TerminalView({ tab, active }: Props) {
     settings.scrollback_lines,
   ]);
 
+  // Two frames after becoming visible, so the box has a size to fit to.
   useEffect(() => {
-    if (active) {
+    if (visible) {
       requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          fitRef.current?.fit();
-          termRef.current?.focus();
-        });
+        requestAnimationFrame(() => fitRef.current?.fit());
       });
     }
-  }, [active]);
+  }, [visible]);
+
+  useEffect(() => {
+    if (focused) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => termRef.current?.focus());
+      });
+    }
+  }, [focused]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -491,7 +502,12 @@ export default function TerminalView({ tab, active }: Props) {
   ];
 
   return (
-    <div className={`terminal-pane${tab.broadcast ? ' terminal-pane-broadcast' : ''}`} style={{ display: active ? 'flex' : 'none' }}>
+    <div
+      className={`terminal-pane${tab.broadcast ? ' terminal-pane-broadcast' : ''}${header && focused ? ' terminal-pane-focused' : ''}`}
+      style={{ display: visible ? 'flex' : 'none', '--term-bg': resolveTheme().background } as React.CSSProperties}
+      onMouseDown={() => { if (!focused) setActiveTab(tabId); }}
+    >
+      {header}
       {searchOpen && (
         // Escape is handled here rather than on the input: clicking a toggle
         // moves focus to that button, and a handler on the input alone would
@@ -611,15 +627,10 @@ export default function TerminalView({ tab, active }: Props) {
         </div>
       )}
 
-      {/* Declarative rather than set from the theme effect, so the padding
-          around the canvas can never be left showing the previous theme. */}
-      <div
-        ref={containerRef}
-        className="terminal-container"
-        style={{
-          '--term-bg': resolveTheme().background,
-        } as React.CSSProperties}
-      />
+      {/* The variable is set on the pane, declaratively rather than from the
+          theme effect, so neither the padding around the canvas nor any
+          slack under it can be left showing another colour. */}
+      <div ref={containerRef} className="terminal-container" />
     </div>
   );
 }

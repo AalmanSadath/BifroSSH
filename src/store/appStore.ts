@@ -20,6 +20,15 @@ export function broadcastTargets(sessions: SessionTab[], tabId: string): string[
     .map((t) => t.session_id as string);
 }
 
+/** Panes side by side before the terminals stop being useful. */
+const MAX_SPLIT = 4;
+
+/** The group without `tabId`; a group of one is no group. */
+export function pruneSplit(group: string[], tabId: string): string[] {
+  const rest = group.filter((id) => id !== tabId);
+  return rest.length > 1 ? rest : [];
+}
+
 /** What just happened, for the tunnels that start on their own. */
 export type AutostartTrigger = { kind: 'launch' } | { kind: 'connect'; serverId: string };
 
@@ -193,6 +202,16 @@ interface AppStore {
   settings: Settings;
   sessions: SessionTab[];
   activeTabId: string | null;
+  /**
+   * Tabs shown side by side, in strip order; empty when nothing is split.
+   * The view is split whenever the active tab is one of them, and the
+   * active tab is the focused pane. A tab outside the group shows alone
+   * and leaves the group be, so coming back restores the split.
+   */
+  splitGroup: string[];
+  /** Puts `dropped` beside `anchor`, starting a group from the anchor if there is none. */
+  splitWith: (anchorTabId: string, droppedTabId: string) => void;
+  unsplit: (tabId: string) => void;
 
   /** What the desktop reports about its own theme and accent. */
   systemAppearance: SystemAppearance;
@@ -422,6 +441,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   settings: DEFAULT_SETTINGS,
   sessions: [],
   activeTabId: 'hosts',
+  splitGroup: [],
 
   systemAppearance: NO_APPEARANCE,
   setSystemAppearance: (appearance) => set({ systemAppearance: appearance }),
@@ -742,7 +762,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
       // The override is keyed on a tab id that will never be reused, so
       // leaving it behind grows the map for the life of the process.
       const { [tabId]: _dropped, ...themeOverrides } = s.sessionThemeOverrides;
-      return { sessions: next, activeTabId: nextActive, sessionThemeOverrides: themeOverrides };
+      return {
+        sessions: next,
+        activeTabId: nextActive,
+        sessionThemeOverrides: themeOverrides,
+        splitGroup: pruneSplit(s.splitGroup, tabId),
+      };
     }),
 
   renameSession: (tabId, name) =>
@@ -939,6 +964,20 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   setActiveTab: (id) => set({ activeTabId: id }),
+
+  splitWith: (anchorTabId, droppedTabId) =>
+    set((s) => {
+      if (anchorTabId === droppedTabId) return {};
+      const ids = new Set(s.sessions.map((t) => t.tab_id));
+      if (!ids.has(anchorTabId) || !ids.has(droppedTabId)) return {};
+      const base = s.splitGroup.includes(anchorTabId) ? s.splitGroup : [anchorTabId];
+      if (base.includes(droppedTabId) || base.length >= MAX_SPLIT) return {};
+      const members = new Set([...base, droppedTabId]);
+      // Strip order, so panes read the way the tabs do.
+      return { splitGroup: s.sessions.map((t) => t.tab_id).filter((id) => members.has(id)) };
+    }),
+
+  unsplit: (tabId) => set((s) => ({ splitGroup: pruneSplit(s.splitGroup, tabId) })),
 }));
 
 /**

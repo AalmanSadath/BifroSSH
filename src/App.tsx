@@ -27,6 +27,23 @@ import Modal from './components/shared/Modal';
 import PassphraseInput from './components/shared/PassphraseInput';
 import PortalDropdown from './components/shared/PortalDropdown';
 
+/**
+ * A dragged tab travels as text/plain JSON, the way an SFTP entry does:
+ * WebKitGTK carries only the standard clipboard types across a drag, so a
+ * type of our own arrives empty. The `kind` field is what tells the two
+ * payloads apart, and the SFTP drop handler ignores one without entries.
+ */
+const TAB_DRAG_KIND = 'bifrossh-tab';
+
+function readTabDrag(e: React.DragEvent): string | null {
+  try {
+    const parsed = JSON.parse(e.dataTransfer.getData('text/plain')) as { kind?: string; tab_id?: string };
+    return parsed.kind === TAB_DRAG_KIND && parsed.tab_id ? parsed.tab_id : null;
+  } catch {
+    return null;
+  }
+}
+
 function parseSSHInput(input: string): { user: string; host: string; port: number; password?: string } | null {
   let s = input.trim();
   if (s.toLowerCase().startsWith('ssh ')) s = s.slice(4).trim();
@@ -64,7 +81,7 @@ function parseSSHInput(input: string): { user: string; host: string; port: numbe
 export default function App() {
   const {
     loadAll, loadError, actionError, setActionError, sessions, activeTabId, setActiveTab, removeSession,
-    renameSession, toggleBroadcast, openSession, quickConnect, servers, settings, keys,
+    renameSession, toggleBroadcast, splitGroup, splitWith, unsplit, openSession, quickConnect, servers, settings, keys,
     systemAppearance, setSystemAppearance, clearForLock,
   } = useAppStore();
 
@@ -80,6 +97,25 @@ export default function App() {
   type TabCtxMode = 'menu' | 'rename';
   const [termSidebarOpen, setTermSidebarOpen] = useState(false);
   const [tabCtx, setTabCtx] = useState<{ x: number; y: number; session: SessionTab; mode: TabCtxMode } | null>(null);
+  const [tabDragOver, setTabDragOver] = useState(false);
+  const activeIsSession = sessions.some((s) => s.tab_id === activeTabId);
+  const splitShown = activeTabId !== null && splitGroup.includes(activeTabId);
+
+  function paneHeader(s: SessionTab, focused: boolean) {
+    return (
+      <div className={`pane-header${focused ? ' pane-header-focused' : ''}`}>
+        <span className="pane-header-title">{s.server_name}</span>
+        <button
+          className="pane-header-close"
+          title="Remove from split"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={() => unsplit(s.tab_id)}
+        >
+          &#10005;
+        </button>
+      </div>
+    );
+  }
   const [renameValue, setRenameValue] = useState('');
   const renameInputRef = useRef<HTMLInputElement>(null);
 
@@ -477,7 +513,13 @@ export default function App() {
                 className={`tab ${activeTabId === s.tab_id ? 'tab-active' : ''}`}
                 onClick={() => setActiveTab(s.tab_id)}
                 onContextMenu={(e) => handleTabContextMenu(e, s)}
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData('text/plain', JSON.stringify({ kind: TAB_DRAG_KIND, tab_id: s.tab_id }));
+                  e.dataTransfer.effectAllowed = 'move';
+                }}
               >
+                {splitGroup.includes(s.tab_id) && <span className="tab-split" title="Shown in a split">⊟</span>}
                 {s.broadcast && (
                   <span className="tab-broadcast" title="Broadcasting: input also goes to every other tab marked the same way">⇶</span>
                 )}
@@ -501,7 +543,29 @@ export default function App() {
 
         <div className="content">
           <div className="content-main">
+          <div
+            className={`term-area${activeIsSession ? '' : ' term-area-off'}${tabDragOver ? ' term-area-drop' : ''}`}
+            onDragOver={(e) => {
+              // Only the types are readable here, so any text drag is let
+              // in; the drop itself checks it was a tab.
+              if (!e.dataTransfer.types.includes('text/plain') || !activeIsSession) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'move';
+              if (!tabDragOver) setTabDragOver(true);
+            }}
+            onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setTabDragOver(false); }}
+            onDrop={(e) => {
+              setTabDragOver(false);
+              const dropped = readTabDrag(e);
+              if (!dropped || !activeTabId || !activeIsSession) return;
+              e.preventDefault();
+              splitWith(activeTabId, dropped);
+            }}
+          >
           {sessions.map((s) => {
+            const inSplit = splitGroup.includes(s.tab_id);
+            const visible = activeTabId === s.tab_id || (splitShown && inSplit);
+            const focused = activeTabId === s.tab_id;
             const server = servers.find((srv) => srv.id === s.server_id)
               ?? (s.quick_info ? {
                 id: '', name: s.server_name,
@@ -514,7 +578,8 @@ export default function App() {
             if (s.status === 'connecting' || s.status === 'error') {
               if (!server) return null;
               return (
-                <div key={s.tab_id} style={{ display: activeTabId === s.tab_id ? 'contents' : 'none' }}>
+                <div key={s.tab_id} className="term-connecting" style={{ display: visible ? 'flex' : 'none' }}>
+                  {splitShown && inSplit && paneHeader(s, focused)}
                   <ConnectingView
                     server={server}
                     logs={s.logs ?? []}
@@ -531,10 +596,13 @@ export default function App() {
               <TerminalView
                 key={s.tab_id}
                 tab={s}
-                active={activeTabId === s.tab_id}
+                visible={visible}
+                focused={focused}
+                header={splitShown && inSplit ? paneHeader(s, focused) : undefined}
               />
             );
           })}
+          </div>
 
           {(activeTabId === 'hosts' || activeTabId === null) && <HostsPanel />}
           {activeTabId === 'keychain' && <KeychainPanel />}
@@ -638,6 +706,11 @@ export default function App() {
               <button className="menu-item" onClick={() => { toggleBroadcast(tabCtx.session.tab_id); setTabCtx(null); }}>
                 {tabCtx.session.broadcast ? '✓ ' : ''}Broadcast input
               </button>
+              {splitGroup.includes(tabCtx.session.tab_id) && (
+                <button className="menu-item" onClick={() => { unsplit(tabCtx.session.tab_id); setTabCtx(null); }}>
+                  Remove from split
+                </button>
+              )}
               <div className="menu-divider" />
               <button className="menu-item menu-item-danger" onClick={(e) => { handleCloseTab(tabCtx.session.tab_id, e); setTabCtx(null); }}>
                 Close Connection
