@@ -406,6 +406,13 @@ export interface FileEntry {
   symlink: boolean;
 }
 
+/** One upload by the edit-in-place watcher, successful or not. */
+export interface EditEvent {
+  remote_path: string;
+  name: string;
+  error: string | null;
+}
+
 /** Per-collection tallies, shared by every export and import result. */
 export interface TransferCounts {
   servers: number;

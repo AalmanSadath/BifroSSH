@@ -165,6 +165,20 @@
   background: color-mix(in srgb, var(--danger) 20%, transparent);
 }
 
+.sftp-notice-info {
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg-dark));
+  border-top-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.sftp-notice-info .sftp-notice-text,
+.sftp-notice-info .sftp-notice-close {
+  color: var(--accent);
+}
+
+.sftp-notice-info .sftp-notice-close:hover {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
 .sftp-breadcrumb {
   display: flex;
   align-items: center;

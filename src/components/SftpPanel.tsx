@@ -4,7 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useAppStore, buildJumpChain, resolveServerAuth } from '../store/appStore';
 import OsIcon from './OsIcon';
-import type { FileEntry, LogEntry, Server, TransferProgress, TransferSummary } from '../types';
+import type { EditEvent, FileEntry, LogEntry, Server, TransferProgress, TransferSummary } from '../types';
 import ConnectingView from './ConnectingView';
 import ContextMenu from './shared/ContextMenu';
 import PermissionsDialog from './PermissionsDialog';
@@ -52,6 +52,16 @@ const HEADERS = ['Name', 'Date Modified', 'Size', 'Type'] as const;
 type SortCol = typeof HEADERS[number];
 const DEFAULT_COL_WIDTHS = [44, 26, 12, 18];
 
+/**
+ * A message over the list. An error is painted so it looks like one; a
+ * report of something that went fine, a transfer summary or an upload
+ * behind an opened file, is painted so it does not.
+ */
+interface Notice {
+  text: string;
+  kind: 'error' | 'info';
+}
+
 interface FileBrowserProps {
   title: React.ReactNode;
   icon: React.ReactNode;
@@ -68,7 +78,7 @@ interface FileBrowserProps {
    * away the files you were looking at is not a way to report that one of them
    * would not delete.
    */
-  notice?: string;
+  notice?: Notice | null;
   onDismissNotice?: () => void;
   onNavigate: (path: string) => void;
   onRefresh?: () => void;
@@ -80,6 +90,8 @@ interface FileBrowserProps {
   onRename?: (entry: FileEntry, newName: string) => void;
   onDelete?: (entries: FileEntry[]) => void;
   onSetMode?: (entries: FileEntry[], mode: number) => void;
+  /** A file, double-clicked or chosen from the menu. */
+  onOpen?: (entry: FileEntry) => void;
   /** A same-pane drop onto a directory row. */
   onMove?: (entries: FileEntry[], intoDir: string) => void;
   side?: 'left' | 'right';
@@ -95,7 +107,7 @@ interface FileBrowserProps {
 
 function FileBrowser({ title, icon, path, home, entries, loading, error, notice, onDismissNotice, onNavigate,
   onRefresh, onNewFolder, extraActions, onLocalBtn,
-  canCopyToTarget, onCopyToTarget, onRename, onDelete, onSetMode, onMove,
+  canCopyToTarget, onCopyToTarget, onRename, onDelete, onSetMode, onOpen, onMove,
   side, isDropTarget, transferring, onDragEnter: onDragEnterCb, onDragLeave: onDragLeaveCb, onFileDrop, onReconnect,
   pathStyle,
 }: FileBrowserProps) {
@@ -576,7 +588,7 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
                 onDragOver={entry.is_dir ? (e) => handleRowDragOver(e, entry) : undefined}
                 onDragLeave={entry.is_dir ? () => setRowDropPath((p) => (p === entry.path ? null : p)) : undefined}
                 onDrop={entry.is_dir ? (e) => handleRowDrop(e, entry) : undefined}
-                onDoubleClick={() => entry.is_dir && onNavigate(entry.path)}
+                onDoubleClick={() => (entry.is_dir ? onNavigate(entry.path) : onOpen?.(entry))}
                 title={entry.is_dir ? hint('Double-click to open') : entry.name}
               >
                 <td>
@@ -631,6 +643,11 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
         >
           {contextMenu.entry ? (
             <>
+              {!contextMenu.entry.is_dir && onOpen && (
+                <button className="menu-item" onClick={() => { onOpen(contextMenu.entry!); setContextMenu(null); }}>
+                  Open
+                </button>
+              )}
               {canCopyToTarget && (
                 <button className="menu-item" onClick={() => { onCopyToTarget?.(batchFor(contextMenu.entry!)); setContextMenu(null); }}>
                   Copy to Target
@@ -669,8 +686,8 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
       )}
 
       {notice && (
-        <div className="sftp-notice">
-          <span className="sftp-notice-text">{notice}</span>
+        <div className={`sftp-notice${notice.kind === 'info' ? ' sftp-notice-info' : ''}`}>
+          <span className="sftp-notice-text">{notice.text}</span>
           <button
             className="sftp-notice-close"
             onClick={onDismissNotice}
@@ -858,12 +875,28 @@ function usePane(initialMode: PaneMode) {
   // Separate from the listings: an operation that fails leaves the directory
   // it was working in perfectly readable, so its message must not take the
   // place of one.
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState<Notice | null>(null);
 
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [connectError, setConnectError] = useState('');
   const [connectLogs, setConnectLogs] = useState<LogEntry[]>([]);
   const [connectServer, setConnectServer] = useState<Server | null>(null);
+
+  // The watcher behind an opened file reports on a channel named for the
+  // session. Through a ref so the listener, bound once per session, calls
+  // the refresh of the render it fires in rather than the one it was made in.
+  const refreshRef = useRef<() => Promise<void>>(async () => {});
+  useEffect(() => {
+    if (!sid) return;
+    const unlisten = listen<EditEvent>(`sftp-edit:${sid}`, (e) => {
+      const { name, error } = e.payload;
+      setNotice(error
+        ? { text: `Could not upload ${name}: ${error}`, kind: 'error' }
+        : { text: `Uploaded ${name}`, kind: 'info' });
+      refreshRef.current();
+    });
+    return () => { unlisten.then((f) => f()); };
+  }, [sid]);
 
   /** The listing the pane is currently showing, whichever side it is on. */
   const listing = mode === 'local' ? local : remote;
@@ -874,7 +907,7 @@ function usePane(initialMode: PaneMode) {
   // "Loading…" row, and a listing that then failed switched everything back:
   // a flicker for a directory the user could not read.
   async function navigateLocal(path: string) {
-    if (path !== local.path) setNotice('');
+    if (path !== local.path) setNotice(null);
     setLocal((l) => ({ ...l, loading: true, error: '' }));
     try {
       const entries = await ipc.sftpListLocal(path);
@@ -887,7 +920,7 @@ function usePane(initialMode: PaneMode) {
 
   async function navigateRemote(path: string) {
     if (!sid) return;
-    if (path !== remote.path) setNotice('');
+    if (path !== remote.path) setNotice(null);
     setRemote((r) => ({ ...r, loading: true, error: '' }));
     try {
       const entries = await ipc.sftpListRemote(sid, path);
@@ -912,6 +945,7 @@ function usePane(initialMode: PaneMode) {
 
   /** Re-lists whichever side is showing, after a change made to it. */
   const refresh = () => (mode === 'local' ? navigateLocal(local.path) : navigateRemote(remote.path));
+  refreshRef.current = refresh;
 
   /** Shows the local disk, fetching the home directory the first time only. */
   async function goLocal() {
@@ -1066,6 +1100,19 @@ function usePane(initialMode: PaneMode) {
     }
   }
 
+  async function open(entry: FileEntry) {
+    try {
+      if (mode === 'local') {
+        await ipc.sftpOpenLocal(entry.path);
+      } else {
+        await ipc.sftpOpenRemote(requireSid(), entry.path);
+        say(`Opened ${entry.name}. Each save goes back to the server.`);
+      }
+    } catch (e) {
+      fail(String(e));
+    }
+  }
+
   async function moveInto(batch: FileEntry[], dir: string) {
     try {
       for (const entry of batch) {
@@ -1102,21 +1149,21 @@ function usePane(initialMode: PaneMode) {
 
   /** Reports a failed operation without disturbing the list behind it. */
   function fail(message: string) {
-    setNotice(message);
+    setNotice({ text: message, kind: 'error' });
   }
 
   /** Same place, for something that went well enough but is worth saying. */
   function say(message: string) {
-    setNotice(message);
+    setNotice({ text: message, kind: 'info' });
   }
 
   return {
-    mode, setMode, listing, style, local, remote, notice, dismissNotice: () => setNotice(''),
+    mode, setMode, listing, style, local, remote, notice, dismissNotice: () => setNotice(null),
     sid, serverId, serverName, disconnected,
     connectingId, connectError, setConnectError, connectServer, connectLogs,
     navigate: (path: string) => (mode === 'local' ? navigateLocal(path) : navigateRemote(path)),
     refresh, goLocal, connect, disconnect, reconnect,
-    newFolder, rename, removeMany, setPerms, moveInto, fail, say, requireSid,
+    newFolder, rename, removeMany, setPerms, moveInto, open, fail, say, requireSid,
   };
 }
 
@@ -1373,6 +1420,7 @@ export default function SftpPanel() {
         onDelete={pane.removeMany}
         onSetMode={pane.setPerms}
         onMove={pane.moveInto}
+        onOpen={pane.open}
         onLocalBtn={() => pane.setMode('idle')}
         extraActions={closeConnectionActions(
           pane.mode === 'local' ? () => pane.setMode('idle') : pane.disconnect,

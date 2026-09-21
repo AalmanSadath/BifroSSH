@@ -80,7 +80,7 @@ fn is_hidden(name: &str, _meta: &fs::Metadata) -> bool {
 /// machine's idea of a path, not the server's. On Windows it treats a
 /// backslash as a separator, so a remote directory with one in its name would
 /// have its ".." row point somewhere that does not exist.
-fn parent_remote(path: &str) -> String {
+pub(super) fn parent_remote(path: &str) -> String {
     let trimmed = path.trim_end_matches('/');
     match trimmed.rfind('/') {
         Some(0) | None => "/".to_string(),

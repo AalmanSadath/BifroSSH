@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use tauri::{AppHandle, State};
 use uuid::Uuid;
 
@@ -186,6 +187,21 @@ pub async fn sftp_rename_remote(
     new_path: String,
 ) -> CmdResult<()> {
     crate::sftp::rename_remote(&state.sftp_state, &session_id, &old_path, &new_path).await.map_err(CmdError::from)
+}
+
+#[tauri::command]
+pub fn sftp_open_local(path: String) -> CmdResult<()> {
+    crate::sftp::open_local(&path).map_err(CmdError::from)
+}
+
+#[tauri::command]
+pub async fn sftp_open_remote(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    session_id: String,
+    path: String,
+) -> CmdResult<()> {
+    crate::sftp::open_remote(&app, Arc::clone(&state.sftp_state), session_id, path).await.map_err(CmdError::from)
 }
 
 #[tauri::command]

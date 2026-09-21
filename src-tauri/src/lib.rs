@@ -233,6 +233,8 @@ fn start(
             commands::sftp_rename_local,
             commands::sftp_delete_remote,
             commands::sftp_rename_remote,
+            commands::sftp_open_local,
+            commands::sftp_open_remote,
             commands::sftp_set_mode_local,
             commands::sftp_set_mode_remote,
             commands::tunnel_start,

@@ -12,7 +12,8 @@
 use super::*;
 use super::listing::list_remote;
 use super::ops::{delete_remote, mkdir, rename_remote, set_mode_remote};
-use super::transfer::{download_path, upload_path, Progress};
+use super::edit::{watch, EditEvent};
+use super::transfer::{download_path, upload_path, upload_quiet, Silent};
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -23,12 +24,6 @@ use russh::client;
 use russh_keys::key::PublicKey;
 use russh_sftp::client::SftpSession;
 use tokio::sync::Mutex;
-
-/// Progress with nowhere to go.
-struct Discard;
-impl Progress for Discard {
-    fn report(&self, _: TransferProgress) {}
-}
 
 /// The server is a key this test made a moment ago; there is nothing to verify.
 struct TrustEverything;
@@ -213,7 +208,7 @@ async fn a_directory_with_more_files_than_the_handle_limit_downloads() {
     write_files(&src, 100);
     let dst = server.scratch("many-out");
 
-    let summary = download_path(&Discard, &state, "s", &src.to_string_lossy(), &dst.to_string_lossy())
+    let summary = download_path(&Silent, &state, "s", &src.to_string_lossy(), &dst.to_string_lossy())
         .await
         .expect("a transfer of 100 files under a limit of 64");
     assert_eq!(summary.files, 100);
@@ -240,7 +235,7 @@ async fn an_uploaded_tree_reads_back_byte_for_byte() {
     std::fs::write(src.join("a/b/deep.txt"), b"deep").unwrap();
     let dst = server.scratch("tree-out");
 
-    let summary = upload_path(&Discard, &state, "s", &src.to_string_lossy(), &dst.to_string_lossy())
+    let summary = upload_path(&Silent, &state, "s", &src.to_string_lossy(), &dst.to_string_lossy())
         .await
         .unwrap();
     assert_eq!(summary.files, 3);
@@ -302,6 +297,60 @@ async fn setting_the_mode_touches_only_the_mode() {
     assert_eq!(std::fs::read(&path).unwrap(), b"hello world", "contents must survive a chmod");
     use std::os::unix::fs::PermissionsExt;
     assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+}
+
+/// The edit-in-place watcher: a save on the temp copy reaches the server,
+/// and the watcher stops on its own once the session is gone.
+#[tokio::test]
+async fn a_saved_temp_copy_is_uploaded_back() {
+    let Some((server, state)) = rig("edit", None).await else { return };
+    let root = server.scratch("edit");
+    let remote = root.join("notes.txt");
+    std::fs::write(&remote, b"before").unwrap();
+
+    let temp = server.scratch("edit-temp").join("notes.txt");
+    std::fs::write(&temp, b"before").unwrap();
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<EditEvent>();
+    let tick = Duration::from_millis(50);
+    let root_s = root.to_string_lossy().into_owned();
+    let remote_s = remote.to_string_lossy().into_owned();
+    let watcher = watch(move |e| { let _ = tx.send(e); }, &state, "s", &root_s, &remote_s, &temp, tick);
+
+    let driver = async {
+        tokio::time::sleep(tick * 2).await;
+        std::fs::write(&temp, b"after the save").unwrap();
+
+        let event = tokio::time::timeout(Duration::from_secs(5), rx.recv()).await
+            .expect("an upload within five seconds")
+            .expect("the watcher is still running");
+        assert_eq!(event.error, None, "{:?}", event.error);
+        assert_eq!(event.name, "notes.txt");
+        assert_eq!(std::fs::read(&remote).unwrap(), b"after the save");
+
+        // Session gone: the watcher notices and returns rather than polling on.
+        state.sessions.lock().await.clear();
+    };
+
+    tokio::time::timeout(Duration::from_secs(10), async { tokio::join!(watcher, driver) })
+        .await
+        .expect("the watcher stops once the session is gone");
+}
+
+/// The quiet upload must not clear a cancel the user pressed on the
+/// transfer they can see; `upload_path` does, which is why it is not used.
+#[tokio::test]
+async fn a_quiet_upload_leaves_a_pressed_cancel_alone() {
+    let Some((server, state)) = rig("quiet", None).await else { return };
+    let root = server.scratch("quiet");
+    let src = root.join("f.txt");
+    std::fs::write(&src, b"x").unwrap();
+    let dst = server.scratch("quiet-out");
+
+    state.request_cancel();
+    upload_quiet(&state, "s", &src.to_string_lossy(), &dst.to_string_lossy()).await.unwrap();
+    assert!(state.cancel.load(std::sync::atomic::Ordering::Relaxed), "the flag is still raised");
+    assert_eq!(std::fs::read(dst.join("f.txt")).unwrap(), b"x", "and the upload still happened");
 }
 
 /// A listing that fails on a path is not a session that has failed. The panel
