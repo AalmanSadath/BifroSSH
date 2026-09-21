@@ -222,8 +222,16 @@ interface AppStore {
   savePortForwarding: (pf: Omit<PortForwarding, 'id'> & { id?: string }) => void;
   deletePortForwarding: (id: string) => void;
   activeTunnelIds: Set<string>;
+  /** Rules that dropped and are being started again, with backoff. */
+  retryingTunnelIds: Set<string>;
   startTunnel: (pf: PortForwarding) => Promise<void>;
   stopTunnel: (pfId: string) => Promise<void>;
+  /**
+   * The backend said the tunnel died. A rule that starts on its own is
+   * started again, 5s then doubling to a minute, until it comes up, the
+   * user stops it, or the rule is gone. Any other rule just goes quiet.
+   */
+  tunnelDropped: (pfId: string) => void;
   /**
    * Starts every rule whose autostart flag matches the trigger and that is
    * not already running. Never throws: failures are gathered into one
@@ -385,6 +393,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   customThemes: {},
   portForwardings: [],
   activeTunnelIds: new Set<string>(),
+  retryingTunnelIds: new Set<string>(),
   codeprints: [],
   sessionThemeOverrides: {},
   keys: [],
@@ -628,7 +637,39 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   stopTunnel: async (pfId) => {
     await ipc.tunnelStop(pfId);
-    set((s) => { const n = new Set(s.activeTunnelIds); n.delete(pfId); return { activeTunnelIds: n }; });
+    set((s) => {
+      const active = new Set(s.activeTunnelIds); active.delete(pfId);
+      const retrying = new Set(s.retryingTunnelIds); retrying.delete(pfId);
+      return { activeTunnelIds: active, retryingTunnelIds: retrying };
+    });
+  },
+
+  tunnelDropped: (pfId) => {
+    const pf = get().portForwardings.find((p) => p.id === pfId);
+    const retry = !!pf && (pf.autostart_on_launch || pf.autostart_on_connect);
+    set((s) => {
+      const active = new Set(s.activeTunnelIds); active.delete(pfId);
+      const retrying = new Set(s.retryingTunnelIds);
+      if (retry) retrying.add(pfId);
+      return { activeTunnelIds: active, retryingTunnelIds: retrying };
+    });
+    if (!retry) return;
+
+    get().setActionError(`Tunnel "${pf.label}" dropped. Trying again.`);
+    const attempt = async (delayMs: number) => {
+      await new Promise((r) => setTimeout(r, delayMs));
+      const { retryingTunnelIds, portForwardings, startTunnel } = get();
+      // Deactivated meanwhile, or the rule was deleted: nothing to bring back.
+      const rule = portForwardings.find((p) => p.id === pfId);
+      if (!retryingTunnelIds.has(pfId) || !rule) return;
+      try {
+        await startTunnel(rule);
+        set((s) => { const n = new Set(s.retryingTunnelIds); n.delete(pfId); return { retryingTunnelIds: n }; });
+      } catch {
+        attempt(Math.min(delayMs * 2, 60_000));
+      }
+    };
+    attempt(5_000);
   },
 
   addCodeprint: (cp) => {

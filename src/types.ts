@@ -345,6 +345,12 @@ export interface SessionTab {
 }
 
 /** Payload of `ssh-closed:{session_id}`. */
+/** Payload of `tunnel-closed`: a tunnel ended without being asked to. */
+export interface TunnelClosed {
+  pf_id: string;
+  reason: 'dropped';
+}
+
 export interface SshClosed {
   reason: 'exited' | 'closed' | 'dropped';
 }

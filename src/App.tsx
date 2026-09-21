@@ -5,7 +5,7 @@ import { useAppStore, resolveAccent, resolveAppTheme } from './store/appStore';
 import { accentTokens } from './styles/accent';
 import { setLocalPlatform } from './paths';
 import { useIdleLock } from './hooks/useIdleLock';
-import type { AuthPromptEvent, HostKeyPromptEvent, SessionTab, SystemAppearance, VaultStatus } from './types';
+import type { AuthPromptEvent, HostKeyPromptEvent, SessionTab, SystemAppearance, TunnelClosed, VaultStatus } from './types';
 import HostKeyPrompt from './components/HostKeyPrompt';
 import AuthPromptModal from './components/AuthPromptModal';
 import Sidebar from './components/Sidebar';
@@ -193,6 +193,13 @@ export default function App() {
     return () => {
       unlisten.then((fns) => fns.forEach((fn) => fn()));
     };
+  }, []);
+
+  useEffect(() => {
+    const unlisten = listen<TunnelClosed>('tunnel-closed', (e) => {
+      useAppStore.getState().tunnelDropped(e.payload.pf_id);
+    });
+    return () => { unlisten.then((f) => f()); };
   }, []);
 
   // Asked once and never again: local paths are separated differently on

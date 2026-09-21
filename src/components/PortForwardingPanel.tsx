@@ -443,7 +443,7 @@ function HostChip({ name, onRemove }: { name: string; onRemove: () => void }) {
 // ── Main component ─────────────────────────────────────────────
 
 export default function PortForwardingPanel() {
-  const { servers, portForwardings, savePortForwarding, deletePortForwarding, activeTunnelIds, startTunnel, stopTunnel } = useAppStore();
+  const { servers, portForwardings, savePortForwarding, deletePortForwarding, activeTunnelIds, retryingTunnelIds, startTunnel, stopTunnel } = useAppStore();
   const [drawerMode, setDrawerMode] = useState<'none' | 'wizard' | 'edit'>('none');
   const [wizStep, setWizStep] = useState<WizStep>('type');
   const [wizDraft, setWizDraft] = useState<Draft>(DEFAULT_WIZ);
@@ -532,7 +532,9 @@ export default function PortForwardingPanel() {
   }
 
   function handleCardDoubleClick(pf: PortForwarding) {
-    if (activeTunnelIds.has(pf.id)) {
+    // A retrying rule is stopped the same way: tunnel_stop is a no-op on a
+    // rule that is not running, and stopTunnel clears the retry.
+    if (activeTunnelIds.has(pf.id) || retryingTunnelIds.has(pf.id)) {
       stopTunnel(pf.id).catch((e: unknown) => alert(String(e)));
     } else {
       startTunnel(pf).catch((e: unknown) => alert(String(e)));
@@ -795,6 +797,7 @@ export default function PortForwardingPanel() {
           <div className="pf-grid">
             {portForwardings.map((pf) => {
               const active = activeTunnelIds.has(pf.id);
+              const retrying = retryingTunnelIds.has(pf.id);
               return (
                 <div
                   key={pf.id}
@@ -819,6 +822,7 @@ export default function PortForwardingPanel() {
                         <span className="pf-card-auto" title="Starts on its own">auto</span>
                       )}
                       {active && <span className="pf-card-active-dot" />}
+                      {retrying && <span className="pf-card-retry-dot" title="Dropped. Trying to start it again." />}
                     </div>
                     <span className="card-sub">{pfCardDesc(pf)}</span>
                   </div>
@@ -917,7 +921,7 @@ export default function PortForwardingPanel() {
       {ctxMenu && (
         <ContextMenu x={ctxMenu.x} y={ctxMenu.y} onClose={() => setCtxMenu(null)}>
           <button className="menu-item" onClick={() => { handleCardDoubleClick(ctxMenu.pf); setCtxMenu(null); }}>
-            {activeTunnelIds.has(ctxMenu.pf.id) ? 'Deactivate' : 'Activate'}
+            {activeTunnelIds.has(ctxMenu.pf.id) || retryingTunnelIds.has(ctxMenu.pf.id) ? 'Deactivate' : 'Activate'}
           </button>
           {activeTunnelIds.size > 1 && (
             <button className="menu-item" onClick={killAllTunnels}>
