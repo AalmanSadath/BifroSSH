@@ -85,6 +85,27 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.14.1" date="2026-09-22">
+      <description>
+        <p>
+          File permissions can be seen and changed on both sides of the
+          file browser, from the right-click menu, for one entry or a
+          selection. Remote listings show the mode column, which used to
+          be blank.
+        </p>
+        <p>
+          Dropping files onto a folder in the same pane moves them there.
+          Double-clicking a file opens it with the application the desktop
+          would use; a remote file is uploaded back after every save until
+          the connection closes.
+        </p>
+        <p>
+          A tunnel can start on its own: when BifroSSH opens, when you
+          connect to its host, or both. Off unless turned on for that
+          tunnel.
+        </p>
+      </description>
+    </release>
     <release version="0.14.0" date="2026-09-17">
       <description>
         <p>
