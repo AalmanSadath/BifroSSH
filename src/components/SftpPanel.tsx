@@ -156,11 +156,36 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
   const wrapRef = useRef<HTMLDivElement>(null);
   /** The row the arrow keys move from. An index into `visible`, or -1. */
   const cursorRef = useRef(-1);
+  /** Typed over the list to narrow it; null when the bar is closed. */
+  const [filter, setFilter] = useState<string | null>(null);
+  const filterInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setSelectedPaths(new Set());
     lastClickIdxRef.current = -1;
+    setFilter(null);
   }, [path]);
+
+  // A different filter is a different list; the selection meant the old one.
+  useEffect(() => {
+    setSelectedPaths(new Set());
+    cursorRef.current = -1;
+    lastClickIdxRef.current = -1;
+  }, [filter]);
+
+  /** Opens the bar with `seed` in it and the caret after it. */
+  function startFilter(seed: string) {
+    setFilter(seed);
+    setTimeout(() => {
+      const el = filterInputRef.current;
+      if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+    }, 30);
+  }
+
+  function closeFilter() {
+    setFilter(null);
+    setTimeout(() => wrapRef.current?.focus(), 0);
+  }
 
   useEffect(() => {
     if (!onReconnect) setReconnecting(false);
@@ -232,8 +257,10 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
    */
   const visible: FileEntry[] = (() => {
     const dotdot = entries.filter(en => en.name === '..');
+    const needle = filter?.toLowerCase() ?? '';
     const rest = entries
       .filter(en => en.name !== '..' && (showHidden || !en.hidden))
+      .filter(en => needle === '' || en.name.toLowerCase().includes(needle))
       .sort((a, b) => {
         if (dirsOnTop && a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
         let cmp = 0;
@@ -305,8 +332,20 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
       startTyping();
       return;
     }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+      e.preventDefault();
+      startFilter(filter ?? '');
+      return;
+    }
     if (e.key === 'Escape') {
-      setSelectedPaths(new Set());
+      if (filter !== null) closeFilter();
+      else setSelectedPaths(new Set());
+      return;
+    }
+    // Any other printable key on its own starts narrowing the list.
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      startFilter((filter ?? '') + e.key);
       return;
     }
     if (e.key === 'Delete') {
@@ -520,6 +559,39 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
               </button>
             </span>
           ))}
+        </div>
+      )}
+
+      {filter !== null && (
+        <div className="sftp-filter-bar">
+          <span className="sftp-filter-glyph" aria-hidden>⌕</span>
+          <input
+            ref={filterInputRef}
+            className="sftp-filter-input"
+            value={filter}
+            placeholder="Filter by name"
+            spellCheck={false}
+            onChange={(e) => setFilter(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f')) { e.preventDefault(); closeFilter(); }
+              // Enter, or an arrow, hands the keyboard to the list with the
+              // first match under the cursor, so Enter again opens it.
+              else if (e.key === 'Enter' || e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                const first = visible.findIndex((en) => en.name !== '..');
+                if (first >= 0) {
+                  cursorRef.current = first;
+                  lastClickIdxRef.current = first;
+                  setSelectedPaths(new Set([visible[first].path]));
+                }
+                wrapRef.current?.focus();
+              }
+            }}
+          />
+          <span className="sftp-filter-count">
+            {visible.filter((en) => en.name !== '..').length} of {entries.filter((en) => en.name !== '..' && (showHidden || !en.hidden)).length}
+          </span>
+          <button className="sftp-filter-close" onClick={closeFilter} title="Clear filter" aria-label="Clear filter">✕</button>
         </div>
       )}
 

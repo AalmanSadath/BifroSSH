@@ -251,6 +251,58 @@
   color: var(--text-primary);
 }
 
+/* Type-to-filter, under the path bar. */
+.sftp-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  background: var(--bg-dark);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.sftp-filter-glyph {
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.sftp-filter-input {
+  user-select: text;
+  -webkit-user-select: text;
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  padding: 1px 6px;
+  font-size: 12px;
+  background: var(--bg-mid);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--text-primary);
+  outline: none;
+}
+
+.sftp-filter-count {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.sftp-filter-close {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+
+.sftp-filter-close:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
 .sftp-table-wrap {
   flex: 1;
   overflow-y: auto;
