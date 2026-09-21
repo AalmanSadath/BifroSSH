@@ -53,6 +53,8 @@ export interface Server {
    * local agent's keys, and so can anyone with root there. Off by default.
    */
   forward_agent: boolean;
+  /** Every session to this host is logged to a file from its first byte. */
+  log_sessions: boolean;
 }
 
 /** Payload of the `sftp-progress` event, emitted as bytes move. */
@@ -189,6 +191,8 @@ export interface Settings {
   lock_on_suspend: boolean;
   /** Lines a terminal keeps above the screen. */
   scrollback_lines: number;
+  /** Where session logs go; null is the app's own logs folder. */
+  session_log_dir: string | null;
 }
 
 /** How the user chose to keep the master key on the first run screen. */
@@ -351,6 +355,12 @@ export interface SessionTab {
    * choice, so it outlives a drop and a reconnect.
    */
   broadcast?: boolean;
+  /**
+   * Output is being written to a file in the session logs folder: turned
+   * on for this tab, or by the host's setting. Only the first is shown on
+   * the tab; a host that always logs is set and forgotten.
+   */
+  logging?: 'tab' | 'host';
   connect_id?: string;
   error?: string;
   logs?: LogEntry[];

@@ -386,6 +386,14 @@
   flex-shrink: 0;
 }
 
+.tab-logging {
+  color: var(--danger);
+  font-size: 8px;
+  line-height: 1;
+  margin-right: 5px;
+  flex-shrink: 0;
+}
+
 .tab-broadcast {
   color: var(--accent);
   font-size: 13px;

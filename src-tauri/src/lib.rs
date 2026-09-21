@@ -12,6 +12,7 @@ mod keystore;
 mod models;
 mod ppk;
 mod prompts;
+mod sessionlog;
 mod sftp;
 mod socks5;
 mod sshconfig;
@@ -216,6 +217,8 @@ fn start(
             commands::ssh_resize,
             commands::ssh_attach,
             commands::ssh_disconnect,
+            commands::ssh_set_log,
+            commands::session_log_dir,
             commands::sftp_local_home,
             commands::sftp_list_local,
             commands::sftp_connect_remote,

@@ -136,6 +136,10 @@ pub struct Server {
     /// the user turned it on for this host.
     #[serde(default)]
     pub forward_agent: bool,
+    /// Every session to this host is written to a log file from its
+    /// first byte. Off by default.
+    #[serde(default)]
+    pub log_sessions: bool,
 }
 
 impl Server {
@@ -230,6 +234,9 @@ pub struct Settings {
     /// value; a settings file from before this reads the same.
     #[serde(default = "Settings::default_scrollback_lines")]
     pub scrollback_lines: u32,
+    /// Where session logs are written; None is `<data dir>/logs`.
+    #[serde(default)]
+    pub session_log_dir: Option<String>,
 }
 
 impl Default for Settings {
@@ -250,6 +257,7 @@ impl Default for Settings {
             auto_lock_minutes: 0,
             lock_on_suspend: true,
             scrollback_lines: 10_000,
+            session_log_dir: None,
         }
     }
 }

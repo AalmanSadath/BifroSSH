@@ -81,7 +81,7 @@ function parseSSHInput(input: string): { user: string; host: string; port: numbe
 export default function App() {
   const {
     loadAll, loadError, actionError, setActionError, sessions, activeTabId, setActiveTab, removeSession,
-    renameSession, toggleBroadcast, splitGroup, splitWith, unsplit, openSession, quickConnect, servers, settings, keys,
+    renameSession, toggleBroadcast, toggleLogging, splitGroup, splitWith, unsplit, openSession, quickConnect, servers, settings, keys,
     systemAppearance, setSystemAppearance, clearForLock,
   } = useAppStore();
 
@@ -520,6 +520,7 @@ export default function App() {
                 }}
               >
                 {splitGroup.includes(s.tab_id) && <span className="tab-split" title="Shown in a split">⊟</span>}
+                {s.logging === 'tab' && <span className="tab-logging" title="Output is being logged to a file">●</span>}
                 {s.broadcast && (
                   <span className="tab-broadcast" title="Broadcasting: input also goes to every other tab marked the same way">⇶</span>
                 )}
@@ -572,7 +573,7 @@ export default function App() {
                 host: s.quick_info.host, port: s.quick_info.port,
                 identity_id: null, theme: null, connection_timeout: null, os: '',
                 username: s.quick_info.username, encrypted_password: null, key_id: null,
-                auth_kind: null, proxy_jump: null, forward_agent: false,
+                auth_kind: null, proxy_jump: null, forward_agent: false, log_sessions: false,
               } : undefined);
 
             if (s.status === 'connecting' || s.status === 'error') {
@@ -705,6 +706,13 @@ export default function App() {
               </button>
               <button className="menu-item" onClick={() => { toggleBroadcast(tabCtx.session.tab_id); setTabCtx(null); }}>
                 {tabCtx.session.broadcast ? '✓ ' : ''}Broadcast input
+              </button>
+              <button
+                className="menu-item"
+                disabled={!tabCtx.session.session_id}
+                onClick={() => { toggleLogging(tabCtx.session.tab_id); setTabCtx(null); }}
+              >
+                {tabCtx.session.logging ? '✓ ' : ''}Log to file
               </button>
               {splitGroup.includes(tabCtx.session.tab_id) && (
                 <button className="menu-item" onClick={() => { unsplit(tabCtx.session.tab_id); setTabCtx(null); }}>

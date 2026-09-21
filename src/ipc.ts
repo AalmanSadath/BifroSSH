@@ -259,6 +259,13 @@ export const sshAttach = (sessionId: string) =>
 export const sshDisconnect = (sessionId: string) =>
   invoke<void>('ssh_disconnect', { sessionId });
 
+/** Starts (returning the file's path) or stops logging a session's output. */
+export const sshSetLog = (sessionId: string, label: string, on: boolean) =>
+  invoke<string | null>('ssh_set_log', { sessionId, label, on });
+
+/** The folder session logs are written to, as configured or by default. */
+export const sessionLogDir = () => invoke<string>('session_log_dir');
+
 // ── sftp ─────────────────────────────────────────────────────────────────
 
 export const sftpLocalHome = () => invoke<string>('sftp_local_home');

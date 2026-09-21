@@ -17,6 +17,9 @@ use crate::prompts::{self, AuthPromptEvent, AuthPromptField};
 pub enum SshCommand {
     Data(Vec<u8>),
     Resize { cols: u32, rows: u32 },
+    /// Start writing output to this file, or stop. Opened by the caller,
+    /// so the loop never learns a path.
+    SetLog(Option<std::fs::File>),
     Close,
 }
 
@@ -457,6 +460,8 @@ pub struct SshConnectParams {
     /// ssh's -A: the remote may use the local agent for as long as the
     /// session lasts. Per host and off by default; see agent_forward.
     pub forward_agent: bool,
+    /// A log already open, so the banner and motd are in it too.
+    pub log: Option<std::fs::File>,
 }
 
 /// russh sends a keepalive every interval and gives up after `keepalive_max`
@@ -651,6 +656,7 @@ pub async fn connect_ssh(
         let mut flush_tick = interval(Duration::from_millis(8));
         flush_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut outbuf: Vec<u8> = Vec::with_capacity(8192);
+        let mut log = params.log;
         let mut saw_exit_status = false;
         let mut closed_by_user = false;
         // When EOF arrived, if it has. The loop stays for the close that
@@ -662,6 +668,15 @@ pub async fn connect_ssh(
         macro_rules! flush_outbuf {
             () => {
                 if !outbuf.is_empty() {
+                    // Before the hold, so a tab that never attaches still
+                    // logs. A file that will not take the bytes is dropped
+                    // rather than allowed to end the session.
+                    {
+                        use std::io::Write;
+                        if log.as_mut().is_some_and(|file| file.write_all(&outbuf).is_err()) {
+                            drop(log.take());
+                        }
+                    }
                     // Held rather than emitted until a terminal has attached,
                     // under the same lock the handover takes.
                     if !attach.lock().await.hold(&outbuf) {
@@ -684,6 +699,9 @@ pub async fn connect_ssh(
                         }
                         SshCommand::Resize { cols, rows } => {
                             let _ = channel.window_change(cols, rows, 0, 0).await;
+                        }
+                        SshCommand::SetLog(file) => {
+                            log = file;
                         }
                         SshCommand::Close => {
                             closed_by_user = true;

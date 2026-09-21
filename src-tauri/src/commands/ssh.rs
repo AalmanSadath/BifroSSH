@@ -115,12 +115,13 @@ pub async fn ssh_connect(
     request: ConnectRequest,
 ) -> CmdResult<String> {
     // One lock: the server, and everything the request names, come out together.
-    let (host, port, prep, forward_agent) = {
+    let (host, port, prep, forward_agent, log_to, label) = {
         let data = state.data.lock().await;
         let server = super::records::find_by_id(&data.servers, &request.server_id)
             .ok_or("Server not found")?;
         let (host, port, host_timeout, forward_agent) =
             (server.host.clone(), server.port, server.connection_timeout, server.forward_agent);
+        let log_to = server.log_sessions.then(|| data.settings.session_log_dir.clone());
         let prep = prepare(
             &data,
             &state.key()?,
@@ -129,7 +130,18 @@ pub async fn ssh_connect(
             &request.jumps,
             host_timeout,
         )?;
-        (host, port, prep, forward_agent)
+        (host, port, prep, forward_agent, log_to, server.name.clone())
+    };
+
+    // The host asks for a log: opened here, before the connect, so the
+    // banner and motd land in it. The session id is minted in start_session,
+    // so the file is named for the connect id, which is as stable.
+    let log = match log_to {
+        Some(dir) => {
+            let dir = crate::sessionlog::session_log_dir(dir.as_deref())?;
+            Some(crate::sessionlog::open_session_log(&dir, &label, &request.connect_id)?.1)
+        }
+        None => None,
     };
 
     let params = SshConnectParams {
@@ -142,6 +154,7 @@ pub async fn ssh_connect(
         keepalive_secs: prep.keepalive_secs,
         jumps: prep.jumps,
         forward_agent,
+        log,
     };
 
     start_session(&state, &app, request.connect_id, params, prep.timeout_secs).await
@@ -191,6 +204,7 @@ pub async fn ssh_connect_quick(
         jumps: prep.jumps,
         // A quick connection has no host record to have said yes on.
         forward_agent: false,
+        log: None,
     };
 
     start_session(&state, &app, request.connect_id, params, prep.timeout_secs).await
@@ -247,6 +261,41 @@ pub async fn ssh_attach(
     };
     let pending = handle.attach.lock().await.take();
     Ok(BASE64.encode(pending))
+}
+
+/// Starts or stops logging a session, and says where the file is.
+///
+/// `label` names the file; the frontend passes the tab's name, which is
+/// what the user knows the session by. Stopping returns None.
+#[tauri::command]
+pub async fn ssh_set_log(
+    state: State<'_, AppState>,
+    session_id: String,
+    label: String,
+    on: bool,
+) -> CmdResult<Option<String>> {
+    let (file, path) = if on {
+        let dir = {
+            let data = state.data.lock().await;
+            crate::sessionlog::session_log_dir(data.settings.session_log_dir.as_deref())?
+        };
+        let (path, file) = crate::sessionlog::open_session_log(&dir, &label, &session_id)?;
+        (Some(file), Some(path.to_string_lossy().into_owned()))
+    } else {
+        (None, None)
+    };
+    let sessions = state.ssh_state.sessions.lock().await;
+    let handle = sessions.get(&session_id).ok_or("Session not found")?;
+    handle.cmd_tx.send(SshCommand::SetLog(file)).await.map_err(CmdError::from)?;
+    Ok(path)
+}
+
+/// The folder session logs go to, for the settings page to show.
+#[tauri::command]
+pub async fn session_log_dir(state: State<'_, AppState>) -> CmdResult<String> {
+    let data = state.data.lock().await;
+    let dir = crate::sessionlog::session_log_dir(data.settings.session_log_dir.as_deref())?;
+    Ok(dir.to_string_lossy().into_owned())
 }
 
 #[tauri::command]

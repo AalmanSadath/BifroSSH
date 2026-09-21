@@ -552,3 +552,15 @@ button { cursor: pointer; font-family: inherit; }
   align-items: center;
   gap: 10px;
 }
+
+/* A text field with a button beside it, on one line. */
+.settings-inline-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings-inline-row input {
+  flex: 1;
+  min-width: 0;
+}

@@ -152,6 +152,7 @@ const DEFAULT_SETTINGS: Settings = {
   auto_lock_minutes: 0,
   lock_on_suspend: true,
   scrollback_lines: 10000,
+  session_log_dir: null,
   accent_color: null,
 };
 
@@ -291,6 +292,8 @@ interface AppStore {
   /** The connection under a tab went away; the tab stays. */
   markDropped: (tabId: string) => void;
   toggleBroadcast: (tabId: string) => void;
+  /** Starts or stops writing the tab's output to a file; the banner says if it could not. */
+  toggleLogging: (tabId: string) => Promise<void>;
   /**
    * Input from `tabId` to its own session, and when the tab broadcasts, to
    * every other broadcasting tab that is connected. The one path typed
@@ -811,6 +814,19 @@ export const useAppStore = create<AppStore>((set, get) => ({
       ),
     })),
 
+  toggleLogging: async (tabId) => {
+    const tab = get().sessions.find((t) => t.tab_id === tabId);
+    if (!tab || !tab.session_id) return;
+    try {
+      await ipc.sshSetLog(tab.session_id, tab.server_name, !tab.logging);
+      set((s) => ({
+        sessions: s.sessions.map((t) => (t.tab_id === tabId ? { ...t, logging: tab.logging ? undefined : 'tab' } : t)),
+      }));
+    } catch (e) {
+      get().setActionError(`Could not ${tab.logging ? 'stop' : 'start'} the log: ${String(e)}`);
+    }
+  },
+
   sendInput: (tabId, bytes) => {
     for (const sid of broadcastTargets(get().sessions, tabId)) {
       ipc.sshSendInput(sid, bytes).catch(() => {});
@@ -855,6 +871,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
         jumps,
       });
       get().updateSessionConnected(tabId, sessionId);
+      // A logged tab goes on being logged, to a new file for the new session.
+      // A host-logged tab was reopened logging by the backend; a tab-logged
+      // one is asked for again, to a new file for the new session.
+      if (tab.logging === 'tab') {
+        const ok = await ipc.sshSetLog(sessionId, tab.server_name, true).then(() => true, () => false);
+        set((s) => ({ sessions: s.sessions.map((t) => (t.tab_id === tabId ? { ...t, logging: ok ? 'tab' : undefined } : t)) }));
+      }
     } catch (err) {
       // Still dropped, still there. The banner shows why it did not come back.
       set((s) => ({
@@ -935,6 +958,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
     );
 
     if (ok && server.os === UNDETECTED_OS) detectServerOs(serverId, username, authType, authValue, jumps);
+    // The backend opened the log before connecting; the tab only needs to know.
+    if (ok && server.log_sessions) {
+      set((s) => ({ sessions: s.sessions.map((t) => (t.tab_id === connectId ? { ...t, logging: 'host' } : t)) }));
+    }
     if (ok) get().autostartTunnels({ kind: 'connect', serverId });
   },
 
