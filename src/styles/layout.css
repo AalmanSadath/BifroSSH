@@ -297,6 +297,14 @@
   text-overflow: ellipsis;
 }
 
+.tab-broadcast {
+  color: var(--accent);
+  font-size: 13px;
+  line-height: 1;
+  margin-right: 5px;
+  flex-shrink: 0;
+}
+
 .tab-close {
   background: none;
   border: none;

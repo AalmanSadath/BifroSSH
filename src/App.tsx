@@ -64,7 +64,7 @@ function parseSSHInput(input: string): { user: string; host: string; port: numbe
 export default function App() {
   const {
     loadAll, loadError, actionError, setActionError, sessions, activeTabId, setActiveTab, removeSession,
-    renameSession, openSession, quickConnect, servers, settings, keys,
+    renameSession, toggleBroadcast, openSession, quickConnect, servers, settings, keys,
     systemAppearance, setSystemAppearance, clearForLock,
   } = useAppStore();
 
@@ -320,6 +320,12 @@ export default function App() {
         if (current && current.server_id) openSession(current.server_id);
         return;
       }
+      if (e.shiftKey && e.code === 'KeyB') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (idx >= 0) toggleBroadcast(tabs[idx].tab_id);
+        return;
+      }
       if (e.shiftKey && e.code === 'KeyW') {
         e.preventDefault();
         e.stopPropagation();
@@ -472,6 +478,9 @@ export default function App() {
                 onClick={() => setActiveTab(s.tab_id)}
                 onContextMenu={(e) => handleTabContextMenu(e, s)}
               >
+                {s.broadcast && (
+                  <span className="tab-broadcast" title="Broadcasting: input also goes to every other tab marked the same way">⇶</span>
+                )}
                 <span className="tab-title">{s.server_name}</span>
                 <button className="tab-close" onClick={(e) => handleCloseTab(s.tab_id, e)}>&#10005;</button>
               </div>
@@ -625,6 +634,9 @@ export default function App() {
               </button>
               <button className="menu-item" onClick={() => setTabCtx({ ...tabCtx, mode: 'rename' })}>
                 Rename
+              </button>
+              <button className="menu-item" onClick={() => { toggleBroadcast(tabCtx.session.tab_id); setTabCtx(null); }}>
+                {tabCtx.session.broadcast ? '✓ ' : ''}Broadcast input
               </button>
               <div className="menu-divider" />
               <button className="menu-item menu-item-danger" onClick={(e) => { handleCloseTab(tabCtx.session.tab_id, e); setTabCtx(null); }}>

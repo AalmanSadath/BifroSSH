@@ -5,6 +5,21 @@ import { STORED, UNDETECTED_OS, UNKNOWN_OS } from '../types';
 import type { AuthType, Codeprint, GeneratedKey, Identity, IdentityInput, JumpHopParams, KeyContent, KeyEntry, LogEntry, PortForwarding, ResolvedTheme, Server, ServerInput, SessionTab, Settings, SystemAppearance } from '../types';
 import type { NamedTheme } from '../styles/themes';
 
+/**
+ * The sessions that input from `tabId` reaches: its own, and when it is
+ * marked for broadcast, every other marked tab that has a live session. A
+ * tab with no session (connecting, dropped) sends nowhere, and a marked tab
+ * that is dropped is left out rather than failing the others.
+ */
+export function broadcastTargets(sessions: SessionTab[], tabId: string): string[] {
+  const from = sessions.find((t) => t.tab_id === tabId);
+  if (!from) return [];
+  if (!from.broadcast) return from.session_id ? [from.session_id] : [];
+  return sessions
+    .filter((t) => t.broadcast && t.session_id && t.status === 'connected')
+    .map((t) => t.session_id as string);
+}
+
 /** What just happened, for the tunnels that start on their own. */
 export type AutostartTrigger = { kind: 'launch' } | { kind: 'connect'; serverId: string };
 
@@ -256,6 +271,13 @@ interface AppStore {
   appendSessionLog: (tabId: string, entry: LogEntry) => void;
   /** The connection under a tab went away; the tab stays. */
   markDropped: (tabId: string) => void;
+  toggleBroadcast: (tabId: string) => void;
+  /**
+   * Input from `tabId` to its own session, and when the tab broadcasts, to
+   * every other broadcasting tab that is connected. The one path typed
+   * keys, pastes and codeprints all take.
+   */
+  sendInput: (tabId: string, bytes: number[]) => void;
   /** Connects a dropped tab again, into the same terminal. */
   reconnectSession: (tabId: string) => Promise<void>;
   openSession: (serverId: string) => Promise<void>;
@@ -756,6 +778,19 @@ export const useAppStore = create<AppStore>((set, get) => ({
           : t
       ),
     })),
+
+  toggleBroadcast: (tabId) =>
+    set((s) => ({
+      sessions: s.sessions.map((t) =>
+        t.tab_id === tabId ? { ...t, broadcast: !t.broadcast } : t
+      ),
+    })),
+
+  sendInput: (tabId, bytes) => {
+    for (const sid of broadcastTargets(get().sessions, tabId)) {
+      ipc.sshSendInput(sid, bytes).catch(() => {});
+    }
+  },
 
   markDropped: (tabId) =>
     set((s) => ({

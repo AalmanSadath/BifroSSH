@@ -39,7 +39,7 @@ export default function TerminalView({ tab, active }: Props) {
   sessionIdRef.current = sessionId;
   /** Whether a session has been bound before, so the next one is a reconnect. */
   const boundOnceRef = useRef(false);
-  const { settings, servers, removeSession, markDropped, reconnectSession, sessionThemeOverrides, customThemes } = useAppStore();
+  const { settings, servers, removeSession, markDropped, reconnectSession, sendInput, sessionThemeOverrides, customThemes } = useAppStore();
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -326,8 +326,7 @@ export default function TerminalView({ tab, active }: Props) {
         if (data === '\r') reconnectSession(tabId);
         return;
       }
-      const bytes = Array.from(new TextEncoder().encode(data));
-      ipc.sshSendInput(sid, bytes).catch(() => {});
+      sendInput(tabId, Array.from(new TextEncoder().encode(data)));
     });
 
     term.onResize(({ cols, rows }) => {
@@ -492,7 +491,7 @@ export default function TerminalView({ tab, active }: Props) {
   ];
 
   return (
-    <div className="terminal-pane" style={{ display: active ? 'flex' : 'none' }}>
+    <div className={`terminal-pane${tab.broadcast ? ' terminal-pane-broadcast' : ''}`} style={{ display: active ? 'flex' : 'none' }}>
       {searchOpen && (
         // Escape is handled here rather than on the input: clicking a toggle
         // moves focus to that button, and a handler on the input alone would

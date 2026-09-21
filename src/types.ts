@@ -346,6 +346,11 @@ export interface SessionTab {
   status: 'connecting' | 'connected' | 'dropped' | 'error';
   /** A reconnect is in flight for a dropped tab. */
   reconnecting?: boolean;
+  /**
+   * Typed input goes to every other tab marked the same way. The user's
+   * choice, so it outlives a drop and a reconnect.
+   */
+  broadcast?: boolean;
   connect_id?: string;
   error?: string;
   logs?: LogEntry[];

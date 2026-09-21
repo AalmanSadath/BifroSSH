@@ -11,7 +11,7 @@ vi.mock('../ipc', () => ({
   getServerPassword: vi.fn(async (id: string) => `server-secret:${id}`),
 }));
 
-const { buildJumpChain, resolveServerAuth, useAppStore } = await import('./appStore');
+const { broadcastTargets, buildJumpChain, resolveServerAuth, useAppStore } = await import('./appStore');
 const ipc = await import('../ipc');
 
 function server(over: Partial<Server> & { id: string }): Server {
@@ -241,5 +241,37 @@ describe('session tabs', () => {
     expect(useAppStore.getState().sessions.map((t) => t.tab_id)).toEqual(['t1']);
     expect(useAppStore.getState().activeTabId).toBe('t1');
     expect(useAppStore.getState().sessionThemeOverrides).toEqual({});
+  });
+});
+
+describe('broadcastTargets', () => {
+  const tab = (over: Partial<SessionTab> & { tab_id: string }): SessionTab => ({
+    session_id: `s-${over.tab_id}`,
+    server_name: over.tab_id,
+    server_id: 'srv',
+    status: 'connected',
+    ...over,
+  });
+
+  it('is only the tab itself when it is not marked', () => {
+    const tabs = [tab({ tab_id: 'a' }), tab({ tab_id: 'b', broadcast: true })];
+    expect(broadcastTargets(tabs, 'a')).toEqual(['s-a']);
+  });
+
+  it('is every marked, connected tab when it is marked', () => {
+    const tabs = [
+      tab({ tab_id: 'a', broadcast: true }),
+      tab({ tab_id: 'b', broadcast: true }),
+      tab({ tab_id: 'c' }),
+      tab({ tab_id: 'd', broadcast: true, status: 'dropped', session_id: null }),
+    ];
+    expect(broadcastTargets(tabs, 'a')).toEqual(['s-a', 's-b']);
+  });
+
+  /** A dropped tab has nowhere to send; the terminal uses Enter to reconnect instead. */
+  it('sends nowhere from a tab with no session', () => {
+    const tabs = [tab({ tab_id: 'a', session_id: null, status: 'dropped' }), tab({ tab_id: 'b', broadcast: true })];
+    expect(broadcastTargets(tabs, 'a')).toEqual([]);
+    expect(broadcastTargets(tabs, 'nope')).toEqual([]);
   });
 });
