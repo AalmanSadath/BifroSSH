@@ -443,7 +443,7 @@ mod tests {
             id: "s".into(), name: "bastion".into(), host: "10.0.0.1".into(), port: 22,
             identity_id: None, username: Some("root".into()), encrypted_password: None,
             key_id: None, theme: None, os: String::new(), connection_timeout: None,
-            auth_kind: None, proxy_jump: None, forward_agent: false,
+            auth_kind: None, proxy_jump: None, forward_agent: false, log_sessions: false,
         });
         save_app_data_in(&dir, &data, &KEY).unwrap();
 

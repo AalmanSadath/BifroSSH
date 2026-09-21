@@ -12,7 +12,21 @@
   flex: 1;
   position: relative;
   min-height: 0;
+  min-width: 0;
   flex-direction: column;
+  background: var(--term-bg, #0d1117);
+}
+
+/* Panes after the first, so the split reads as a split. */
+.terminal-pane + .terminal-pane,
+.term-connecting + .terminal-pane,
+.terminal-pane + .term-connecting {
+  border-left: 1px solid var(--border);
+}
+
+/* Keystrokes here reach other tabs too; the frame says so. */
+.terminal-pane-broadcast {
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 /* The 4px padding around the canvas is part of the terminal as far as anyone
@@ -187,6 +201,10 @@
   height: 100%;
 }
 
+/* xterm's own stylesheet paints the viewport black, and since 6.0 nothing
+   repaints it from the theme, so the slack under the last row showed black
+   on every theme but one. */
 .terminal-container .xterm-viewport {
   overflow-y: scroll !important;
+  background-color: var(--term-bg, #0d1117) !important;
 }

@@ -96,6 +96,14 @@
   margin-top: 10px;
 }
 
+.pf-card-retry-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warning);
+  flex-shrink: 0;
+}
+
 .pf-card-active-dot {
   width: 7px;
   height: 7px;

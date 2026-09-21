@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import * as ipc from '../ipc';
 import { useAppStore } from '../store/appStore';
 import ConnectLog, { formatLogs } from './ConnectLog';
 import { THEMES } from '../styles/themes';
 import type { NamedTheme } from '../styles/themes';
 
 interface Props {
+  /** The active tab's id. Everything here is keyed by tab, not by session. */
   activeSessionId: string | null;
 }
 
@@ -36,7 +36,7 @@ function ThemeSwatch({ theme }: { theme: NamedTheme }) {
 export default function TerminalSidebar({ activeSessionId }: Props) {
   const {
     settings, customThemes, codeprints, sessions,
-    addCodeprint, deleteCodeprint,
+    addCodeprint, deleteCodeprint, sendInput,
     sessionThemeOverrides, setSessionTheme,
   } = useAppStore();
 
@@ -59,8 +59,7 @@ export default function TerminalSidebar({ activeSessionId }: Props) {
   function sendToTerminal(text: string, run: boolean) {
     if (!activeSessionId) return;
     const payload = run ? text + '\n' : text;
-    const bytes = Array.from(new TextEncoder().encode(payload));
-    ipc.sshSendInput(activeSessionId, bytes).catch(() => {});
+    sendInput(activeSessionId, Array.from(new TextEncoder().encode(payload)));
   }
 
   function saveCodeprint() {

@@ -51,6 +51,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
   const [timeoutSecs, setTimeoutSecs] = useState<string>(server?.connection_timeout != null ? String(server.connection_timeout) : '');
   const [proxyJump, setProxyJump] = useState(server?.proxy_jump ?? '');
   const [forwardAgent, setForwardAgent] = useState(server?.forward_agent ?? false);
+  const [logSessions, setLogSessions] = useState(server?.log_sessions ?? false);
   const [themeExpanded, setThemeExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -102,6 +103,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
           auth_kind: server?.auth_kind ?? null,
           proxy_jump: proxyJump || null,
           forward_agent: forwardAgent,
+        log_sessions: logSessions,
         },
         (!identityId && !keyId && password.trim()) ? password.trim() : undefined,
       );
@@ -282,6 +284,17 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
               onChange={(e) => setForwardAgent(e.target.checked)}
             />
             <span>Forward ssh-agent to this host</span>
+          </label>
+          <label
+            className="checkbox-row"
+            title="Everything the session prints is written to a file in the session logs folder, set in Settings."
+          >
+            <input
+              type="checkbox"
+              checked={logSessions}
+              onChange={(e) => setLogSessions(e.target.checked)}
+            />
+            <span>Log every session to a file</span>
           </label>
 
           <div className="form-group">

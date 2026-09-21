@@ -53,6 +53,8 @@ export interface Server {
    * local agent's keys, and so can anyone with root there. Off by default.
    */
   forward_agent: boolean;
+  /** Every session to this host is logged to a file from its first byte. */
+  log_sessions: boolean;
 }
 
 /** Payload of the `sftp-progress` event, emitted as bytes move. */
@@ -71,9 +73,17 @@ export interface TransferSummary {
   directories: number;
   /** Symlinks are never copied; following one risks a loop. */
   skipped_symlinks: number;
+  /** Left alone because one was already there and the answer was skip. */
+  skipped_existing: number;
   /** True when the user stopped it; `files` then counts what arrived. */
   cancelled: boolean;
 }
+
+/** What a transfer does with a file that is already at the destination. */
+export type Conflict = 'overwrite' | 'skip' | 'keep_both';
+
+/** Which pairing a conflict check is for; decides which session ids matter. */
+export type TransferKind = 'upload' | 'download' | 'copy';
 
 /**
  * One jump host as the backend expects it. The chain is walked and its
@@ -181,6 +191,8 @@ export interface Settings {
   lock_on_suspend: boolean;
   /** Lines a terminal keeps above the screen. */
   scrollback_lines: number;
+  /** Where session logs go; null is the app's own logs folder. */
+  session_log_dir: string | null;
 }
 
 /** How the user chose to keep the master key on the first run screen. */
@@ -338,6 +350,17 @@ export interface SessionTab {
   status: 'connecting' | 'connected' | 'dropped' | 'error';
   /** A reconnect is in flight for a dropped tab. */
   reconnecting?: boolean;
+  /**
+   * Typed input goes to every other tab marked the same way. The user's
+   * choice, so it outlives a drop and a reconnect.
+   */
+  broadcast?: boolean;
+  /**
+   * Output is being written to a file in the session logs folder: turned
+   * on for this tab, or by the host's setting. Only the first is shown on
+   * the tab; a host that always logs is set and forgotten.
+   */
+  logging?: 'tab' | 'host';
   connect_id?: string;
   error?: string;
   logs?: LogEntry[];
@@ -345,6 +368,12 @@ export interface SessionTab {
 }
 
 /** Payload of `ssh-closed:{session_id}`. */
+/** Payload of `tunnel-closed`: a tunnel ended without being asked to. */
+export interface TunnelClosed {
+  pf_id: string;
+  reason: 'dropped';
+}
+
 export interface SshClosed {
   reason: 'exited' | 'closed' | 'dropped';
 }

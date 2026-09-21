@@ -5,6 +5,30 @@ import { STORED, UNDETECTED_OS, UNKNOWN_OS } from '../types';
 import type { AuthType, Codeprint, GeneratedKey, Identity, IdentityInput, JumpHopParams, KeyContent, KeyEntry, LogEntry, PortForwarding, ResolvedTheme, Server, ServerInput, SessionTab, Settings, SystemAppearance } from '../types';
 import type { NamedTheme } from '../styles/themes';
 
+/**
+ * The sessions that input from `tabId` reaches: its own, and when it is
+ * marked for broadcast, every other marked tab that has a live session. A
+ * tab with no session (connecting, dropped) sends nowhere, and a marked tab
+ * that is dropped is left out rather than failing the others.
+ */
+export function broadcastTargets(sessions: SessionTab[], tabId: string): string[] {
+  const from = sessions.find((t) => t.tab_id === tabId);
+  if (!from) return [];
+  if (!from.broadcast) return from.session_id ? [from.session_id] : [];
+  return sessions
+    .filter((t) => t.broadcast && t.session_id && t.status === 'connected')
+    .map((t) => t.session_id as string);
+}
+
+/** Panes side by side before the terminals stop being useful. */
+const MAX_SPLIT = 4;
+
+/** The group without `tabId`; a group of one is no group. */
+export function pruneSplit(group: string[], tabId: string): string[] {
+  const rest = group.filter((id) => id !== tabId);
+  return rest.length > 1 ? rest : [];
+}
+
 /** What just happened, for the tunnels that start on their own. */
 export type AutostartTrigger = { kind: 'launch' } | { kind: 'connect'; serverId: string };
 
@@ -128,6 +152,7 @@ const DEFAULT_SETTINGS: Settings = {
   auto_lock_minutes: 0,
   lock_on_suspend: true,
   scrollback_lines: 10000,
+  session_log_dir: null,
   accent_color: null,
 };
 
@@ -178,6 +203,16 @@ interface AppStore {
   settings: Settings;
   sessions: SessionTab[];
   activeTabId: string | null;
+  /**
+   * Tabs shown side by side, in strip order; empty when nothing is split.
+   * The view is split whenever the active tab is one of them, and the
+   * active tab is the focused pane. A tab outside the group shows alone
+   * and leaves the group be, so coming back restores the split.
+   */
+  splitGroup: string[];
+  /** Puts `dropped` beside `anchor`, starting a group from the anchor if there is none. */
+  splitWith: (anchorTabId: string, droppedTabId: string) => void;
+  unsplit: (tabId: string) => void;
 
   /** What the desktop reports about its own theme and accent. */
   systemAppearance: SystemAppearance;
@@ -222,8 +257,16 @@ interface AppStore {
   savePortForwarding: (pf: Omit<PortForwarding, 'id'> & { id?: string }) => void;
   deletePortForwarding: (id: string) => void;
   activeTunnelIds: Set<string>;
+  /** Rules that dropped and are being started again, with backoff. */
+  retryingTunnelIds: Set<string>;
   startTunnel: (pf: PortForwarding) => Promise<void>;
   stopTunnel: (pfId: string) => Promise<void>;
+  /**
+   * The backend said the tunnel died. A rule that starts on its own is
+   * started again, 5s then doubling to a minute, until it comes up, the
+   * user stops it, or the rule is gone. Any other rule just goes quiet.
+   */
+  tunnelDropped: (pfId: string) => void;
   /**
    * Starts every rule whose autostart flag matches the trigger and that is
    * not already running. Never throws: failures are gathered into one
@@ -248,6 +291,15 @@ interface AppStore {
   appendSessionLog: (tabId: string, entry: LogEntry) => void;
   /** The connection under a tab went away; the tab stays. */
   markDropped: (tabId: string) => void;
+  toggleBroadcast: (tabId: string) => void;
+  /** Starts or stops writing the tab's output to a file; the banner says if it could not. */
+  toggleLogging: (tabId: string) => Promise<void>;
+  /**
+   * Input from `tabId` to its own session, and when the tab broadcasts, to
+   * every other broadcasting tab that is connected. The one path typed
+   * keys, pastes and codeprints all take.
+   */
+  sendInput: (tabId: string, bytes: number[]) => void;
   /** Connects a dropped tab again, into the same terminal. */
   reconnectSession: (tabId: string) => Promise<void>;
   openSession: (serverId: string) => Promise<void>;
@@ -385,12 +437,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
   customThemes: {},
   portForwardings: [],
   activeTunnelIds: new Set<string>(),
+  retryingTunnelIds: new Set<string>(),
   codeprints: [],
   sessionThemeOverrides: {},
   keys: [],
   settings: DEFAULT_SETTINGS,
   sessions: [],
   activeTabId: 'hosts',
+  splitGroup: [],
 
   systemAppearance: NO_APPEARANCE,
   setSystemAppearance: (appearance) => set({ systemAppearance: appearance }),
@@ -628,7 +682,39 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   stopTunnel: async (pfId) => {
     await ipc.tunnelStop(pfId);
-    set((s) => { const n = new Set(s.activeTunnelIds); n.delete(pfId); return { activeTunnelIds: n }; });
+    set((s) => {
+      const active = new Set(s.activeTunnelIds); active.delete(pfId);
+      const retrying = new Set(s.retryingTunnelIds); retrying.delete(pfId);
+      return { activeTunnelIds: active, retryingTunnelIds: retrying };
+    });
+  },
+
+  tunnelDropped: (pfId) => {
+    const pf = get().portForwardings.find((p) => p.id === pfId);
+    const retry = !!pf && (pf.autostart_on_launch || pf.autostart_on_connect);
+    set((s) => {
+      const active = new Set(s.activeTunnelIds); active.delete(pfId);
+      const retrying = new Set(s.retryingTunnelIds);
+      if (retry) retrying.add(pfId);
+      return { activeTunnelIds: active, retryingTunnelIds: retrying };
+    });
+    if (!retry) return;
+
+    get().setActionError(`Tunnel "${pf.label}" dropped. Trying again.`);
+    const attempt = async (delayMs: number) => {
+      await new Promise((r) => setTimeout(r, delayMs));
+      const { retryingTunnelIds, portForwardings, startTunnel } = get();
+      // Deactivated meanwhile, or the rule was deleted: nothing to bring back.
+      const rule = portForwardings.find((p) => p.id === pfId);
+      if (!retryingTunnelIds.has(pfId) || !rule) return;
+      try {
+        await startTunnel(rule);
+        set((s) => { const n = new Set(s.retryingTunnelIds); n.delete(pfId); return { retryingTunnelIds: n }; });
+      } catch {
+        attempt(Math.min(delayMs * 2, 60_000));
+      }
+    };
+    attempt(5_000);
   },
 
   addCodeprint: (cp) => {
@@ -679,7 +765,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
       // The override is keyed on a tab id that will never be reused, so
       // leaving it behind grows the map for the life of the process.
       const { [tabId]: _dropped, ...themeOverrides } = s.sessionThemeOverrides;
-      return { sessions: next, activeTabId: nextActive, sessionThemeOverrides: themeOverrides };
+      return {
+        sessions: next,
+        activeTabId: nextActive,
+        sessionThemeOverrides: themeOverrides,
+        splitGroup: pruneSplit(s.splitGroup, tabId),
+      };
     }),
 
   renameSession: (tabId, name) =>
@@ -715,6 +806,32 @@ export const useAppStore = create<AppStore>((set, get) => ({
           : t
       ),
     })),
+
+  toggleBroadcast: (tabId) =>
+    set((s) => ({
+      sessions: s.sessions.map((t) =>
+        t.tab_id === tabId ? { ...t, broadcast: !t.broadcast } : t
+      ),
+    })),
+
+  toggleLogging: async (tabId) => {
+    const tab = get().sessions.find((t) => t.tab_id === tabId);
+    if (!tab || !tab.session_id) return;
+    try {
+      await ipc.sshSetLog(tab.session_id, tab.server_name, !tab.logging);
+      set((s) => ({
+        sessions: s.sessions.map((t) => (t.tab_id === tabId ? { ...t, logging: tab.logging ? undefined : 'tab' } : t)),
+      }));
+    } catch (e) {
+      get().setActionError(`Could not ${tab.logging ? 'stop' : 'start'} the log: ${String(e)}`);
+    }
+  },
+
+  sendInput: (tabId, bytes) => {
+    for (const sid of broadcastTargets(get().sessions, tabId)) {
+      ipc.sshSendInput(sid, bytes).catch(() => {});
+    }
+  },
 
   markDropped: (tabId) =>
     set((s) => ({
@@ -754,6 +871,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
         jumps,
       });
       get().updateSessionConnected(tabId, sessionId);
+      // A logged tab goes on being logged, to a new file for the new session.
+      // A host-logged tab was reopened logging by the backend; a tab-logged
+      // one is asked for again, to a new file for the new session.
+      if (tab.logging === 'tab') {
+        const ok = await ipc.sshSetLog(sessionId, tab.server_name, true).then(() => true, () => false);
+        set((s) => ({ sessions: s.sessions.map((t) => (t.tab_id === tabId ? { ...t, logging: ok ? 'tab' : undefined } : t)) }));
+      }
     } catch (err) {
       // Still dropped, still there. The banner shows why it did not come back.
       set((s) => ({
@@ -834,6 +958,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
     );
 
     if (ok && server.os === UNDETECTED_OS) detectServerOs(serverId, username, authType, authValue, jumps);
+    // The backend opened the log before connecting; the tab only needs to know.
+    if (ok && server.log_sessions) {
+      set((s) => ({ sessions: s.sessions.map((t) => (t.tab_id === connectId ? { ...t, logging: 'host' } : t)) }));
+    }
     if (ok) get().autostartTunnels({ kind: 'connect', serverId });
   },
 
@@ -863,6 +991,20 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   setActiveTab: (id) => set({ activeTabId: id }),
+
+  splitWith: (anchorTabId, droppedTabId) =>
+    set((s) => {
+      if (anchorTabId === droppedTabId) return {};
+      const ids = new Set(s.sessions.map((t) => t.tab_id));
+      if (!ids.has(anchorTabId) || !ids.has(droppedTabId)) return {};
+      const base = s.splitGroup.includes(anchorTabId) ? s.splitGroup : [anchorTabId];
+      if (base.includes(droppedTabId) || base.length >= MAX_SPLIT) return {};
+      const members = new Set([...base, droppedTabId]);
+      // Strip order, so panes read the way the tabs do.
+      return { splitGroup: s.sessions.map((t) => t.tab_id).filter((id) => members.has(id)) };
+    }),
+
+  unsplit: (tabId) => set((s) => ({ splitGroup: pruneSplit(s.splitGroup, tabId) })),
 }));
 
 /**

@@ -111,6 +111,12 @@ export default function SettingsPanel() {
   const refreshKeystore = () => { ipc.keystoreStatus().then(setKeystore).catch(() => {}); };
   useEffect(() => { refreshKeystore(); }, []);
   const canLock = keystore?.passphrase_set === true;
+  // The folder in use, asked from the backend so a default path is shown
+  // rather than an empty box.
+  const [logDir, setLogDir] = useState<string | null>(null);
+  const [logDirDraft, setLogDirDraft] = useState(settings.session_log_dir ?? '');
+  useEffect(() => { ipc.sessionLogDir().then(setLogDir).catch(() => {}); }, [settings.session_log_dir]);
+  useEffect(() => { setLogDirDraft(settings.session_log_dir ?? ''); }, [settings.session_log_dir]);
 
 
   function patch(p: Partial<Settings>) {
@@ -256,6 +262,26 @@ export default function SettingsPanel() {
           a NAT or firewall idle timer, and so a dead connection is noticed rather than hanging.
           A connection is considered lost after three unanswered keepalives. Set to 0 to disable.
           Does not apply to SFTP, which uses the inactivity timeout above instead.
+        </p>
+        <div className="form-group">
+          <label>Session logs folder</label>
+          <div className="settings-inline-row">
+            <input
+              type="text"
+              value={logDirDraft}
+              placeholder={logDir ?? 'Default'}
+              onChange={(e) => setLogDirDraft(e.target.value)}
+              onBlur={() => patch({ session_log_dir: logDirDraft.trim() || null })}
+              onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+            />
+            <button className="btn-secondary btn-sm" onClick={() => { if (logDir) ipc.sftpOpenLocal(logDir).catch(reportFailure); }}>
+              Open folder
+            </button>
+          </div>
+        </div>
+        <p className="form-hint">
+          Where a session's output goes when a tab is logged, or a host is set to log every
+          session. Empty means the app's own data folder.
         </p>
       </section>
 

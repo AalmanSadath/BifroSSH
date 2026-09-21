@@ -143,7 +143,7 @@ mod tests {
             connection_timeout: None,
             auth_kind: None,
             proxy_jump: None,
-            forward_agent: false,
+            forward_agent: false, log_sessions: false,
         }
     }
 

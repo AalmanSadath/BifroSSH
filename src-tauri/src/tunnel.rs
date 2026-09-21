@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use russh::*;
@@ -11,7 +12,8 @@ use tokio::sync::{oneshot, Mutex};
 use crate::connect::ConnectSecurity;
 use crate::hostverify::{HostKeyVerifier, VerifyingHandler};
 use crate::jump::JumpHop;
-use crate::ssh::{AuthContext, SshAuth};
+use crate::ssh::{AuthContext, CloseReason, SshAuth};
+use tauri::Emitter;
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -27,6 +29,30 @@ impl TunnelState {
     pub fn new() -> Self {
         Self { tunnels: Mutex::new(HashMap::new()) }
     }
+}
+
+/// Sent on `tunnel-closed` when a tunnel ends without being asked to.
+///
+/// One channel for every tunnel, the id in the payload, since the panel
+/// listens for all of them at once. A stop the user asked for sends
+/// nothing: `tunnel_stop` already took the entry and the panel already
+/// knows.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct TunnelClosed {
+    pub pf_id: String,
+    pub reason: CloseReason,
+}
+
+/// How often a tunnel task looks at its session to see whether it is
+/// still there. Nothing calls back when a keepalive runs out; the handle
+/// just reports closed from then on.
+const LIVENESS_TICK: Duration = Duration::from_secs(2);
+
+/// The end of a tunnel that died on its own: the entry goes, so the rule
+/// can be started again, and the panel is told.
+async fn report_dropped(state: &TunnelState, sec: &ConnectSecurity, pf_id: String) {
+    state.tunnels.lock().await.remove(&pf_id);
+    let _ = sec.app.emit("tunnel-closed", TunnelClosed { pf_id, reason: CloseReason::Dropped });
 }
 
 // ── Auth / params ─────────────────────────────────────────────────────────────
@@ -220,18 +246,26 @@ where
     let listener = TcpListener::bind(format!("{}:{}", base.bind_address, local_port)).await?;
     let (stop_tx, stop_rx) = oneshot::channel::<()>();
 
-    state.tunnels.lock().await.insert(pf_id, TunnelHandle { stop_tx });
+    state.tunnels.lock().await.insert(pf_id.clone(), TunnelHandle { stop_tx });
 
     tokio::spawn(async move {
         let mut stop_rx = stop_rx;
+        let mut tick = tokio::time::interval(LIVENESS_TICK);
+        let mut dropped = false;
         loop {
             tokio::select! {
                 // Stopping beats accepting, so a tunnel torn down while
                 // connections are arriving does not serve one more.
                 biased;
                 _ = &mut stop_rx => break,
+                _ = tick.tick() => {
+                    if handle.lock().await.is_closed() {
+                        dropped = true;
+                        break;
+                    }
+                }
                 res = listener.accept() => match res {
-                    Err(_) => break,
+                    Err(_) => { dropped = true; break; }
                     Ok((stream, _)) => {
                         tokio::spawn(serve(stream, Arc::clone(&handle)));
                     }
@@ -239,6 +273,9 @@ where
             }
         }
         let _ = handle.lock().await.disconnect(Disconnect::ByApplication, "", "en").await;
+        if dropped {
+            report_dropped(&state, &base.sec, pf_id).await;
+        }
     });
 
     Ok(())
@@ -283,11 +320,28 @@ async fn remote_tunnel(
         .map_err(|e| anyhow!("tcpip_forward failed: {:?}", e))?;
 
     let (stop_tx, stop_rx) = oneshot::channel::<()>();
-    state.tunnels.lock().await.insert(pf_id, TunnelHandle { stop_tx });
+    state.tunnels.lock().await.insert(pf_id.clone(), TunnelHandle { stop_tx });
 
     tokio::spawn(async move {
-        let _ = stop_rx.await;
+        let mut stop_rx = stop_rx;
+        let mut tick = tokio::time::interval(LIVENESS_TICK);
+        let mut dropped = false;
+        loop {
+            tokio::select! {
+                biased;
+                _ = &mut stop_rx => break,
+                _ = tick.tick() => {
+                    if handle.is_closed() {
+                        dropped = true;
+                        break;
+                    }
+                }
+            }
+        }
         let _ = handle.disconnect(Disconnect::ByApplication, "", "en").await;
+        if dropped {
+            report_dropped(&state, &base.sec, pf_id).await;
+        }
     });
 
     Ok(())
@@ -315,4 +369,19 @@ async fn dynamic_tunnel(
         }
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Only the payload is testable without a window: the tasks above need
+    /// a `ConnectSecurity`, which carries a real `AppHandle`. The liveness
+    /// tick itself is checked by hand against the rig, by killing sshd
+    /// under a running tunnel.
+    #[test]
+    fn a_drop_is_sent_with_the_rule_id_and_the_word_the_frontend_matches_on() {
+        let json = serde_json::to_string(&TunnelClosed { pf_id: "x".into(), reason: CloseReason::Dropped }).unwrap();
+        assert_eq!(json, r#"{"pf_id":"x","reason":"dropped"}"#);
+    }
 }

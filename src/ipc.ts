@@ -20,6 +20,7 @@ import type {
   AgentKeyInfo,
   AuthType,
   Codeprint,
+  Conflict,
   ConnectRequest,
   ExportResult,
   FileEntry,
@@ -43,6 +44,7 @@ import type {
   SshConfigImportResult,
   SshConfigScan,
   SystemAppearance,
+  TransferKind,
   TransferSummary,
   VaultInitMode,
   VaultStatus,
@@ -257,6 +259,13 @@ export const sshAttach = (sessionId: string) =>
 export const sshDisconnect = (sessionId: string) =>
   invoke<void>('ssh_disconnect', { sessionId });
 
+/** Starts (returning the file's path) or stops logging a session's output. */
+export const sshSetLog = (sessionId: string, label: string, on: boolean) =>
+  invoke<string | null>('ssh_set_log', { sessionId, label, on });
+
+/** The folder session logs are written to, as configured or by default. */
+export const sessionLogDir = () => invoke<string>('session_log_dir');
+
 // ── sftp ─────────────────────────────────────────────────────────────────
 
 export const sftpLocalHome = () => invoke<string>('sftp_local_home');
@@ -287,20 +296,33 @@ export const sftpProbeRemote = (sessionId: string) =>
 export const sftpDisconnectRemote = (sessionId: string) =>
   invoke<void>('sftp_disconnect_remote', { sessionId });
 
-export const sftpUpload = (sessionId: string, localPath: string, remoteDir: string) =>
-  invoke<TransferSummary>('sftp_upload', { sessionId, localPath, remoteDir });
+export const sftpUpload = (sessionId: string, localPath: string, remoteDir: string, conflict: Conflict) =>
+  invoke<TransferSummary>('sftp_upload', { sessionId, localPath, remoteDir, conflict });
 
-export const sftpDownload = (sessionId: string, remotePath: string, localDir: string) =>
-  invoke<TransferSummary>('sftp_download', { sessionId, remotePath, localDir });
+export const sftpDownload = (sessionId: string, remotePath: string, localDir: string, conflict: Conflict) =>
+  invoke<TransferSummary>('sftp_download', { sessionId, remotePath, localDir, conflict });
 
 export const sftpCopyRemoteToRemote = (
   srcSessionId: string,
   srcPath: string,
   dstSessionId: string,
   dstDir: string,
+  conflict: Conflict,
 ) => invoke<TransferSummary>('sftp_copy_remote_to_remote', {
-  srcSessionId, srcPath, dstSessionId, dstDir,
+  srcSessionId, srcPath, dstSessionId, dstDir, conflict,
 });
+
+/**
+ * The files, relative to the item, that a transfer would write over.
+ * Asked before the transfer so the user can be asked before anything is.
+ */
+export const sftpConflicts = (
+  kind: TransferKind,
+  srcSessionId: string | null,
+  srcPath: string,
+  dstSessionId: string | null,
+  dstDir: string,
+) => invoke<string[]>('sftp_conflicts', { kind, srcSessionId, srcPath, dstSessionId, dstDir });
 
 /** Stops the one transfer in flight; there is never more than one. */
 export const sftpCancelTransfer = () => invoke<void>('sftp_cancel_transfer');

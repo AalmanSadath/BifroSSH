@@ -4,10 +4,11 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useAppStore, buildJumpChain, resolveServerAuth } from '../store/appStore';
 import OsIcon from './OsIcon';
-import type { EditEvent, FileEntry, LogEntry, Server, TransferProgress, TransferSummary } from '../types';
+import type { Conflict, EditEvent, FileEntry, LogEntry, Server, TransferProgress, TransferSummary } from '../types';
 import ConnectingView from './ConnectingView';
 import ContextMenu from './shared/ContextMenu';
 import PermissionsDialog from './PermissionsDialog';
+import ConflictDialog, { type ConflictAnswer, type ConflictPrompt } from './ConflictDialog';
 import { useDismissOnOutside } from './shared/useDismissOnOutside';
 import { localStyle, resolveTyped, styleFor, type PathStyle } from '../paths';
 
@@ -155,11 +156,36 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
   const wrapRef = useRef<HTMLDivElement>(null);
   /** The row the arrow keys move from. An index into `visible`, or -1. */
   const cursorRef = useRef(-1);
+  /** Typed over the list to narrow it; null when the bar is closed. */
+  const [filter, setFilter] = useState<string | null>(null);
+  const filterInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setSelectedPaths(new Set());
     lastClickIdxRef.current = -1;
+    setFilter(null);
   }, [path]);
+
+  // A different filter is a different list; the selection meant the old one.
+  useEffect(() => {
+    setSelectedPaths(new Set());
+    cursorRef.current = -1;
+    lastClickIdxRef.current = -1;
+  }, [filter]);
+
+  /** Opens the bar with `seed` in it and the caret after it. */
+  function startFilter(seed: string) {
+    setFilter(seed);
+    setTimeout(() => {
+      const el = filterInputRef.current;
+      if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+    }, 30);
+  }
+
+  function closeFilter() {
+    setFilter(null);
+    setTimeout(() => wrapRef.current?.focus(), 0);
+  }
 
   useEffect(() => {
     if (!onReconnect) setReconnecting(false);
@@ -231,8 +257,10 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
    */
   const visible: FileEntry[] = (() => {
     const dotdot = entries.filter(en => en.name === '..');
+    const needle = filter?.toLowerCase() ?? '';
     const rest = entries
       .filter(en => en.name !== '..' && (showHidden || !en.hidden))
+      .filter(en => needle === '' || en.name.toLowerCase().includes(needle))
       .sort((a, b) => {
         if (dirsOnTop && a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
         let cmp = 0;
@@ -304,8 +332,20 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
       startTyping();
       return;
     }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+      e.preventDefault();
+      startFilter(filter ?? '');
+      return;
+    }
     if (e.key === 'Escape') {
-      setSelectedPaths(new Set());
+      if (filter !== null) closeFilter();
+      else setSelectedPaths(new Set());
+      return;
+    }
+    // Any other printable key on its own starts narrowing the list.
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      startFilter((filter ?? '') + e.key);
       return;
     }
     if (e.key === 'Delete') {
@@ -519,6 +559,39 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
               </button>
             </span>
           ))}
+        </div>
+      )}
+
+      {filter !== null && (
+        <div className="sftp-filter-bar">
+          <span className="sftp-filter-glyph" aria-hidden>⌕</span>
+          <input
+            ref={filterInputRef}
+            className="sftp-filter-input"
+            value={filter}
+            placeholder="Filter by name"
+            spellCheck={false}
+            onChange={(e) => setFilter(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f')) { e.preventDefault(); closeFilter(); }
+              // Enter, or an arrow, hands the keyboard to the list with the
+              // first match under the cursor, so Enter again opens it.
+              else if (e.key === 'Enter' || e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                const first = visible.findIndex((en) => en.name !== '..');
+                if (first >= 0) {
+                  cursorRef.current = first;
+                  lastClickIdxRef.current = first;
+                  setSelectedPaths(new Set([visible[first].path]));
+                }
+                wrapRef.current?.focus();
+              }
+            }}
+          />
+          <span className="sftp-filter-count">
+            {visible.filter((en) => en.name !== '..').length} of {entries.filter((en) => en.name !== '..' && (showHidden || !en.hidden)).length}
+          </span>
+          <button className="sftp-filter-close" onClick={closeFilter} title="Clear filter" aria-label="Clear filter">✕</button>
         </div>
       )}
 
@@ -1308,6 +1381,10 @@ export default function SftpPanel() {
       const n = s.skipped_symlinks;
       parts.push(`${n} ${n === 1 ? 'symlink was' : 'symlinks were'} not copied.`);
     }
+    if (s.skipped_existing > 0) {
+      const n = s.skipped_existing;
+      parts.push(`Skipped ${n} that already existed.`);
+    }
     return parts.length > 0 ? parts.join(' ') : null;
   }
 
@@ -1326,17 +1403,22 @@ export default function SftpPanel() {
     const src = target === 'left' ? right : left;
     if (!canMove(src, dst)) return;
 
-    const run = (entry: FileEntry): Promise<TransferSummary> => {
+    const run = (entry: FileEntry, conflict: Conflict): Promise<TransferSummary> => {
       if (src.mode === 'local') {
-        return ipc.sftpUpload(dst.requireSid(), entry.path, dst.listing.path);
+        return ipc.sftpUpload(dst.requireSid(), entry.path, dst.listing.path, conflict);
       }
       if (dst.mode === 'local') {
-        return ipc.sftpDownload(src.requireSid(), entry.path, dst.listing.path);
+        return ipc.sftpDownload(src.requireSid(), entry.path, dst.listing.path, conflict);
       }
-      return ipc.sftpCopyRemoteToRemote(src.requireSid(), entry.path, dst.requireSid(), dst.listing.path);
+      return ipc.sftpCopyRemoteToRemote(src.requireSid(), entry.path, dst.requireSid(), dst.listing.path, conflict);
+    };
+    const check = (entry: FileEntry) => {
+      if (src.mode === 'local') return ipc.sftpConflicts('upload', null, entry.path, dst.requireSid(), dst.listing.path);
+      if (dst.mode === 'local') return ipc.sftpConflicts('download', src.requireSid(), entry.path, null, dst.listing.path);
+      return ipc.sftpConflicts('copy', src.requireSid(), entry.path, dst.requireSid(), dst.listing.path);
     };
 
-    await runBatch(target, batch, run);
+    await runBatch(target, batch, run, check, (entry) => entry.name);
   }
 
   /**
@@ -1349,7 +1431,23 @@ export default function SftpPanel() {
     const dst = target === 'left' ? left : right;
     if (dst.mode !== 'connected' || transferring) return;
     const sid = dst.requireSid();
-    await runBatch(target, paths, (path) => ipc.sftpUpload(sid, path, dst.listing.path));
+    await runBatch(
+      target,
+      paths,
+      (path, conflict) => ipc.sftpUpload(sid, path, dst.listing.path, conflict),
+      (path) => ipc.sftpConflicts('upload', null, path, sid, dst.listing.path),
+      (path) => localStyle().basename(path),
+    );
+  }
+
+  /**
+   * Puts the question up and waits for the answer. Held as a resolver in
+   * state because runBatch is a loop that has to pause on it; the dialog
+   * itself is plain JSX rendered while the state is set.
+   */
+  const [conflictPrompt, setConflictPrompt] = useState<{ prompt: ConflictPrompt; resolve: (a: ConflictAnswer | null) => void } | null>(null);
+  function askConflict(prompt: ConflictPrompt): Promise<ConflictAnswer | null> {
+    return new Promise((resolve) => setConflictPrompt({ prompt, resolve }));
   }
 
   // The drag-drop event fires from a listener registered once, so it reads
@@ -1361,7 +1459,9 @@ export default function SftpPanel() {
   async function runBatch<T>(
     target: 'left' | 'right',
     batch: T[],
-    run: (item: T) => Promise<TransferSummary>,
+    run: (item: T, conflict: Conflict) => Promise<TransferSummary>,
+    check: (item: T) => Promise<string[]>,
+    nameOf: (item: T) => string,
   ) {
     const dst = target === 'left' ? left : right;
     setTransferring(true);
@@ -1372,12 +1472,29 @@ export default function SftpPanel() {
       // transfer at a time per session, the progress bar describes one, and
       // the cancel flag stops the one in flight. A cancel ends the batch too,
       // since carrying on with the next file is not what "stop" means.
-      const summary: TransferSummary = { files: 0, directories: 0, skipped_symlinks: 0, cancelled: false };
-      for (const item of batch) {
-        const one = await run(item);
+      const summary: TransferSummary = { files: 0, directories: 0, skipped_symlinks: 0, skipped_existing: 0, cancelled: false };
+      // Decided once for the whole batch when the user ticks "for the
+      // rest"; until then every item that collides asks on its own.
+      let forAll: Conflict | null = null;
+      for (const [i, item] of batch.entries()) {
+        let conflict: Conflict = forAll ?? 'overwrite';
+        if (forAll === null) {
+          const files = await check(item);
+          if (files.length > 0) {
+            const answer = await askConflict({ name: nameOf(item), files, more: i < batch.length - 1 });
+            if (answer === null) {
+              summary.cancelled = true;
+              break;
+            }
+            conflict = answer.choice;
+            if (answer.applyToAll) forAll = answer.choice;
+          }
+        }
+        const one = await run(item, conflict);
         summary.files += one.files;
         summary.directories += one.directories;
         summary.skipped_symlinks += one.skipped_symlinks;
+        summary.skipped_existing += one.skipped_existing;
         if (one.cancelled) {
           summary.cancelled = true;
           break;
@@ -1475,6 +1592,12 @@ export default function SftpPanel() {
 
   return (
     <div className="sftp-container">
+      {conflictPrompt && (
+        <ConflictDialog
+          prompt={conflictPrompt.prompt}
+          onAnswer={(a) => { conflictPrompt.resolve(a); setConflictPrompt(null); }}
+        />
+      )}
       <div className="sftp-panels-row">
         <div className="sftp-file-panel" data-side="left">{renderPane(left, right, 'left')}</div>
         <div className="sftp-divider" />

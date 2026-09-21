@@ -11,7 +11,7 @@ vi.mock('../ipc', () => ({
   getServerPassword: vi.fn(async (id: string) => `server-secret:${id}`),
 }));
 
-const { buildJumpChain, resolveServerAuth, useAppStore } = await import('./appStore');
+const { broadcastTargets, buildJumpChain, resolveServerAuth, useAppStore } = await import('./appStore');
 const ipc = await import('../ipc');
 
 function server(over: Partial<Server> & { id: string }): Server {
@@ -29,6 +29,7 @@ function server(over: Partial<Server> & { id: string }): Server {
     auth_kind: null,
     proxy_jump: null,
     forward_agent: false,
+    log_sessions: false,
     ...over,
   };
 }
@@ -241,5 +242,77 @@ describe('session tabs', () => {
     expect(useAppStore.getState().sessions.map((t) => t.tab_id)).toEqual(['t1']);
     expect(useAppStore.getState().activeTabId).toBe('t1');
     expect(useAppStore.getState().sessionThemeOverrides).toEqual({});
+  });
+});
+
+describe('broadcastTargets', () => {
+  const tab = (over: Partial<SessionTab> & { tab_id: string }): SessionTab => ({
+    session_id: `s-${over.tab_id}`,
+    server_name: over.tab_id,
+    server_id: 'srv',
+    status: 'connected',
+    ...over,
+  });
+
+  it('is only the tab itself when it is not marked', () => {
+    const tabs = [tab({ tab_id: 'a' }), tab({ tab_id: 'b', broadcast: true })];
+    expect(broadcastTargets(tabs, 'a')).toEqual(['s-a']);
+  });
+
+  it('is every marked, connected tab when it is marked', () => {
+    const tabs = [
+      tab({ tab_id: 'a', broadcast: true }),
+      tab({ tab_id: 'b', broadcast: true }),
+      tab({ tab_id: 'c' }),
+      tab({ tab_id: 'd', broadcast: true, status: 'dropped', session_id: null }),
+    ];
+    expect(broadcastTargets(tabs, 'a')).toEqual(['s-a', 's-b']);
+  });
+
+  /** A dropped tab has nowhere to send; the terminal uses Enter to reconnect instead. */
+  it('sends nowhere from a tab with no session', () => {
+    const tabs = [tab({ tab_id: 'a', session_id: null, status: 'dropped' }), tab({ tab_id: 'b', broadcast: true })];
+    expect(broadcastTargets(tabs, 'a')).toEqual([]);
+    expect(broadcastTargets(tabs, 'nope')).toEqual([]);
+  });
+});
+
+describe('split panes', () => {
+  const tab = (id: string): SessionTab => ({
+    tab_id: id, session_id: `s-${id}`, server_name: id, server_id: 'srv', status: 'connected',
+  });
+
+  beforeEach(() => {
+    useAppStore.setState({ sessions: [tab('a'), tab('b'), tab('c')], activeTabId: 'a', splitGroup: [], sessionThemeOverrides: {} });
+  });
+
+  it('starts a group from the anchor and keeps strip order', () => {
+    useAppStore.getState().splitWith('b', 'a');
+    expect(useAppStore.getState().splitGroup).toEqual(['a', 'b']);
+    useAppStore.getState().splitWith('a', 'c');
+    expect(useAppStore.getState().splitGroup).toEqual(['a', 'b', 'c']);
+  });
+
+  it('ignores a tab dropped on itself, one already in, and one that is not a tab', () => {
+    useAppStore.getState().splitWith('a', 'a');
+    useAppStore.getState().splitWith('a', 'nope');
+    expect(useAppStore.getState().splitGroup).toEqual([]);
+    useAppStore.getState().splitWith('a', 'b');
+    useAppStore.getState().splitWith('b', 'a');
+    expect(useAppStore.getState().splitGroup).toEqual(['a', 'b']);
+  });
+
+  /** A pane on its own is a plain tab again, not a split of one. */
+  it('dissolves when one member is left, on unsplit and on close', () => {
+    useAppStore.getState().splitWith('a', 'b');
+    useAppStore.getState().unsplit('a');
+    expect(useAppStore.getState().splitGroup).toEqual([]);
+
+    useAppStore.getState().splitWith('a', 'b');
+    useAppStore.getState().splitWith('a', 'c');
+    useAppStore.getState().removeSession('b');
+    expect(useAppStore.getState().splitGroup).toEqual(['a', 'c']);
+    useAppStore.getState().removeSession('c');
+    expect(useAppStore.getState().splitGroup).toEqual([]);
   });
 });
