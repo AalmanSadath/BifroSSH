@@ -79,6 +79,23 @@
   gap: 8px;
 }
 
+.pf-card-auto {
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 5px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.pf-autostart {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
 .pf-card-active-dot {
   width: 7px;
   height: 7px;

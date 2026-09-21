@@ -263,7 +263,10 @@ impl Settings {
     fn default_scrollback_lines() -> u32 { 10_000 }
 }
 
-/// A saved port forwarding rule. Started on demand; never auto-connected.
+/// A saved port forwarding rule.
+///
+/// Started by hand unless one of the autostart flags says otherwise. Both
+/// default to off, which is what every rule saved before they existed gets.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PortForwarding {
     pub id: String,
@@ -277,6 +280,12 @@ pub struct PortForwarding {
     pub remote_port: Option<u32>,
     pub dest_address: String,
     pub dest_port: Option<u32>,
+    /// Start when the app opens or the vault unlocks.
+    #[serde(default)]
+    pub autostart_on_launch: bool,
+    /// Start when a session opens to the rule's own host.
+    #[serde(default)]
+    pub autostart_on_connect: bool,
 }
 
 /// A named shell command the user can paste or run in any session.

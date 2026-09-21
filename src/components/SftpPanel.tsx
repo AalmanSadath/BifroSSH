@@ -999,6 +999,7 @@ function usePane(initialMode: PaneMode) {
       setMode('connected');
       setDisconnected(false);
       setRemote((r) => ({ ...r, error: '', loading: true }));
+      useAppStore.getState().autostartTunnels({ kind: 'connect', serverId: server.id });
 
       const home = await ipc.sftpGetHome(newSid);
       const entries = await ipc.sftpListRemote(newSid, home);

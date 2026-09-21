@@ -5,6 +5,9 @@ import { STORED, UNDETECTED_OS, UNKNOWN_OS } from '../types';
 import type { AuthType, Codeprint, GeneratedKey, Identity, IdentityInput, JumpHopParams, KeyContent, KeyEntry, LogEntry, PortForwarding, ResolvedTheme, Server, ServerInput, SessionTab, Settings, SystemAppearance } from '../types';
 import type { NamedTheme } from '../styles/themes';
 
+/** What just happened, for the tunnels that start on their own. */
+export type AutostartTrigger = { kind: 'launch' } | { kind: 'connect'; serverId: string };
+
 // These three collections used to live here. They are now kept in the Rust
 // store alongside servers and keys; the keys remain only so existing data can
 // be migrated across once.
@@ -221,6 +224,12 @@ interface AppStore {
   activeTunnelIds: Set<string>;
   startTunnel: (pf: PortForwarding) => Promise<void>;
   stopTunnel: (pfId: string) => Promise<void>;
+  /**
+   * Starts every rule whose autostart flag matches the trigger and that is
+   * not already running. Never throws: failures are gathered into one
+   * banner, since the app has to come up whatever a tunnel does.
+   */
+  autostartTunnels: (trigger: AutostartTrigger) => Promise<void>;
 
   codeprints: Codeprint[];
   addCodeprint: (cp: Omit<Codeprint, 'id'>) => void;
@@ -427,6 +436,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       }
 
       set({ servers, identities, keys, settings, ...collections, loadError: null });
+      get().autostartTunnels({ kind: 'launch' });
     } catch (e) {
       console.error('Could not load saved data', e);
       set({ loadError: String(e) });
@@ -593,6 +603,27 @@ export const useAppStore = create<AppStore>((set, get) => ({
       jumps: await buildJumpChain(server, servers, identities),
     });
     set((s) => ({ activeTunnelIds: new Set([...s.activeTunnelIds, pf.id]) }));
+  },
+
+  autostartTunnels: async (trigger) => {
+    const { portForwardings, activeTunnelIds, startTunnel } = get();
+    const wanted = portForwardings.filter((pf) => {
+      if (activeTunnelIds.has(pf.id)) return false;
+      if (trigger.kind === 'launch') return pf.autostart_on_launch;
+      const host = pf.type === 'remote' ? pf.remote_host_id : pf.intermediate_host_id;
+      return pf.autostart_on_connect && host === trigger.serverId;
+    });
+    const failures: string[] = [];
+    for (const pf of wanted) {
+      try {
+        await startTunnel(pf);
+      } catch (e) {
+        failures.push(`${pf.label}: ${String(e)}`);
+      }
+    }
+    if (failures.length > 0) {
+      get().setActionError(`Could not start ${failures.length === 1 ? 'a tunnel' : 'some tunnels'}. ${failures.join(' · ')}`);
+    }
   },
 
   stopTunnel: async (pfId) => {
@@ -803,6 +834,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     );
 
     if (ok && server.os === UNDETECTED_OS) detectServerOs(serverId, username, authType, authValue, jumps);
+    if (ok) get().autostartTunnels({ kind: 'connect', serverId });
   },
 
   quickConnect: async (host, port, username, authType, authValue) => {

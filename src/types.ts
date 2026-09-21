@@ -366,6 +366,10 @@ export interface PortForwarding {
   remote_port: number | null;
   dest_address: string;
   dest_port: number | null;
+  /** Start when the app opens or the vault unlocks. */
+  autostart_on_launch: boolean;
+  /** Start when a session opens to the rule's own host. */
+  autostart_on_connect: boolean;
 }
 
 /**

@@ -36,6 +36,8 @@ interface Draft {
   remotePort: string;
   destAddress: string;
   destPort: string;
+  autostartOnLaunch: boolean;
+  autostartOnConnect: boolean;
 }
 
 /** The default label for a rule the user did not name. */
@@ -66,6 +68,8 @@ function draftToPf(d: Draft) {
     remote_port: remote ? (parseInt(d.remotePort) || null) : null,
     dest_address: d.destAddress,
     dest_port: !dynamic ? (parseInt(d.destPort) || null) : null,
+    autostart_on_launch: d.autostartOnLaunch,
+    autostart_on_connect: d.autostartOnConnect,
   };
 }
 
@@ -181,6 +185,30 @@ const STEPS: Record<PfType, WizStep[]> = {
   dynamic: ['type', 'dyn-port', 'dyn-host', 'label'],
 };
 
+/** The two autostart switches, shared by the wizard's last step and the edit form. */
+function AutostartFields({ draft, onChange }: { draft: Draft; onChange: (patch: Partial<Draft>) => void }) {
+  return (
+    <div className="pf-autostart">
+      <label className="checkbox-row">
+        <input
+          type="checkbox"
+          checked={draft.autostartOnLaunch}
+          onChange={(e) => onChange({ autostartOnLaunch: e.target.checked })}
+        />
+        <span>Start when BifroSSH opens</span>
+      </label>
+      <label className="checkbox-row">
+        <input
+          type="checkbox"
+          checked={draft.autostartOnConnect}
+          onChange={(e) => onChange({ autostartOnConnect: e.target.checked })}
+        />
+        <span>Start when connecting to its host</span>
+      </label>
+    </div>
+  );
+}
+
 const DEFAULT_WIZ: Draft = {
   id: null,
   type: 'local',
@@ -194,6 +222,8 @@ const DEFAULT_WIZ: Draft = {
   destAddress: '127.0.0.1',
   destPort: '',
   label: '',
+  autostartOnLaunch: false,
+  autostartOnConnect: false,
 };
 
 function pfToDraft(pf: PortForwarding, servers: { id: string; name: string }[]): Draft {
@@ -212,6 +242,8 @@ function pfToDraft(pf: PortForwarding, servers: { id: string; name: string }[]):
     remotePort: pf.remote_port?.toString() ?? '',
     destAddress: pf.dest_address,
     destPort: pf.dest_port?.toString() ?? '',
+    autostartOnLaunch: pf.autostart_on_launch,
+    autostartOnConnect: pf.autostart_on_connect,
   };
 }
 
@@ -455,18 +487,10 @@ export default function PortForwardingPanel() {
 
   function skipWizard(type: PfType) {
     setEditDraft({
-      id: null,
+      ...DEFAULT_WIZ,
       type,
       label: defaultLabel(type),
-      localPort: '',
-      bindAddress: '127.0.0.1',
-      intermediateHostId: '',
-      intermediateHostName: '',
-      remoteHostId: '',
-      remoteHostName: '',
-      remotePort: '',
       destAddress: type === 'local' ? '127.0.0.1' : '',
-      destPort: '',
     });
     setDrawerMode('edit');
   }
@@ -597,6 +621,7 @@ export default function PortForwardingPanel() {
             onChange={(v) => wiz({ label: v })}
             placeholder={defaultLabel(d.type)}
           />
+          <AutostartFields draft={d} onChange={wiz} />
           <button className="btn-primary btn-block" onClick={finishWizard}>Done</button>
         </div>
       );
@@ -707,6 +732,7 @@ export default function PortForwardingPanel() {
             <FloatField label="Destination port number" required value={editDraft.destPort} onChange={(v) => ed({ destPort: v })} type="number" placeholder="e.g. 22" />
           </>
         )}
+        <AutostartFields draft={editDraft} onChange={ed} />
       </div>
     );
   }
@@ -789,6 +815,9 @@ export default function PortForwardingPanel() {
                   <div className="card-body">
                     <div className="pf-card-header">
                       <span className="card-title">{pf.label}</span>
+                      {(pf.autostart_on_launch || pf.autostart_on_connect) && (
+                        <span className="pf-card-auto" title="Starts on its own">auto</span>
+                      )}
                       {active && <span className="pf-card-active-dot" />}
                     </div>
                     <span className="card-sub">{pfCardDesc(pf)}</span>
