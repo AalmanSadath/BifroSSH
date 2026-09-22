@@ -38,7 +38,7 @@ function ThemeSwatch({ theme }: { theme: NamedTheme }) {
 
 export default function TerminalSidebar({ activeSessionId }: Props) {
   const {
-    settings, customThemes, codeprints, sessions,
+    settings, customThemes, codeprints, sessions, servers,
     addCodeprint, updateCodeprint, deleteCodeprint, sendInput,
     sessionThemeOverrides, setSessionTheme,
   } = useAppStore();
@@ -71,8 +71,14 @@ export default function TerminalSidebar({ activeSessionId }: Props) {
     setEditingId(null);
   }
 
+  // The same order TerminalView resolves in: the session's own choice, then
+  // the host's, then the default. Without the middle one a host with its own
+  // theme had the global one marked as active here.
+  const activeServerId = sessions.find((s) => s.tab_id === activeSessionId)?.server_id;
   const currentTheme = activeSessionId
-    ? (sessionThemeOverrides[activeSessionId] ?? settings.theme)
+    ? (sessionThemeOverrides[activeSessionId]
+      ?? servers.find((s) => s.id === activeServerId)?.theme
+      ?? settings.theme)
     : settings.theme;
 
   // A codeprint with placeholders stops here for its values; the rest go

@@ -16,7 +16,7 @@ interface Props {
 }
 
 export default function ServerForm({ server, onClose, onDelete }: Props) {
-  const { servers, identities, keys, saveServer, customThemes, setActiveTab } = useAppStore();
+  const { servers, identities, keys, saveServer, customThemes, settings, setActiveTab } = useAppStore();
 
   const [name, setName] = useState(server?.name ?? '');
   const [host, setHost] = useState(server?.host ?? '');
@@ -47,7 +47,9 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
   const [dropdownRect, setDropdownRect] = useState<AnchorRect | null>(null);
   const usernameGroupRef = useRef<HTMLDivElement>(null);
   const passwordGroupRef = useRef<HTMLDivElement>(null);
-  const [themeOverride, setThemeOverride] = useState<string>(server?.theme ?? 'bifrossh-dark');
+  // A new host starts from the default in Settings rather than from one
+  // hardcoded theme, which is what that setting is for.
+  const [themeOverride, setThemeOverride] = useState<string>(server?.theme ?? settings.theme);
   const [timeoutSecs, setTimeoutSecs] = useState<string>(server?.connection_timeout != null ? String(server.connection_timeout) : '');
   const [proxyJump, setProxyJump] = useState(server?.proxy_jump ?? '');
   const [forwardAgent, setForwardAgent] = useState(server?.forward_agent ?? false);
