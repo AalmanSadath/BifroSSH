@@ -9,6 +9,7 @@ import {
   formatChords,
   ownerOf,
   resolve,
+  tabIndexFor,
   withBinding,
 } from './shortcuts';
 
@@ -105,6 +106,25 @@ describe('actionFor', () => {
     const map = resolve({ 'close-tab': 'Ctrl+Shift+KeyQ' });
     expect(actionFor(press('KeyQ', { ctrlKey: true, shiftKey: true }), map)).toBe('close-tab');
     expect(actionFor(press('KeyW', { ctrlKey: true, shiftKey: true }), map)).toBeNull();
+  });
+});
+
+describe('tabIndexFor', () => {
+  it('counts from one, and reads nine as the last tab', () => {
+    expect(tabIndexFor('select-tab-1', 3)).toBe(0);
+    expect(tabIndexFor('select-tab-3', 3)).toBe(2);
+    expect(tabIndexFor('select-tab-9', 3)).toBe(2);
+    expect(tabIndexFor('select-tab-9', 12)).toBe(11);
+  });
+
+  it('finds nothing past the end of the strip, or in an empty one', () => {
+    expect(tabIndexFor('select-tab-4', 3)).toBeNull();
+    expect(tabIndexFor('select-tab-1', 0)).toBeNull();
+    expect(tabIndexFor('select-tab-9', 0)).toBeNull();
+  });
+
+  it('finds nothing for an action that is not a numbered tab', () => {
+    expect(tabIndexFor('close-tab', 3)).toBeNull();
   });
 });
 

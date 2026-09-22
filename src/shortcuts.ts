@@ -18,6 +18,18 @@ export type ActionId =
   | 'duplicate-tab'
   | 'toggle-broadcast'
   | 'close-tab'
+  | 'select-tab-1'
+  | 'select-tab-2'
+  | 'select-tab-3'
+  | 'select-tab-4'
+  | 'select-tab-5'
+  | 'select-tab-6'
+  | 'select-tab-7'
+  | 'select-tab-8'
+  | 'select-tab-9'
+  | 'zoom-in'
+  | 'zoom-out'
+  | 'zoom-reset'
   | 'term-search'
   | 'term-copy'
   | 'term-paste';
@@ -80,6 +92,7 @@ export const ACTIONS: ShortcutAction[] = [
     group: 'Tabs',
     defaults: 'Ctrl+Shift+KeyB',
   },
+  ...numberedTabs(),
   {
     id: 'palette',
     label: 'Command palette',
@@ -93,6 +106,27 @@ export const ACTIONS: ShortcutAction[] = [
     detail: 'Closes the vault at once; sessions keep running behind it.',
     group: 'Window',
     defaults: 'Ctrl+Shift+KeyL',
+  },
+  {
+    id: 'zoom-in',
+    label: 'Zoom in',
+    detail: 'Makes this tab\u2019s text larger, leaving the others alone.',
+    group: 'Terminal',
+    defaults: 'Ctrl+Equal,Ctrl+NumpadAdd',
+  },
+  {
+    id: 'zoom-out',
+    label: 'Zoom out',
+    detail: 'Makes this tab\u2019s text smaller.',
+    group: 'Terminal',
+    defaults: 'Ctrl+Minus,Ctrl+NumpadSubtract',
+  },
+  {
+    id: 'zoom-reset',
+    label: 'Reset zoom',
+    detail: 'Puts this tab back on the size in Settings.',
+    group: 'Terminal',
+    defaults: 'Ctrl+Digit0',
   },
   {
     id: 'term-search',
@@ -116,6 +150,43 @@ export const ACTIONS: ShortcutAction[] = [
     defaults: 'Ctrl+Shift+KeyV',
   },
 ];
+
+/**
+ * Ctrl+1 to Ctrl+9, one action each.
+ *
+ * Nine rather than one action taking an argument, because a binding is a
+ * chord against an action id and nothing else; written out, each is
+ * rebindable on its own. Nine is the last tab however many there are, which
+ * is what every browser does.
+ */
+function numberedTabs(): ShortcutAction[] {
+  return Array.from({ length: 9 }, (_, i) => {
+    const n = i + 1;
+    return {
+      id: `select-tab-${n}` as ActionId,
+      label: n === 9 ? 'Last tab' : `Tab ${n}`,
+      detail: n === 9 ? 'Selects the last tab in the strip.' : `Selects the ${ordinal(n)} tab in the strip.`,
+      group: 'Tabs' as const,
+      defaults: `Ctrl+Digit${n}`,
+    };
+  });
+}
+
+function ordinal(n: number): string {
+  return ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth'][n - 1];
+}
+
+/**
+ * The tab a numbered action selects, given how many tabs there are, or null
+ * when the strip is too short. The ninth is the last one.
+ */
+export function tabIndexFor(id: ActionId, count: number): number | null {
+  const match = /^select-tab-([1-9])$/.exec(id);
+  if (match === null || count === 0) return null;
+  const n = Number(match[1]);
+  if (n === 9) return count - 1;
+  return n <= count ? n - 1 : null;
+}
 
 /** The terminal's own actions; the rest are matched on the window. */
 export const TERMINAL_ACTIONS: ActionId[] = ['term-search', 'term-copy', 'term-paste'];
@@ -161,6 +232,8 @@ const KEY_LABELS: Record<string, string> = {
   Backquote: '`',
   Minus: '-',
   Equal: '=',
+  NumpadAdd: 'Numpad +',
+  NumpadSubtract: 'Numpad -',
   BracketLeft: '[',
   BracketRight: ']',
   Backslash: '\\',

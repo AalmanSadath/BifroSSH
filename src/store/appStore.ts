@@ -5,6 +5,7 @@ import { getVersion } from '@tauri-apps/api/app';
 import { CHECK_INTERVAL_SECS, fetchLatestRelease, newerVersion, type Release } from '../updates';
 import { STORED, UNDETECTED_OS, UNKNOWN_OS } from '../types';
 import { restoreOrder, tabsToSave } from '../sessionRestore';
+import { clampZoom } from '../zoom';
 import type { AuthType, Codeprint, SftpBookmark, GeneratedKey, Identity, IdentityInput, JumpHopParams, KeyContent, KeyEntry, LogEntry, PortForwarding, ResolvedTheme, Server, ServerInput, SessionTab, Settings, SettingsSection, SystemAppearance } from '../types';
 import type { NamedTheme } from '../styles/themes';
 
@@ -348,6 +349,17 @@ interface AppStore {
   sessionThemeOverrides: Record<string, string>;
   setSessionTheme: (tabId: string, themeKey: string) => void;
 
+  /**
+   * A tab's own terminal font size, keyed by tab id; a tab with no entry
+   * follows the setting. Not saved, the same as the theme override: a zoom
+   * is for the session in front of you.
+   */
+  sessionZoom: Record<string, number>;
+  /** Steps the active tab's size by `delta` points, within the setting's range. */
+  zoomSession: (tabId: string, delta: number) => void;
+  /** Drops the tab's own size so it follows the setting again. */
+  resetZoom: (tabId: string) => void;
+
   addSession: (tab: SessionTab) => void;
   removeSession: (tabId: string) => void;
   renameSession: (tabId: string, name: string) => void;
@@ -516,6 +528,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   retryingTunnelIds: new Set<string>(),
   codeprints: [],
   sessionThemeOverrides: {},
+  sessionZoom: {},
   keys: [],
   settings: DEFAULT_SETTINGS,
   sessions: [],
@@ -888,6 +901,20 @@ export const useAppStore = create<AppStore>((set, get) => ({
     });
   },
 
+  zoomSession: (tabId, delta) =>
+    set((s) => ({
+      sessionZoom: {
+        ...s.sessionZoom,
+        [tabId]: clampZoom((s.sessionZoom[tabId] ?? s.settings.font_size) + delta),
+      },
+    })),
+
+  resetZoom: (tabId) =>
+    set((s) => {
+      const { [tabId]: _dropped, ...rest } = s.sessionZoom;
+      return { sessionZoom: rest };
+    }),
+
   setSessionTheme: (tabId, themeKey) => {
     set((s) => ({
       sessionThemeOverrides: { ...s.sessionThemeOverrides, [tabId]: themeKey },
@@ -913,6 +940,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       // The override is keyed on a tab id that will never be reused, so
       // leaving it behind grows the map for the life of the process.
       const { [tabId]: _dropped, ...themeOverrides } = s.sessionThemeOverrides;
+      const { [tabId]: _zoom, ...zoom } = s.sessionZoom;
       // A retry in flight for a tab that has gone would reconnect a host
       // nobody is looking at; leaving the set tells the loop to stop.
       const retrying = new Set(s.retryingTabIds);
@@ -922,6 +950,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         sessions: next,
         activeTabId: nextActive,
         sessionThemeOverrides: themeOverrides,
+        sessionZoom: zoom,
         splitGroup: pruneSplit(s.splitGroup, tabId),
         retryingTabIds: retrying,
       };

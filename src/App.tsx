@@ -7,7 +7,8 @@ import { setLocalPlatform } from './paths';
 import { useIdleLock } from './hooks/useIdleLock';
 import type { AuthPromptEvent, Codeprint, HostKeyPromptEvent, SessionTab, SystemAppearance, TunnelClosed, VaultStatus } from './types';
 import { fill } from './snippets';
-import { WINDOW_ACTIONS, actionFor, resolve as resolveShortcuts } from './shortcuts';
+import { zoomPercent } from './zoom';
+import { WINDOW_ACTIONS, actionFor, resolve as resolveShortcuts, tabIndexFor } from './shortcuts';
 import CommandPalette from './components/CommandPalette';
 import SnippetPromptModal from './components/SnippetPromptModal';
 import HostKeyPrompt from './components/HostKeyPrompt';
@@ -86,6 +87,7 @@ export default function App() {
   const {
     loadAll, loadError, actionError, setActionError, sessions, activeTabId, setActiveTab, removeSession,
     renameSession, toggleBroadcast, openInSftp, sendInput, toggleLogging, splitGroup, splitWith, unsplit, openSession, quickConnect, servers, settings, keys,
+    zoomSession, resetZoom, sessionZoom,
     systemAppearance, setSystemAppearance, clearForLock,
   } = useAppStore();
 
@@ -356,6 +358,15 @@ export default function App() {
         case 'palette':
           setPaletteOpen((open) => !open);
           return;
+        case 'zoom-in':
+          if (current) zoomSession(current.tab_id, 1);
+          return;
+        case 'zoom-out':
+          if (current) zoomSession(current.tab_id, -1);
+          return;
+        case 'zoom-reset':
+          if (current) resetZoom(current.tab_id);
+          return;
         case 'lock-vault':
           void lockNow();
           return;
@@ -371,9 +382,13 @@ export default function App() {
           if (current.session_id) ipc.sshDisconnect(current.session_id).catch(() => {});
           removeSession(current.tab_id);
           return;
-        default:
-          // Only the window's own actions were searched for.
+        default: {
+          // The numbered tabs, which are one action each so that each can be
+          // rebound on its own.
+          const at = tabIndexFor(action, tabs.length);
+          if (at !== null) setActiveTab(tabs[at].tab_id);
           return;
+        }
       }
     };
     window.addEventListener('keydown', onKey, true);
@@ -550,6 +565,17 @@ export default function App() {
                   <span className="tab-broadcast" title="Broadcasting: input also goes to every other tab marked the same way">⇶</span>
                 )}
                 <span className="tab-title">{s.server_name}</span>
+                {/* A tab whose text is a different size than the rest says
+                    why, and clicking it puts the tab back on the setting. */}
+                {zoomPercent(sessionZoom[s.tab_id], settings.font_size) !== null && (
+                  <button
+                    className="tab-zoom"
+                    title="Zoom for this tab. Click to reset."
+                    onClick={(e) => { e.stopPropagation(); resetZoom(s.tab_id); }}
+                  >
+                    {zoomPercent(sessionZoom[s.tab_id], settings.font_size)}%
+                  </button>
+                )}
                 <button className="tab-close" onClick={(e) => handleCloseTab(s.tab_id, e)}>&#10005;</button>
               </div>
             ))}
