@@ -296,20 +296,25 @@ export const sftpProbeRemote = (sessionId: string) =>
 export const sftpDisconnectRemote = (sessionId: string) =>
   invoke<void>('sftp_disconnect_remote', { sessionId });
 
-export const sftpUpload = (sessionId: string, localPath: string, remoteDir: string, conflict: Conflict) =>
-  invoke<TransferSummary>('sftp_upload', { sessionId, localPath, remoteDir, conflict });
+/*
+ * Each transfer carries an id the panel minted: progress events name it,
+ * and a cancel is sent to it.
+ */
+export const sftpUpload = (transferId: string, sessionId: string, localPath: string, remoteDir: string, conflict: Conflict) =>
+  invoke<TransferSummary>('sftp_upload', { transferId, sessionId, localPath, remoteDir, conflict });
 
-export const sftpDownload = (sessionId: string, remotePath: string, localDir: string, conflict: Conflict) =>
-  invoke<TransferSummary>('sftp_download', { sessionId, remotePath, localDir, conflict });
+export const sftpDownload = (transferId: string, sessionId: string, remotePath: string, localDir: string, conflict: Conflict) =>
+  invoke<TransferSummary>('sftp_download', { transferId, sessionId, remotePath, localDir, conflict });
 
 export const sftpCopyRemoteToRemote = (
+  transferId: string,
   srcSessionId: string,
   srcPath: string,
   dstSessionId: string,
   dstDir: string,
   conflict: Conflict,
 ) => invoke<TransferSummary>('sftp_copy_remote_to_remote', {
-  srcSessionId, srcPath, dstSessionId, dstDir, conflict,
+  transferId, srcSessionId, srcPath, dstSessionId, dstDir, conflict,
 });
 
 /**
@@ -324,8 +329,8 @@ export const sftpConflicts = (
   dstDir: string,
 ) => invoke<string[]>('sftp_conflicts', { kind, srcSessionId, srcPath, dstSessionId, dstDir });
 
-/** Stops the one transfer in flight; there is never more than one. */
-export const sftpCancelTransfer = () => invoke<void>('sftp_cancel_transfer');
+/** Stops the named transfer at its next chunk; an id not running is ignored. */
+export const sftpCancelTransfer = (transferId: string) => invoke<void>('sftp_cancel_transfer', { transferId });
 
 export const sftpCreateLocalDir = (path: string) =>
   invoke<void>('sftp_create_local_dir', { path });

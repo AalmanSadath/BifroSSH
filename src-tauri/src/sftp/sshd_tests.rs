@@ -208,7 +208,7 @@ async fn a_directory_with_more_files_than_the_handle_limit_downloads() {
     write_files(&src, 100);
     let dst = server.scratch("many-out");
 
-    let summary = download_path(&Silent, &state, "s", &src.to_string_lossy(), &dst.to_string_lossy(), Conflict::Overwrite)
+    let summary = download_path(&Silent, &state, "t", "s", &src.to_string_lossy(), &dst.to_string_lossy(), Conflict::Overwrite)
         .await
         .expect("a transfer of 100 files under a limit of 64");
     assert_eq!(summary.files, 100);
@@ -235,7 +235,7 @@ async fn an_uploaded_tree_reads_back_byte_for_byte() {
     std::fs::write(src.join("a/b/deep.txt"), b"deep").unwrap();
     let dst = server.scratch("tree-out");
 
-    let summary = upload_path(&Silent, &state, "s", &src.to_string_lossy(), &dst.to_string_lossy(), Conflict::Overwrite)
+    let summary = upload_path(&Silent, &state, "t", "s", &src.to_string_lossy(), &dst.to_string_lossy(), Conflict::Overwrite)
         .await
         .unwrap();
     assert_eq!(summary.files, 3);
@@ -336,7 +336,7 @@ async fn a_file_already_there_is_overwritten_skipped_or_kept_as_asked() {
     std::fs::write(src.join("f.txt"), b"new").unwrap();
     std::fs::write(dst.join("f.txt"), b"old").unwrap();
     let (src_file, dst_dir) = (src.join("f.txt").to_string_lossy().into_owned(), dst.to_string_lossy().into_owned());
-    let up = |policy| upload_path(&Silent, &state, "s", &src_file, &dst_dir, policy);
+    let up = |policy| upload_path(&Silent, &state, "t", "s", &src_file, &dst_dir, policy);
 
     let summary = up(Conflict::Skip).await.unwrap();
     assert_eq!((summary.files, summary.skipped_existing), (0, 1));
@@ -374,7 +374,7 @@ async fn a_tree_names_only_the_files_that_would_be_written_over() {
     assert_eq!(found, vec!["b.txt", "sub/d.txt"]);
 
     // And a Skip on the same tree copies the other two, leaves those two.
-    let summary = upload_path(&Silent, &state, "s", &src.to_string_lossy(), &dst.to_string_lossy(), Conflict::Skip).await.unwrap();
+    let summary = upload_path(&Silent, &state, "t", "s", &src.to_string_lossy(), &dst.to_string_lossy(), Conflict::Skip).await.unwrap();
     assert_eq!((summary.files, summary.skipped_existing), (2, 2));
     assert_eq!(std::fs::read(dst.join("proj/b.txt")).unwrap(), b"old");
     assert_eq!(std::fs::read(dst.join("proj/a.txt")).unwrap(), b"x");
@@ -422,20 +422,39 @@ async fn a_saved_temp_copy_is_uploaded_back() {
         .expect("the watcher stops once the session is gone");
 }
 
-/// The quiet upload must not clear a cancel the user pressed on the
-/// transfer they can see; `upload_path` does, which is why it is not used.
+/// The quiet upload has no place in the transfer table: nothing the user
+/// can see, nothing a cancel can land on.
 #[tokio::test]
-async fn a_quiet_upload_leaves_a_pressed_cancel_alone() {
+async fn a_quiet_upload_is_not_in_the_transfer_table() {
     let Some((server, state)) = rig("quiet", None).await else { return };
     let root = server.scratch("quiet");
     let src = root.join("f.txt");
     std::fs::write(&src, b"x").unwrap();
     let dst = server.scratch("quiet-out");
 
-    state.request_cancel();
     upload_quiet(&state, "s", &src.to_string_lossy(), &dst.to_string_lossy()).await.unwrap();
-    assert!(state.cancel.load(std::sync::atomic::Ordering::Relaxed), "the flag is still raised");
-    assert_eq!(std::fs::read(dst.join("f.txt")).unwrap(), b"x", "and the upload still happened");
+    assert!(!state.is_running("edit"), "nothing was registered");
+    assert_eq!(std::fs::read(dst.join("f.txt")).unwrap(), b"x", "and the upload happened");
+}
+
+/// Each transfer has its own flag, found by id: a cancel names one and
+/// leaves the others alone, and a finished transfer's id is forgotten so a
+/// late cancel on it is nothing.
+#[tokio::test]
+async fn a_cancel_lands_on_the_transfer_it_names() {
+    let Some((_server, state)) = rig("cancel-by-id", None).await else { return };
+    let a = state.begin_transfer("a");
+    let b = state.begin_transfer("b");
+    assert!(state.is_running("a") && state.is_running("b"));
+
+    state.request_cancel("a");
+    assert!(a.cancel.load(std::sync::atomic::Ordering::Relaxed), "a was asked to stop");
+    assert!(!b.cancel.load(std::sync::atomic::Ordering::Relaxed), "b was not");
+
+    drop(a);
+    assert!(!state.is_running("a"), "a's place is given back when it ends");
+    state.request_cancel("a");
+    assert!(!b.cancel.load(std::sync::atomic::Ordering::Relaxed), "a late cancel on a does nothing to b");
 }
 
 /// A listing that fails on a path is not a session that has failed. The panel

@@ -65,7 +65,7 @@ pub async fn open_remote(
         .join(uuid::Uuid::new_v4().to_string());
     std::fs::create_dir_all(&dir).with_context(|| dir.display().to_string())?;
 
-    let summary = download_path(&Silent, &sftp_state, &session_id, &remote_path, &dir.to_string_lossy(), Conflict::Overwrite).await?;
+    let summary = download_path(&Silent, &sftp_state, "edit", &session_id, &remote_path, &dir.to_string_lossy(), Conflict::Overwrite).await?;
     if summary.cancelled {
         let _ = std::fs::remove_dir_all(&dir);
         return Ok(());

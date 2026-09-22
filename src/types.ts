@@ -63,6 +63,8 @@ export interface Server {
 
 /** Payload of the `sftp-progress` event, emitted as bytes move. */
 export interface TransferProgress {
+  /** The id the panel gave the transfer when it queued it. */
+  transfer_id: string;
   file_name: string;
   transferred: number;
   total: number;

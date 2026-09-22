@@ -5,7 +5,11 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useAppStore, buildJumpChain, resolveServerAuth } from '../store/appStore';
 import OsIcon from './OsIcon';
 import { matchesHost } from '../hosts';
-import type { Conflict, EditEvent, FileEntry, LogEntry, Server, TransferProgress, TransferSummary } from '../types';
+import type { Conflict, EditEvent, FileEntry, LogEntry, Server, TransferKind, TransferProgress, TransferSummary } from '../types';
+import {
+  cancel as cancelItem, clearFinished, enqueue, finished, nextToRun, progressed, prune, start,
+  type QueueItem,
+} from '../transferQueue';
 import ConnectingView from './ConnectingView';
 import ContextMenu from './shared/ContextMenu';
 import PermissionsDialog, { type OwnerChange } from './PermissionsDialog';
@@ -98,7 +102,6 @@ interface FileBrowserProps {
   onMove?: (entries: FileEntry[], intoDir: string) => void;
   side?: 'left' | 'right';
   isDropTarget?: boolean;
-  transferring?: boolean;
   onDragEnter?: () => void;
   onDragLeave?: () => void;
   onFileDrop?: (entries: FileEntry[], fromSide: 'left' | 'right') => void;
@@ -110,7 +113,7 @@ interface FileBrowserProps {
 function FileBrowser({ title, icon, path, home, entries, loading, error, notice, onDismissNotice, onNavigate,
   onRefresh, onNewFolder, extraActions, onLocalBtn,
   canCopyToTarget, onCopyToTarget, onRename, onDelete, onSetMode, onOpen, onMove,
-  side, isDropTarget, transferring, onDragEnter: onDragEnterCb, onDragLeave: onDragLeaveCb, onFileDrop, onReconnect,
+  side, isDropTarget, onDragEnter: onDragEnterCb, onDragLeave: onDragLeaveCb, onFileDrop, onReconnect,
   pathStyle,
 }: FileBrowserProps) {
   const { settings } = useAppStore();
@@ -702,11 +705,6 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
         </table>
         {isDropTarget && (
           <div className="sftp-drop-overlay"><span>Drop to copy here</span></div>
-        )}
-        {transferring && (
-          <div className="sftp-transfer-overlay">
-            <span>Transferring…</span>
-          </div>
         )}
       </div>
 
@@ -1301,6 +1299,83 @@ const closeConnectionActions = (onClose: () => void) => (
   </>
 );
 
+/** What a queued row does when its turn comes. */
+interface TransferJob {
+  /** The drop it came in with; "do this for the rest" is scoped to it. */
+  batch: string;
+  target: 'left' | 'right';
+  run: (transferId: string, conflict: Conflict) => Promise<TransferSummary>;
+  check: () => Promise<string[]>;
+}
+
+function formatSpeed(bytesPerSec: number): string {
+  if (bytesPerSec >= 1024 * 1024) return `${(bytesPerSec / (1024 * 1024)).toFixed(1)} MB/s`;
+  if (bytesPerSec >= 1024) return `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
+  return `${Math.round(bytesPerSec)} B/s`;
+}
+
+/** One transfer in the queue: its name, where it is going, how it is doing. */
+function QueueRow({ row, onCancel }: { row: QueueItem; onCancel: () => void }) {
+  const p = row.progress;
+  let status: string;
+  let pct = 0;
+  if (row.status === 'queued') status = 'Waiting';
+  else if (row.status === 'done') status = 'Done';
+  else if (row.status === 'cancelled') status = 'Stopped';
+  else if (row.status === 'failed') status = row.error ?? 'Failed';
+  else if (!p) status = row.cancelling ? 'Stopping…' : 'Starting…';
+  else {
+    pct = p.total > 0 ? Math.min(100, Math.round((p.transferred / p.total) * 100)) : 0;
+    const elapsed = (Date.now() - p.startTime) / 1000;
+    const speed = elapsed > 0.1 ? p.transferred / elapsed : 0;
+    const remaining = speed > 0 ? (p.total - p.transferred) / speed : null;
+    const eta = remaining !== null
+      ? remaining < 60 ? `${Math.ceil(remaining)}s` : `${Math.ceil(remaining / 60)}m`
+      : '…';
+    // Reporting silence rather than a stale rate. The backend gives a
+    // stalled transfer a minute before it calls the connection dead, and
+    // saying nothing for that minute is what made a dead transfer look
+    // like a working one. Ten seconds rather than five: one 128 KB chunk
+    // takes 6.4s at 20 KB/s, so a shorter window would call a slow link
+    // stalled.
+    const silentFor = Math.round((Date.now() - p.at) / 1000);
+    const count = p.file_count > 1 ? `${p.file_index}/${p.file_count} · ` : '';
+    status = row.cancelling
+      ? 'Stopping…'
+      : silentFor >= 10
+        ? `${count}${pct}% · stalled for ${silentFor}s`
+        : `${count}${pct}% · ${formatSpeed(speed)} · ETA ${eta}`;
+  }
+  const running = row.status === 'running';
+  return (
+    <div className={`sftp-queue-row sftp-queue-${row.status}`}>
+      <div className="sftp-queue-info">
+        <span className="sftp-queue-name" title={row.name}>
+          {row.name}
+          <span className="sftp-queue-dest"> → {row.destination}</span>
+        </span>
+        <span className="sftp-queue-stat" title={row.status === 'failed' ? row.error ?? undefined : undefined}>
+          {running && p ? p.file_name !== row.name ? `${p.file_name} · ${status}` : status : status}
+        </span>
+        <button
+          type="button"
+          className="sftp-cancel-btn"
+          onClick={onCancel}
+          disabled={row.cancelling}
+          title={row.status === 'queued' ? 'Remove' : running ? 'Stop' : 'Dismiss'}
+        >
+          ✕
+        </button>
+      </div>
+      {running && (
+        <div className="sftp-progress-track">
+          <div className="sftp-progress-fill" style={{ width: `${pct}%` }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function SftpPanel() {
   const { servers, sftpRequest, clearSftpRequest } = useAppStore();
 
@@ -1341,14 +1416,24 @@ export default function SftpPanel() {
   }, [sftpRequest]);
 
   const [dropTarget, setDropTarget] = useState<'left' | 'right' | null>(null);
-  const [transferring, setTransferring] = useState(false);
-  const [transferTarget, setTransferTarget] = useState<'left' | 'right' | null>(null);
-  const [progress, setProgress] = useState<
-    (TransferProgress & { startTime: number; at: number }) | null
-  >(null);
-  // The transfer stops at the next chunk boundary, not on the click, so the
-  // button says so rather than looking like it did nothing.
-  const [cancelling, setCancelling] = useState(false);
+
+  /**
+   * The transfer queue. Every dropped entry is one row; rows run one at a
+   * time in the order dropped. The list is kept in a ref beside the state
+   * because the pump is a loop that reads it between awaits, when the
+   * render's copy is already old.
+   */
+  const [queue, setQueueState] = useState<QueueItem[]>([]);
+  const queueRef = useRef<QueueItem[]>([]);
+  const updateQueue = (f: (q: QueueItem[]) => QueueItem[]) => {
+    queueRef.current = f(queueRef.current);
+    setQueueState(queueRef.current);
+  };
+  /** What each row does when its turn comes; the row itself is only for show. */
+  const jobsRef = useRef(new Map<string, TransferJob>());
+  /** "Do this for the rest" answers, by the batch they were given for. */
+  const batchPolicyRef = useRef(new Map<string, Conflict>());
+  const pumpingRef = useRef(false);
 
   /**
    * Drops from outside the app. The webview reports these itself, with real
@@ -1390,31 +1475,30 @@ export default function SftpPanel() {
 
   useEffect(() => {
     const unlisten = listen<TransferProgress>('sftp-progress', (e) => {
-      setProgress((prev) => ({
-        ...e.payload,
-        startTime: prev?.startTime ?? Date.now(),
-        at: Date.now(),
-      }));
+      updateQueue((q) => progressed(q, e.payload, Date.now()));
     });
     return () => { unlisten.then((f) => f()); };
   }, []);
 
   /**
-   * Re-renders the progress bar once a second while a transfer is running.
+   * Re-renders the queue once a second while it has anything in it.
    *
    * Speed and ETA are worked out from the last event during render, so when
    * the events stop the bar keeps showing whatever it last computed. Nothing
    * re-rendered, so a transfer whose server had gone displayed a healthy rate
    * and a falling ETA that never fell. The tick is what lets the bar notice
-   * its own silence.
+   * its own silence, and what lets finished rows leave on their own.
    */
   const [, setNow] = useState(0);
-  const transferInFlight = progress !== null;
+  const queueBusy = queue.length > 0;
   useEffect(() => {
-    if (!transferInFlight) return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
+    if (!queueBusy) return;
+    const id = setInterval(() => {
+      setNow(Date.now());
+      updateQueue((q) => prune(q, Date.now()));
+    }, 1000);
     return () => clearInterval(id);
-  }, [transferInFlight]);
+  }, [queueBusy]);
 
   // Mount only, and `left` cannot be named: the pane hook returns a fresh
   // object every render, so depending on it would put the pane back to its
@@ -1451,32 +1535,31 @@ export default function SftpPanel() {
    *
    * Which of the three commands runs falls out of what the two panes are
    * showing: local to remote uploads, remote to local downloads, remote to
-   * remote copies. Refreshing is deliberately not part of the transfer: it has
-   * to happen whether the transfer finished, failed part way, or was
-   * cancelled, and in the last two cases there is still something new on the
-   * destination to show.
+   * remote copies. The session ids and the destination directory are taken
+   * now, when the drop happened, so a pane that navigates on while the row
+   * waits its turn does not move the target.
    */
-  async function handleDrop(target: 'left' | 'right', batch: FileEntry[]) {
+  function handleDrop(target: 'left' | 'right', batch: FileEntry[]) {
     const dst = target === 'left' ? left : right;
     const src = target === 'left' ? right : left;
     if (!canMove(src, dst)) return;
-
-    const run = (entry: FileEntry, conflict: Conflict): Promise<TransferSummary> => {
-      if (src.mode === 'local') {
-        return ipc.sftpUpload(dst.requireSid(), entry.path, dst.listing.path, conflict);
-      }
-      if (dst.mode === 'local') {
-        return ipc.sftpDownload(src.requireSid(), entry.path, dst.listing.path, conflict);
-      }
-      return ipc.sftpCopyRemoteToRemote(src.requireSid(), entry.path, dst.requireSid(), dst.listing.path, conflict);
-    };
-    const check = (entry: FileEntry) => {
-      if (src.mode === 'local') return ipc.sftpConflicts('upload', null, entry.path, dst.requireSid(), dst.listing.path);
-      if (dst.mode === 'local') return ipc.sftpConflicts('download', src.requireSid(), entry.path, null, dst.listing.path);
-      return ipc.sftpConflicts('copy', src.requireSid(), entry.path, dst.requireSid(), dst.listing.path);
-    };
-
-    await runBatch(target, batch, run, check, (entry) => entry.name);
+    try {
+      const dstDir = dst.listing.path;
+      const srcSid = src.mode === 'local' ? null : src.requireSid();
+      const dstSid = dst.mode === 'local' ? null : dst.requireSid();
+      const kind: TransferKind = srcSid === null ? 'upload' : dstSid === null ? 'download' : 'copy';
+      enqueueBatch(target, batch.map((entry) => ({
+        name: entry.name,
+        run: (id, conflict) => {
+          if (kind === 'upload') return ipc.sftpUpload(id, dstSid!, entry.path, dstDir, conflict);
+          if (kind === 'download') return ipc.sftpDownload(id, srcSid!, entry.path, dstDir, conflict);
+          return ipc.sftpCopyRemoteToRemote(id, srcSid!, entry.path, dstSid!, dstDir, conflict);
+        },
+        check: () => ipc.sftpConflicts(kind, srcSid, entry.path, dstSid, dstDir),
+      })));
+    } catch (e) {
+      dst.fail(String(e));
+    }
   }
 
   /**
@@ -1485,23 +1568,27 @@ export default function SftpPanel() {
    * the local pane is the desktop, and copying a file to where it already is
    * is not a thing this does.
    */
-  async function handleExternalDrop(target: 'left' | 'right', paths: string[]) {
+  function handleExternalDrop(target: 'left' | 'right', paths: string[]) {
     const dst = target === 'left' ? left : right;
-    if (dst.mode !== 'connected' || transferring) return;
-    const sid = dst.requireSid();
-    await runBatch(
-      target,
-      paths,
-      (path, conflict) => ipc.sftpUpload(sid, path, dst.listing.path, conflict),
-      (path) => ipc.sftpConflicts('upload', null, path, sid, dst.listing.path),
-      (path) => localStyle().basename(path),
-    );
+    if (dst.mode !== 'connected') return;
+    try {
+      const sid = dst.requireSid();
+      const dstDir = dst.listing.path;
+      enqueueBatch(target, paths.map((path) => ({
+        name: localStyle().basename(path),
+        run: (id, conflict) => ipc.sftpUpload(id, sid, path, dstDir, conflict),
+        check: () => ipc.sftpConflicts('upload', null, path, sid, dstDir),
+      })));
+    } catch (e) {
+      dst.fail(String(e));
+    }
   }
 
   /**
    * Puts the question up and waits for the answer. Held as a resolver in
-   * state because runBatch is a loop that has to pause on it; the dialog
-   * itself is plain JSX rendered while the state is set.
+   * state because the pump is a loop that has to pause on it; the dialog
+   * itself is plain JSX rendered while the state is set. One slot is enough
+   * because one transfer runs at a time.
    */
   const [conflictPrompt, setConflictPrompt] = useState<{ prompt: ConflictPrompt; resolve: (a: ConflictAnswer | null) => void } | null>(null);
   function askConflict(prompt: ConflictPrompt): Promise<ConflictAnswer | null> {
@@ -1514,63 +1601,90 @@ export default function SftpPanel() {
   const externalDropRef = useRef(handleExternalDrop);
   externalDropRef.current = handleExternalDrop;
 
-  async function runBatch<T>(
+  /** One drop's entries become rows of one batch, then the pump is woken. */
+  function enqueueBatch(
     target: 'left' | 'right',
-    batch: T[],
-    run: (item: T, conflict: Conflict) => Promise<TransferSummary>,
-    check: (item: T) => Promise<string[]>,
-    nameOf: (item: T) => string,
+    items: { name: string; run: TransferJob['run']; check: TransferJob['check'] }[],
   ) {
     const dst = target === 'left' ? left : right;
-    setTransferring(true);
-    setTransferTarget(target);
+    const destination = dst.mode === 'local' ? 'local' : dst.serverName;
+    const batch = crypto.randomUUID();
     setDropTarget(null);
+    for (const item of items) {
+      const id = crypto.randomUUID();
+      jobsRef.current.set(id, { batch, target, run: item.run, check: item.check });
+      updateQueue((q) => enqueue(q, { id, name: item.name, target, destination }));
+    }
+    void pump();
+  }
+
+  /**
+   * Runs the queue until it is empty. One at a time, in order: the link
+   * gains nothing from two copies at once, and one running transfer keeps
+   * the conflict prompt about one thing. A cancel answered on the prompt
+   * ends the whole batch it belongs to, since carrying on with the next
+   * file is not what "stop" means; a cancel pressed on a running row stops
+   * that row only.
+   */
+  async function pump() {
+    if (pumpingRef.current) return;
+    pumpingRef.current = true;
     try {
-      // One after another rather than all at once: the backend runs one
-      // transfer at a time per session, the progress bar describes one, and
-      // the cancel flag stops the one in flight. A cancel ends the batch too,
-      // since carrying on with the next file is not what "stop" means.
-      const summary: TransferSummary = { files: 0, directories: 0, skipped_symlinks: 0, skipped_existing: 0, cancelled: false };
-      // Decided once for the whole batch when the user ticks "for the
-      // rest"; until then every item that collides asks on its own.
-      let forAll: Conflict | null = null;
-      for (const [i, item] of batch.entries()) {
-        let conflict: Conflict = forAll ?? 'overwrite';
-        if (forAll === null) {
-          const files = await check(item);
-          if (files.length > 0) {
-            const answer = await askConflict({ name: nameOf(item), files, more: i < batch.length - 1 });
-            if (answer === null) {
-              summary.cancelled = true;
-              break;
+      for (;;) {
+        const next = nextToRun(queueRef.current);
+        if (!next) break;
+        const job = jobsRef.current.get(next.id);
+        if (!job) { updateQueue((q) => cancelItem(q, next.id)); continue; }
+        updateQueue((q) => start(q, next.id));
+        const dst = () => panesRef.current[job.target];
+        try {
+          let conflict: Conflict = batchPolicyRef.current.get(job.batch) ?? 'overwrite';
+          if (!batchPolicyRef.current.has(job.batch)) {
+            const files = await job.check();
+            if (files.length > 0) {
+              const more = queueRef.current.some((q) => q.id !== next.id && q.status === 'queued' && jobsRef.current.get(q.id)?.batch === job.batch);
+              const answer = await askConflict({ name: next.name, files, more });
+              if (answer === null) {
+                // The rest of the batch leaves with it.
+                const cancelledSummary: TransferSummary = { files: 0, directories: 0, skipped_symlinks: 0, skipped_existing: 0, cancelled: true };
+                updateQueue((q) => finished(q, next.id, { summary: cancelledSummary }, Date.now()));
+                for (const row of queueRef.current) {
+                  if (row.status === 'queued' && jobsRef.current.get(row.id)?.batch === job.batch) {
+                    updateQueue((q) => cancelItem(q, row.id));
+                    jobsRef.current.delete(row.id);
+                  }
+                }
+                continue;
+              }
+              conflict = answer.choice;
+              if (answer.applyToAll) batchPolicyRef.current.set(job.batch, answer.choice);
             }
-            conflict = answer.choice;
-            if (answer.applyToAll) forAll = answer.choice;
           }
-        }
-        const one = await run(item, conflict);
-        summary.files += one.files;
-        summary.directories += one.directories;
-        summary.skipped_symlinks += one.skipped_symlinks;
-        summary.skipped_existing += one.skipped_existing;
-        if (one.cancelled) {
-          summary.cancelled = true;
-          break;
+          const summary = await job.run(next.id, conflict);
+          updateQueue((q) => finished(q, next.id, { summary }, Date.now()));
+          const said = describeTransfer(summary);
+          if (said) dst().say(said);
+        } catch (e) {
+          updateQueue((q) => finished(q, next.id, { error: String(e) }, Date.now()));
+        } finally {
+          jobsRef.current.delete(next.id);
+          // Whether it finished, failed part way or was stopped, there is
+          // something new on the destination to show.
+          await dst().refresh();
         }
       }
-      const said = describeTransfer(summary);
-      if (said) dst.say(said);
-    } catch (e) {
-      // Was only logged to the console before, so a transfer that failed
-      // looked exactly like one that did nothing.
-      dst.fail(String(e));
     } finally {
-      setTransferring(false);
-      setTransferTarget(null);
-      setProgress(null);
-      setCancelling(false);
-      await dst.refresh();
+      pumpingRef.current = false;
     }
+  }
+
+  /** The ✕ on a row: a queued one leaves, the running one is asked to stop, a finished one is dismissed. */
+  function cancelRow(id: string) {
+    const row = queueRef.current.find((q) => q.id === id);
+    if (!row) return;
+    if (row.status === 'running') ipc.sftpCancelTransfer(id).catch(() => {});
+    else jobsRef.current.delete(id);
+    updateQueue((q) => cancelItem(q, id));
   }
 
   /** One pane, in whichever of its five modes it is in. */
@@ -1602,8 +1716,7 @@ export default function SftpPanel() {
           pane.mode === 'local' ? () => pane.setMode('idle') : pane.disconnect,
         )}
         side={side}
-        isDropTarget={dropTarget === side && !transferring}
-        transferring={transferring && transferTarget === side}
+        isDropTarget={dropTarget === side}
         onDragEnter={() => setDropTarget(side)}
         onDragLeave={() => setDropTarget((p) => (p === side ? null : p))}
         onFileDrop={(batch) => handleDrop(side, batch)}
@@ -1661,63 +1774,23 @@ export default function SftpPanel() {
         <div className="sftp-divider" />
         <div className="sftp-file-panel sftp-remote-panel" data-side="right">{renderPane(right, left, 'right')}</div>
       </div>
-      {progress && (() => {
-        const pct = progress.total > 0 ? Math.min(100, Math.round((progress.transferred / progress.total) * 100)) : 0;
-        const elapsed = (Date.now() - progress.startTime) / 1000;
-        const speed = elapsed > 0.1 ? progress.transferred / elapsed : 0;
-        const remaining = speed > 0 ? (progress.total - progress.transferred) / speed : null;
-        const eta = remaining !== null
-          ? remaining < 60 ? `${Math.ceil(remaining)}s` : `${Math.ceil(remaining / 60)}m`
-          : '…';
-        const speedStr = speed > 0
-          ? speed >= 1024 * 1024
-            ? `${(speed / (1024 * 1024)).toFixed(1)} MB/s`
-            : speed >= 1024
-              ? `${(speed / 1024).toFixed(1)} KB/s`
-              : `${Math.round(speed)} B/s`
-          : '';
-        // Reporting silence rather than a stale rate. The backend gives a
-        // stalled transfer a minute before it calls the connection dead, and
-        // saying nothing for that minute is what made a dead transfer look
-        // like a working one.
-        //
-        // Ten seconds rather than five: one 128 KB chunk takes 6.4s at
-        // 20 KB/s, so a shorter window would call a slow link stalled. At this
-        // one the claim only goes wrong below about 13 KB/s, and even then it
-        // is describing something true.
-        const silentFor = Math.round((Date.now() - progress.at) / 1000);
-        const stalled = silentFor >= 10;
-        return (
-          <div className="sftp-progress-wrap">
-            <div className="sftp-progress-info">
-              <span className="sftp-progress-name">
-                {progress.file_count > 1 && (
-                  <span className="sftp-progress-count">
-                    {progress.file_index}/{progress.file_count}
-                  </span>
-                )}
-                {progress.file_name}
-              </span>
-              <span className="sftp-progress-stat">
-                {stalled
-                  ? `${pct}% · stalled for ${silentFor}s`
-                  : `${pct}% · ${speedStr}${speedStr ? ' · ' : ''}ETA ${eta}`}
-              </span>
-              <button
-                type="button"
-                className="sftp-cancel-btn"
-                onClick={() => { setCancelling(true); ipc.sftpCancelTransfer().catch(() => {}); }}
-                disabled={cancelling}
-              >
-                {cancelling ? 'Stopping…' : 'Cancel'}
+      {queue.length > 0 && (
+        <div className="sftp-queue">
+          <div className="sftp-queue-head">
+            <span>
+              {queue.filter((q) => q.status === 'queued' || q.status === 'running').length > 0
+                ? `${queue.filter((q) => q.status === 'queued' || q.status === 'running').length} to go`
+                : 'Transfers'}
+            </span>
+            {queue.some((q) => q.status !== 'queued' && q.status !== 'running') && (
+              <button type="button" className="sftp-queue-clear" onClick={() => updateQueue(clearFinished)}>
+                Clear finished
               </button>
-            </div>
-            <div className="sftp-progress-track">
-              <div className="sftp-progress-fill" style={{ width: `${pct}%` }} />
-            </div>
+            )}
           </div>
-        );
-      })()}
+          {queue.map((row) => <QueueRow key={row.id} row={row} onCancel={() => cancelRow(row.id)} />)}
+        </div>
+      )}
     </div>
   );
 }
