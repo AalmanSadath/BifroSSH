@@ -957,7 +957,7 @@ function HostPicker({ servers, connectingId, activeServerId, error, onConnect, o
         <div className="sftp-picker-search">
           <input
             type="text"
-            placeholder="Filter by name, host, user or group"
+            placeholder="Filter by name, host, user, group or notes"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             spellCheck={false}

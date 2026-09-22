@@ -147,6 +147,10 @@ pub struct Server {
     /// One line sent to the shell as if typed, the moment the shell is up.
     #[serde(default)]
     pub run_on_connect: Option<String>,
+    /// Whatever the user wants to remember about this host. Free text,
+    /// searched with the rest of the record.
+    #[serde(default)]
+    pub notes: Option<String>,
 }
 
 impl Server {

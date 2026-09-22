@@ -56,6 +56,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
   const [logSessions, setLogSessions] = useState(server?.log_sessions ?? false);
   const [group, setGroup] = useState(server?.group ?? '');
   const [runOnConnect, setRunOnConnect] = useState(server?.run_on_connect ?? '');
+  const [notes, setNotes] = useState(server?.notes ?? '');
   const [showGroups, setShowGroups] = useState(false);
   const [groupRect, setGroupRect] = useState<AnchorRect | null>(null);
   const groupRef = useRef<HTMLDivElement>(null);
@@ -121,6 +122,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
           log_sessions: logSessions,
           group: group.trim() || null,
           run_on_connect: runOnConnect.trim() || null,
+          notes: notes.trim() || null,
         },
         (!identityId && !keyId && password.trim()) ? password.trim() : undefined,
       );
@@ -350,6 +352,22 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
               spellCheck={false}
               title="Sent to the shell as if typed, followed by Enter, once the shell is up."
             />
+          </div>
+
+          <div className="form-group">
+            <label>Notes</label>
+            <textarea
+              className="notes-area"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+              placeholder="What this host is for, who else uses it, anything worth remembering"
+            />
+            <p className="form-hint">
+              Shown on the host card and searched with the name and address. Not a place for
+              passwords: a key or a password belongs in the fields above, where it is kept
+              encrypted and never shown again.
+            </p>
           </div>
 
           <div className="form-group">

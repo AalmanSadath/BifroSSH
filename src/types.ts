@@ -59,6 +59,8 @@ export interface Server {
   group: string | null;
   /** One line sent to the shell as if typed, the moment the shell is up. */
   run_on_connect: string | null;
+  /** Free text the user keeps about this host; searched with the rest. */
+  notes: string | null;
 }
 
 /** A directory saved for one click in the SFTP panel. */

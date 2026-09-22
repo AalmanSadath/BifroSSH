@@ -293,3 +293,23 @@
 .theme-card.active .theme-card-name {
   color: var(--accent);
 }
+
+/* Notes on a host: prose, not a key or a command, so the UI font rather
+   than the monospace of .key-paste-area beside it. textarea is not in the
+   base input rule, so the box has to bring its own. */
+.notes-area {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 9px;
+  background: var(--bg-mid);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.45;
+  resize: vertical;
+  outline: none;
+}
+
+.notes-area:focus { border-color: var(--accent); }
