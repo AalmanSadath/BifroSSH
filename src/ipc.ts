@@ -335,6 +335,28 @@ export const sftpConflicts = (
   dstDir: string,
 ) => invoke<string[]>('sftp_conflicts', { kind, srcSessionId, srcPath, dstSessionId, dstDir });
 
+/**
+ * A remote directory downloaded as one compressed stream and unpacked
+ * here, which for a tree of small files is far quicker than a file at a
+ * time. Reports progress and cancels like any other transfer.
+ */
+export const sftpDownloadArchive = (transferId: string, sessionId: string, remotePath: string, localDir: string, intoName: string | null = null) =>
+  invoke<TransferSummary>('sftp_download_archive', { transferId, sessionId, remotePath, localDir, intoName });
+
+/** The same upwards: this machine tars, the server unpacks. */
+export const sftpUploadArchive = (transferId: string, sessionId: string, localPath: string, remoteDir: string, intoName: string | null = null) =>
+  invoke<TransferSummary>('sftp_upload_archive', { transferId, sessionId, localPath, remoteDir, intoName });
+
+/** Between two servers, without the bytes touching this disk. */
+export const sftpCopyArchive = (
+  transferId: string,
+  srcSessionId: string,
+  srcPath: string,
+  dstSessionId: string,
+  dstDir: string,
+  intoName: string | null = null,
+) => invoke<TransferSummary>('sftp_copy_archive', { transferId, srcSessionId, srcPath, dstSessionId, dstDir, intoName });
+
 /** Stops the named transfer at its next chunk; an id not running is ignored. */
 export const sftpCancelTransfer = (transferId: string) => invoke<void>('sftp_cancel_transfer', { transferId });
 

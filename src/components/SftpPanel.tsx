@@ -16,7 +16,7 @@ import ContextMenu from './shared/ContextMenu';
 import PermissionsDialog, { type OwnerChange } from './PermissionsDialog';
 import ConflictDialog, { type ConflictAnswer, type ConflictPrompt } from './ConflictDialog';
 import { useDismissOnOutside } from './shared/useDismissOnOutside';
-import { localStyle, remoteStyle, resolveTyped, styleFor, type PathStyle } from '../paths';
+import { freeName, localStyle, remoteStyle, resolveTyped, styleFor, type PathStyle } from '../paths';
 
 function formatSize(bytes: number, isDir: boolean): string {
   if (isDir) return '- -';
@@ -116,6 +116,8 @@ interface FileBrowserProps {
   onDeleteBookmark?: (id: string) => void;
   /** Saves a directory the user right-clicked rather than the open one. */
   onBookmarkPath?: (path: string) => void;
+  /** Tars a remote directory on the server and unpacks it on the other side. */
+  onCompressedCopy?: (entry: FileEntry) => void;
   /** How to take this pane's paths apart: POSIX remotely, native locally. */
   pathStyle: PathStyle;
 }
@@ -123,7 +125,7 @@ interface FileBrowserProps {
 function FileBrowser({ title, icon, path, home, entries, loading, error, notice, onDismissNotice, onNavigate,
   onRefresh, onNewFolder, extraActions, onLocalBtn,
   canCopyToTarget, onCopyToTarget, onRename, onDelete, onSetMode, onOpen, onMove,
-  bookmarks, bookmarked, onToggleBookmark, onDeleteBookmark, onBookmarkPath,
+  bookmarks, bookmarked, onToggleBookmark, onDeleteBookmark, onBookmarkPath, onCompressedCopy,
   side, isDropTarget, onDragEnter: onDragEnterCb, onDragLeave: onDragLeaveCb, onFileDrop, onReconnect,
   pathStyle,
 }: FileBrowserProps) {
@@ -789,6 +791,15 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
                   Copy to Target
                 </button>
               )}
+              {contextMenu.entry.is_dir && contextMenu.entry.name !== '..' && onCompressedCopy && (
+                <button
+                  className="menu-item"
+                  title="Runs tar on the server and unpacks the stream here. Much quicker for a folder of many small files."
+                  onClick={() => { onCompressedCopy(contextMenu.entry!); setContextMenu(null); }}
+                >
+                  Copy to Target compressed
+                </button>
+              )}
               {contextMenu.entry.is_dir && contextMenu.entry.name !== '..' && onBookmarkPath && (
                 <button className="menu-item" onClick={() => { onBookmarkPath(contextMenu.entry!.path); setContextMenu(null); }}>
                   Bookmark this folder
@@ -1391,6 +1402,18 @@ function QueueRow({ row, onCancel }: { row: QueueItem; onCancel: () => void }) {
   else if (row.status === 'cancelled') status = 'Stopped';
   else if (row.status === 'failed') status = row.error ?? 'Failed';
   else if (!p) status = row.cancelling ? 'Stopping…' : 'Starting…';
+  else if (p.total === 0) {
+    // A stream whose size nobody knows yet: a compressed download. Bytes
+    // so far and a rate are all there is to say.
+    const elapsed = (Date.now() - p.startTime) / 1000;
+    const speed = elapsed > 0.1 ? p.transferred / elapsed : 0;
+    const silentFor = Math.round((Date.now() - p.at) / 1000);
+    status = row.cancelling
+      ? 'Stopping…'
+      : silentFor >= 10
+        ? `${formatSize(p.transferred, false)} · stalled for ${silentFor}s`
+        : `${formatSize(p.transferred, false)} · ${formatSpeed(speed)}`;
+  }
   else {
     pct = p.total > 0 ? Math.min(100, Math.round((p.transferred / p.total) * 100)) : 0;
     const elapsed = (Date.now() - p.startTime) / 1000;
@@ -1684,6 +1707,47 @@ export default function SftpPanel() {
   const externalDropRef = useRef(handleExternalDrop);
   externalDropRef.current = handleExternalDrop;
 
+  /**
+   * One directory, tarred on the server and unpacked here. The same queue
+   * row as any other transfer, so it reports, cancels and fails the same
+   * way; only the work behind it differs.
+   */
+  function compressedCopy(target: 'left' | 'right', entry: FileEntry) {
+    const dst = target === 'left' ? left : right;
+    const src = target === 'left' ? right : left;
+    if (!canMove(src, dst)) return;
+    try {
+      const dstDir = dst.listing.path;
+      const taken = dst.listing.entries.map((e) => e.name);
+      // The destination's listing is on screen already, so the collision
+      // is known without asking the server. Only the top-level name is
+      // checked: listing the whole tree to compare it file by file is the
+      // round trip this whole path exists to avoid, and tar unpacking
+      // over a directory merges into it either way.
+      const collides = taken.includes(entry.name);
+
+      const send = (id: string, into: string | null) => {
+        if (src.mode === 'local') return ipc.sftpUploadArchive(id, dst.requireSid(), entry.path, dstDir, into);
+        if (dst.mode === 'local') return ipc.sftpDownloadArchive(id, src.requireSid(), entry.path, dstDir, into);
+        return ipc.sftpCopyArchive(id, src.requireSid(), entry.path, dst.requireSid(), dstDir, into);
+      };
+
+      enqueueBatch(target, [{
+        name: entry.name,
+        run: async (id, conflict) => {
+          if (!collides) return send(id, null);
+          if (conflict === 'skip') {
+            return { files: 0, directories: 0, skipped_symlinks: 0, skipped_existing: 1, cancelled: false };
+          }
+          return send(id, conflict === 'keep_both' ? freeName(taken, entry.name) : null);
+        },
+        check: async () => (collides ? [entry.name] : []),
+      }]);
+    } catch (e) {
+      dst.fail(String(e));
+    }
+  }
+
   /** One drop's entries become rows of one batch, then the pump is woken. */
   function enqueueBatch(
     target: 'left' | 'right',
@@ -1789,6 +1853,13 @@ export default function SftpPanel() {
         onNewFolder={pane.newFolder}
         canCopyToTarget={canMove(pane, other)}
         onCopyToTarget={(batch) => handleDrop(side === 'left' ? 'right' : 'left', batch)}
+        onCompressedCopy={
+          // Wherever an ordinary copy could go: down from a server, up to
+          // one, or between two. A host without tar says so when it runs.
+          canMove(pane, other)
+            ? (entry) => compressedCopy(side === 'left' ? 'right' : 'left', entry)
+            : undefined
+        }
         onRename={pane.rename}
         onDelete={pane.removeMany}
         onSetMode={pane.setPerms}

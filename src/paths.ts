@@ -183,6 +183,25 @@ export function resolveTyped(
   return resolved;
 }
 
+/**
+ * `name (2)`, then `name (3)`: the first that is not already taken.
+ *
+ * The same rule the backend applies when a transfer keeps both copies
+ * (`free_path` in `sftp/transfer.rs`), done here for the compressed
+ * path, where the destination's listing is already on screen and asking
+ * the server again would be a round trip for nothing.
+ */
+export function freeName(taken: string[], name: string): string {
+  const has = new Set(taken);
+  if (!has.has(name)) return name;
+  const cut = name.lastIndexOf('.');
+  const [stem, ext] = cut > 0 ? [name.slice(0, cut), name.slice(cut)] : [name, ''];
+  for (let n = 2; ; n++) {
+    const candidate = `${stem} (${n})${ext}`;
+    if (!has.has(candidate)) return candidate;
+  }
+}
+
 /** One path found in a line of terminal output; offsets are 0-based columns. */
 export interface FoundPath {
   start: number;

@@ -23,6 +23,12 @@ russh = "0.44"
 russh-keys = "0.44"
 russh-sftp = "2"
 tokio = { version = "1", features = ["full"] }
+# Unpacking a tar stream from the server: a compressed download is one
+# stream rather than an SFTP round trip per file. os_pipe feeds the two,
+# which are blocking, from the async side.
+tar = "0.4"
+flate2 = "1"
+os_pipe = "1"
 aes-gcm = "0.10"
 rand = "0.8"
 base64 = "0.22"

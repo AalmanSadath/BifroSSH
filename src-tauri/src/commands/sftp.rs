@@ -255,6 +255,61 @@ pub async fn sftp_set_mode_remote(
     crate::sftp::set_mode_remote(&state.sftp_state, &session_id, &path, mode).await.map_err(CmdError::from)
 }
 
+/// A directory as one compressed stream, unpacked as it arrives. Far
+/// fewer round trips than a file-by-file download of the same tree.
+#[tauri::command]
+pub async fn sftp_download_archive(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    transfer_id: String,
+    session_id: String,
+    remote_path: String,
+    local_dir: String,
+    into_name: Option<String>,
+) -> CmdResult<crate::sftp::TransferSummary> {
+    let sink = crate::sftp::Tagged { app: &app, transfer_id: transfer_id.clone() };
+    crate::sftp::download_archive(&sink, &state.sftp_state, &transfer_id, &session_id, &remote_path, &local_dir, into_name.as_deref())
+        .await
+        .map_err(CmdError::from)
+}
+
+/// The same, upwards: this machine tars and the server unpacks.
+#[tauri::command]
+pub async fn sftp_upload_archive(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    transfer_id: String,
+    session_id: String,
+    local_path: String,
+    remote_dir: String,
+    into_name: Option<String>,
+) -> CmdResult<crate::sftp::TransferSummary> {
+    let sink = crate::sftp::Tagged { app: &app, transfer_id: transfer_id.clone() };
+    crate::sftp::upload_archive(&sink, &state.sftp_state, &transfer_id, &session_id, &local_path, &remote_dir, into_name.as_deref())
+        .await
+        .map_err(CmdError::from)
+}
+
+/// Between two servers: one tars, the other unpacks, and the bytes pass
+/// through here without touching this disk.
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+pub async fn sftp_copy_archive(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    transfer_id: String,
+    src_session_id: String,
+    src_path: String,
+    dst_session_id: String,
+    dst_dir: String,
+    into_name: Option<String>,
+) -> CmdResult<crate::sftp::TransferSummary> {
+    let sink = crate::sftp::Tagged { app: &app, transfer_id: transfer_id.clone() };
+    crate::sftp::copy_archive(&sink, &state.sftp_state, &transfer_id, &src_session_id, &src_path, &dst_session_id, &dst_dir, into_name.as_deref())
+        .await
+        .map_err(CmdError::from)
+}
+
 #[tauri::command]
 pub fn sftp_set_owner_local(path: String, user: String, group: String) -> CmdResult<()> {
     crate::sftp::set_owner_local(&path, &user, &group).map_err(CmdError::from)

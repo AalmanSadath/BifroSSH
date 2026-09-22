@@ -91,11 +91,12 @@ async fn connect_sftp_inner(
         .inspect_err(|e| sec.log("error", &format!("SFTP session failed to start: {e}")))?;
     sec.log("auth", "SFTP ready");
 
-    sftp_state.sessions.lock().await
-        .insert(session_id.to_string(), Arc::new(Mutex::new(sftp)));
-
-    // handle intentionally dropped; channel stream keeps connection alive
-    drop(handle);
+    // The handle is kept, not dropped: `download_archive` opens a second
+    // channel on this same connection to run tar.
+    sftp_state.sessions.lock().await.insert(
+        session_id.to_string(),
+        SftpConnection { sftp: Arc::new(Mutex::new(sftp)), opener: Arc::new(handle) },
+    );
 
     Ok(())
 }
@@ -103,8 +104,8 @@ async fn connect_sftp_inner(
 pub async fn disconnect_sftp(sftp_state: &SftpClientState, session_id: &str) {
     let removed = sftp_state.sessions.lock().await.remove(session_id);
     sftp_state.names.lock().await.remove(session_id);
-    if let Some(sftp_arc) = removed {
-        if let Ok(sftp) = sftp_arc.try_lock() {
+    if let Some(conn) = removed {
+        if let Ok(sftp) = conn.sftp.try_lock() {
             let _ = sftp.close().await;
         }
     }
@@ -116,7 +117,7 @@ pub(super) async fn get_session(
 ) -> Result<Arc<Mutex<SftpSession>>> {
     sftp_state.sessions.lock().await
         .get(session_id)
-        .cloned()
+        .map(|c| Arc::clone(&c.sftp))
         .context("SFTP session not found")
 }
 
@@ -127,6 +128,17 @@ pub(super) async fn get_session(
 /// first on every connection, and it is the cheapest request that needs the
 /// server to do anything at all. Sent only after a listing has already
 /// failed, to tell a bad path from a dead link.
+/// The SSH connection under a session, for a second channel.
+pub(super) async fn get_opener(
+    sftp_state: &SftpClientState,
+    session_id: &str,
+) -> Result<Arc<dyn super::ChannelOpener>> {
+    sftp_state.sessions.lock().await
+        .get(session_id)
+        .map(|c| Arc::clone(&c.opener))
+        .context("SFTP session not found")
+}
+
 pub async fn probe_remote(sftp_state: &SftpClientState, session_id: &str) -> bool {
     let Ok(sftp_arc) = get_session(sftp_state, session_id).await else { return false };
     let sftp = sftp_arc.lock().await;

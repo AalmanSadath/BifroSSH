@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { findPaths, localStyle, posix, resolveTyped, setLocalPlatform, styleFor, windows } from './paths';
+import { findPaths, freeName, localStyle, posix, resolveTyped, setLocalPlatform, styleFor, windows } from './paths';
 
 afterEach(() => setLocalPlatform('linux'));
 
@@ -184,5 +184,21 @@ describe('findPaths', () => {
 
   it('reports where the path sits on the line', () => {
     expect(findPaths('cd /opt/app now')).toEqual([{ start: 3, end: 11, text: '/opt/app' }]);
+  });
+});
+
+describe('freeName', () => {
+  it('leaves a free name alone', () => {
+    expect(freeName(['a', 'b'], 'c')).toBe('c');
+  });
+
+  it('numbers from two, before the extension', () => {
+    expect(freeName(['notes.txt'], 'notes.txt')).toBe('notes (2).txt');
+    expect(freeName(['notes.txt', 'notes (2).txt'], 'notes.txt')).toBe('notes (3).txt');
+    expect(freeName(['tree'], 'tree')).toBe('tree (2)');
+  });
+
+  it('treats a dotfile as all stem, as the backend does', () => {
+    expect(freeName(['.bashrc'], '.bashrc')).toBe('.bashrc (2)');
   });
 });

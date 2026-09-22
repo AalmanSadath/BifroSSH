@@ -16,6 +16,7 @@ use russh_sftp::client::SftpSession;
 
 mod edit;
 mod listing;
+mod archive;
 mod ops;
 mod owners;
 mod session;
@@ -23,6 +24,7 @@ mod transfer;
 #[cfg(all(test, unix))]
 mod sshd_tests;
 
+pub use archive::{copy_archive, download_archive, upload_archive};
 pub use edit::{open_local, open_remote};
 pub use listing::{get_local_home, get_remote_home, list_local, list_remote};
 pub use ops::{
@@ -144,8 +146,36 @@ pub struct FileEntry {
     pub symlink: bool,
 }
 
+/// One SFTP session and the connection under it.
+///
+/// The SSH handle used to be dropped once the subsystem channel was up,
+/// which left nothing able to open a second channel. A compressed
+/// download needs one, to run `tar` beside the SFTP session rather than
+/// over a second connection with a second authentication.
+pub(super) struct SftpConnection {
+    pub(super) sftp: Arc<Mutex<SftpSession>>,
+    pub(super) opener: Arc<dyn ChannelOpener>,
+}
+
+/// A live SSH connection, asked only for another channel.
+///
+/// Type-erased over the handler: the app connects with the host-key
+/// verifier and the tests with one that trusts anything, and neither
+/// difference matters to `tar`.
+#[async_trait::async_trait]
+pub(super) trait ChannelOpener: Send + Sync {
+    async fn open_session(&self) -> anyhow::Result<russh::Channel<russh::client::Msg>>;
+}
+
+#[async_trait::async_trait]
+impl<H: russh::client::Handler> ChannelOpener for russh::client::Handle<H> {
+    async fn open_session(&self) -> anyhow::Result<russh::Channel<russh::client::Msg>> {
+        self.channel_open_session().await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+}
+
 pub struct SftpClientState {
-    sessions: Mutex<HashMap<String, Arc<Mutex<SftpSession>>>>,
+    sessions: Mutex<HashMap<String, SftpConnection>>,
     /// One cancel flag per transfer in flight, by the id the panel gave
     /// it. The panel queues transfers and runs them one at a time, but
     /// each is cancelled by name, so a cancel pressed on one cannot land
