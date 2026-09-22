@@ -53,6 +53,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
   const [forwardAgent, setForwardAgent] = useState(server?.forward_agent ?? false);
   const [logSessions, setLogSessions] = useState(server?.log_sessions ?? false);
   const [group, setGroup] = useState(server?.group ?? '');
+  const [runOnConnect, setRunOnConnect] = useState(server?.run_on_connect ?? '');
   const [showGroups, setShowGroups] = useState(false);
   const [groupRect, setGroupRect] = useState<AnchorRect | null>(null);
   const groupRef = useRef<HTMLDivElement>(null);
@@ -117,7 +118,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
           forward_agent: forwardAgent,
           log_sessions: logSessions,
           group: group.trim() || null,
-          run_on_connect: server?.run_on_connect ?? null,
+          run_on_connect: runOnConnect.trim() || null,
         },
         (!identityId && !keyId && password.trim()) ? password.trim() : undefined,
       );
@@ -336,6 +337,18 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
             />
             <span>Log every session to a file</span>
           </label>
+
+          <div className="form-group">
+            <label>Run on Connect</label>
+            <input
+              value={runOnConnect}
+              onChange={(e) => setRunOnConnect(e.target.value)}
+              placeholder="tmux attach || tmux new"
+              autoComplete="off"
+              spellCheck={false}
+              title="Sent to the shell as if typed, followed by Enter, once the shell is up."
+            />
+          </div>
 
           <div className="form-group">
             <label>Connection Attempt Timeout (seconds)</label>

@@ -115,7 +115,7 @@ pub async fn ssh_connect(
     request: ConnectRequest,
 ) -> CmdResult<String> {
     // One lock: the server, and everything the request names, come out together.
-    let (host, port, prep, forward_agent, log_to, label) = {
+    let (host, port, prep, forward_agent, log_to, label, run_on_connect) = {
         let data = state.data.lock().await;
         let server = super::records::find_by_id(&data.servers, &request.server_id)
             .ok_or("Server not found")?;
@@ -130,7 +130,8 @@ pub async fn ssh_connect(
             &request.jumps,
             host_timeout,
         )?;
-        (host, port, prep, forward_agent, log_to, server.name.clone())
+        let run_on_connect = server.run_on_connect.clone().filter(|c| !c.trim().is_empty());
+        (host, port, prep, forward_agent, log_to, server.name.clone(), run_on_connect)
     };
 
     // The host asks for a log: opened here, before the connect, so the
@@ -155,6 +156,7 @@ pub async fn ssh_connect(
         jumps: prep.jumps,
         forward_agent,
         log,
+        run_on_connect,
     };
 
     start_session(&state, &app, request.connect_id, params, prep.timeout_secs).await
@@ -205,6 +207,7 @@ pub async fn ssh_connect_quick(
         // A quick connection has no host record to have said yes on.
         forward_agent: false,
         log: None,
+        run_on_connect: None,
     };
 
     start_session(&state, &app, request.connect_id, params, prep.timeout_secs).await
