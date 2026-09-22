@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { useAppStore } from '../store/appStore';
 import ConnectLog, { formatLogs } from './ConnectLog';
+import SnippetPromptModal from './SnippetPromptModal';
+import { fill, placeholders } from '../snippets';
+import { EditIcon } from './shared/icons';
 import { THEMES } from '../styles/themes';
 import type { NamedTheme } from '../styles/themes';
 
@@ -35,8 +38,8 @@ function ThemeSwatch({ theme }: { theme: NamedTheme }) {
 
 export default function TerminalSidebar({ activeSessionId }: Props) {
   const {
-    settings, customThemes, codeprints, sessions,
-    addCodeprint, deleteCodeprint, sendInput,
+    settings, customThemes, codeprints, sessions, servers,
+    addCodeprint, updateCodeprint, deleteCodeprint, sendInput,
     sessionThemeOverrides, setSessionTheme,
   } = useAppStore();
 
@@ -51,15 +54,47 @@ export default function TerminalSidebar({ activeSessionId }: Props) {
   const [newName, setNewName] = useState('');
   const [newCommand, setNewCommand] = useState('');
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  // The card being edited swaps for the same form the new one uses.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editCommand, setEditCommand] = useState('');
 
+  function startEdit(id: string, name: string, command: string) {
+    setEditingId(id);
+    setEditName(name);
+    setEditCommand(command);
+  }
+
+  function saveEdit() {
+    if (!editingId || !editName.trim() || !editCommand.trim()) return;
+    updateCodeprint(editingId, { name: editName.trim(), command: editCommand });
+    setEditingId(null);
+  }
+
+  // The same order TerminalView resolves in: the session's own choice, then
+  // the host's, then the default. Without the middle one a host with its own
+  // theme had the global one marked as active here.
+  const activeServerId = sessions.find((s) => s.tab_id === activeSessionId)?.server_id;
   const currentTheme = activeSessionId
-    ? (sessionThemeOverrides[activeSessionId] ?? settings.theme)
+    ? (sessionThemeOverrides[activeSessionId]
+      ?? servers.find((s) => s.id === activeServerId)?.theme
+      ?? settings.theme)
     : settings.theme;
 
-  function sendToTerminal(text: string, run: boolean) {
+  // A codeprint with placeholders stops here for its values; the rest go
+  // straight through.
+  const [prompt, setPrompt] = useState<{ name: string; text: string; run: boolean } | null>(null);
+
+  function send(text: string, run: boolean) {
     if (!activeSessionId) return;
     const payload = run ? text + '\n' : text;
     sendInput(activeSessionId, Array.from(new TextEncoder().encode(payload)));
+  }
+
+  function sendToTerminal(name: string, text: string, run: boolean) {
+    if (!activeSessionId) return;
+    if (placeholders(text).length > 0) setPrompt({ name, text, run });
+    else send(text, run);
   }
 
   function saveCodeprint() {
@@ -78,6 +113,14 @@ export default function TerminalSidebar({ activeSessionId }: Props) {
 
   return (
     <div className="term-sidebar">
+      {prompt && (
+        <SnippetPromptModal
+          title={prompt.name}
+          command={prompt.text}
+          onSubmit={(values) => { send(fill(prompt.text, values), prompt.run); setPrompt(null); }}
+          onCancel={() => setPrompt(null)}
+        />
+      )}
       <div className="term-sidebar-tabs">
         <button
           className={`term-sidebar-tab${section === 'codeprints' ? ' active' : ''}`}
@@ -139,6 +182,9 @@ export default function TerminalSidebar({ activeSessionId }: Props) {
                 onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) saveCodeprint(); }}
                 rows={4}
               />
+              <p className="form-hint form-hint-flush">
+                <code>{'{{name}}'}</code> asks for a value when used; <code>{'{{name:default}}'}</code> offers one.
+              </p>
               <div className="term-sidebar-form-btns">
                 <button className="btn-secondary btn-sm" onClick={cancelNew}>Cancel</button>
                 <button
@@ -160,7 +206,35 @@ export default function TerminalSidebar({ activeSessionId }: Props) {
             {codeprints.length === 0 && !showNewForm && (
               <div className="term-sidebar-empty">No codeprints yet</div>
             )}
-            {codeprints.map((cp) => (
+            {codeprints.map((cp) => editingId === cp.id ? (
+              <div key={cp.id} className="term-sidebar-new-form">
+                <input
+                  className="term-sidebar-name-input"
+                  placeholder="Name"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  autoFocus
+                />
+                <textarea
+                  className="term-sidebar-cmd-input"
+                  placeholder="Command"
+                  value={editCommand}
+                  onChange={(e) => setEditCommand(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) saveEdit(); if (e.key === 'Escape') setEditingId(null); }}
+                  rows={4}
+                />
+                <div className="term-sidebar-form-btns">
+                  <button className="btn-secondary btn-sm" onClick={() => setEditingId(null)}>Cancel</button>
+                  <button
+                    className="btn-primary btn-sm"
+                    onClick={saveEdit}
+                    disabled={!editName.trim() || !editCommand.trim()}
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            ) : (
               <div
                 key={cp.id}
                 className={`term-sidebar-cp${hoveredId === cp.id ? ' hovered' : ''}`}
@@ -170,18 +244,27 @@ export default function TerminalSidebar({ activeSessionId }: Props) {
                 <div className="term-sidebar-cp-name">{cp.name}</div>
                 <div className="term-sidebar-cp-cmd">{cp.command}</div>
                 {hoveredId === cp.id && (
+                  <button
+                    className="term-sidebar-cp-edit"
+                    title={hint('Edit')}
+                    onClick={() => startEdit(cp.id, cp.name, cp.command)}
+                  >
+                    <EditIcon size={13} />
+                  </button>
+                )}
+                {hoveredId === cp.id && (
                   <div className="term-sidebar-cp-actions">
                     <button
                       className="term-sidebar-cp-btn"
                       title={hint('Paste into terminal')}
-                      onClick={() => sendToTerminal(cp.command, false)}
+                      onClick={() => sendToTerminal(cp.name, cp.command, false)}
                     >
                       Paste
                     </button>
                     <button
                       className="term-sidebar-cp-btn term-sidebar-cp-run"
                       title={hint('Paste and run')}
-                      onClick={() => sendToTerminal(cp.command, true)}
+                      onClick={() => sendToTerminal(cp.name, cp.command, true)}
                     >
                       Run
                     </button>

@@ -11,6 +11,7 @@
 
 use super::*;
 use super::listing::list_remote;
+use super::archive::{copy_archive, download_archive, upload_archive};
 use super::ops::{delete_remote, mkdir, rename_remote, set_mode_remote, set_owner_remote};
 use super::edit::{watch, EditEvent};
 use super::transfer::{conflicts, download_path, upload_path, upload_quiet, Conflict, Silent};
@@ -154,8 +155,10 @@ async fn connect(server: &Server, state: &SftpClientState, id: &str) {
     channel.request_subsystem(true, "sftp").await.unwrap();
     let sftp = SftpSession::new(channel.into_stream()).await.unwrap();
 
-    state.sessions.lock().await.insert(id.to_string(), Arc::new(Mutex::new(sftp)));
-    drop(handle);
+    state.sessions.lock().await.insert(
+        id.to_string(),
+        super::SftpConnection { sftp: Arc::new(Mutex::new(sftp)), opener: Arc::new(handle) },
+    );
 }
 
 /// Everything a test needs, or None with the reason printed.
@@ -208,7 +211,7 @@ async fn a_directory_with_more_files_than_the_handle_limit_downloads() {
     write_files(&src, 100);
     let dst = server.scratch("many-out");
 
-    let summary = download_path(&Silent, &state, "s", &src.to_string_lossy(), &dst.to_string_lossy(), Conflict::Overwrite)
+    let summary = download_path(&Silent, &state, "t", "s", &src.to_string_lossy(), &dst.to_string_lossy(), Conflict::Overwrite)
         .await
         .expect("a transfer of 100 files under a limit of 64");
     assert_eq!(summary.files, 100);
@@ -235,7 +238,7 @@ async fn an_uploaded_tree_reads_back_byte_for_byte() {
     std::fs::write(src.join("a/b/deep.txt"), b"deep").unwrap();
     let dst = server.scratch("tree-out");
 
-    let summary = upload_path(&Silent, &state, "s", &src.to_string_lossy(), &dst.to_string_lossy(), Conflict::Overwrite)
+    let summary = upload_path(&Silent, &state, "t", "s", &src.to_string_lossy(), &dst.to_string_lossy(), Conflict::Overwrite)
         .await
         .unwrap();
     assert_eq!(summary.files, 3);
@@ -336,7 +339,7 @@ async fn a_file_already_there_is_overwritten_skipped_or_kept_as_asked() {
     std::fs::write(src.join("f.txt"), b"new").unwrap();
     std::fs::write(dst.join("f.txt"), b"old").unwrap();
     let (src_file, dst_dir) = (src.join("f.txt").to_string_lossy().into_owned(), dst.to_string_lossy().into_owned());
-    let up = |policy| upload_path(&Silent, &state, "s", &src_file, &dst_dir, policy);
+    let up = |policy| upload_path(&Silent, &state, "t", "s", &src_file, &dst_dir, policy);
 
     let summary = up(Conflict::Skip).await.unwrap();
     assert_eq!((summary.files, summary.skipped_existing), (0, 1));
@@ -374,7 +377,7 @@ async fn a_tree_names_only_the_files_that_would_be_written_over() {
     assert_eq!(found, vec!["b.txt", "sub/d.txt"]);
 
     // And a Skip on the same tree copies the other two, leaves those two.
-    let summary = upload_path(&Silent, &state, "s", &src.to_string_lossy(), &dst.to_string_lossy(), Conflict::Skip).await.unwrap();
+    let summary = upload_path(&Silent, &state, "t", "s", &src.to_string_lossy(), &dst.to_string_lossy(), Conflict::Skip).await.unwrap();
     assert_eq!((summary.files, summary.skipped_existing), (2, 2));
     assert_eq!(std::fs::read(dst.join("proj/b.txt")).unwrap(), b"old");
     assert_eq!(std::fs::read(dst.join("proj/a.txt")).unwrap(), b"x");
@@ -422,20 +425,154 @@ async fn a_saved_temp_copy_is_uploaded_back() {
         .expect("the watcher stops once the session is gone");
 }
 
-/// The quiet upload must not clear a cancel the user pressed on the
-/// transfer they can see; `upload_path` does, which is why it is not used.
+/// The quiet upload has no place in the transfer table: nothing the user
+/// can see, nothing a cancel can land on.
 #[tokio::test]
-async fn a_quiet_upload_leaves_a_pressed_cancel_alone() {
+async fn a_quiet_upload_is_not_in_the_transfer_table() {
     let Some((server, state)) = rig("quiet", None).await else { return };
     let root = server.scratch("quiet");
     let src = root.join("f.txt");
     std::fs::write(&src, b"x").unwrap();
     let dst = server.scratch("quiet-out");
 
-    state.request_cancel();
     upload_quiet(&state, "s", &src.to_string_lossy(), &dst.to_string_lossy()).await.unwrap();
-    assert!(state.cancel.load(std::sync::atomic::Ordering::Relaxed), "the flag is still raised");
-    assert_eq!(std::fs::read(dst.join("f.txt")).unwrap(), b"x", "and the upload still happened");
+    assert!(!state.is_running("edit"), "nothing was registered");
+    assert_eq!(std::fs::read(dst.join("f.txt")).unwrap(), b"x", "and the upload happened");
+}
+
+/// Each transfer has its own flag, found by id: a cancel names one and
+/// leaves the others alone, and a finished transfer's id is forgotten so a
+/// late cancel on it is nothing.
+#[tokio::test]
+async fn a_cancel_lands_on_the_transfer_it_names() {
+    let Some((_server, state)) = rig("cancel-by-id", None).await else { return };
+    let a = state.begin_transfer("a");
+    let b = state.begin_transfer("b");
+    assert!(state.is_running("a") && state.is_running("b"));
+
+    state.request_cancel("a");
+    assert!(a.cancel.load(std::sync::atomic::Ordering::Relaxed), "a was asked to stop");
+    assert!(!b.cancel.load(std::sync::atomic::Ordering::Relaxed), "b was not");
+
+    drop(a);
+    assert!(!state.is_running("a"), "a's place is given back when it ends");
+    state.request_cancel("a");
+    assert!(!b.cancel.load(std::sync::atomic::Ordering::Relaxed), "a late cancel on a does nothing to b");
+}
+
+/// tar on the server, unpacked here: the tree that lands must be the
+/// tree that left, byte for byte, and the count must match what was in
+/// it. This is the whole point of the compressed path, so it is tested
+/// against a real server rather than a stub.
+#[tokio::test]
+async fn a_compressed_download_lands_the_same_tree() {
+    let Some((server, state)) = rig("archive", None).await else { return };
+    let root = server.scratch("archive");
+    let src = root.join("tree");
+    std::fs::create_dir_all(src.join("sub")).unwrap();
+    write_files(&src, 12);
+    std::fs::write(src.join("sub/deep.txt"), b"deep\n").unwrap();
+    // A name the server's shell would otherwise take apart.
+    let odd = server.scratch("odd name's");
+    std::fs::write(odd.join("f.txt"), b"odd\n").unwrap();
+
+    let dst = server.scratch("archive-out");
+    let summary = download_archive(&Silent, &state, "t", "s", &src.to_string_lossy(), &dst.to_string_lossy(), None)
+        .await
+        .unwrap();
+    assert_eq!(summary.files, 13, "twelve files and the one in sub");
+    assert!(!summary.cancelled);
+
+    for i in 0..12 {
+        let name = format!("f{i:04}.txt");
+        assert_eq!(
+            std::fs::read(dst.join("tree").join(&name)).unwrap(),
+            std::fs::read(src.join(&name)).unwrap(),
+            "{name} differs",
+        );
+    }
+    assert_eq!(std::fs::read(dst.join("tree/sub/deep.txt")).unwrap(), b"deep\n");
+
+    let out2 = server.scratch("archive-out2");
+    download_archive(&Silent, &state, "t2", "s", &odd.to_string_lossy(), &out2.to_string_lossy(), None)
+        .await
+        .unwrap();
+    assert_eq!(std::fs::read(out2.join("odd name's/f.txt")).unwrap(), b"odd\n");
+}
+
+/// Upwards, and then between two sessions: the same tree has to survive
+/// each hop. The second session is a second connection to the same sshd,
+/// which is as far as one test machine goes and exercises the same two
+/// channels the real thing uses.
+#[tokio::test]
+async fn a_compressed_upload_and_a_server_to_server_copy_land_the_same_tree() {
+    let Some((server, state)) = rig("archive-up", None).await else { return };
+    let root = server.scratch("archive-up");
+    let src = root.join("tree");
+    std::fs::create_dir_all(src.join("sub")).unwrap();
+    write_files(&src, 8);
+    std::fs::write(src.join("sub/deep.txt"), b"deep\n").unwrap();
+
+    let up = server.scratch("archive-up-out");
+    upload_archive(&Silent, &state, "t", "s", &src.to_string_lossy(), &up.to_string_lossy(), None)
+        .await
+        .unwrap();
+    assert_eq!(std::fs::read(up.join("tree/sub/deep.txt")).unwrap(), b"deep\n");
+    assert_eq!(
+        std::fs::read(up.join("tree/f0003.txt")).unwrap(),
+        std::fs::read(src.join("f0003.txt")).unwrap(),
+    );
+
+    connect(&server, &state, "s2").await;
+    let across = server.scratch("archive-across");
+    copy_archive(&Silent, &state, "t2", "s", &up.join("tree").to_string_lossy(), "s2", &across.to_string_lossy(), None)
+        .await
+        .unwrap();
+    assert_eq!(std::fs::read(across.join("tree/sub/deep.txt")).unwrap(), b"deep\n");
+
+    // Keeping both copies: the same tree again, under another name, with
+    // what was already there untouched. Every direction takes the name.
+    copy_archive(&Silent, &state, "t3", "s", &up.join("tree").to_string_lossy(), "s2", &across.to_string_lossy(), Some("tree (2)"))
+        .await
+        .unwrap();
+    assert_eq!(std::fs::read(across.join("tree (2)/sub/deep.txt")).unwrap(), b"deep\n");
+    assert!(std::fs::read(across.join("tree/sub/deep.txt")).is_ok(), "the first copy is still there");
+    assert!(!across.join(".bifrossh-tree (2)").exists(), "the staging directory is cleaned up");
+
+    upload_archive(&Silent, &state, "t4", "s", &src.to_string_lossy(), &up.to_string_lossy(), Some("tree (2)"))
+        .await
+        .unwrap();
+    assert_eq!(std::fs::read(up.join("tree (2)/sub/deep.txt")).unwrap(), b"deep\n");
+
+    let down = server.scratch("archive-down");
+    download_archive(&Silent, &state, "t5", "s", &src.to_string_lossy(), &down.to_string_lossy(), Some("tree (2)"))
+        .await
+        .unwrap();
+    assert_eq!(std::fs::read(down.join("tree (2)/sub/deep.txt")).unwrap(), b"deep\n");
+    assert!(!down.join("tree").exists(), "nothing lands under the old name");
+    for i in 0..8 {
+        let name = format!("f{i:04}.txt");
+        assert_eq!(
+            std::fs::read(across.join("tree").join(&name)).unwrap(),
+            std::fs::read(src.join(&name)).unwrap(),
+            "{name} differs after two hops",
+        );
+    }
+}
+
+/// A path the server cannot tar is the server's error, not a silent
+/// empty directory.
+#[tokio::test]
+async fn a_compressed_download_of_nothing_reports_what_tar_said() {
+    let Some((server, state)) = rig("archive-fail", None).await else { return };
+    let missing = server.scratch("archive-fail").join("not-here");
+    let dst = server.scratch("archive-fail-out");
+    let result = download_archive(&Silent, &state, "t", "s", &missing.to_string_lossy(), &dst.to_string_lossy(), None).await;
+    let shown = match result {
+        Ok(_) => panic!("a directory that is not there should not have tarred"),
+        Err(e) => format!("{e:#}"),
+    };
+    assert!(shown.contains("tar") || shown.contains("unpacked"), "{shown}");
 }
 
 /// A listing that fails on a path is not a session that has failed. The panel

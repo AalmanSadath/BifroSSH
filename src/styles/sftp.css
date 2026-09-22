@@ -874,8 +874,7 @@
 }
 
 /* Drag-and-drop */
-.sftp-drop-overlay,
-.sftp-transfer-overlay {
+.sftp-drop-overlay {
   position: absolute;
   inset: 0;
   display: flex;
@@ -885,42 +884,61 @@
   border-radius: 4px;
   font-size: 13px;
   font-weight: 500;
-}
-
-.sftp-drop-overlay {
   background: color-mix(in srgb, var(--accent) 10%, transparent);
   color: var(--accent);
   outline: 2px dashed var(--accent);
   outline-offset: -2px;
 }
 
-.sftp-transfer-overlay {
-  background: color-mix(in srgb, var(--bg-darkest) 70%, transparent);
-  color: var(--text-dim);
-}
-
-.sftp-progress-wrap {
+/* The transfer queue under both panes: one row per dropped entry, the
+   running one with its bar. Capped so a big drop does not push the panes
+   off the screen; it scrolls instead. */
+.sftp-queue {
   flex-shrink: 0;
-  padding: 8px 16px 10px;
+  max-height: 180px;
+  overflow-y: auto;
   border-top: 1px solid var(--border);
   background: var(--bg-mid);
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
 }
 
-.sftp-progress-info {
+.sftp-queue-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 16px 2px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.sftp-queue-clear {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.sftp-queue-clear:hover { color: var(--text-primary); }
+
+.sftp-queue-row {
+  padding: 4px 16px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sftp-queue-info {
   display: flex;
   align-items: center;
   /* Not space-between: with the cancel button there are three children, and
-     spreading them evenly strands the percentage in the middle. The name
-     takes the slack instead so the stat and button stay together on the
-     right. */
+     spreading them evenly strands the status in the middle. The name takes
+     the slack instead so the status and button stay together on the right. */
   gap: 10px;
   font-size: 12px;
 }
 
-.sftp-progress-name {
+.sftp-queue-name {
   flex: 1;
   min-width: 0;
   color: var(--text-primary);
@@ -929,10 +947,21 @@
   white-space: nowrap;
 }
 
-.sftp-progress-stat {
+.sftp-queue-dest { color: var(--text-dim); }
+
+.sftp-queue-stat {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 55%;
   color: var(--text-muted);
-  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
+.sftp-queue-queued .sftp-queue-name { color: var(--text-muted); }
+.sftp-queue-done .sftp-queue-stat { color: var(--success); }
+.sftp-queue-failed .sftp-queue-stat { color: var(--danger); }
 
 .sftp-cancel-btn {
   flex-shrink: 0;
@@ -977,3 +1006,66 @@
 }
 
 .sftp-picker-search input { width: 100%; }
+
+/* ── Bookmarks ─────────────────────────────────────────────── */
+
+.sftp-star-btn {
+  padding: 3px 7px;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.sftp-star-on { color: var(--accent); border-color: var(--accent); }
+
+.sftp-bookmark-row {
+  display: flex;
+  align-items: stretch;
+}
+
+.sftp-bookmark-go {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.sftp-bookmark-label {
+  flex-shrink: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sftp-bookmark-path {
+  flex: 1;
+  min-width: 0;
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.sftp-bookmark-del {
+  flex-shrink: 0;
+  padding: 0 9px;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.sftp-bookmark-del:hover { color: var(--danger); background: var(--bg-hover); }
+
+.sftp-bookmark-empty {
+  padding: 8px 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}

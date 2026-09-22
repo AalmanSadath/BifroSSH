@@ -20,6 +20,7 @@ function server(over: Partial<Server> & { id: string }): Server {
     log_sessions: false,
     group: null,
     run_on_connect: null,
+    notes: null,
     ...over,
   };
 }
@@ -42,6 +43,13 @@ describe('groupNames', () => {
 });
 
 describe('matchesHost', () => {
+  it('looks at the notes too', () => {
+    const noted = server({ id: 'gw', notes: 'Runs the nightly backup for accounts' });
+    expect(matchesHost(noted, 'nightly')).toBe(true);
+    expect(matchesHost(noted, 'ACCOUNTS')).toBe(true);
+    expect(matchesHost(noted, 'unrelated')).toBe(false);
+  });
+
   it('looks at the name, address, user and group, case-insensitively', () => {
     const db = hosts[2];
     expect(matchesHost(db, 'DB')).toBe(true);

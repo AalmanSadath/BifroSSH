@@ -16,6 +16,7 @@ use russh_sftp::client::SftpSession;
 
 mod edit;
 mod listing;
+mod archive;
 mod ops;
 mod owners;
 mod session;
@@ -23,6 +24,7 @@ mod transfer;
 #[cfg(all(test, unix))]
 mod sshd_tests;
 
+pub use archive::{copy_archive, download_archive, upload_archive};
 pub use edit::{open_local, open_remote};
 pub use listing::{get_local_home, get_remote_home, list_local, list_remote};
 pub use ops::{
@@ -30,13 +32,16 @@ pub use ops::{
     set_mode_local, set_mode_remote, set_owner_local, set_owner_remote,
 };
 pub use session::{connect_sftp, disconnect_sftp, probe_remote};
-pub use transfer::{conflicts_for, copy_remote_path, download_path, upload_path, Conflict, Pairing};
+pub use transfer::{conflicts_for, copy_remote_path, download_path, upload_path, Conflict, Pairing, Tagged};
 
 /// Chunk size for a streamed copy.
 const CHUNK: usize = 128 * 1024; // 128 KB
 
 #[derive(Serialize, Clone)]
 pub struct TransferProgress {
+    /// The id the panel gave the transfer, so a row in its queue can be
+    /// told from the others. Stamped by the `Progress` sink.
+    pub transfer_id: String,
     pub file_name: String,
     pub transferred: u64,
     pub total: u64,
@@ -141,39 +146,90 @@ pub struct FileEntry {
     pub symlink: bool,
 }
 
+/// One SFTP session and the connection under it.
+///
+/// The SSH handle used to be dropped once the subsystem channel was up,
+/// which left nothing able to open a second channel. A compressed
+/// download needs one, to run `tar` beside the SFTP session rather than
+/// over a second connection with a second authentication.
+pub(super) struct SftpConnection {
+    pub(super) sftp: Arc<Mutex<SftpSession>>,
+    pub(super) opener: Arc<dyn ChannelOpener>,
+}
+
+/// A live SSH connection, asked only for another channel.
+///
+/// Type-erased over the handler: the app connects with the host-key
+/// verifier and the tests with one that trusts anything, and neither
+/// difference matters to `tar`.
+#[async_trait::async_trait]
+pub(super) trait ChannelOpener: Send + Sync {
+    async fn open_session(&self) -> anyhow::Result<russh::Channel<russh::client::Msg>>;
+}
+
+#[async_trait::async_trait]
+impl<H: russh::client::Handler> ChannelOpener for russh::client::Handle<H> {
+    async fn open_session(&self) -> anyhow::Result<russh::Channel<russh::client::Msg>> {
+        self.channel_open_session().await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+}
+
 pub struct SftpClientState {
-    sessions: Mutex<HashMap<String, Arc<Mutex<SftpSession>>>>,
-    /// Raised to stop the transfer in flight.
-    ///
-    /// One flag rather than one per transfer because the panel runs a single
-    /// transfer at a time: the drop targets are suppressed while one is
-    /// running, so there is never a second to tell apart from the first.
-    cancel: Arc<AtomicBool>,
+    sessions: Mutex<HashMap<String, SftpConnection>>,
+    /// One cancel flag per transfer in flight, by the id the panel gave
+    /// it. The panel queues transfers and runs them one at a time, but
+    /// each is cancelled by name, so a cancel pressed on one cannot land
+    /// on the next. A std mutex: held for a map lookup, never across an
+    /// await.
+    transfers: std::sync::Mutex<HashMap<String, Arc<AtomicBool>>>,
     /// Each server's user and group names, read on first use and dropped
     /// with the session. See `owners`.
     names: Mutex<HashMap<String, Arc<owners::IdNames>>>,
+}
+
+/// A transfer's place in the table, given back when the transfer ends.
+pub(super) struct TransferGuard<'a> {
+    state: &'a SftpClientState,
+    id: String,
+    pub(super) cancel: Arc<AtomicBool>,
+}
+
+impl Drop for TransferGuard<'_> {
+    fn drop(&mut self) {
+        self.state.transfers.lock().unwrap().remove(&self.id);
+    }
 }
 
 impl SftpClientState {
     pub fn new() -> Self {
         Self {
             sessions: Mutex::new(HashMap::new()),
-            cancel: Arc::new(AtomicBool::new(false)),
+            transfers: std::sync::Mutex::new(HashMap::new()),
             names: Mutex::new(HashMap::new()),
         }
     }
 
-    /// Asks the transfer in flight to stop at the next chunk boundary.
-    pub fn request_cancel(&self) {
-        self.cancel.store(true, Ordering::Relaxed);
+    /// Asks one transfer to stop at its next chunk boundary. An id that is
+    /// not running, because it finished or never started, is nothing to do.
+    pub fn request_cancel(&self, transfer_id: &str) {
+        if let Some(flag) = self.transfers.lock().unwrap().get(transfer_id) {
+            flag.store(true, Ordering::Relaxed);
+        }
     }
 
-    /// Clears any cancellation left over from a previous transfer and hands
-    /// back the flag to watch. Called once at the top of each transfer, so a
-    /// cancel that arrived after the last one finished cannot kill the next.
-    fn begin_transfer(&self) -> Arc<AtomicBool> {
-        self.cancel.store(false, Ordering::Relaxed);
-        Arc::clone(&self.cancel)
+    /// A fresh flag for a transfer about to start, in the table until the
+    /// guard drops.
+    fn begin_transfer(&self, transfer_id: &str) -> TransferGuard<'_> {
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.transfers.lock().unwrap().insert(transfer_id.to_string(), Arc::clone(&cancel));
+        TransferGuard { state: self, id: transfer_id.to_string(), cancel }
+    }
+
+    /// Whether a transfer with this id is in the table. For the sshd tests,
+    /// which are Unix only.
+    #[cfg(all(test, unix))]
+    fn is_running(&self, transfer_id: &str) -> bool {
+        self.transfers.lock().unwrap().contains_key(transfer_id)
     }
 }
 

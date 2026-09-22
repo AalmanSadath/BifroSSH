@@ -9,7 +9,7 @@ import OsIcon from './OsIcon';
 import ConfirmModal from './shared/ConfirmModal';
 import ContextMenu from './shared/ContextMenu';
 import { cardKeys } from './shared/cardKeys';
-import { EditIcon } from './shared/icons';
+import { EditIcon, NoteIcon } from './shared/icons';
 
 export default function HostsPanel() {
   const { servers, sessions, settings, setActiveTab, removeSession, deleteServer, openSession } = useAppStore();
@@ -19,6 +19,7 @@ export default function HostsPanel() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ kind: 'server'; x: number; y: number; server: Server } | { kind: 'panel'; x: number; y: number } | null>(null);
   const [query, setQuery] = useState('');
+  const hint = (t: string) => settings.show_hover_hints ? t : undefined;
   const [groupFilter, setGroupFilter] = useState<string | null>(null);
 
   const connectedIds = new Set(sessions.map((s) => s.server_id));
@@ -62,7 +63,7 @@ export default function HostsPanel() {
             <input
               className="hosts-search"
               type="text"
-              placeholder="Filter by name, host, user or group"
+              placeholder="Filter by name, host, user, group or notes"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               spellCheck={false}
@@ -113,7 +114,7 @@ export default function HostsPanel() {
                     {...cardKeys(() => handleDoubleClick(server))}
                     onDoubleClick={() => handleDoubleClick(server)}
                     onContextMenu={(e) => handleContextMenu(e, server)}
-                    title={settings.show_hover_hints ? 'Double-click to connect · Right-click for options' : undefined}
+                    title={hint('Double-click to connect · Right-click for options')}
                   >
                     <div className="host-card-icon">
                       <OsIcon os={server.os} size={28} />
@@ -128,13 +129,21 @@ export default function HostsPanel() {
                           title={isConnecting ? 'Connecting…' : connected ? 'Connected' : 'Not connected'}
                         />
                         <span className="card-title">{server.name}</span>
+                        {/* A glyph in the name row rather than a third line:
+                            the card's two-line height is what keeps every card
+                            in a row the same size. */}
+                        {server.notes?.trim() && (
+                          <span className="host-card-note" title={server.notes.trim().slice(0, 400)}>
+                            <NoteIcon size={15} />
+                          </span>
+                        )}
                       </div>
                       <span className="card-sub">{server.host}:{server.port}</span>
                     </div>
                     <button
                       className="host-card-edit-btn"
                       onClick={(e) => { e.stopPropagation(); setEditServer(server); setShowServerForm(true); }}
-                      title={settings.show_hover_hints ? 'Edit host' : undefined}
+                      title={hint('Edit host')}
                     >
                       <EditIcon size={16} />
                     </button>

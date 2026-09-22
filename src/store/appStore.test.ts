@@ -32,6 +32,7 @@ function server(over: Partial<Server> & { id: string }): Server {
     log_sessions: false,
     group: null,
     run_on_connect: null,
+    notes: null,
     ...over,
   };
 }

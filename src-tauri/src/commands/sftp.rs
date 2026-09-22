@@ -106,8 +106,8 @@ pub async fn sftp_disconnect_remote(
 /// finishes by returning a summary marked cancelled, so the caller that is
 /// still awaiting it gets a normal result rather than an error.
 #[tauri::command]
-pub async fn sftp_cancel_transfer(state: State<'_, AppState>) -> CmdResult<()> {
-    state.sftp_state.request_cancel();
+pub async fn sftp_cancel_transfer(state: State<'_, AppState>, transfer_id: String) -> CmdResult<()> {
+    state.sftp_state.request_cancel(&transfer_id);
     Ok(())
 }
 
@@ -115,37 +115,46 @@ pub async fn sftp_cancel_transfer(state: State<'_, AppState>) -> CmdResult<()> {
 pub async fn sftp_upload(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
+    transfer_id: String,
     session_id: String,
     local_path: String,
     remote_dir: String,
     conflict: crate::sftp::Conflict,
 ) -> CmdResult<crate::sftp::TransferSummary> {
-    crate::sftp::upload_path(&app, &state.sftp_state, &session_id, &local_path, &remote_dir, conflict).await.map_err(CmdError::from)
+    let sink = crate::sftp::Tagged { app: &app, transfer_id: transfer_id.clone() };
+    crate::sftp::upload_path(&sink, &state.sftp_state, &transfer_id, &session_id, &local_path, &remote_dir, conflict).await.map_err(CmdError::from)
 }
 
 #[tauri::command]
 pub async fn sftp_download(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
+    transfer_id: String,
     session_id: String,
     remote_path: String,
     local_dir: String,
     conflict: crate::sftp::Conflict,
 ) -> CmdResult<crate::sftp::TransferSummary> {
-    crate::sftp::download_path(&app, &state.sftp_state, &session_id, &remote_path, &local_dir, conflict).await.map_err(CmdError::from)
+    let sink = crate::sftp::Tagged { app: &app, transfer_id: transfer_id.clone() };
+    crate::sftp::download_path(&sink, &state.sftp_state, &transfer_id, &session_id, &remote_path, &local_dir, conflict).await.map_err(CmdError::from)
 }
 
 #[tauri::command]
+// Two sessions, two paths, a policy and an id: the eighth is the id, and
+// a params struct for one call would say less than the list does.
+#[allow(clippy::too_many_arguments)]
 pub async fn sftp_copy_remote_to_remote(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
+    transfer_id: String,
     src_session_id: String,
     src_path: String,
     dst_session_id: String,
     dst_dir: String,
     conflict: crate::sftp::Conflict,
 ) -> CmdResult<crate::sftp::TransferSummary> {
-    crate::sftp::copy_remote_path(&app, &state.sftp_state, &src_session_id, &src_path, &dst_session_id, &dst_dir, conflict).await.map_err(CmdError::from)
+    let sink = crate::sftp::Tagged { app: &app, transfer_id: transfer_id.clone() };
+    crate::sftp::copy_remote_path(&sink, &state.sftp_state, &transfer_id, &src_session_id, &src_path, &dst_session_id, &dst_dir, conflict).await.map_err(CmdError::from)
 }
 
 /// Which files a transfer would write over, asked before the user is.
@@ -244,6 +253,61 @@ pub async fn sftp_set_mode_remote(
     mode: u32,
 ) -> CmdResult<()> {
     crate::sftp::set_mode_remote(&state.sftp_state, &session_id, &path, mode).await.map_err(CmdError::from)
+}
+
+/// A directory as one compressed stream, unpacked as it arrives. Far
+/// fewer round trips than a file-by-file download of the same tree.
+#[tauri::command]
+pub async fn sftp_download_archive(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    transfer_id: String,
+    session_id: String,
+    remote_path: String,
+    local_dir: String,
+    into_name: Option<String>,
+) -> CmdResult<crate::sftp::TransferSummary> {
+    let sink = crate::sftp::Tagged { app: &app, transfer_id: transfer_id.clone() };
+    crate::sftp::download_archive(&sink, &state.sftp_state, &transfer_id, &session_id, &remote_path, &local_dir, into_name.as_deref())
+        .await
+        .map_err(CmdError::from)
+}
+
+/// The same, upwards: this machine tars and the server unpacks.
+#[tauri::command]
+pub async fn sftp_upload_archive(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    transfer_id: String,
+    session_id: String,
+    local_path: String,
+    remote_dir: String,
+    into_name: Option<String>,
+) -> CmdResult<crate::sftp::TransferSummary> {
+    let sink = crate::sftp::Tagged { app: &app, transfer_id: transfer_id.clone() };
+    crate::sftp::upload_archive(&sink, &state.sftp_state, &transfer_id, &session_id, &local_path, &remote_dir, into_name.as_deref())
+        .await
+        .map_err(CmdError::from)
+}
+
+/// Between two servers: one tars, the other unpacks, and the bytes pass
+/// through here without touching this disk.
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+pub async fn sftp_copy_archive(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    transfer_id: String,
+    src_session_id: String,
+    src_path: String,
+    dst_session_id: String,
+    dst_dir: String,
+    into_name: Option<String>,
+) -> CmdResult<crate::sftp::TransferSummary> {
+    let sink = crate::sftp::Tagged { app: &app, transfer_id: transfer_id.clone() };
+    crate::sftp::copy_archive(&sink, &state.sftp_state, &transfer_id, &src_session_id, &src_path, &dst_session_id, &dst_dir, into_name.as_deref())
+        .await
+        .map_err(CmdError::from)
 }
 
 #[tauri::command]

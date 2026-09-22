@@ -16,7 +16,7 @@ interface Props {
 }
 
 export default function ServerForm({ server, onClose, onDelete }: Props) {
-  const { servers, identities, keys, saveServer, customThemes, setActiveTab } = useAppStore();
+  const { servers, identities, keys, saveServer, customThemes, settings, setActiveTab } = useAppStore();
 
   const [name, setName] = useState(server?.name ?? '');
   const [host, setHost] = useState(server?.host ?? '');
@@ -47,13 +47,16 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
   const [dropdownRect, setDropdownRect] = useState<AnchorRect | null>(null);
   const usernameGroupRef = useRef<HTMLDivElement>(null);
   const passwordGroupRef = useRef<HTMLDivElement>(null);
-  const [themeOverride, setThemeOverride] = useState<string>(server?.theme ?? 'bifrossh-dark');
+  // A new host starts from the default in Settings rather than from one
+  // hardcoded theme, which is what that setting is for.
+  const [themeOverride, setThemeOverride] = useState<string>(server?.theme ?? settings.theme);
   const [timeoutSecs, setTimeoutSecs] = useState<string>(server?.connection_timeout != null ? String(server.connection_timeout) : '');
   const [proxyJump, setProxyJump] = useState(server?.proxy_jump ?? '');
   const [forwardAgent, setForwardAgent] = useState(server?.forward_agent ?? false);
   const [logSessions, setLogSessions] = useState(server?.log_sessions ?? false);
   const [group, setGroup] = useState(server?.group ?? '');
   const [runOnConnect, setRunOnConnect] = useState(server?.run_on_connect ?? '');
+  const [notes, setNotes] = useState(server?.notes ?? '');
   const [showGroups, setShowGroups] = useState(false);
   const [groupRect, setGroupRect] = useState<AnchorRect | null>(null);
   const groupRef = useRef<HTMLDivElement>(null);
@@ -119,6 +122,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
           log_sessions: logSessions,
           group: group.trim() || null,
           run_on_connect: runOnConnect.trim() || null,
+          notes: notes.trim() || null,
         },
         (!identityId && !keyId && password.trim()) ? password.trim() : undefined,
       );
@@ -348,6 +352,22 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
               spellCheck={false}
               title="Sent to the shell as if typed, followed by Enter, once the shell is up."
             />
+          </div>
+
+          <div className="form-group">
+            <label>Notes</label>
+            <textarea
+              className="notes-area"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+              placeholder="What this host is for, who else uses it, anything worth remembering"
+            />
+            <p className="form-hint">
+              Shown on the host card and searched with the name and address. Not a place for
+              passwords: a key or a password belongs in the fields above, where it is kept
+              encrypted and never shown again.
+            </p>
           </div>
 
           <div className="form-group">

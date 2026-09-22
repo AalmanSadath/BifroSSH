@@ -10,6 +10,8 @@ import ExportDataModal from './ExportDataModal';
 import ImportDataModal from './ImportDataModal';
 import { useAppStore, reportFailure } from '../store/appStore';
 import { ColorPickerField } from './ColorPicker';
+import ThemePicker, { ThumbNail } from './ThemePicker';
+import { THEMES } from '../styles/themes';
 import { resolveAccent } from '../store/appStore';
 import type { AppTheme, CursorStyle, KeystoreStatus, Settings } from '../types';
 
@@ -85,7 +87,8 @@ function Picker<T extends string>({
 }
 
 export default function SettingsPanel() {
-  const { settings, saveSettings, setActiveTab, systemAppearance, updateAvailable, checkForUpdates } = useAppStore();
+  const { settings, saveSettings, setActiveTab, systemAppearance, customThemes, updateAvailable, checkForUpdates } = useAppStore();
+  const [themeExpanded, setThemeExpanded] = useState(false);
   const [fonts, setFonts] = useState<string[]>([]);
   // What the picker should show: the user's colour, else the desktop's,
   // else the dark palette's own, which is what an unthemed picker opens on.
@@ -195,6 +198,38 @@ export default function SettingsPanel() {
                 : 'The system exposes no accent, so the theme\u2019s own is used.'}
           </p>
         </div>
+
+        {/* The terminal colours every host starts from. Only ever writable
+            through the data file before this: the picker existed on a host
+            and on a session, but not on the setting both fall back to. */}
+        <div className="form-group">
+          <label>Terminal Theme</label>
+          <div className="theme-current-row">
+            <div className="theme-current-thumb">
+              <ThumbNail id={settings.theme} />
+            </div>
+            <span className="theme-current-name">
+              {(THEMES[settings.theme] ?? customThemes[settings.theme])?.name ?? settings.theme}
+            </span>
+          </div>
+          <button
+            type="button"
+            className="theme-show-more-btn"
+            onClick={() => setThemeExpanded((v) => !v)}
+          >
+            {themeExpanded ? 'Show less \u2227' : 'Show more \u2228'}
+          </button>
+          {themeExpanded && (
+            <ThemePicker
+              value={settings.theme}
+              onChange={(id) => { patch({ theme: id }); setThemeExpanded(false); }}
+            />
+          )}
+          <p className="form-hint">
+            Used by every host that has no theme of its own, and offered as the
+            starting point when a host is added.
+          </p>
+        </div>
       </section>
 
       <section className="panel-section">
@@ -281,6 +316,32 @@ export default function SettingsPanel() {
           A connection is considered lost after three unanswered keepalives. Set to 0 to disable.
           Does not apply to SFTP, which uses the inactivity timeout above instead.
         </p>
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={settings.auto_reconnect}
+            onChange={(e) => patch({ auto_reconnect: e.target.checked })}
+          />
+          <span>Reconnect a dropped session automatically</span>
+        </label>
+        <p className="form-hint">
+          A session whose connection dies is opened again five seconds later, then at twice the
+          wait each time up to a minute. The tab and its scrollback stay where they are, and the
+          banner counts down with a button to stop or to try at once. A session you close, or one
+          whose shell exited, is never reopened.
+        </p>
+        {settings.auto_reconnect && (
+          <>
+            <NumberSetting
+              label="Attempts before giving up"
+              value={settings.auto_reconnect_attempts}
+              min={0}
+              max={100}
+              onCommit={(v) => patch({ auto_reconnect_attempts: v })}
+            />
+            <p className="form-hint">0 keeps trying until it comes back or you stop it.</p>
+          </>
+        )}
         <div className="form-group">
           <label>Session logs folder</label>
           <div className="settings-inline-row">

@@ -23,10 +23,18 @@ pub trait Progress: Sync {
     fn report(&self, progress: TransferProgress);
 }
 
-impl Progress for tauri::AppHandle {
-    fn report(&self, progress: TransferProgress) {
+/// The window, with the id of the transfer being reported on. The copy
+/// loop does not know its id; this stamps it on the way out.
+pub struct Tagged<'a> {
+    pub app: &'a tauri::AppHandle,
+    pub transfer_id: String,
+}
+
+impl Progress for Tagged<'_> {
+    fn report(&self, mut progress: TransferProgress) {
+        progress.transfer_id = self.transfer_id.clone();
         // Nothing to do if the window is gone; the transfer finishes anyway.
-        let _ = self.emit("sftp-progress", progress);
+        let _ = self.app.emit("sftp-progress", progress);
     }
 }
 
@@ -416,6 +424,7 @@ async fn transfer_one<S: FileSide, D: FileSide>(
             }
             transferred += n as u64;
             app.report(TransferProgress {
+                transfer_id: String::new(),
                 file_name: file_name.clone(),
                 transferred,
                 total,
@@ -620,22 +629,20 @@ pub async fn conflicts_for(
 pub async fn upload_path(
     app: &impl Progress,
     sftp_state: &SftpClientState,
+    transfer_id: &str,
     session_id: &str,
     local_path: &str,
     remote_dir: &str,
     policy: Conflict,
 ) -> Result<TransferSummary> {
     let remote = Remote(get_session(sftp_state, session_id).await?);
-    let cancel = sftp_state.begin_transfer();
-    transfer(app, &Local, local_path, &remote, remote_dir, policy, &cancel).await
+    let guard = sftp_state.begin_transfer(transfer_id);
+    transfer(app, &Local, local_path, &remote, remote_dir, policy, &guard.cancel).await
 }
 
-/// Uploads one file with no progress and no part in the panel's cancel.
-///
-/// `upload_path` begins by clearing the shared cancel flag, which is right
-/// for a transfer the user started and wrong for one that happens because
-/// an editor saved: it would erase a cancel the user had just pressed on
-/// the download they can see. This one carries its own flag nobody raises.
+/// Uploads one file with no progress and no place in the panel's queue,
+/// which is what an upload behind an editor's save is: nothing the user
+/// can see or cancel. It carries its own flag nobody raises.
 pub(super) async fn upload_quiet(
     sftp_state: &SftpClientState,
     session_id: &str,
@@ -652,20 +659,25 @@ pub(super) async fn upload_quiet(
 pub async fn download_path(
     app: &impl Progress,
     sftp_state: &SftpClientState,
+    transfer_id: &str,
     session_id: &str,
     remote_path: &str,
     local_dir: &str,
     policy: Conflict,
 ) -> Result<TransferSummary> {
     let remote = Remote(get_session(sftp_state, session_id).await?);
-    let cancel = sftp_state.begin_transfer();
-    transfer(app, &remote, remote_path, &Local, local_dir, policy, &cancel).await
+    let guard = sftp_state.begin_transfer(transfer_id);
+    transfer(app, &remote, remote_path, &Local, local_dir, policy, &guard.cancel).await
 }
 
 /// Copies a file, or a directory tree, between two remote sessions.
+// Two sessions, two paths, a policy and an id: the eighth is the id, and
+// a params struct for one call would say less than the list does.
+#[allow(clippy::too_many_arguments)]
 pub async fn copy_remote_path(
     app: &impl Progress,
     sftp_state: &SftpClientState,
+    transfer_id: &str,
     src_session_id: &str,
     src_path: &str,
     dst_session_id: &str,
@@ -674,8 +686,8 @@ pub async fn copy_remote_path(
 ) -> Result<TransferSummary> {
     let src = Remote(get_session(sftp_state, src_session_id).await?);
     let dst = Remote(get_session(sftp_state, dst_session_id).await?);
-    let cancel = sftp_state.begin_transfer();
-    transfer(app, &src, src_path, &dst, dst_dir, policy, &cancel).await
+    let guard = sftp_state.begin_transfer(transfer_id);
+    transfer(app, &src, src_path, &dst, dst_dir, policy, &guard.cancel).await
 }
 
 #[cfg(test)]

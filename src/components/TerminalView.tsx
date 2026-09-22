@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { openUrl } from '@tauri-apps/plugin-opener';
+import { findPaths } from '../paths';
 import * as ipc from '../ipc';
 import { listen } from '@tauri-apps/api/event';
 import { useAppStore } from '../store/appStore';
@@ -44,7 +45,20 @@ export default function TerminalView({ tab, visible, focused, header }: Props) {
   sessionIdRef.current = sessionId;
   /** Whether a session has been bound before, so the next one is a reconnect. */
   const boundOnceRef = useRef(false);
-  const { settings, servers, removeSession, markDropped, reconnectSession, sendInput, setActiveTab, sessionThemeOverrides, customThemes } = useAppStore();
+  const { settings, servers, removeSession, markDropped, reconnectSession, stopRetrying, retryingTabIds, sendInput, setActiveTab, sessionThemeOverrides, customThemes } = useAppStore();
+  const retrying = retryingTabIds.has(tabId);
+
+  // The countdown in the dropped banner. Half a second's worth of
+  // re-render, and only while a retry is actually pending.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!retrying || tab.retryAt === undefined) return;
+    const id = setInterval(() => setTick((n) => n + 1), 500);
+    return () => clearInterval(id);
+  }, [retrying, tab.retryAt]);
+  const countdown = tab.retryAt !== undefined
+    ? Math.max(0, Math.ceil((tab.retryAt - Date.now()) / 1000))
+    : null;
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -218,6 +232,26 @@ export default function TerminalView({ tab, visible, focused, header }: Props) {
     term.loadAddon(new WebLinksAddon((_event, uri) => {
       openUrl(uri).catch((e) => console.error('Could not open link', uri, e));
     }));
+    // Absolute paths in the output open in the SFTP panel, on this host.
+    // Nothing leaves the app: the path is only ever listed over the SFTP
+    // session, and a wrong guess is a "No such file" in the panel.
+    term.registerLinkProvider({
+      provideLinks(y, callback) {
+        // The line the cursor is on is the one being typed. Echo makes
+        // typed text output as far as the buffer knows, and a link under
+        // the fingers is only in the way; once Enter is pressed the line
+        // is history and links like the rest.
+        const buf = term.buffer.active;
+        if (y - 1 === buf.baseY + buf.cursorY) { callback(undefined); return; }
+        const line = buf.getLine(y - 1)?.translateToString(true) ?? '';
+        callback(findPaths(line).map((p) => ({
+          range: { start: { x: p.start + 1, y }, end: { x: p.end, y } },
+          text: p.text,
+          decorations: { underline: true, pointerCursor: true },
+          activate: (_e, text) => useAppStore.getState().openInSftp(serverId, text),
+        })));
+      },
+    });
     term.open(container);
     fitAddon.fit();
 
@@ -611,14 +645,19 @@ export default function TerminalView({ tab, visible, focused, header }: Props) {
             <span className="term-dropped-text">
               Connection lost.
               {tab.quick_info && ' A quick connection cannot be reopened without the credentials typed for it.'}
+              {retrying && !tab.reconnecting && countdown !== null && ` Trying again in ${countdown}s (attempt ${tab.retryAttempt ?? 1}).`}
+              {tab.gaveUpAfter !== undefined && ` Gave up after ${tab.gaveUpAfter} ${tab.gaveUpAfter === 1 ? 'try' : 'tries'}.`}
             </span>
+            {retrying && (
+              <button className="btn-secondary btn-sm" onClick={() => stopRetrying(tabId)}>Stop</button>
+            )}
             {!tab.quick_info && (
               <button
                 className="btn-primary btn-sm"
                 disabled={tab.reconnecting}
-                onClick={() => reconnectSession(tabId)}
+                onClick={() => { stopRetrying(tabId); void reconnectSession(tabId); }}
               >
-                {tab.reconnecting ? 'Reconnecting…' : 'Reconnect'}
+                {tab.reconnecting ? 'Reconnecting…' : retrying ? 'Try now' : 'Reconnect'}
               </button>
             )}
             <button className="btn-secondary btn-sm" onClick={() => removeSession(tabId)}>Close</button>

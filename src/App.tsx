@@ -5,7 +5,10 @@ import { useAppStore, resolveAccent, resolveAppTheme } from './store/appStore';
 import { accentTokens } from './styles/accent';
 import { setLocalPlatform } from './paths';
 import { useIdleLock } from './hooks/useIdleLock';
-import type { AuthPromptEvent, HostKeyPromptEvent, SessionTab, SystemAppearance, TunnelClosed, VaultStatus } from './types';
+import type { AuthPromptEvent, Codeprint, HostKeyPromptEvent, SessionTab, SystemAppearance, TunnelClosed, VaultStatus } from './types';
+import { fill } from './snippets';
+import CommandPalette from './components/CommandPalette';
+import SnippetPromptModal from './components/SnippetPromptModal';
 import HostKeyPrompt from './components/HostKeyPrompt';
 import AuthPromptModal from './components/AuthPromptModal';
 import Sidebar from './components/Sidebar';
@@ -81,14 +84,18 @@ function parseSSHInput(input: string): { user: string; host: string; port: numbe
 export default function App() {
   const {
     loadAll, loadError, actionError, setActionError, sessions, activeTabId, setActiveTab, removeSession,
-    renameSession, toggleBroadcast, toggleLogging, splitGroup, splitWith, unsplit, openSession, quickConnect, servers, settings, keys,
+    renameSession, toggleBroadcast, openInSftp, sendInput, toggleLogging, splitGroup, splitWith, unsplit, openSession, quickConnect, servers, settings, keys,
     systemAppearance, setSystemAppearance, clearForLock,
   } = useAppStore();
 
   const resolvedTheme = resolveAppTheme(settings.app_theme, systemAppearance);
   const accent = resolveAccent(settings, systemAppearance);
 
+  // 'new' is the Add Host drawer: no record to find, so the form opens empty.
   const [editServerId, setEditServerId] = useState<string | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  // A codeprint picked in the palette, waiting for its placeholders.
+  const [snippet, setSnippet] = useState<Codeprint | null>(null);
   const [quickInput, setQuickInput] = useState('');
   const [quickParsed, setQuickParsed] = useState<{ user: string; host: string; port: number } | null>(null);
   const [quickPassword, setQuickPassword] = useState('');
@@ -348,6 +355,13 @@ export default function App() {
         setActiveTab(tabs[target].tab_id);
         return;
       }
+      if (e.code === 'KeyK' && !e.shiftKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        setPaletteOpen((open) => !open);
+        return;
+      }
+
       if (e.shiftKey && e.code === 'KeyT') {
         e.preventDefault();
         e.stopPropagation();
@@ -378,6 +392,29 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey, true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /**
+   * Closing the palette hands the keyboard back to the terminal. Focus sits
+   * on xterm's hidden textarea, and TerminalView only re-focuses when its
+   * `focused` prop changes, which it has not; so the element is asked
+   * directly, after the palette has gone.
+   */
+  function closePalette() {
+    setPaletteOpen(false);
+    requestAnimationFrame(() => {
+      const target = document.querySelector<HTMLTextAreaElement>('.terminal-pane-focused .xterm-helper-textarea')
+        ?? document.querySelector<HTMLTextAreaElement>('.terminal-pane .xterm-helper-textarea');
+      target?.focus();
+    });
+  }
+
+  /** Sends a codeprint the palette picked to the tab that was active. */
+  function sendCodeprint(text: string) {
+    const tab = tabsRef.current.activeTabId;
+    if (!tab) return;
+    sendInput(tab, Array.from(new TextEncoder().encode(text + '\n')));
+    closePalette();
+  }
 
   function handleTabContextMenu(e: React.MouseEvent, session: SessionTab) {
     e.preventDefault();
@@ -573,7 +610,7 @@ export default function App() {
                 host: s.quick_info.host, port: s.quick_info.port,
                 identity_id: null, theme: null, connection_timeout: null, os: '',
                 username: s.quick_info.username, encrypted_password: null, key_id: null,
-                auth_kind: null, proxy_jump: null, forward_agent: false, log_sessions: false, group: null, run_on_connect: null,
+                auth_kind: null, proxy_jump: null, forward_agent: false, log_sessions: false, group: null, run_on_connect: null, notes: null,
               } : undefined);
 
             if (s.status === 'connecting' || s.status === 'error') {
@@ -618,6 +655,26 @@ export default function App() {
           )}
         </div>
       </div>
+
+      {/* Not over the lock screen: it sits outside .app-body, so the inert
+          that covers everything else would not cover it. */}
+      {paletteOpen && !vault.locked && (
+        <CommandPalette
+          onClose={closePalette}
+          onCodeprint={setSnippet}
+          onAddHost={() => { setActiveTab('hosts'); setEditServerId('new'); }}
+          onLock={() => { void lockNow(); }}
+        />
+      )}
+
+      {snippet && (
+        <SnippetPromptModal
+          title={snippet.name}
+          command={snippet.command}
+          onSubmit={(values) => { sendCodeprint(fill(snippet.command, values)); setSnippet(null); }}
+          onCancel={() => setSnippet(null)}
+        />
+      )}
 
       {editServerId && (
         <ServerForm
@@ -704,6 +761,12 @@ export default function App() {
               <button className="menu-item" onClick={() => setTabCtx({ ...tabCtx, mode: 'rename' })}>
                 Rename
               </button>
+              {/* A quick connection has no saved host for the SFTP panel to open. */}
+              {!tabCtx.session.quick_info && (
+                <button className="menu-item" onClick={() => { openInSftp(tabCtx.session.server_id, '~'); setTabCtx(null); }}>
+                  Open in SFTP
+                </button>
+              )}
               <button className="menu-item" onClick={() => { toggleBroadcast(tabCtx.session.tab_id); setTabCtx(null); }}>
                 {tabCtx.session.broadcast ? '✓ ' : ''}Broadcast input
               </button>

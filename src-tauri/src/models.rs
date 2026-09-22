@@ -147,6 +147,10 @@ pub struct Server {
     /// One line sent to the shell as if typed, the moment the shell is up.
     #[serde(default)]
     pub run_on_connect: Option<String>,
+    /// Whatever the user wants to remember about this host. Free text,
+    /// searched with the rest of the record.
+    #[serde(default)]
+    pub notes: Option<String>,
 }
 
 impl Server {
@@ -251,6 +255,14 @@ pub struct Settings {
     /// When the last check ran, epoch seconds; 0 for never.
     #[serde(default)]
     pub last_update_check: u64,
+    /// Bring a dropped terminal back on its own, the way an autostart
+    /// tunnel already does. On by default.
+    #[serde(default = "Settings::default_auto_reconnect")]
+    pub auto_reconnect: bool,
+    /// How many times before it gives up and leaves the button; 0 is
+    /// until it comes back or the user says stop.
+    #[serde(default = "Settings::default_auto_reconnect_attempts")]
+    pub auto_reconnect_attempts: u32,
 }
 
 impl Default for Settings {
@@ -274,12 +286,16 @@ impl Default for Settings {
             session_log_dir: None,
             check_for_updates: true,
             last_update_check: 0,
+            auto_reconnect: true,
+            auto_reconnect_attempts: 5,
         }
     }
 }
 
 impl Settings {
     fn default_check_for_updates() -> bool { true }
+    fn default_auto_reconnect() -> bool { true }
+    fn default_auto_reconnect_attempts() -> u32 { 5 }
     fn default_connection_timeout() -> u32 { 60 }
     fn default_show_hover_hints() -> bool { true }
     fn default_sftp_inactivity_timeout() -> u32 { 300 }
@@ -321,6 +337,19 @@ pub struct Codeprint {
     pub command: String,
 }
 
+/// A directory the user wants back in one click, on a host or on this
+/// machine.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SftpBookmark {
+    pub id: String,
+    /// The host it belongs to; `None` is the local pane, whose paths mean
+    /// nothing on a server.
+    #[serde(default)]
+    pub server_id: Option<String>,
+    pub label: String,
+    pub path: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppData {
     pub servers: Vec<Server>,
@@ -331,6 +360,8 @@ pub struct AppData {
     pub port_forwardings: Vec<PortForwarding>,
     #[serde(default)]
     pub codeprints: Vec<Codeprint>,
+    #[serde(default)]
+    pub sftp_bookmarks: Vec<SftpBookmark>,
     /// Kept opaque: these are xterm themes with many optional colour fields,
     /// and nothing in the backend needs to interpret them.
     #[serde(default)]

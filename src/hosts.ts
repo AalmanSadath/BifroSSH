@@ -32,12 +32,13 @@ export function groupNames(servers: Server[]): string[] {
 
 /**
  * Whether the host matches a search box. Case-insensitive, across the
- * things a person remembers a host by: its name, address, user and group.
+ * things a person remembers a host by: its name, address, user, group and
+ * whatever was written in its notes.
  */
 export function matchesHost(server: Server, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (q === '') return true;
-  return [server.name, server.host, server.username ?? '', groupOf(server) ?? '']
+  return [server.name, server.host, server.username ?? '', groupOf(server) ?? '', server.notes ?? '']
     .some((field) => field.toLowerCase().includes(q));
 }
 
