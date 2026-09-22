@@ -6,7 +6,8 @@ import { CHECK_INTERVAL_SECS, fetchLatestRelease, newerVersion, type Release } f
 import { STORED, UNDETECTED_OS, UNKNOWN_OS } from '../types';
 import { restoreOrder, tabsToSave } from '../sessionRestore';
 import { clampZoom } from '../zoom';
-import type { AuthType, Codeprint, SftpBookmark, GeneratedKey, Identity, IdentityInput, JumpHopParams, KeyContent, KeyEntry, LogEntry, PortForwarding, ResolvedTheme, Server, ServerInput, SessionTab, Settings, SettingsSection, SystemAppearance } from '../types';
+import { isStale, type Probed } from '../probe';
+import type { AuthType, Codeprint, ProbeState, SftpBookmark, GeneratedKey, Identity, IdentityInput, JumpHopParams, KeyContent, KeyEntry, LogEntry, PortForwarding, ResolvedTheme, Server, ServerInput, SessionTab, Settings, SettingsSection, SystemAppearance } from '../types';
 import type { NamedTheme } from '../styles/themes';
 
 /**
@@ -254,6 +255,19 @@ interface AppStore {
   settingsSection: SettingsSection;
   /** Shows the settings panel, on the category asked for. */
   openSettings: (section?: SettingsSection) => void;
+
+  /**
+   * The last reachability check per host id, or that one is in flight.
+   * Nothing probes on its own: this fills only when the user asks.
+   */
+  hostProbes: Record<string, ProbeState>;
+  /**
+   * Checks each host that has no fresh result. Hosts reached through a jump
+   * host are marked skipped rather than dialled: that would mean connecting
+   * to the bastion with its credentials, which a reachability check has no
+   * business doing.
+   */
+  probeHosts: (ids: string[], force?: boolean) => Promise<void>;
 
   /** Set when `loadAll` could not read the saved data; see there. */
   loadError: string | null;
@@ -543,7 +557,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     // The retries stop too: a locked vault has no credentials to
     // reconnect with, and every attempt would fail on the way to the
     // attempt limit.
-    set({ servers: [], identities: [], keys: [], portForwardings: [], codeprints: [], retryingTabIds: new Set() }),
+    set({ servers: [], identities: [], keys: [], portForwardings: [], codeprints: [], retryingTabIds: new Set(), hostProbes: {} }),
   actionError: null,
   setActionError: (message) => set({ actionError: message }),
 
@@ -1236,6 +1250,49 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   setActiveTab: (id) => set({ activeTabId: id }),
+
+  hostProbes: {},
+
+  probeHosts: async (ids, force = false) => {
+    const { servers, settings, hostProbes } = get();
+    const now = Date.now();
+    // Asked for by hand means asked again: a fresh result is skipped only
+    // when something else wanted the numbers filled in.
+    const todo = ids.filter((id) =>
+      hostProbes[id] !== 'running' && (force ? hostProbes[id] !== 'skipped' : isStale(hostProbes[id], now)));
+    if (todo.length === 0) return;
+
+    set((s) => {
+      const marked = { ...s.hostProbes };
+      for (const id of todo) marked[id] = 'running';
+      return { hostProbes: marked };
+    });
+
+    const write = (id: string, state: ProbeState) =>
+      set((s) => ({ hostProbes: { ...s.hostProbes, [id]: state } }));
+
+    // A few at a time: a page of hosts that are all down would otherwise
+    // open one socket each and wait out the timeout together.
+    const queue = [...todo];
+    const worker = async () => {
+      for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
+        const server = servers.find((s) => s.id === id);
+        if (!server) continue;
+        if (server.proxy_jump) { write(id, 'skipped'); continue; }
+        try {
+          const probe = await ipc.probeHost(
+            server.host,
+            server.port,
+            server.connection_timeout ?? settings.connection_timeout_secs,
+          );
+          write(id, { ...probe, at: Date.now() } satisfies Probed);
+        } catch (e) {
+          write(id, { reachable: false, ms: 0, error: String(e), at: Date.now() });
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(6, todo.length) }, worker));
+  },
 
   settingsSection: 'appearance',
 

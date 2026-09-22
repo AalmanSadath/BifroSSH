@@ -381,3 +381,8 @@
 }
 
 .host-card:hover .host-card-note { color: var(--text-muted); }
+
+/* The reachability check, shown after the address on the same line. */
+.host-probe { color: var(--text-dim); }
+.host-probe-ok { color: var(--success); }
+.host-probe-bad { color: var(--danger); }

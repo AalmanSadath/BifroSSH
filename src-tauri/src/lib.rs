@@ -215,6 +215,7 @@ fn start(
             commands::forget_known_host,
             commands::convert_ppk,
             commands::detect_server_os,
+            commands::probe_host,
             commands::ssh_connect,
             commands::ssh_connect_quick,
             commands::ssh_send_input,

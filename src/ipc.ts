@@ -26,6 +26,7 @@ import type {
   FileEntry,
   GeneratedKey,
   HostKeyDecision,
+  HostProbe,
   Identity,
   IdentityInput,
   ImportOptions,
@@ -179,6 +180,9 @@ export const getSftpBookmarks = () => invoke<SftpBookmark[]>('get_sftp_bookmarks
 
 export const saveSftpBookmarks = (items: SftpBookmark[]) =>
   invoke<void>('save_sftp_bookmarks', { items });
+
+export const probeHost = (host: string, port: number, timeoutSecs: number) =>
+  invoke<HostProbe>('probe_host', { host, port, timeoutSecs });
 
 export const getOpenTabs = () => invoke<string[]>('get_open_tabs');
 

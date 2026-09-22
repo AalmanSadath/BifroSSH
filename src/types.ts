@@ -184,6 +184,20 @@ export interface GeneratedKey {
   public_openssh: string;
 }
 
+/** What one reachability check found; see `probe_host` in Rust. */
+export interface HostProbe {
+  reachable: boolean;
+  /** Round trip in milliseconds; 0 when it did not answer. */
+  ms: number;
+  error: string | null;
+}
+
+/**
+ * A host's check as the cards see it: in flight, not attempted, or a result
+ * with the time it landed.
+ */
+export type ProbeState = 'running' | 'skipped' | (HostProbe & { at: number });
+
 /** A category of the settings panel, and the rail item that shows it. */
 export type SettingsSection =
   | 'appearance'
