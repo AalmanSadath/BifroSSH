@@ -85,6 +85,36 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.14.3" date="2026-09-23">
+      <description>
+        <p>
+          A codeprint can ask for values before it runs: write
+          {{name}} in the command and a small form fills it in. Codeprints
+          can also be edited now rather than deleted and retyped.
+        </p>
+        <p>
+          Clicking a path in a terminal opens it in the file browser, on
+          that host. Ctrl+K opens a box that finds a host, a tab, a panel,
+          a folder or a codeprint by a few letters.
+        </p>
+        <p>
+          Transfers queue instead of refusing a second drop, each with its
+          own progress and its own stop button. A folder can be copied as
+          one compressed stream, which for a tree of small files is far
+          quicker, in any direction including between two servers.
+        </p>
+        <p>
+          A folder can be bookmarked and reopened in one click. A dropped
+          session now reconnects on its own, keeping its scrollback, until
+          it comes back or you stop it.
+        </p>
+        <p>
+          Hosts can carry notes, shown on the card and searched with the
+          rest. The terminal theme new hosts start from can be set in
+          Settings.
+        </p>
+      </description>
+    </release>
     <release version="0.14.2" date="2026-09-22">
       <description>
         <p>
