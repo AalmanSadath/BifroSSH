@@ -11,7 +11,7 @@ import ContextMenu from './shared/ContextMenu';
 import PermissionsDialog, { type OwnerChange } from './PermissionsDialog';
 import ConflictDialog, { type ConflictAnswer, type ConflictPrompt } from './ConflictDialog';
 import { useDismissOnOutside } from './shared/useDismissOnOutside';
-import { localStyle, resolveTyped, styleFor, type PathStyle } from '../paths';
+import { localStyle, remoteStyle, resolveTyped, styleFor, type PathStyle } from '../paths';
 
 function formatSize(bytes: number, isDir: boolean): string {
   if (isDir) return '- -';
@@ -1010,8 +1010,9 @@ function usePane(initialMode: PaneMode) {
     }
   }
 
-  async function navigateRemote(path: string) {
-    if (!sid) return;
+  async function navigateRemote(path: string, on: string | null = sid) {
+    if (!on) return;
+    const sid = on;
     if (path !== remote.path) setNotice(null);
     setRemote((r) => ({ ...r, loading: true, error: '' }));
     try {
@@ -1049,17 +1050,18 @@ function usePane(initialMode: PaneMode) {
     }
   }
 
-  async function connect(server: Server) {
+  /** Resolves to the session id once the pane is on `server`, or null when it could not get there. */
+  async function connect(server: Server): Promise<string | null> {
     // Resume the session already open for this host rather than making another.
     if (server.id === serverId && sid) {
       setMode('connected');
-      return;
+      return sid;
     }
 
     const resolved = await resolveServerAuth(server, identities);
     if (!resolved) {
       setConnectError(`No authentication configured for "${server.name}". Add a key, password or prompt auth in Hosts settings.`);
-      return;
+      return null;
     }
     const { username, authType, authValue } = resolved;
 
@@ -1096,10 +1098,12 @@ function usePane(initialMode: PaneMode) {
       const home = await ipc.sftpGetHome(newSid);
       const entries = await ipc.sftpListRemote(newSid, home);
       setRemote({ path: home, entries, loading: false, error: '', home });
+      return newSid;
     } catch (e) {
       // Stay on the connecting screen so the log explaining the failure, and
       // the retry button, are both still there.
       setConnectError(String(e));
+      return null;
     } finally {
       // Trailing log lines race the invoke response over the same bridge.
       setTimeout(unlisten, 1000);
@@ -1259,7 +1263,7 @@ function usePane(initialMode: PaneMode) {
     sid, serverId, serverName, disconnected,
     connectingId, connectError, setConnectError, connectServer, connectLogs,
     navigate: (path: string) => (mode === 'local' ? navigateLocal(path) : navigateRemote(path)),
-    refresh, goLocal, connect, disconnect, reconnect,
+    refresh, goLocal, connect, disconnect, reconnect, navigateRemote,
     newFolder, rename, removeMany, setPerms, moveInto, open, fail, say, requireSid,
   };
 }
@@ -1298,12 +1302,43 @@ const closeConnectionActions = (onClose: () => void) => (
 );
 
 export default function SftpPanel() {
-  const { servers } = useAppStore();
+  const { servers, sftpRequest, clearSftpRequest } = useAppStore();
 
   // The left pane starts on the local disk, the right on the host list. That
   // and the eager home fetch below are the only asymmetry between them.
   const left = usePane('local');
   const right = usePane('picking');
+
+  // A path clicked in a terminal. The pane already on that host takes it,
+  // else the right one connects there first. A path that is not a
+  // directory shows its parent; `~` is the home directory.
+  const panesRef = useRef({ left, right });
+  panesRef.current = { left, right };
+  useEffect(() => {
+    if (!sftpRequest) return;
+    const server = servers.find((s) => s.id === sftpRequest.serverId);
+    if (!server) { clearSftpRequest(); return; }
+    const { left, right } = panesRef.current;
+    const pane = left.serverId === server.id && left.sid ? left : right;
+    let cancelled = false;
+    (async () => {
+      const sid = await pane.connect(server);
+      if (!sid || cancelled) return;
+      let path = sftpRequest.path;
+      if (path === '~' || path.startsWith('~/')) {
+        const home = await ipc.sftpGetHome(sid).catch(() => null);
+        if (!home) return;
+        path = home + path.slice(1);
+      }
+      // A file, or a path that is not there: land in its parent instead.
+      const isDir = await ipc.sftpListRemote(sid, path).then(() => true, () => false);
+      const target = isDir ? path : (remoteStyle.parent(path) ?? '/');
+      if (!cancelled) await pane.navigateRemote(target, sid);
+    })().finally(() => { if (!cancelled) clearSftpRequest(); });
+    return () => { cancelled = true; };
+  // The panes are read through the ref on purpose: a request is one event.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sftpRequest]);
 
   const [dropTarget, setDropTarget] = useState<'left' | 'right' | null>(null);
   const [transferring, setTransferring] = useState(false);

@@ -226,6 +226,15 @@ interface AppStore {
   loadError: string | null;
   loadAll: () => Promise<void>;
 
+  /**
+   * A place the SFTP panel has been asked to show: set by a click on a
+   * path in a terminal, cleared by the panel once it is there. The nonce
+   * makes two clicks on the same path two requests.
+   */
+  sftpRequest: { serverId: string; path: string; nonce: number } | null;
+  openInSftp: (serverId: string, path: string) => void;
+  clearSftpRequest: () => void;
+
   /** A release newer than this build, once a check has found one. */
   updateAvailable: Release | null;
   /**
@@ -606,6 +615,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
     cacheAppTheme(resolveAppTheme(settings.app_theme, get().systemAppearance));
     set({ settings });
   },
+
+  sftpRequest: null,
+  openInSftp: (serverId, path) => {
+    set({ sftpRequest: { serverId, path, nonce: Date.now() }, activeTabId: 'sftp' });
+  },
+  clearSftpRequest: () => set({ sftpRequest: null }),
 
   updateAvailable: null,
 

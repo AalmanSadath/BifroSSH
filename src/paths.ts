@@ -182,3 +182,35 @@ export function resolveTyped(
   }
   return resolved;
 }
+
+/** One path found in a line of terminal output; offsets are 0-based columns. */
+export interface FoundPath {
+  start: number;
+  /** One past the last character. */
+  end: number;
+  text: string;
+}
+
+/**
+ * Absolute and `~/` paths in one line of output, for the terminal to turn
+ * into links. Only those: with no idea of the shell's working directory a
+ * relative path cannot be resolved, so it is left as text.
+ *
+ * A path ends at whitespace or at a character no path in a listing or an
+ * error message carries. Compilers print `file:line:col`, so a colon ends
+ * the path and what follows it is dropped; a trailing dot or comma is
+ * prose, not the path.
+ */
+export function findPaths(line: string): FoundPath[] {
+  const found: FoundPath[] = [];
+  const re = /(?<![\w.~/\\:-])(~?\/[^\s'"`:;,()<>|]+)/g;
+  for (const m of line.matchAll(re)) {
+    let text = m[1];
+    // A bare "/" or "~/" names the root, but every "/" in output is not a
+    // path; a link needs at least one segment.
+    text = text.replace(/[.,]+$/, '');
+    if (text === '/' || text === '~/' || text.endsWith('/') && text.length < 3) continue;
+    found.push({ start: m.index, end: m.index + text.length, text });
+  }
+  return found;
+}

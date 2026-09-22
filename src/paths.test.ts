@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { localStyle, posix, resolveTyped, setLocalPlatform, styleFor, windows } from './paths';
+import { findPaths, localStyle, posix, resolveTyped, setLocalPlatform, styleFor, windows } from './paths';
 
 afterEach(() => setLocalPlatform('linux'));
 
@@ -161,5 +161,28 @@ describe('a typed path', () => {
     expect(resolveTyped('\\\\server\\share\\dir', 'C:\\', h, windows)).toBe('\\\\server\\share\\dir');
     expect(resolveTyped('Documents', 'C:\\Users\\a', h, windows)).toBe('C:\\Users\\a\\Documents');
     expect(resolveTyped('~\\Documents', 'C:\\', h, windows)).toBe('C:\\Users\\a\\Documents');
+  });
+});
+
+describe('findPaths', () => {
+  const texts = (line: string) => findPaths(line).map((p) => p.text);
+
+  it('finds absolute and home paths and skips relative ones', () => {
+    expect(texts('ls -d /etc /var/log ~/.ssh src/main.rs')).toEqual(['/etc', '/var/log', '~/.ssh']);
+  });
+
+  it('drops the trailing prose and the compiler position', () => {
+    expect(texts('see /var/log/syslog.')).toEqual(['/var/log/syslog']);
+    expect(texts('error: /src/main.rs:12:5: oops')).toEqual(['/src/main.rs']);
+    expect(texts('(/tmp/x), "/tmp/y"')).toEqual(['/tmp/x', '/tmp/y']);
+  });
+
+  it('is not fooled by a slash inside a word or a URL', () => {
+    expect(texts('a/b http://x/y 4/5')).toEqual([]);
+    expect(texts('/')).toEqual([]);
+  });
+
+  it('reports where the path sits on the line', () => {
+    expect(findPaths('cd /opt/app now')).toEqual([{ start: 3, end: 11, text: '/opt/app' }]);
   });
 });

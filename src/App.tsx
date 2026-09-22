@@ -81,7 +81,7 @@ function parseSSHInput(input: string): { user: string; host: string; port: numbe
 export default function App() {
   const {
     loadAll, loadError, actionError, setActionError, sessions, activeTabId, setActiveTab, removeSession,
-    renameSession, toggleBroadcast, toggleLogging, splitGroup, splitWith, unsplit, openSession, quickConnect, servers, settings, keys,
+    renameSession, toggleBroadcast, openInSftp, toggleLogging, splitGroup, splitWith, unsplit, openSession, quickConnect, servers, settings, keys,
     systemAppearance, setSystemAppearance, clearForLock,
   } = useAppStore();
 
@@ -704,6 +704,12 @@ export default function App() {
               <button className="menu-item" onClick={() => setTabCtx({ ...tabCtx, mode: 'rename' })}>
                 Rename
               </button>
+              {/* A quick connection has no saved host for the SFTP panel to open. */}
+              {!tabCtx.session.quick_info && (
+                <button className="menu-item" onClick={() => { openInSftp(tabCtx.session.server_id, '~'); setTabCtx(null); }}>
+                  Open in SFTP
+                </button>
+              )}
               <button className="menu-item" onClick={() => { toggleBroadcast(tabCtx.session.tab_id); setTabCtx(null); }}>
                 {tabCtx.session.broadcast ? '✓ ' : ''}Broadcast input
               </button>
