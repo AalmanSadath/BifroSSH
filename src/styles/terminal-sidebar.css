@@ -179,6 +179,29 @@
 }
 .term-sidebar-cp-del:hover { color: var(--danger); background: var(--bg-hover); }
 
+/* The pencil in the card's top right corner, shown on hover with the
+   other actions. The name row is padded on the right so it never sits
+   under it. */
+.term-sidebar-cp-edit {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: none;
+  border: none;
+  border-radius: 3px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.term-sidebar-cp-edit:hover { color: var(--text-primary); background: var(--bg-hover); }
+
+.term-sidebar-cp-name { padding-right: 22px; }
+
 .term-sidebar-theme-list {
   gap: 0;
   padding: 4px;
