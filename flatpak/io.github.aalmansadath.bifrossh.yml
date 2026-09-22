@@ -32,6 +32,10 @@ finish-args:
   # WebKitGTK: disable internal sandbox and compositing in Flatpak
   - --env=WEBKIT_DISABLE_SANDBOX=1
   - --env=WEBKIT_DISABLE_COMPOSITING_MODE=1
+  # WebKitGTK's DMA-BUF renderer dies with "Error 71 (Protocol error)
+  # dispatching to Wayland display" on some GPU and compositor pairs, and
+  # the window never appears. The fallback path draws the same pixels.
+  - --env=WEBKIT_DISABLE_DMABUF_RENDERER=1
 
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/node22/bin
