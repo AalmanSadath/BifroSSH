@@ -85,6 +85,37 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.14.2" date="2026-09-22">
+      <description>
+        <p>
+          Hosts can be put in groups, and the hosts page sections its cards
+          by them with a filter box that matches name, address, user and
+          group. A host can carry one command that is typed into the shell
+          the moment it is up.
+        </p>
+        <p>
+          The file browser shows who owns each file, by name where the
+          server can say, and the permissions dialog can change the owner
+          and group.
+        </p>
+        <p>
+          Once a day BifroSSH asks GitHub whether a newer release exists
+          and says so in the sidebar. Off by a switch in Settings.
+        </p>
+        <p>
+          Tunnels that drop are reported on their card, and one that starts
+          on its own is brought back. A transfer asks before writing over a
+          file that is already there. Typed input can be sent to several
+          tabs at once, a tab can be dropped onto another to see both side
+          by side, a session can be logged to a file, and typing in the
+          file browser filters the list.
+        </p>
+        <p>
+          The Flatpak no longer crashes at launch on machines where
+          WebKitGTK's DMA-BUF renderer fails against the Wayland display.
+        </p>
+      </description>
+    </release>
     <release version="0.14.1" date="2026-09-22">
       <description>
         <p>
