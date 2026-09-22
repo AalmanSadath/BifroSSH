@@ -5,7 +5,8 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useAppStore, buildJumpChain, resolveServerAuth } from '../store/appStore';
 import OsIcon from './OsIcon';
 import { matchesHost } from '../hosts';
-import type { Conflict, EditEvent, FileEntry, LogEntry, Server, TransferKind, TransferProgress, TransferSummary } from '../types';
+import type { Conflict, EditEvent, FileEntry, LogEntry, Server, SftpBookmark, TransferKind, TransferProgress, TransferSummary } from '../types';
+import { bookmarksFor, isBookmarked, labelFor } from '../bookmarks';
 import {
   cancel as cancelItem, clearFinished, enqueue, finished, nextToRun, progressed, prune, start,
   type QueueItem,
@@ -106,6 +107,15 @@ interface FileBrowserProps {
   onDragLeave?: () => void;
   onFileDrop?: (entries: FileEntry[], fromSide: 'left' | 'right') => void;
   onReconnect?: () => void;
+  /** This pane's saved directories, already narrowed to it. */
+  bookmarks?: SftpBookmark[];
+  /** Whether the directory on screen is one of them. */
+  bookmarked?: boolean;
+  /** Saves or unsaves the directory on screen. */
+  onToggleBookmark?: () => void;
+  onDeleteBookmark?: (id: string) => void;
+  /** Saves a directory the user right-clicked rather than the open one. */
+  onBookmarkPath?: (path: string) => void;
   /** How to take this pane's paths apart: POSIX remotely, native locally. */
   pathStyle: PathStyle;
 }
@@ -113,6 +123,7 @@ interface FileBrowserProps {
 function FileBrowser({ title, icon, path, home, entries, loading, error, notice, onDismissNotice, onNavigate,
   onRefresh, onNewFolder, extraActions, onLocalBtn,
   canCopyToTarget, onCopyToTarget, onRename, onDelete, onSetMode, onOpen, onMove,
+  bookmarks, bookmarked, onToggleBookmark, onDeleteBookmark, onBookmarkPath,
   side, isDropTarget, onDragEnter: onDragEnterCb, onDragLeave: onDragLeaveCb, onFileDrop, onReconnect,
   pathStyle,
 }: FileBrowserProps) {
@@ -149,6 +160,8 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
   const [reconnecting, setReconnecting] = useState(false);
   const tableRef = useRef<HTMLTableElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [bookmarksOpen, setBookmarksOpen] = useState(false);
+  const bookmarksRef = useRef<HTMLDivElement>(null);
   const newFolderInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const dragCountRef = useRef(0);
@@ -196,6 +209,7 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
   }, [onReconnect]);
 
   useDismissOnOutside(dropdownRef, dropdownOpen, () => setDropdownOpen(false));
+  useDismissOnOutside(bookmarksRef, bookmarksOpen, () => setBookmarksOpen(false));
 
   function handleNewFolderClick() {
     setDropdownOpen(false);
@@ -498,6 +512,54 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
           </div>
         )}
         <div className="sftp-panel-actions">
+          {/* Saved directories for this pane: the star saves or unsaves the
+              one on screen, the caret lists the rest. */}
+          {onToggleBookmark && (
+            <>
+              <button
+                className={`sftp-action-btn sftp-star-btn${bookmarked ? ' sftp-star-on' : ''}`}
+                onClick={onToggleBookmark}
+                title={hint(bookmarked ? 'Remove this folder from bookmarks' : 'Bookmark this folder')}
+              >
+                {bookmarked ? '★' : '☆'}
+              </button>
+              <div className="sftp-dropdown-wrap" ref={bookmarksRef}>
+                <button
+                  className="sftp-action-btn"
+                  onClick={() => setBookmarksOpen((o) => !o)}
+                  title={hint('Saved folders')}
+                >
+                  Bookmarks ▾
+                </button>
+                {bookmarksOpen && (
+                  <div className="sftp-dropdown-menu">
+                    {(bookmarks ?? []).length === 0 && (
+                      <div className="sftp-bookmark-empty">No bookmarks for this side yet.</div>
+                    )}
+                    {(bookmarks ?? []).map((b) => (
+                      <div className="sftp-bookmark-row" key={b.id}>
+                        <button
+                          className="menu-item sftp-bookmark-go"
+                          title={b.path}
+                          onClick={() => { setBookmarksOpen(false); onNavigate(b.path); }}
+                        >
+                          <span className="sftp-bookmark-label">{b.label}</span>
+                          <span className="sftp-bookmark-path">{b.path}</span>
+                        </button>
+                        <button
+                          className="sftp-bookmark-del"
+                          title={hint('Remove')}
+                          onClick={() => onDeleteBookmark?.(b.id)}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
           {onReconnect && (
             reconnecting
               ? <span className="sftp-reconnecting-text">Reconnecting…</span>
@@ -725,6 +787,11 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
               {canCopyToTarget && (
                 <button className="menu-item" onClick={() => { onCopyToTarget?.(batchFor(contextMenu.entry!)); setContextMenu(null); }}>
                   Copy to Target
+                </button>
+              )}
+              {contextMenu.entry.is_dir && contextMenu.entry.name !== '..' && onBookmarkPath && (
+                <button className="menu-item" onClick={() => { onBookmarkPath(contextMenu.entry!.path); setContextMenu(null); }}>
+                  Bookmark this folder
                 </button>
               )}
               <button className="menu-item" onClick={() => handleRenameClick(contextMenu.entry!)}>
@@ -1377,7 +1444,23 @@ function QueueRow({ row, onCancel }: { row: QueueItem; onCancel: () => void }) {
 }
 
 export default function SftpPanel() {
-  const { servers, sftpRequest, clearSftpRequest } = useAppStore();
+  const { servers, sftpRequest, clearSftpRequest, sftpBookmarks, addBookmark, deleteBookmark } = useAppStore();
+
+  /** Which list a pane's bookmarks come from: its host, or the local disk. */
+  const bookmarkKey = (pane: Pane) => (pane.mode === 'local' ? null : pane.serverId);
+
+  /**
+   * The star, and the row menu's entry. `always` is the row menu, where
+   * the answer is only ever "save this one", never "unsave the one I am
+   * looking at".
+   */
+  function toggleBookmark(pane: Pane, path: string, always = false) {
+    const key = bookmarkKey(pane);
+    if (key === undefined) return;
+    const existing = bookmarksFor(sftpBookmarks, key).find((b) => b.path === path);
+    if (existing && !always) deleteBookmark(existing.id);
+    else if (!existing) addBookmark({ server_id: key, label: labelFor(path, pane.style), path });
+  }
 
   // The left pane starts on the local disk, the right on the host list. That
   // and the eager home fetch below are the only asymmetry between them.
@@ -1715,6 +1798,11 @@ export default function SftpPanel() {
         extraActions={closeConnectionActions(
           pane.mode === 'local' ? () => pane.setMode('idle') : pane.disconnect,
         )}
+        bookmarks={bookmarksFor(sftpBookmarks, bookmarkKey(pane))}
+        bookmarked={isBookmarked(sftpBookmarks, bookmarkKey(pane), pane.listing.path)}
+        onToggleBookmark={pane.mode === 'connected' || pane.mode === 'local' ? () => toggleBookmark(pane, pane.listing.path) : undefined}
+        onDeleteBookmark={deleteBookmark}
+        onBookmarkPath={(path) => toggleBookmark(pane, path, true)}
         side={side}
         isDropTarget={dropTarget === side}
         onDragEnter={() => setDropTarget(side)}

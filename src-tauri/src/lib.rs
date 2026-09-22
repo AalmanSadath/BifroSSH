@@ -193,6 +193,8 @@ fn start(
             commands::save_port_forwardings,
             commands::get_codeprints,
             commands::save_codeprints,
+            commands::get_sftp_bookmarks,
+            commands::save_sftp_bookmarks,
             commands::get_custom_themes,
             commands::save_custom_themes,
             commands::vault_status,

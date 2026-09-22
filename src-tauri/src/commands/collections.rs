@@ -43,6 +43,21 @@ pub async fn save_codeprints(
 }
 
 #[tauri::command]
+pub async fn get_sftp_bookmarks(state: State<'_, AppState>) -> CmdResult<Vec<SftpBookmark>> {
+    Ok(state.data.lock().await.sftp_bookmarks.clone())
+}
+
+#[tauri::command]
+pub async fn save_sftp_bookmarks(
+    state: State<'_, AppState>,
+    items: Vec<SftpBookmark>,
+) -> CmdResult<()> {
+    let mut data = state.data.lock().await;
+    data.sftp_bookmarks = items;
+    state.save(&data)
+}
+
+#[tauri::command]
 pub async fn get_custom_themes(
     state: State<'_, AppState>,
 ) -> CmdResult<std::collections::HashMap<String, serde_json::Value>> {

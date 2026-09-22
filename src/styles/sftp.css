@@ -1006,3 +1006,66 @@
 }
 
 .sftp-picker-search input { width: 100%; }
+
+/* ── Bookmarks ─────────────────────────────────────────────── */
+
+.sftp-star-btn {
+  padding: 3px 7px;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.sftp-star-on { color: var(--accent); border-color: var(--accent); }
+
+.sftp-bookmark-row {
+  display: flex;
+  align-items: stretch;
+}
+
+.sftp-bookmark-go {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.sftp-bookmark-label {
+  flex-shrink: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sftp-bookmark-path {
+  flex: 1;
+  min-width: 0;
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.sftp-bookmark-del {
+  flex-shrink: 0;
+  padding: 0 9px;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.sftp-bookmark-del:hover { color: var(--danger); background: var(--bg-hover); }
+
+.sftp-bookmark-empty {
+  padding: 8px 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}

@@ -333,6 +333,19 @@ pub struct Codeprint {
     pub command: String,
 }
 
+/// A directory the user wants back in one click, on a host or on this
+/// machine.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SftpBookmark {
+    pub id: String,
+    /// The host it belongs to; `None` is the local pane, whose paths mean
+    /// nothing on a server.
+    #[serde(default)]
+    pub server_id: Option<String>,
+    pub label: String,
+    pub path: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppData {
     pub servers: Vec<Server>,
@@ -343,6 +356,8 @@ pub struct AppData {
     pub port_forwardings: Vec<PortForwarding>,
     #[serde(default)]
     pub codeprints: Vec<Codeprint>,
+    #[serde(default)]
+    pub sftp_bookmarks: Vec<SftpBookmark>,
     /// Kept opaque: these are xterm themes with many optional colour fields,
     /// and nothing in the backend needs to interpret them.
     #[serde(default)]

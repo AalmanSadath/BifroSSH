@@ -61,6 +61,15 @@ export interface Server {
   run_on_connect: string | null;
 }
 
+/** A directory saved for one click in the SFTP panel. */
+export interface SftpBookmark {
+  id: string;
+  /** The host it belongs to; null is the local pane. */
+  server_id: string | null;
+  label: string;
+  path: string;
+}
+
 /** Payload of the `sftp-progress` event, emitted as bytes move. */
 export interface TransferProgress {
   /** The id the panel gave the transfer when it queued it. */

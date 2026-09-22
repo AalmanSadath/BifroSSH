@@ -4,7 +4,7 @@ import * as ipc from '../ipc';
 import { getVersion } from '@tauri-apps/api/app';
 import { CHECK_INTERVAL_SECS, fetchLatestRelease, newerVersion, type Release } from '../updates';
 import { STORED, UNDETECTED_OS, UNKNOWN_OS } from '../types';
-import type { AuthType, Codeprint, GeneratedKey, Identity, IdentityInput, JumpHopParams, KeyContent, KeyEntry, LogEntry, PortForwarding, ResolvedTheme, Server, ServerInput, SessionTab, Settings, SystemAppearance } from '../types';
+import type { AuthType, Codeprint, SftpBookmark, GeneratedKey, Identity, IdentityInput, JumpHopParams, KeyContent, KeyEntry, LogEntry, PortForwarding, ResolvedTheme, Server, ServerInput, SessionTab, Settings, SystemAppearance } from '../types';
 import type { NamedTheme } from '../styles/themes';
 
 /**
@@ -307,6 +307,11 @@ interface AppStore {
   autostartTunnels: (trigger: AutostartTrigger) => Promise<void>;
 
   codeprints: Codeprint[];
+  /** Directories saved for one click in the SFTP panel. */
+  sftpBookmarks: SftpBookmark[];
+  addBookmark: (bookmark: Omit<SftpBookmark, 'id'>) => void;
+  deleteBookmark: (id: string) => void;
+
   addCodeprint: (cp: Omit<Codeprint, 'id'>) => void;
   updateCodeprint: (id: string, cp: Omit<Codeprint, 'id'>) => void;
   deleteCodeprint: (id: string) => void;
@@ -513,7 +518,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   // truth, and being able to ask again.
   loadAll: async () => {
     try {
-      const [servers, identities, keys, settings, portForwardings, codeprints, customThemes] =
+      const [servers, identities, keys, settings, portForwardings, codeprints, customThemes, sftpBookmarks] =
         await Promise.all([
           ipc.listServers(),
           ipc.listIdentities(),
@@ -522,6 +527,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
           ipc.getPortForwardings(),
           ipc.getCodeprints(),
           ipc.getCustomThemes(),
+          ipc.getSftpBookmarks(),
         ]);
 
       cacheAppTheme(resolveAppTheme(settings.app_theme, get().systemAppearance));
@@ -535,7 +541,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         console.error('Could not migrate saved data out of localStorage', e);
       }
 
-      set({ servers, identities, keys, settings, ...collections, loadError: null });
+      set({ servers, identities, keys, settings, sftpBookmarks, ...collections, loadError: null });
       get().autostartTunnels({ kind: 'launch' });
       get().checkForUpdates();
     } catch (e) {
@@ -786,6 +792,28 @@ export const useAppStore = create<AppStore>((set, get) => ({
       }
     };
     attempt(RETRY_FIRST_MS);
+  },
+
+  sftpBookmarks: [],
+
+  addBookmark: (bookmark) => {
+    set((s) => {
+      // The same directory saved twice is one bookmark, not two.
+      if (s.sftpBookmarks.some((b) => (b.server_id ?? null) === (bookmark.server_id ?? null) && b.path === bookmark.path)) {
+        return s;
+      }
+      const next = [...s.sftpBookmarks, { id: crypto.randomUUID(), ...bookmark }];
+      persist(() => ipc.saveSftpBookmarks(next));
+      return { sftpBookmarks: next };
+    });
+  },
+
+  deleteBookmark: (id) => {
+    set((s) => {
+      const next = s.sftpBookmarks.filter((b) => b.id !== id);
+      persist(() => ipc.saveSftpBookmarks(next));
+      return { sftpBookmarks: next };
+    });
   },
 
   addCodeprint: (cp) => {

@@ -39,6 +39,7 @@ import type {
   PortForwarding,
   QuickConnectRequest,
   Server,
+  SftpBookmark,
   ServerInput,
   Settings,
   SshConfigImportResult,
@@ -173,6 +174,11 @@ export const getCodeprints = () => invoke<Codeprint[]>('get_codeprints');
 
 export const saveCodeprints = (items: Codeprint[]) =>
   invoke<void>('save_codeprints', { items });
+
+export const getSftpBookmarks = () => invoke<SftpBookmark[]>('get_sftp_bookmarks');
+
+export const saveSftpBookmarks = (items: SftpBookmark[]) =>
+  invoke<void>('save_sftp_bookmarks', { items });
 
 export const getCustomThemes = () =>
   invoke<Record<string, NamedTheme>>('get_custom_themes');
