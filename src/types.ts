@@ -197,6 +197,10 @@ export interface Settings {
   scrollback_lines: number;
   /** Where session logs go; null is the app's own logs folder. */
   session_log_dir: string | null;
+  /** Ask GitHub once a day whether a newer release exists. */
+  check_for_updates: boolean;
+  /** When the last check ran, epoch seconds; 0 for never. */
+  last_update_check: number;
 }
 
 /** How the user chose to keep the master key on the first run screen. */

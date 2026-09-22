@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { listen } from '@tauri-apps/api/event';
 import * as ipc from '../ipc';
+import { getVersion } from '@tauri-apps/api/app';
+import { CHECK_INTERVAL_SECS, fetchLatestRelease, newerVersion, type Release } from '../updates';
 import { STORED, UNDETECTED_OS, UNKNOWN_OS } from '../types';
 import type { AuthType, Codeprint, GeneratedKey, Identity, IdentityInput, JumpHopParams, KeyContent, KeyEntry, LogEntry, PortForwarding, ResolvedTheme, Server, ServerInput, SessionTab, Settings, SystemAppearance } from '../types';
 import type { NamedTheme } from '../styles/themes';
@@ -153,6 +155,8 @@ const DEFAULT_SETTINGS: Settings = {
   lock_on_suspend: true,
   scrollback_lines: 10000,
   session_log_dir: null,
+  check_for_updates: true,
+  last_update_check: 0,
   accent_color: null,
 };
 
@@ -221,6 +225,15 @@ interface AppStore {
   /** Set when `loadAll` could not read the saved data; see there. */
   loadError: string | null;
   loadAll: () => Promise<void>;
+
+  /** A release newer than this build, once a check has found one. */
+  updateAvailable: Release | null;
+  /**
+   * Asks GitHub for the latest release. Once a day and only when the
+   * setting allows, unless forced from the Settings page. Resolves to
+   * whether the check ran; never throws.
+   */
+  checkForUpdates: (force?: boolean) => Promise<boolean>;
   /**
    * What a lock does to this side. The backend has dropped its data; this
    * drops the copies. Settings stay, because the unlock screen is drawn from
@@ -491,6 +504,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
       set({ servers, identities, keys, settings, ...collections, loadError: null });
       get().autostartTunnels({ kind: 'launch' });
+      get().checkForUpdates();
     } catch (e) {
       console.error('Could not load saved data', e);
       set({ loadError: String(e) });
@@ -591,6 +605,24 @@ export const useAppStore = create<AppStore>((set, get) => ({
     await ipc.saveSettings(settings);
     cacheAppTheme(resolveAppTheme(settings.app_theme, get().systemAppearance));
     set({ settings });
+  },
+
+  updateAvailable: null,
+
+  checkForUpdates: async (force = false) => {
+    const { settings } = get();
+    const now = Math.floor(Date.now() / 1000);
+    if (!force) {
+      if (!settings.check_for_updates) return false;
+      if (now - settings.last_update_check < CHECK_INTERVAL_SECS) return false;
+    }
+    const [latest, current] = await Promise.all([fetchLatestRelease(), getVersion().catch(() => '')]);
+    if (!latest) return false;
+    set({ updateAvailable: newerVersion(current, latest.version) ? latest : null });
+    // The stamp is written through saveSettings so it survives a restart;
+    // a failure to write it only means one extra check tomorrow.
+    await get().saveSettings({ ...get().settings, last_update_check: now }).catch(() => {});
+    return true;
   },
 
   saveCustomTheme: (id, theme) => {

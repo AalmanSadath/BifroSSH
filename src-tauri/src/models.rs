@@ -244,6 +244,13 @@ pub struct Settings {
     /// Where session logs are written; None is `<data dir>/logs`.
     #[serde(default)]
     pub session_log_dir: Option<String>,
+    /// Ask GitHub once a day whether a newer release exists. On by default;
+    /// the check is one anonymous GET of the releases endpoint.
+    #[serde(default = "Settings::default_check_for_updates")]
+    pub check_for_updates: bool,
+    /// When the last check ran, epoch seconds; 0 for never.
+    #[serde(default)]
+    pub last_update_check: u64,
 }
 
 impl Default for Settings {
@@ -265,11 +272,14 @@ impl Default for Settings {
             lock_on_suspend: true,
             scrollback_lines: 10_000,
             session_log_dir: None,
+            check_for_updates: true,
+            last_update_check: 0,
         }
     }
 }
 
 impl Settings {
+    fn default_check_for_updates() -> bool { true }
     fn default_connection_timeout() -> u32 { 60 }
     fn default_show_hover_hints() -> bool { true }
     fn default_sftp_inactivity_timeout() -> u32 { 300 }

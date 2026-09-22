@@ -228,6 +228,36 @@
   border-top: 1px solid var(--border);
 }
 
+/* News of a release, above Settings. */
+.sidebar-update {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--success) 45%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  color: var(--text-primary);
+  font-size: 12px;
+  text-align: left;
+}
+
+.sidebar-update:hover {
+  background: color-mix(in srgb, var(--success) 22%, transparent);
+}
+
+/* The collapsed rail has no room for words, so the dot rides the cog. */
+.sidebar-collapsed .nav-btn {
+  position: relative;
+}
+
+.sidebar-update-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+}
+
 .sidebar-collapsed .nav-btn {
   justify-content: center;
   padding: 7px;
