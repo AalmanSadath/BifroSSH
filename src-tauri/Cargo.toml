@@ -39,6 +39,9 @@ cbc = "0.1"
 argon2 = "0.5"
 
 [target.'cfg(unix)'.dependencies]
+# getpwuid_r and friends, for the owner column of a local listing. Already
+# in the tree several times over.
+libc = "0.2"
 zbus = { version = "5", default-features = false, features = ["blocking-api", "tokio"] }
 
 # DPAPI for the wrapping key, the registry for the system theme and accent,

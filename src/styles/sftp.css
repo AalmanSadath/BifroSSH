@@ -810,6 +810,31 @@
   padding: 3px 6px;
 }
 
+.sftp-owner-cell {
+  font-family: monospace;
+}
+
+/* Owner and group boxes, under the octal one. Same look, wider, since a
+   name is longer than four digits. */
+.sftp-perms-owner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -8px 0 16px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.sftp-perms-owner input {
+  width: 100px;
+  font-family: monospace;
+  background: var(--bg-mid);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-primary);
+  padding: 3px 6px;
+}
+
 .sftp-perms-octal-input-error {
   border-color: var(--danger) !important;
 }

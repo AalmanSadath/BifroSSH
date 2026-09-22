@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseOctal, toOctal } from './PermissionsDialog';
+import { ownerChange, parseOctal, splitOwner, toOctal } from './PermissionsDialog';
 
 describe('parseOctal', () => {
   it('reads a plain three digit mode', () => {
@@ -45,5 +45,27 @@ describe('toOctal', () => {
     for (const mode of [0o644, 0o755, 0o600, 0o1777, 0]) {
       expect(parseOctal(toOctal(mode))).toBe(mode);
     }
+  });
+});
+
+describe('splitOwner', () => {
+  it('splits user:group and copes with neither', () => {
+    expect(splitOwner('pi:sudo')).toEqual({ user: 'pi', group: 'sudo' });
+    expect(splitOwner('1000:1000')).toEqual({ user: '1000', group: '1000' });
+    expect(splitOwner('')).toEqual({ user: '', group: '' });
+  });
+});
+
+describe('ownerChange', () => {
+  const initial = { user: 'pi', group: 'pi' };
+
+  it('is null when nothing changed, including a box wiped blank', () => {
+    expect(ownerChange(initial, 'pi', 'pi')).toBeNull();
+    expect(ownerChange(initial, ' pi ', '')).toBeNull();
+  });
+
+  it('carries both names when either changed', () => {
+    expect(ownerChange(initial, 'pi', 'sudo')).toEqual({ user: 'pi', group: 'sudo' });
+    expect(ownerChange(initial, 'root', '')).toEqual({ user: 'root', group: 'pi' });
   });
 });

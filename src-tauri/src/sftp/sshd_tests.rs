@@ -11,7 +11,7 @@
 
 use super::*;
 use super::listing::list_remote;
-use super::ops::{delete_remote, mkdir, rename_remote, set_mode_remote};
+use super::ops::{delete_remote, mkdir, rename_remote, set_mode_remote, set_owner_remote};
 use super::edit::{watch, EditEvent};
 use super::transfer::{conflicts, download_path, upload_path, upload_quiet, Conflict, Silent};
 
@@ -297,6 +297,33 @@ async fn setting_the_mode_touches_only_the_mode() {
     assert_eq!(std::fs::read(&path).unwrap(), b"hello world", "contents must survive a chmod");
     use std::os::unix::fs::PermissionsExt;
     assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+}
+
+/// The server's own passwd gives the listing its names, and a chown by
+/// name goes through the same table. The running user chowning to itself
+/// is the one chown that needs no privilege, and it must leave the bytes
+/// alone; a name the server does not know must be refused before any
+/// setstat, since the alternative is a setstat with a made-up id.
+#[tokio::test]
+async fn owners_list_by_name_and_chown_goes_through_the_same_names() {
+    let Some((server, state)) = rig("chown", None).await else { return };
+    let root = server.scratch("chown");
+    let path = root.join("f.txt");
+    std::fs::write(&path, b"hello world").unwrap();
+
+    let me = super::owners::local_owner(unsafe { libc::getuid() }, unsafe { libc::getgid() });
+    let (user, group) = me.split_once(':').unwrap();
+
+    let entries = list_remote(&state, "s", &root.to_string_lossy()).await.unwrap();
+    let f = entries.iter().find(|e| e.name == "f.txt").unwrap();
+    assert_eq!(f.owner, me, "the server's /etc/passwd names the running user");
+    assert_eq!(f.uid, Some(unsafe { libc::getuid() }));
+
+    set_owner_remote(&state, "s", &path.to_string_lossy(), user, group).await.unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), b"hello world", "contents must survive a chown");
+
+    let e = set_owner_remote(&state, "s", &path.to_string_lossy(), "no-such-user-bifrossh", group).await.unwrap_err();
+    assert!(e.to_string().contains("No such user"), "{e:#}");
 }
 
 /// Three answers to a file that is already there, and the question that

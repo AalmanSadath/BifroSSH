@@ -362,6 +362,13 @@ export const sftpSetModeLocal = (path: string, mode: number) =>
 export const sftpSetModeRemote = (sessionId: string, path: string, mode: number) =>
   invoke<void>('sftp_set_mode_remote', { sessionId, path, mode });
 
+/** chown by name; a number is taken as itself. */
+export const sftpSetOwnerLocal = (path: string, user: string, group: string) =>
+  invoke<void>('sftp_set_owner_local', { path, user, group });
+
+export const sftpSetOwnerRemote = (sessionId: string, path: string, user: string, group: string) =>
+  invoke<void>('sftp_set_owner_remote', { sessionId, path, user, group });
+
 // ── tunnels ──────────────────────────────────────────────────────────────
 
 /**

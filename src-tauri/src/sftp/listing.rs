@@ -118,6 +118,9 @@ pub fn list_local(path: &str) -> Result<Vec<FileEntry>> {
                 modified: None,
                 permissions: String::new(),
                 mode: None,
+                uid: None,
+                gid: None,
+                owner: String::new(),
                 kind: "folder".into(),
                 hidden: false,
                 symlink: false,
@@ -152,19 +155,21 @@ pub fn list_local(path: &str) -> Result<Vec<FileEntry>> {
             .map(|d| d.as_secs());
 
         #[cfg(unix)]
-        let (mode, permissions) = {
-            use std::os::unix::fs::PermissionsExt;
+        let (mode, permissions, uid, gid, owner) = {
+            use std::os::unix::fs::{MetadataExt, PermissionsExt};
             let full = meta.permissions().mode();
-            (Some(full & 0o7777), format_mode(full))
+            let (uid, gid) = (meta.uid(), meta.gid());
+            (Some(full & 0o7777), format_mode(full), Some(uid), Some(gid), super::owners::local_owner(uid, gid))
         };
         #[cfg(not(unix))]
-        let (mode, permissions): (Option<u32>, String) = (None, String::new());
+        let (mode, permissions, uid, gid, owner): (Option<u32>, String, Option<u32>, Option<u32>, String) =
+            (None, String::new(), None, None, String::new());
 
         let kind = file_kind(&name, is_dir);
         let file_path = path_obj.join(&name).to_string_lossy().into_owned();
 
         let hidden = is_hidden(&name, &link_meta);
-        entries.push(FileEntry { name, path: file_path, is_dir, size, modified, permissions, mode, kind, hidden, symlink });
+        entries.push(FileEntry { name, path: file_path, is_dir, size, modified, permissions, mode, uid, gid, owner, kind, hidden, symlink });
     }
 
     if entries.len() > 1 {
@@ -195,6 +200,7 @@ pub async fn list_remote(
     let sftp = sftp_arc.lock().await;
 
     let dir_entries = sftp.read_dir(path).await?;
+    let names = super::owners::remote_names(&sftp_state.names, session_id, &sftp).await;
 
     let mut entries: Vec<FileEntry> = Vec::new();
 
@@ -207,6 +213,9 @@ pub async fn list_remote(
             modified: None,
             permissions: String::new(),
             mode: None,
+            uid: None,
+            gid: None,
+            owner: String::new(),
             kind: "folder".into(),
             hidden: false,
             symlink: false,
@@ -244,7 +253,9 @@ pub async fn list_remote(
         let kind = file_kind(&name, is_dir);
 
         let hidden = name.starts_with('.');
-        entries.push(FileEntry { name, path: file_path, is_dir, size, modified, permissions, mode: mode.map(|m| m & 0o7777), kind, hidden, symlink });
+        let (uid, gid) = (meta.uid, meta.gid);
+        let owner = names.owner(uid, gid);
+        entries.push(FileEntry { name, path: file_path, is_dir, size, modified, permissions, mode: mode.map(|m| m & 0o7777), uid, gid, owner, kind, hidden, symlink });
     }
 
     if entries.len() > 1 {

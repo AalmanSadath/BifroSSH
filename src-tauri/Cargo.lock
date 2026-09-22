@@ -309,6 +309,7 @@ dependencies = [
  "dirs 5.0.1",
  "gtk",
  "hmac",
+ "libc",
  "rand",
  "russh",
  "russh-keys",

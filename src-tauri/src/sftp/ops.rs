@@ -98,6 +98,43 @@ pub async fn set_mode_remote(
     sftp.set_metadata(path, attrs).await.with_context(|| path.to_string())
 }
 
+/// chown by name. Both names are turned into numbers through the server's
+/// own passwd and group before anything is sent, so a name the server does
+/// not know is refused here rather than by a setstat that would have done
+/// something else.
+pub async fn set_owner_remote(
+    sftp_state: &SftpClientState,
+    session_id: &str,
+    path: &str,
+    user: &str,
+    group: &str,
+) -> Result<()> {
+    let sftp_arc = get_session(sftp_state, session_id).await?;
+    let sftp = sftp_arc.lock().await;
+    let names = super::owners::remote_names(&sftp_state.names, session_id, &sftp).await;
+    let (uid, gid) = super::owners::resolve(&names, user, group)?;
+    // `empty()` for the same reason as in set_mode_remote.
+    let attrs = FileAttributes {
+        uid: Some(uid),
+        gid: Some(gid),
+        ..FileAttributes::empty()
+    };
+    sftp.set_metadata(path, attrs).await.with_context(|| path.to_string())
+}
+
+pub fn set_owner_local(path: &str, user: &str, group: &str) -> Result<()> {
+    #[cfg(unix)]
+    {
+        let (uid, gid) = super::owners::local_ids(user, group)?;
+        std::os::unix::fs::chown(path, Some(uid), Some(gid)).with_context(|| path.to_string())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (path, user, group);
+        Err(anyhow::anyhow!("This filesystem has no Unix owner to set"))
+    }
+}
+
 pub fn set_mode_local(path: &str, mode: u32) -> Result<()> {
     #[cfg(unix)]
     {

@@ -429,6 +429,11 @@ export interface FileEntry {
    * where there is no POSIX mode to set, and for `..`.
    */
   mode: number | null;
+  /** Numeric owner and group; null where the listing has none, as with mode. */
+  uid: number | null;
+  gid: number | null;
+  /** `user:group`, names where the server's passwd knows them, else numbers. Empty when unknown. */
+  owner: string;
   kind: string;
   /**
    * Decided by the backend, not from the name. A leading dot is a naming
