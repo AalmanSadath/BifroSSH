@@ -2,6 +2,80 @@
  * The settings panel: its category rail, and the shortcut editor's rows.
  */
 
+/* ── Category rail ─────────────────────────────────────────── */
+
+/* Wider than the 680px every other panel is capped at: the rail takes a
+   column of its own, and the controls should not lose one. */
+.settings-panel {
+  max-width: 900px;
+}
+
+.settings-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.settings-rail {
+  position: sticky;
+  top: 0;
+  flex-shrink: 0;
+  width: 150px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-rail-item {
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+
+.settings-rail-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.settings-rail-item.active {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.settings-body {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The first heading of a category sits level with the first rail item. */
+.settings-body > .panel-section:first-child,
+.settings-body > *:first-child > .panel-section:first-child {
+  margin-top: 0;
+}
+
+/* Narrow windows: the rail becomes a row of chips above the controls. */
+@media (max-width: 720px) {
+  .settings-layout {
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .settings-rail {
+    position: static;
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}
+
 /* ── Keyboard shortcuts ────────────────────────────────────── */
 
 .shortcut-group + .shortcut-group {

@@ -5,7 +5,7 @@ import { getVersion } from '@tauri-apps/api/app';
 import { CHECK_INTERVAL_SECS, fetchLatestRelease, newerVersion, type Release } from '../updates';
 import { STORED, UNDETECTED_OS, UNKNOWN_OS } from '../types';
 import { restoreOrder, tabsToSave } from '../sessionRestore';
-import type { AuthType, Codeprint, SftpBookmark, GeneratedKey, Identity, IdentityInput, JumpHopParams, KeyContent, KeyEntry, LogEntry, PortForwarding, ResolvedTheme, Server, ServerInput, SessionTab, Settings, SystemAppearance } from '../types';
+import type { AuthType, Codeprint, SftpBookmark, GeneratedKey, Identity, IdentityInput, JumpHopParams, KeyContent, KeyEntry, LogEntry, PortForwarding, ResolvedTheme, Server, ServerInput, SessionTab, Settings, SettingsSection, SystemAppearance } from '../types';
 import type { NamedTheme } from '../styles/themes';
 
 /**
@@ -245,6 +245,14 @@ interface AppStore {
   /** What the desktop reports about its own theme and accent. */
   systemAppearance: SystemAppearance;
   setSystemAppearance: (appearance: SystemAppearance) => void;
+
+  /**
+   * Which category the settings panel is showing. In the store rather than
+   * in the panel so the palette and the panel's own links can open one.
+   */
+  settingsSection: SettingsSection;
+  /** Shows the settings panel, on the category asked for. */
+  openSettings: (section?: SettingsSection) => void;
 
   /** Set when `loadAll` could not read the saved data; see there. */
   loadError: string | null;
@@ -1199,6 +1207,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   setActiveTab: (id) => set({ activeTabId: id }),
+
+  settingsSection: 'appearance',
+
+  openSettings: (section) =>
+    set((s) => ({
+      activeTabId: 'settings',
+      settingsSection: section ?? s.settingsSection,
+    })),
 
   splitWith: (anchorTabId, droppedTabId) =>
     set((s) => {

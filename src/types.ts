@@ -184,6 +184,16 @@ export interface GeneratedKey {
   public_openssh: string;
 }
 
+/** A category of the settings panel, and the rail item that shows it. */
+export type SettingsSection =
+  | 'appearance'
+  | 'terminal'
+  | 'shortcuts'
+  | 'connection'
+  | 'security'
+  | 'data'
+  | 'about';
+
 export interface Settings {
   theme: string;
   font_size: number;
