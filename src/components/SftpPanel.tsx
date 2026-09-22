@@ -4,10 +4,11 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useAppStore, buildJumpChain, resolveServerAuth } from '../store/appStore';
 import OsIcon from './OsIcon';
+import { matchesHost } from '../hosts';
 import type { Conflict, EditEvent, FileEntry, LogEntry, Server, TransferProgress, TransferSummary } from '../types';
 import ConnectingView from './ConnectingView';
 import ContextMenu from './shared/ContextMenu';
-import PermissionsDialog from './PermissionsDialog';
+import PermissionsDialog, { type OwnerChange } from './PermissionsDialog';
 import ConflictDialog, { type ConflictAnswer, type ConflictPrompt } from './ConflictDialog';
 import { useDismissOnOutside } from './shared/useDismissOnOutside';
 import { localStyle, resolveTyped, styleFor, type PathStyle } from '../paths';
@@ -49,9 +50,9 @@ function FileIcon({ size = 16 }: { size?: number }) {
   );
 }
 
-const HEADERS = ['Name', 'Date Modified', 'Size', 'Type'] as const;
+const HEADERS = ['Name', 'Date Modified', 'Size', 'Owner', 'Type'] as const;
 type SortCol = typeof HEADERS[number];
-const DEFAULT_COL_WIDTHS = [44, 26, 12, 18];
+const DEFAULT_COL_WIDTHS = [38, 22, 10, 14, 16];
 
 /**
  * A message over the list. An error is painted so it looks like one; a
@@ -90,7 +91,7 @@ interface FileBrowserProps {
   onCopyToTarget?: (entries: FileEntry[]) => void;
   onRename?: (entry: FileEntry, newName: string) => void;
   onDelete?: (entries: FileEntry[]) => void;
-  onSetMode?: (entries: FileEntry[], mode: number) => void;
+  onSetMode?: (entries: FileEntry[], mode: number, owner: OwnerChange | null) => void;
   /** A file, double-clicked or chosen from the menu. */
   onOpen?: (entry: FileEntry) => void;
   /** A same-pane drop onto a directory row. */
@@ -267,6 +268,7 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
         if (sortCol === 'Name') cmp = a.name.localeCompare(b.name);
         else if (sortCol === 'Date Modified') cmp = (a.modified ?? 0) - (b.modified ?? 0);
         else if (sortCol === 'Size') cmp = a.size - b.size;
+        else if (sortCol === 'Owner') cmp = a.owner.localeCompare(b.owner);
         else if (sortCol === 'Type') cmp = a.kind.localeCompare(b.kind);
         return sortAsc ? cmp : -cmp;
       });
@@ -628,7 +630,7 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
           <tbody>
             {newFolderName !== null && (
               <tr className="sftp-row">
-                <td colSpan={4}>
+                <td colSpan={HEADERS.length}>
                   <div className="sftp-name-cell">
                     <FolderIcon />
                     <input
@@ -645,9 +647,9 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
               </tr>
             )}
             {loading && entries.length === 0 ? (
-              <tr><td colSpan={4} className="sftp-status-cell">Loading…</td></tr>
+              <tr><td colSpan={HEADERS.length} className="sftp-status-cell">Loading…</td></tr>
             ) : error ? (
-              <tr><td colSpan={4} className="sftp-status-cell sftp-cell-error">{error}</td></tr>
+              <tr><td colSpan={HEADERS.length} className="sftp-status-cell sftp-cell-error">{error}</td></tr>
             ) : visible.map((entry, idx) => (
               <tr
                 key={entry.path}
@@ -692,6 +694,7 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
                 </td>
                 <td>{formatDate(entry.modified)}</td>
                 <td>{formatSize(entry.size, entry.is_dir)}</td>
+                <td className="sftp-owner-cell" title={entry.owner}>{entry.owner}</td>
                 <td>{entry.kind}</td>
               </tr>
             ))}
@@ -793,7 +796,7 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
         <PermissionsDialog
           entries={permEntries}
           onCancel={() => setPermEntries(null)}
-          onApply={(mode) => { onSetMode?.(permEntries, mode); setPermEntries(null); }}
+          onApply={(mode, owner) => { onSetMode?.(permEntries, mode, owner); setPermEntries(null); }}
         />
       )}
     </>
@@ -852,6 +855,8 @@ interface HostPickerProps {
 function HostPicker({ servers, connectingId, activeServerId, error, onConnect, onBack, onGoLocal }: HostPickerProps) {
   const { settings, identities } = useAppStore();
   const hint = (t: string) => settings.show_hover_hints ? t : undefined;
+  const [query, setQuery] = useState('');
+  const shown = servers.filter((s) => matchesHost(s, query));
   return (
     <div className="sftp-host-picker" onContextMenu={(e) => e.preventDefault()}>
       <div className="sftp-picker-header">
@@ -872,10 +877,24 @@ function HostPicker({ servers, connectingId, activeServerId, error, onConnect, o
         )}
       </div>
       {error && <div className="sftp-picker-error">{error}</div>}
+      {servers.length > 0 && (
+        <div className="sftp-picker-search">
+          <input
+            type="text"
+            placeholder="Filter by name, host, user or group"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            spellCheck={false}
+            autoFocus
+          />
+        </div>
+      )}
       <div className="sftp-picker-list">
         {servers.length === 0 ? (
           <div className="sftp-picker-empty">No hosts configured. Add one in Hosts.</div>
-        ) : servers.map((s) => (
+        ) : shown.length === 0 ? (
+          <div className="sftp-picker-empty">No hosts match.</div>
+        ) : shown.map((s) => (
           <div
             key={s.id}
             className={`sftp-picker-item${connectingId === s.id ? ' sftp-picker-connecting' : ''}${activeServerId === s.id ? ' sftp-picker-has-session' : ''}`}
@@ -1205,14 +1224,18 @@ function usePane(initialMode: PaneMode) {
     }
   }
 
-  async function setPerms(batch: FileEntry[], newMode: number) {
+  async function setPerms(batch: FileEntry[], newMode: number, owner: OwnerChange | null) {
     try {
       // The first failure stops the batch, same as removeMany: what came
       // before it is changed, what came after it is not, and the refresh
-      // below shows exactly that.
+      // below shows exactly that. The mode goes first: a chown that is
+      // refused still leaves the mode the user asked for.
       for (const entry of batch) {
         if (mode === 'local') await ipc.sftpSetModeLocal(entry.path, newMode);
         else await ipc.sftpSetModeRemote(requireSid(), entry.path, newMode);
+        if (!owner) continue;
+        if (mode === 'local') await ipc.sftpSetOwnerLocal(entry.path, owner.user, owner.group);
+        else await ipc.sftpSetOwnerRemote(requireSid(), entry.path, owner.user, owner.group);
       }
     } catch (e) {
       fail(String(e));

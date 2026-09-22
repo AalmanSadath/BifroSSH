@@ -241,6 +241,8 @@ fn start(
             commands::sftp_open_remote,
             commands::sftp_set_mode_local,
             commands::sftp_set_mode_remote,
+            commands::sftp_set_owner_local,
+            commands::sftp_set_owner_remote,
             commands::tunnel_start,
             commands::tunnel_stop,
         ])

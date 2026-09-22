@@ -19,9 +19,37 @@ const ROWS: { label: string; read: number; write: number; exec: number }[] = [
   { label: 'Others', read: 0o004, write: 0o002, exec: 0o001 },
 ];
 
+/** A chown asked for alongside the chmod; null when the boxes were left alone. */
+export interface OwnerChange {
+  user: string;
+  group: string;
+}
+
+/**
+ * The owner the boxes start from: the first entry's, split in two. Empty
+ * where the listing had none to show, which is a Windows local pane.
+ */
+export function splitOwner(owner: string): OwnerChange {
+  const cut = owner.indexOf(':');
+  if (cut < 0) return { user: owner, group: '' };
+  return { user: owner.slice(0, cut), group: owner.slice(cut + 1) };
+}
+
+/**
+ * What to send for the owner boxes: null when both still read what they
+ * started as, so an unchanged dialog does not chown at all. A box wiped
+ * blank counts as unchanged too, since there is nothing to send.
+ */
+export function ownerChange(initial: OwnerChange, user: string, group: string): OwnerChange | null {
+  const u = user.trim() || initial.user;
+  const g = group.trim() || initial.group;
+  if (u === initial.user && g === initial.group) return null;
+  return { user: u, group: g };
+}
+
 interface Props {
   entries: FileEntry[];
-  onApply: (mode: number) => void;
+  onApply: (mode: number, owner: OwnerChange | null) => void;
   onCancel: () => void;
 }
 
@@ -38,6 +66,11 @@ export default function PermissionsDialog({ entries, onApply, onCancel }: Props)
   const [mode, setMode] = useState(entries[0]?.mode ?? 0o644);
   const [octalText, setOctalText] = useState(toOctal(entries[0]?.mode ?? 0o644));
   const [octalError, setOctalError] = useState(false);
+  const initialOwner = splitOwner(entries[0]?.owner ?? '');
+  const [user, setUser] = useState(initialOwner.user);
+  const [group, setGroup] = useState(initialOwner.group);
+  // No owner to show means no owner to set: a Windows local listing.
+  const canChown = entries[0]?.owner !== '' && entries[0]?.owner !== undefined;
 
   function setBit(bit: number, on: boolean) {
     const next = on ? mode | bit : mode & ~bit;
@@ -109,12 +142,33 @@ export default function PermissionsDialog({ entries, onApply, onCancel }: Props)
           />
         </div>
 
+        {canChown && (
+          <div className="sftp-perms-owner" title="Giving a file away usually needs root; changing its group to one you belong to does not.">
+            <label htmlFor="sftp-perms-user-input">Owner</label>
+            <input
+              id="sftp-perms-user-input"
+              value={user}
+              onChange={(e) => setUser(e.target.value)}
+              spellCheck={false}
+              autoComplete="off"
+            />
+            <label htmlFor="sftp-perms-group-input">Group</label>
+            <input
+              id="sftp-perms-group-input"
+              value={group}
+              onChange={(e) => setGroup(e.target.value)}
+              spellCheck={false}
+              autoComplete="off"
+            />
+          </div>
+        )}
+
         <div className="sftp-confirm-actions">
           <button className="sftp-action-btn" onClick={onCancel}>Cancel</button>
           <button
             className="sftp-action-btn sftp-perms-apply-btn"
             disabled={octalError}
-            onClick={() => onApply(mode)}
+            onClick={() => onApply(mode, canChown ? ownerChange(initialOwner, user, group) : null)}
           >
             Apply
           </button>

@@ -462,6 +462,8 @@ pub struct SshConnectParams {
     pub forward_agent: bool,
     /// A log already open, so the banner and motd are in it too.
     pub log: Option<std::fs::File>,
+    /// One line typed into the shell for the user as soon as it is up.
+    pub run_on_connect: Option<String>,
 }
 
 /// russh sends a keepalive every interval and gives up after `keepalive_max`
@@ -637,6 +639,17 @@ pub async fn connect_ssh(
         .map_err(|_| anyhow!("Shell request failed"))?;
 
     emit_log(&app, &connect_id, "auth", "Shell ready — connected");
+
+    // Written to the PTY now, before the shell has necessarily read its
+    // first byte; the line queues in the tty and lands after the motd, the
+    // way a fast typist's would.
+    if let Some(cmd) = params.run_on_connect.as_deref() {
+        emit_log(&app, &connect_id, "auth", "Sending the startup command");
+        channel
+            .data(format!("{cmd}\n").as_bytes())
+            .await
+            .map_err(|_| anyhow!("Startup command failed to send"))?;
+    }
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<SshCommand>(256);
     let attach = Arc::new(Mutex::new(Attach::default()));

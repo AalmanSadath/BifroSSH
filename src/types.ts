@@ -55,6 +55,10 @@ export interface Server {
   forward_agent: boolean;
   /** Every session to this host is logged to a file from its first byte. */
   log_sessions: boolean;
+  /** Hosts are sectioned by this on the hosts page. Null or empty: no group. */
+  group: string | null;
+  /** One line sent to the shell as if typed, the moment the shell is up. */
+  run_on_connect: string | null;
 }
 
 /** Payload of the `sftp-progress` event, emitted as bytes move. */
@@ -193,6 +197,10 @@ export interface Settings {
   scrollback_lines: number;
   /** Where session logs go; null is the app's own logs folder. */
   session_log_dir: string | null;
+  /** Ask GitHub once a day whether a newer release exists. */
+  check_for_updates: boolean;
+  /** When the last check ran, epoch seconds; 0 for never. */
+  last_update_check: number;
 }
 
 /** How the user chose to keep the master key on the first run screen. */
@@ -425,6 +433,11 @@ export interface FileEntry {
    * where there is no POSIX mode to set, and for `..`.
    */
   mode: number | null;
+  /** Numeric owner and group; null where the listing has none, as with mode. */
+  uid: number | null;
+  gid: number | null;
+  /** `user:group`, names where the server's passwd knows them, else numbers. Empty when unknown. */
+  owner: string;
   kind: string;
   /**
    * Decided by the backend, not from the name. A leading dot is a naming

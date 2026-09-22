@@ -1,11 +1,12 @@
 import { useState } from 'react';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { useAppStore } from '../store/appStore';
 
 
 const PANELS = ['hosts', 'sftp', 'keychain', 'knownhosts', 'portforwarding', 'settings', 'theme-editor'];
 
 export default function Sidebar() {
-  const { activeTabId, setActiveTab, settings } = useAppStore();
+  const { activeTabId, setActiveTab, settings, updateAvailable } = useAppStore();
   const [collapsed, setCollapsed] = useState(false);
   const hint = (t: string) => settings.show_hover_hints ? t : undefined;
 
@@ -110,6 +111,19 @@ export default function Sidebar() {
         </div>
       </nav>
       <nav className="sidebar-nav-bottom">
+        {/* Expanded: a pill naming the version, which opens the release
+            page. Collapsed: a dot on the Settings button, where the same
+            news is spelled out under About. */}
+        {updateAvailable && !collapsed && (
+          <button
+            className="sidebar-update"
+            onClick={() => openUrl(updateAvailable.url).catch(() => {})}
+            title={hint('Open the release page')}
+          >
+            <span className="dot dot-on" />
+            v{updateAvailable.version} available
+          </button>
+        )}
         <button
           className={`nav-btn ${activePanel === 'theme-editor' ? 'active' : ''}`}
           onClick={() => setActiveTab('theme-editor')}
@@ -138,6 +152,7 @@ export default function Sidebar() {
             </svg>
           </span>
           {!collapsed && 'Settings'}
+          {updateAvailable && collapsed && <span className="dot dot-on sidebar-update-dot" />}
         </button>
       </nav>
     </aside>

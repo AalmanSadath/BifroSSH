@@ -102,6 +102,7 @@ async fn connect_sftp_inner(
 
 pub async fn disconnect_sftp(sftp_state: &SftpClientState, session_id: &str) {
     let removed = sftp_state.sessions.lock().await.remove(session_id);
+    sftp_state.names.lock().await.remove(session_id);
     if let Some(sftp_arc) = removed {
         if let Ok(sftp) = sftp_arc.try_lock() {
             let _ = sftp.close().await;

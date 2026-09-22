@@ -245,3 +245,19 @@ pub async fn sftp_set_mode_remote(
 ) -> CmdResult<()> {
     crate::sftp::set_mode_remote(&state.sftp_state, &session_id, &path, mode).await.map_err(CmdError::from)
 }
+
+#[tauri::command]
+pub fn sftp_set_owner_local(path: String, user: String, group: String) -> CmdResult<()> {
+    crate::sftp::set_owner_local(&path, &user, &group).map_err(CmdError::from)
+}
+
+#[tauri::command]
+pub async fn sftp_set_owner_remote(
+    state: State<'_, AppState>,
+    session_id: String,
+    path: String,
+    user: String,
+    group: String,
+) -> CmdResult<()> {
+    crate::sftp::set_owner_remote(&state.sftp_state, &session_id, &path, &user, &group).await.map_err(CmdError::from)
+}

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import * as ipc from '../ipc';
 import { useAppStore, reportFailure } from '../store/appStore';
+import { UNGROUPED, groupNames, groupOf, hostSections } from '../hosts';
 import type { Server } from '../types';
 import ServerForm from './ServerForm';
 import SshConfigImport from './SshConfigImport';
@@ -17,8 +18,20 @@ export default function HostsPanel() {
   const [editServer, setEditServer] = useState<Server | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ kind: 'server'; x: number; y: number; server: Server } | { kind: 'panel'; x: number; y: number } | null>(null);
+  const [query, setQuery] = useState('');
+  const [groupFilter, setGroupFilter] = useState<string | null>(null);
 
   const connectedIds = new Set(sessions.map((s) => s.server_id));
+  const groups = groupNames(servers);
+  const anyUngrouped = servers.some((s) => groupOf(s) === null);
+  // A chip for a group that was renamed or emptied would keep the page
+  // blank, so a filter that no longer names a group is dropped.
+  const activeFilter = groupFilter !== null && (groups.includes(groupFilter) || (groupFilter === UNGROUPED && anyUngrouped))
+    ? groupFilter : null;
+  const sections = hostSections(servers, query, activeFilter);
+  const chips = groups.length > 0
+    ? [null, ...groups, ...(anyUngrouped ? [UNGROUPED] : [])]
+    : [];
 
   async function handleDoubleClick(server: Server) {
     const existing = sessions.find((s) => s.server_id === server.id && s.status === 'connected');
@@ -45,7 +58,31 @@ export default function HostsPanel() {
           <button className="btn-secondary btn-sm" onClick={() => setShowSshImport(true)}>
             Import from ssh config
           </button>
+          {servers.length > 0 && (
+            <input
+              className="hosts-search"
+              type="text"
+              placeholder="Filter by name, host, user or group"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              spellCheck={false}
+            />
+          )}
         </div>
+
+        {chips.length > 0 && (
+          <div className="hosts-chips">
+            {chips.map((chip) => (
+              <button
+                key={chip ?? ''}
+                className={`hosts-chip${activeFilter === chip ? ' active' : ''}`}
+                onClick={() => setGroupFilter(chip)}
+              >
+                {chip ?? 'All'}
+              </button>
+            ))}
+          </div>
+        )}
 
         {servers.length === 0 ? (
           <div className="hosts-empty">
@@ -54,48 +91,59 @@ export default function HostsPanel() {
               Add your first host
             </button>
           </div>
-        ) : (
-          <div className="hosts-grid">
-            {servers.map((server) => {
-              const connected = connectedIds.has(server.id);
-              const isConnecting = sessions.some((s) => s.server_id === server.id && s.status === 'connecting');
-              return (
-                <div
-                  key={server.id}
-                  className="host-card"
-                  {...cardKeys(() => handleDoubleClick(server))}
-                  onDoubleClick={() => handleDoubleClick(server)}
-                  onContextMenu={(e) => handleContextMenu(e, server)}
-                  title={settings.show_hover_hints ? 'Double-click to connect · Right-click for options' : undefined}
-                >
-                  <div className="host-card-icon">
-                    <OsIcon os={server.os} size={28} />
-                  </div>
-                  <div className="host-card-info">
-                    <div className="host-card-name-row">
-                      {/* The dot is the whole status. Spelling it out underneath
-                          gave the connected card a third line and made it taller
-                          than the others in its row. */}
-                      <span
-                        className={`dot ${isConnecting ? 'dot-connecting' : connected ? 'dot-on' : 'dot-off'}`}
-                        title={isConnecting ? 'Connecting…' : connected ? 'Connected' : 'Not connected'}
-                      />
-                      <span className="card-title">{server.name}</span>
-                    </div>
-                    <span className="card-sub">{server.host}:{server.port}</span>
-                  </div>
-                  <button
-                    className="host-card-edit-btn"
-                    onClick={(e) => { e.stopPropagation(); setEditServer(server); setShowServerForm(true); }}
-                    title={settings.show_hover_hints ? 'Edit host' : undefined}
-                  >
-                    <EditIcon size={16} />
-                  </button>
-                </div>
-              );
-            })}
+        ) : sections.length === 0 ? (
+          <div className="hosts-empty">
+            <p>No hosts match.</p>
           </div>
-        )}
+        ) : sections.map((section) => (
+          <div key={section.group ?? ''} className="hosts-section">
+            {/* One nameless section, when nothing is grouped, needs no title:
+                the page then looks as it did before groups existed. */}
+            {(section.group !== null || groups.length > 0) && (
+              <div className="hosts-group-title">{section.group ?? UNGROUPED}</div>
+            )}
+            <div className="hosts-grid">
+              {section.servers.map((server) => {
+                const connected = connectedIds.has(server.id);
+                const isConnecting = sessions.some((s) => s.server_id === server.id && s.status === 'connecting');
+                return (
+                  <div
+                    key={server.id}
+                    className="host-card"
+                    {...cardKeys(() => handleDoubleClick(server))}
+                    onDoubleClick={() => handleDoubleClick(server)}
+                    onContextMenu={(e) => handleContextMenu(e, server)}
+                    title={settings.show_hover_hints ? 'Double-click to connect · Right-click for options' : undefined}
+                  >
+                    <div className="host-card-icon">
+                      <OsIcon os={server.os} size={28} />
+                    </div>
+                    <div className="host-card-info">
+                      <div className="host-card-name-row">
+                        {/* The dot is the whole status. Spelling it out underneath
+                            gave the connected card a third line and made it taller
+                            than the others in its row. */}
+                        <span
+                          className={`dot ${isConnecting ? 'dot-connecting' : connected ? 'dot-on' : 'dot-off'}`}
+                          title={isConnecting ? 'Connecting…' : connected ? 'Connected' : 'Not connected'}
+                        />
+                        <span className="card-title">{server.name}</span>
+                      </div>
+                      <span className="card-sub">{server.host}:{server.port}</span>
+                    </div>
+                    <button
+                      className="host-card-edit-btn"
+                      onClick={(e) => { e.stopPropagation(); setEditServer(server); setShowServerForm(true); }}
+                      title={settings.show_hover_hints ? 'Edit host' : undefined}
+                    >
+                      <EditIcon size={16} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
 
       {contextMenu && (

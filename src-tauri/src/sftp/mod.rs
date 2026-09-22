@@ -17,6 +17,7 @@ use russh_sftp::client::SftpSession;
 mod edit;
 mod listing;
 mod ops;
+mod owners;
 mod session;
 mod transfer;
 #[cfg(all(test, unix))]
@@ -26,7 +27,7 @@ pub use edit::{open_local, open_remote};
 pub use listing::{get_local_home, get_remote_home, list_local, list_remote};
 pub use ops::{
     create_local_dir, delete_local, delete_remote, mkdir, rename_local, rename_remote,
-    set_mode_local, set_mode_remote,
+    set_mode_local, set_mode_remote, set_owner_local, set_owner_remote,
 };
 pub use session::{connect_sftp, disconnect_sftp, probe_remote};
 pub use transfer::{conflicts_for, copy_remote_path, download_path, upload_path, Conflict, Pairing};
@@ -118,6 +119,13 @@ pub struct FileEntry {
     /// `None` on a Windows local listing, where there is no POSIX mode to
     /// show, and for `..`, which is not a file the user can chmod.
     pub mode: Option<u32>,
+    /// Numeric owner and group, `None` where the listing has none to give:
+    /// a Windows local listing, `..`, or a server that sent no ids.
+    pub uid: Option<u32>,
+    pub gid: Option<u32>,
+    /// `user:group` for display, names where known and numbers where not.
+    /// Empty when the ids are.
+    pub owner: String,
     pub kind: String,
     /// Kept out of the listing unless the panel is asked for hidden files.
     ///
@@ -141,6 +149,9 @@ pub struct SftpClientState {
     /// transfer at a time: the drop targets are suppressed while one is
     /// running, so there is never a second to tell apart from the first.
     cancel: Arc<AtomicBool>,
+    /// Each server's user and group names, read on first use and dropped
+    /// with the session. See `owners`.
+    names: Mutex<HashMap<String, Arc<owners::IdNames>>>,
 }
 
 impl SftpClientState {
@@ -148,6 +159,7 @@ impl SftpClientState {
         Self {
             sessions: Mutex::new(HashMap::new()),
             cancel: Arc::new(AtomicBool::new(false)),
+            names: Mutex::new(HashMap::new()),
         }
     }
 
