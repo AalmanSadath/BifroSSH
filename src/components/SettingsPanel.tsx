@@ -6,6 +6,7 @@ import PortalDropdown from './shared/PortalDropdown';
 import * as ipc from '../ipc';
 import NumberSetting from './shared/NumberSetting';
 import MasterKeySection from './MasterKeySection';
+import ShortcutsSection from './settings/ShortcutsSection';
 import ExportDataModal from './ExportDataModal';
 import ImportDataModal from './ImportDataModal';
 import { useAppStore, reportFailure } from '../store/appStore';
@@ -375,6 +376,8 @@ export default function SettingsPanel() {
           session. Empty means the app's own data folder.
         </p>
       </section>
+
+      <ShortcutsSection />
 
       <section className="panel-section">
         <h3>Host keys</h3>

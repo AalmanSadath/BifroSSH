@@ -7,6 +7,7 @@ import { setLocalPlatform } from './paths';
 import { useIdleLock } from './hooks/useIdleLock';
 import type { AuthPromptEvent, Codeprint, HostKeyPromptEvent, SessionTab, SystemAppearance, TunnelClosed, VaultStatus } from './types';
 import { fill } from './snippets';
+import { WINDOW_ACTIONS, actionFor, resolve as resolveShortcuts } from './shortcuts';
 import CommandPalette from './components/CommandPalette';
 import SnippetPromptModal from './components/SnippetPromptModal';
 import HostKeyPrompt from './components/HostKeyPrompt';
@@ -179,22 +180,6 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Ctrl+Shift+L. The terminal passes every Ctrl+Shift chord but F, C and V
-  // through, and the file list's Ctrl+L has no shift, so nothing else wants
-  // this. Capture phase so no handler below can take it first.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.shiftKey && e.code === 'KeyL') {
-        e.preventDefault();
-        e.stopPropagation();
-        void lockNow();
-      }
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   useIdleLock(vault && !vault.locked ? settings.auto_lock_minutes : 0, () => { void lockNow(); });
 
   // Host key prompts are emitted globally rather than per-connect, so this one
@@ -327,65 +312,68 @@ export default function App() {
   const tabsRef = useRef({ sessions, activeTabId });
   tabsRef.current = { sessions, activeTabId };
 
+  // Same reason: the bindings change while the listener stays the one that
+  // was bound on the first render.
+  const shortcutsRef = useRef(resolveShortcuts(settings.shortcuts));
+  shortcutsRef.current = resolveShortcuts(settings.shortcuts);
+
   /**
-   * Tab keys. Cycling is over session tabs only, in strip order, wrapping;
-   * from a fixed tab, next lands on the first session and previous on the
-   * last. Capture phase on the window, and the event is stopped there, not
-   * just defaulted: xterm's key handler does not look at defaultPrevented,
-   * and let through it turned Ctrl+PageUp into the shell receiving "5~".
+   * Every window-level shortcut, bindings from the settings.
    *
-   * Ctrl+W is left alone: it is readline's delete-word, and every shell
-   * wants it. Ctrl+Shift+W is what GNOME Terminal uses for the same reason.
+   * Capture phase, and the event is stopped there rather than only
+   * defaulted: xterm's key handler does not look at defaultPrevented, and
+   * let through, Ctrl+PageUp turned into the shell receiving "5~". The
+   * terminal's own three chords are matched in TerminalView, after this
+   * handler has had its turn, so a chord bound in both places acts here.
+   *
+   * Tab cycling is over session tabs only, in strip order, wrapping; from a
+   * fixed tab, next lands on the first session and previous on the last.
    */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!e.ctrlKey || e.altKey || e.metaKey) return;
+      const action = actionFor(e, shortcutsRef.current, WINDOW_ACTIONS);
+      if (action === null) return;
       const { sessions: tabs, activeTabId: active } = tabsRef.current;
       const idx = tabs.findIndex((t) => t.tab_id === active);
+      // The tab from the ref, not from closeTab and friends: those read the
+      // sessions of the render they were made in, and this listener was
+      // made once.
+      const current = idx >= 0 ? tabs[idx] : undefined;
+      e.preventDefault();
+      e.stopPropagation();
 
-      const next = e.code === 'Tab' && !e.shiftKey || e.code === 'PageDown';
-      const prev = e.code === 'Tab' && e.shiftKey || e.code === 'PageUp';
-      if (next || prev) {
-        e.preventDefault();
-        e.stopPropagation();
-        if (tabs.length === 0) return;
-        const target = idx < 0
-          ? (next ? 0 : tabs.length - 1)
-          : (idx + (next ? 1 : tabs.length - 1)) % tabs.length;
-        setActiveTab(tabs[target].tab_id);
-        return;
-      }
-      if (e.code === 'KeyK' && !e.shiftKey) {
-        e.preventDefault();
-        e.stopPropagation();
-        setPaletteOpen((open) => !open);
-        return;
-      }
-
-      if (e.shiftKey && e.code === 'KeyT') {
-        e.preventDefault();
-        e.stopPropagation();
-        const current = idx >= 0 ? tabs[idx] : undefined;
-        // A quick connection has no host record to open again.
-        if (current && current.server_id) openSession(current.server_id);
-        return;
-      }
-      if (e.shiftKey && e.code === 'KeyB') {
-        e.preventDefault();
-        e.stopPropagation();
-        if (idx >= 0) toggleBroadcast(tabs[idx].tab_id);
-        return;
-      }
-      if (e.shiftKey && e.code === 'KeyW') {
-        e.preventDefault();
-        e.stopPropagation();
-        // Not closeTab: that reads `sessions` from the render it was made
-        // in, and this listener was made once. The tab from the ref is the
-        // live one.
-        const current = idx >= 0 ? tabs[idx] : undefined;
-        if (!current) return;
-        if (current.session_id) ipc.sshDisconnect(current.session_id).catch(() => {});
-        removeSession(current.tab_id);
+      switch (action) {
+        case 'next-tab':
+        case 'prev-tab': {
+          if (tabs.length === 0) return;
+          const next = action === 'next-tab';
+          const target = idx < 0
+            ? (next ? 0 : tabs.length - 1)
+            : (idx + (next ? 1 : tabs.length - 1)) % tabs.length;
+          setActiveTab(tabs[target].tab_id);
+          return;
+        }
+        case 'palette':
+          setPaletteOpen((open) => !open);
+          return;
+        case 'lock-vault':
+          void lockNow();
+          return;
+        case 'duplicate-tab':
+          // A quick connection has no host record to open again.
+          if (current && current.server_id) openSession(current.server_id);
+          return;
+        case 'toggle-broadcast':
+          if (current) toggleBroadcast(current.tab_id);
+          return;
+        case 'close-tab':
+          if (!current) return;
+          if (current.session_id) ipc.sshDisconnect(current.session_id).catch(() => {});
+          removeSession(current.tab_id);
+          return;
+        default:
+          // Only the window's own actions were searched for.
+          return;
       }
     };
     window.addEventListener('keydown', onKey, true);

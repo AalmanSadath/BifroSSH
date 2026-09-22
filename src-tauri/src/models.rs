@@ -267,6 +267,12 @@ pub struct Settings {
     /// them. On by default.
     #[serde(default = "Settings::default_restore_tabs")]
     pub restore_tabs: bool,
+    /// Keyboard bindings the user changed, action id to comma-joined chords;
+    /// an empty string unbinds. Sparse on purpose, so a default corrected in
+    /// a later version still reaches everyone who never touched it. The
+    /// frontend owns the table of actions and the chord spelling.
+    #[serde(default)]
+    pub shortcuts: std::collections::HashMap<String, String>,
 }
 
 impl Default for Settings {
@@ -293,6 +299,7 @@ impl Default for Settings {
             auto_reconnect: true,
             auto_reconnect_attempts: 5,
             restore_tabs: true,
+            shortcuts: std::collections::HashMap::new(),
         }
     }
 }
@@ -457,6 +464,7 @@ mod tests {
         // Fields added after that document was written take their defaults,
         // which for these two means the feature is on rather than absent.
         assert!(data.settings.restore_tabs);
+        assert!(data.settings.shortcuts.is_empty());
         assert!(data.open_tabs.is_empty());
     }
 

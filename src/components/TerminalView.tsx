@@ -5,6 +5,7 @@ import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { findPaths } from '../paths';
+import { TERMINAL_ACTIONS, actionFor, resolve as resolveShortcuts } from '../shortcuts';
 import * as ipc from '../ipc';
 import { listen } from '@tauri-apps/api/event';
 import { useAppStore } from '../store/appStore';
@@ -46,6 +47,11 @@ export default function TerminalView({ tab, visible, focused, header }: Props) {
   /** Whether a session has been bound before, so the next one is a reconnect. */
   const boundOnceRef = useRef(false);
   const { settings, servers, removeSession, markDropped, reconnectSession, stopRetrying, retryingTabIds, sendInput, setActiveTab, sessionThemeOverrides, customThemes } = useAppStore();
+
+  // The key handler below is attached once with the terminal; the bindings
+  // can change under it, so it reads them through a ref.
+  const shortcutsRef = useRef(resolveShortcuts(settings.shortcuts));
+  shortcutsRef.current = resolveShortcuts(settings.shortcuts);
   const retrying = retryingTabIds.has(tabId);
 
   // The countdown in the dropped banner. Half a second's worth of
@@ -333,28 +339,30 @@ export default function TerminalView({ tab, visible, focused, header }: Props) {
     // itself, so text copied out of a terminal pasted double and text copied
     // from another application did not.
     term.attachCustomKeyEventHandler((ev) => {
-      if (ev.type === 'keydown' && ev.ctrlKey && ev.shiftKey) {
-        // Ctrl+Shift+F, not Ctrl+F: a bare Ctrl+F is a control character the
-        // remote shell, less and vim all want, and taking it would break them.
-        if (ev.code === 'KeyF') {
+      if (ev.type !== 'keydown') return true;
+      // Only the terminal's own three. By default they are Ctrl+Shift, not
+      // Ctrl: a bare Ctrl+F is a control character the remote shell, less and
+      // vim all want, and taking it would break them. An action the user
+      // unbound matches nothing and so reaches the shell.
+      switch (actionFor(ev, shortcutsRef.current, TERMINAL_ACTIONS)) {
+        case 'term-search':
           ev.preventDefault();
           setSearchOpen(true);
           requestAnimationFrame(() => searchInputRef.current?.select());
           return false;
-        }
-        if (ev.code === 'KeyC') {
+        case 'term-copy': {
           ev.preventDefault();
           const sel = term.getSelection();
           if (sel) navigator.clipboard.writeText(sel).catch(() => {});
           return false;
         }
-        if (ev.code === 'KeyV') {
+        case 'term-paste':
           ev.preventDefault();
           pasteFromClipboard();
           return false;
-        }
+        default:
+          return true;
       }
-      return true;
     });
 
     term.onData((data) => {

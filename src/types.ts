@@ -220,6 +220,12 @@ export interface Settings {
   auto_reconnect_attempts: number;
   /** Open last time's tabs at launch and connect them. */
   restore_tabs: boolean;
+  /**
+   * Keyboard bindings the user changed, action id to comma-joined chords;
+   * an empty string unbinds. Only the changes: see `resolve` in
+   * `src/shortcuts.ts`.
+   */
+  shortcuts: Record<string, string>;
 }
 
 /** How the user chose to keep the master key on the first run screen. */

@@ -180,6 +180,7 @@ const DEFAULT_SETTINGS: Settings = {
   auto_reconnect: true,
   auto_reconnect_attempts: 5,
   restore_tabs: true,
+  shortcuts: {},
   accent_color: null,
 };
 
