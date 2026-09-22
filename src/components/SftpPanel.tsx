@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useAppStore, buildJumpChain, resolveServerAuth } from '../store/appStore';
 import OsIcon from './OsIcon';
+import { matchesHost } from '../hosts';
 import type { Conflict, EditEvent, FileEntry, LogEntry, Server, TransferProgress, TransferSummary } from '../types';
 import ConnectingView from './ConnectingView';
 import ContextMenu from './shared/ContextMenu';
@@ -852,6 +853,8 @@ interface HostPickerProps {
 function HostPicker({ servers, connectingId, activeServerId, error, onConnect, onBack, onGoLocal }: HostPickerProps) {
   const { settings, identities } = useAppStore();
   const hint = (t: string) => settings.show_hover_hints ? t : undefined;
+  const [query, setQuery] = useState('');
+  const shown = servers.filter((s) => matchesHost(s, query));
   return (
     <div className="sftp-host-picker" onContextMenu={(e) => e.preventDefault()}>
       <div className="sftp-picker-header">
@@ -872,10 +875,24 @@ function HostPicker({ servers, connectingId, activeServerId, error, onConnect, o
         )}
       </div>
       {error && <div className="sftp-picker-error">{error}</div>}
+      {servers.length > 0 && (
+        <div className="sftp-picker-search">
+          <input
+            type="text"
+            placeholder="Filter by name, host, user or group"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            spellCheck={false}
+            autoFocus
+          />
+        </div>
+      )}
       <div className="sftp-picker-list">
         {servers.length === 0 ? (
           <div className="sftp-picker-empty">No hosts configured. Add one in Hosts.</div>
-        ) : servers.map((s) => (
+        ) : shown.length === 0 ? (
+          <div className="sftp-picker-empty">No hosts match.</div>
+        ) : shown.map((s) => (
           <div
             key={s.id}
             className={`sftp-picker-item${connectingId === s.id ? ' sftp-picker-connecting' : ''}${activeServerId === s.id ? ' sftp-picker-has-session' : ''}`}

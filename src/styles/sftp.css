@@ -943,3 +943,12 @@
   border-radius: 2px;
   transition: width 0.15s linear;
 }
+
+/* The filter box over the host list. Same border as the error strip so the
+   two stack cleanly when both show. */
+.sftp-picker-search {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sftp-picker-search input { width: 100%; }

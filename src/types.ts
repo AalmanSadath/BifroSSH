@@ -55,6 +55,10 @@ export interface Server {
   forward_agent: boolean;
   /** Every session to this host is logged to a file from its first byte. */
   log_sessions: boolean;
+  /** Hosts are sectioned by this on the hosts page. Null or empty: no group. */
+  group: string | null;
+  /** One line sent to the shell as if typed, the moment the shell is up. */
+  run_on_connect: string | null;
 }
 
 /** Payload of the `sftp-progress` event, emitted as bytes move. */

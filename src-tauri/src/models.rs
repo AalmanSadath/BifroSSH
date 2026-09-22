@@ -140,6 +140,13 @@ pub struct Server {
     /// first byte. Off by default.
     #[serde(default)]
     pub log_sessions: bool,
+    /// A name that hosts are sectioned by on the hosts page. Free text;
+    /// `None` and the empty string both mean no group.
+    #[serde(default)]
+    pub group: Option<String>,
+    /// One line sent to the shell as if typed, the moment the shell is up.
+    #[serde(default)]
+    pub run_on_connect: Option<String>,
 }
 
 impl Server {

@@ -52,6 +52,10 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
   const [proxyJump, setProxyJump] = useState(server?.proxy_jump ?? '');
   const [forwardAgent, setForwardAgent] = useState(server?.forward_agent ?? false);
   const [logSessions, setLogSessions] = useState(server?.log_sessions ?? false);
+  const [group, setGroup] = useState(server?.group ?? '');
+  const [showGroups, setShowGroups] = useState(false);
+  const [groupRect, setGroupRect] = useState<AnchorRect | null>(null);
+  const groupRef = useRef<HTMLDivElement>(null);
   const [themeExpanded, setThemeExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -64,6 +68,14 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
     if (username) return i.username.toLowerCase().includes(username.toLowerCase()) || i.name.toLowerCase().includes(username.toLowerCase());
     return true;
   });
+
+  // Groups already in use, offered under the box so the same one is spelled
+  // the same way twice. Narrowed by what has been typed so far.
+  const groupSuggestions = Array.from(new Set(
+    servers.map((s) => s.group?.trim() ?? '').filter((g) => g !== ''),
+  ))
+    .filter((g) => g.toLowerCase().includes(group.trim().toLowerCase()) && g !== group.trim())
+    .sort((a, b) => a.localeCompare(b));
 
   function pickIdentity(id: string) {
     setIdentityId(id);
@@ -103,7 +115,9 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
           auth_kind: server?.auth_kind ?? null,
           proxy_jump: proxyJump || null,
           forward_agent: forwardAgent,
-        log_sessions: logSessions,
+          log_sessions: logSessions,
+          group: group.trim() || null,
+          run_on_connect: server?.run_on_connect ?? null,
         },
         (!identityId && !keyId && password.trim()) ? password.trim() : undefined,
       );
@@ -269,6 +283,32 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
               ))}
             </select>
           </div>
+
+          <div className="form-group" ref={groupRef}>
+            <label>Group</label>
+            <input
+              value={group}
+              onChange={(e) => { setGroup(e.target.value); setShowGroups(true); }}
+              onFocus={() => { setGroupRect(anchorBelow(groupRef.current)); setShowGroups(true); }}
+              onBlur={() => setTimeout(() => setShowGroups(false), 150)}
+              placeholder="Production"
+              autoComplete="off"
+            />
+          </div>
+          {showGroups && groupRect && groupSuggestions.length > 0 && (
+            <PortalMenu rect={groupRect}>
+              {groupSuggestions.map((g) => (
+                <button
+                  key={g}
+                  type="button"
+                  className="picker-item"
+                  onMouseDown={(e) => { e.preventDefault(); setGroup(g); setShowGroups(false); }}
+                >
+                  {g}
+                </button>
+              ))}
+            </PortalMenu>
+          )}
 
           {/* Not inside a form-group: the row carries its own bottom margin,
               and the group's on top of it put twice the gap below the box that
