@@ -45,7 +45,20 @@ export default function TerminalView({ tab, visible, focused, header }: Props) {
   sessionIdRef.current = sessionId;
   /** Whether a session has been bound before, so the next one is a reconnect. */
   const boundOnceRef = useRef(false);
-  const { settings, servers, removeSession, markDropped, reconnectSession, sendInput, setActiveTab, sessionThemeOverrides, customThemes } = useAppStore();
+  const { settings, servers, removeSession, markDropped, reconnectSession, stopRetrying, retryingTabIds, sendInput, setActiveTab, sessionThemeOverrides, customThemes } = useAppStore();
+  const retrying = retryingTabIds.has(tabId);
+
+  // The countdown in the dropped banner. Half a second's worth of
+  // re-render, and only while a retry is actually pending.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!retrying || tab.retryAt === undefined) return;
+    const id = setInterval(() => setTick((n) => n + 1), 500);
+    return () => clearInterval(id);
+  }, [retrying, tab.retryAt]);
+  const countdown = tab.retryAt !== undefined
+    ? Math.max(0, Math.ceil((tab.retryAt - Date.now()) / 1000))
+    : null;
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -632,14 +645,19 @@ export default function TerminalView({ tab, visible, focused, header }: Props) {
             <span className="term-dropped-text">
               Connection lost.
               {tab.quick_info && ' A quick connection cannot be reopened without the credentials typed for it.'}
+              {retrying && !tab.reconnecting && countdown !== null && ` Trying again in ${countdown}s (attempt ${tab.retryAttempt ?? 1}).`}
+              {tab.gaveUpAfter !== undefined && ` Gave up after ${tab.gaveUpAfter} ${tab.gaveUpAfter === 1 ? 'try' : 'tries'}.`}
             </span>
+            {retrying && (
+              <button className="btn-secondary btn-sm" onClick={() => stopRetrying(tabId)}>Stop</button>
+            )}
             {!tab.quick_info && (
               <button
                 className="btn-primary btn-sm"
                 disabled={tab.reconnecting}
-                onClick={() => reconnectSession(tabId)}
+                onClick={() => { stopRetrying(tabId); void reconnectSession(tabId); }}
               >
-                {tab.reconnecting ? 'Reconnecting…' : 'Reconnect'}
+                {tab.reconnecting ? 'Reconnecting…' : retrying ? 'Try now' : 'Reconnect'}
               </button>
             )}
             <button className="btn-secondary btn-sm" onClick={() => removeSession(tabId)}>Close</button>

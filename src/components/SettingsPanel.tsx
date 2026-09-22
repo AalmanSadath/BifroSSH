@@ -316,6 +316,32 @@ export default function SettingsPanel() {
           A connection is considered lost after three unanswered keepalives. Set to 0 to disable.
           Does not apply to SFTP, which uses the inactivity timeout above instead.
         </p>
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={settings.auto_reconnect}
+            onChange={(e) => patch({ auto_reconnect: e.target.checked })}
+          />
+          <span>Reconnect a dropped session automatically</span>
+        </label>
+        <p className="form-hint">
+          A session whose connection dies is opened again five seconds later, then at twice the
+          wait each time up to a minute. The tab and its scrollback stay where they are, and the
+          banner counts down with a button to stop or to try at once. A session you close, or one
+          whose shell exited, is never reopened.
+        </p>
+        {settings.auto_reconnect && (
+          <>
+            <NumberSetting
+              label="Attempts before giving up"
+              value={settings.auto_reconnect_attempts}
+              min={0}
+              max={100}
+              onCommit={(v) => patch({ auto_reconnect_attempts: v })}
+            />
+            <p className="form-hint">0 keeps trying until it comes back or you stop it.</p>
+          </>
+        )}
         <div className="form-group">
           <label>Session logs folder</label>
           <div className="settings-inline-row">

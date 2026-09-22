@@ -139,6 +139,14 @@ function cacheAppTheme(theme: ResolvedTheme) {
   }
 }
 
+/**
+ * How long a retry waits, and how long it may grow to. Shared by the
+ * tunnel retry and the terminal one, which are the same idea twice: come
+ * back quickly at first, then stop hammering something that is down.
+ */
+const RETRY_FIRST_MS = 5_000;
+const RETRY_MAX_MS = 60_000;
+
 const DEFAULT_SETTINGS: Settings = {
   theme: 'bifrossh-dark',
   font_size: 14,
@@ -157,6 +165,8 @@ const DEFAULT_SETTINGS: Settings = {
   session_log_dir: null,
   check_for_updates: true,
   last_update_check: 0,
+  auto_reconnect: true,
+  auto_reconnect_attempts: 5,
   accent_color: null,
 };
 
@@ -324,6 +334,17 @@ interface AppStore {
   sendInput: (tabId: string, bytes: number[]) => void;
   /** Connects a dropped tab again, into the same terminal. */
   reconnectSession: (tabId: string) => Promise<void>;
+  /** Tabs being brought back on their own, with backoff. */
+  retryingTabIds: Set<string>;
+  /** Stops the loop for one tab and clears its countdown. */
+  stopRetrying: (tabId: string) => void;
+  /**
+   * One attempt after `delayMs`, then the next at twice the wait, up to a
+   * minute, until the session is back, the user stops it, the tab goes, or
+   * the attempt limit in Settings is reached. Not called directly: a drop
+   * starts it.
+   */
+  retryLoop: (tabId: string, delayMs: number, attempt: number) => Promise<void>;
   openSession: (serverId: string) => Promise<void>;
   quickConnect: (host: string, port: number, username: string, authType: AuthType, authValue: string) => Promise<void>;
   setActiveTab: (id: string | null) => void;
@@ -473,7 +494,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   loadError: null,
   clearForLock: () =>
-    set({ servers: [], identities: [], keys: [], portForwardings: [], codeprints: [] }),
+    // The retries stop too: a locked vault has no credentials to
+    // reconnect with, and every attempt would fail on the way to the
+    // attempt limit.
+    set({ servers: [], identities: [], keys: [], portForwardings: [], codeprints: [], retryingTabIds: new Set() }),
   actionError: null,
   setActionError: (message) => set({ actionError: message }),
 
@@ -758,10 +782,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
         await startTunnel(rule);
         set((s) => { const n = new Set(s.retryingTunnelIds); n.delete(pfId); return { retryingTunnelIds: n }; });
       } catch {
-        attempt(Math.min(delayMs * 2, 60_000));
+        attempt(Math.min(delayMs * 2, RETRY_MAX_MS));
       }
     };
-    attempt(5_000);
+    attempt(RETRY_FIRST_MS);
   },
 
   addCodeprint: (cp) => {
@@ -812,11 +836,16 @@ export const useAppStore = create<AppStore>((set, get) => ({
       // The override is keyed on a tab id that will never be reused, so
       // leaving it behind grows the map for the life of the process.
       const { [tabId]: _dropped, ...themeOverrides } = s.sessionThemeOverrides;
+      // A retry in flight for a tab that has gone would reconnect a host
+      // nobody is looking at; leaving the set tells the loop to stop.
+      const retrying = new Set(s.retryingTabIds);
+      retrying.delete(tabId);
       return {
         sessions: next,
         activeTabId: nextActive,
         sessionThemeOverrides: themeOverrides,
         splitGroup: pruneSplit(s.splitGroup, tabId),
+        retryingTabIds: retrying,
       };
     }),
 
@@ -880,12 +909,68 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
   },
 
-  markDropped: (tabId) =>
+  markDropped: (tabId) => {
     set((s) => ({
       sessions: s.sessions.map((t) =>
         t.tab_id === tabId ? { ...t, status: 'dropped', session_id: null, error: undefined } : t
       ),
-    })),
+    }));
+
+    const { settings, sessions } = get();
+    const tab = sessions.find((t) => t.tab_id === tabId);
+    // A quick connection has no saved host to connect to again.
+    if (!settings.auto_reconnect || !tab || tab.quick_info) return;
+    set((s) => ({ retryingTabIds: new Set(s.retryingTabIds).add(tabId) }));
+    get().retryLoop(tabId, RETRY_FIRST_MS, 1);
+  },
+
+  retryingTabIds: new Set<string>(),
+
+  stopRetrying: (tabId) => {
+    set((s) => {
+      const next = new Set(s.retryingTabIds);
+      next.delete(tabId);
+      return {
+        retryingTabIds: next,
+        sessions: s.sessions.map((t) => (t.tab_id === tabId ? { ...t, retryAt: undefined } : t)),
+      };
+    });
+  },
+
+  retryLoop: async (tabId, delayMs, attempt) => {
+    // The countdown the banner shows is this, rather than a timer the
+    // component keeps: one clock, and it survives a re-render.
+    set((s) => ({
+      sessions: s.sessions.map((t) => (t.tab_id === tabId ? { ...t, retryAt: Date.now() + delayMs, retryAttempt: attempt } : t)),
+    }));
+    await new Promise((r) => setTimeout(r, delayMs));
+
+    // Stopped, closed, or brought back by hand while we waited.
+    const { retryingTabIds, sessions, settings } = get();
+    const tab = sessions.find((t) => t.tab_id === tabId);
+    if (!retryingTabIds.has(tabId) || !tab || tab.status !== 'dropped') {
+      get().stopRetrying(tabId);
+      return;
+    }
+
+    await get().reconnectSession(tabId);
+    const after = get().sessions.find((t) => t.tab_id === tabId);
+    if (!after || after.status === 'connected') {
+      get().stopRetrying(tabId);
+      return;
+    }
+    // Still dropped. A limit of 0 means keep going.
+    const limit = settings.auto_reconnect_attempts;
+    if (limit > 0 && attempt >= limit) {
+      set((s) => ({
+        sessions: s.sessions.map((t) => (t.tab_id === tabId ? { ...t, gaveUpAfter: attempt } : t)),
+      }));
+      get().stopRetrying(tabId);
+      return;
+    }
+    if (!get().retryingTabIds.has(tabId)) return;
+    void get().retryLoop(tabId, Math.min(delayMs * 2, RETRY_MAX_MS), attempt + 1);
+  },
 
   reconnectSession: async (tabId) => {
     const { sessions, servers, identities } = get();
@@ -903,7 +988,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
 
     set((s) => ({
-      sessions: s.sessions.map((t) => (t.tab_id === tabId ? { ...t, reconnecting: true, error: undefined } : t)),
+      sessions: s.sessions.map((t) => (
+        t.tab_id === tabId ? { ...t, reconnecting: true, error: undefined, retryAt: undefined, gaveUpAfter: undefined } : t
+      )),
     }));
     try {
       const jumps = await buildJumpChain(server, servers, identities);

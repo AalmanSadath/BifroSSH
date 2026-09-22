@@ -203,6 +203,10 @@ export interface Settings {
   check_for_updates: boolean;
   /** When the last check ran, epoch seconds; 0 for never. */
   last_update_check: number;
+  /** Bring a dropped terminal back on its own. */
+  auto_reconnect: boolean;
+  /** Tries before giving up; 0 keeps trying. */
+  auto_reconnect_attempts: number;
 }
 
 /** How the user chose to keep the master key on the first run screen. */
@@ -360,6 +364,12 @@ export interface SessionTab {
   status: 'connecting' | 'connected' | 'dropped' | 'error';
   /** A reconnect is in flight for a dropped tab. */
   reconnecting?: boolean;
+  /** When the next automatic attempt fires, epoch ms; the banner counts down to it. */
+  retryAt?: number;
+  /** Which attempt that will be, 1-based. */
+  retryAttempt?: number;
+  /** Set when the automatic attempts ran out, so the banner says so once. */
+  gaveUpAfter?: number;
   /**
    * Typed input goes to every other tab marked the same way. The user's
    * choice, so it outlives a drop and a reconnect.

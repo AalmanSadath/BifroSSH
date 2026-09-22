@@ -251,6 +251,14 @@ pub struct Settings {
     /// When the last check ran, epoch seconds; 0 for never.
     #[serde(default)]
     pub last_update_check: u64,
+    /// Bring a dropped terminal back on its own, the way an autostart
+    /// tunnel already does. On by default.
+    #[serde(default = "Settings::default_auto_reconnect")]
+    pub auto_reconnect: bool,
+    /// How many times before it gives up and leaves the button; 0 is
+    /// until it comes back or the user says stop.
+    #[serde(default = "Settings::default_auto_reconnect_attempts")]
+    pub auto_reconnect_attempts: u32,
 }
 
 impl Default for Settings {
@@ -274,12 +282,16 @@ impl Default for Settings {
             session_log_dir: None,
             check_for_updates: true,
             last_update_check: 0,
+            auto_reconnect: true,
+            auto_reconnect_attempts: 5,
         }
     }
 }
 
 impl Settings {
     fn default_check_for_updates() -> bool { true }
+    fn default_auto_reconnect() -> bool { true }
+    fn default_auto_reconnect_attempts() -> u32 { 5 }
     fn default_connection_timeout() -> u32 { 60 }
     fn default_show_hover_hints() -> bool { true }
     fn default_sftp_inactivity_timeout() -> u32 { 300 }
