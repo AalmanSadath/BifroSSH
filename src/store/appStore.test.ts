@@ -9,6 +9,9 @@ import type { Identity, Server, SessionTab } from '../types';
 vi.mock('../ipc', () => ({
   getIdentityPassword: vi.fn(async (id: string) => `identity-secret:${id}`),
   getServerPassword: vi.fn(async (id: string) => `server-secret:${id}`),
+  // The strip writes itself down on every change; here there is nowhere to
+  // write it to.
+  saveOpenTabs: vi.fn(async () => {}),
 }));
 
 const { broadcastTargets, buildJumpChain, resolveServerAuth, useAppStore } = await import('./appStore');

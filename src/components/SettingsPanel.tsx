@@ -319,6 +319,18 @@ export default function SettingsPanel() {
         <label className="checkbox-row">
           <input
             type="checkbox"
+            checked={settings.restore_tabs}
+            onChange={(e) => patch({ restore_tabs: e.target.checked })}
+          />
+          <span>Reopen tabs from last time</span>
+        </label>
+        <p className="form-hint">
+          The hosts that had a tab open when the app last closed are opened again and connected,
+          one after another. Quick connections are not: nothing about them was saved.
+        </p>
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
             checked={settings.auto_reconnect}
             onChange={(e) => patch({ auto_reconnect: e.target.checked })}
           />

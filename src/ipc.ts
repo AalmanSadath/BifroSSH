@@ -180,6 +180,10 @@ export const getSftpBookmarks = () => invoke<SftpBookmark[]>('get_sftp_bookmarks
 export const saveSftpBookmarks = (items: SftpBookmark[]) =>
   invoke<void>('save_sftp_bookmarks', { items });
 
+export const getOpenTabs = () => invoke<string[]>('get_open_tabs');
+
+export const saveOpenTabs = (items: string[]) => invoke<void>('save_open_tabs', { items });
+
 export const getCustomThemes = () =>
   invoke<Record<string, NamedTheme>>('get_custom_themes');
 

@@ -263,6 +263,10 @@ pub struct Settings {
     /// until it comes back or the user says stop.
     #[serde(default = "Settings::default_auto_reconnect_attempts")]
     pub auto_reconnect_attempts: u32,
+    /// Open the tabs that were open when the app last closed, and connect
+    /// them. On by default.
+    #[serde(default = "Settings::default_restore_tabs")]
+    pub restore_tabs: bool,
 }
 
 impl Default for Settings {
@@ -288,6 +292,7 @@ impl Default for Settings {
             last_update_check: 0,
             auto_reconnect: true,
             auto_reconnect_attempts: 5,
+            restore_tabs: true,
         }
     }
 }
@@ -296,6 +301,7 @@ impl Settings {
     fn default_check_for_updates() -> bool { true }
     fn default_auto_reconnect() -> bool { true }
     fn default_auto_reconnect_attempts() -> u32 { 5 }
+    fn default_restore_tabs() -> bool { true }
     fn default_connection_timeout() -> u32 { 60 }
     fn default_show_hover_hints() -> bool { true }
     fn default_sftp_inactivity_timeout() -> u32 { 300 }
@@ -362,6 +368,11 @@ pub struct AppData {
     pub codeprints: Vec<Codeprint>,
     #[serde(default)]
     pub sftp_bookmarks: Vec<SftpBookmark>,
+    /// The `server_id` of every saved-host tab that was open, in strip
+    /// order, so a restart can put them back. Duplicates are meaningful:
+    /// two tabs on one host is a normal thing to have open.
+    #[serde(default)]
+    pub open_tabs: Vec<String>,
     /// Kept opaque: these are xterm themes with many optional colour fields,
     /// and nothing in the backend needs to interpret them.
     #[serde(default)]
@@ -443,6 +454,10 @@ mod tests {
         assert_eq!(data.settings.app_theme, AppTheme::Dark);
         assert_eq!(data.settings.host_key_policy, HostKeyPolicy::Ask);
         assert_eq!(data.port_forwardings[0].kind, PfKind::Local);
+        // Fields added after that document was written take their defaults,
+        // which for these two means the feature is on rather than absent.
+        assert!(data.settings.restore_tabs);
+        assert!(data.open_tabs.is_empty());
     }
 
     /// Commands are the other direction: nothing has been saved yet, so a

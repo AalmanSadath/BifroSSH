@@ -218,6 +218,8 @@ export interface Settings {
   auto_reconnect: boolean;
   /** Tries before giving up; 0 keeps trying. */
   auto_reconnect_attempts: number;
+  /** Open last time's tabs at launch and connect them. */
+  restore_tabs: boolean;
 }
 
 /** How the user chose to keep the master key on the first run screen. */

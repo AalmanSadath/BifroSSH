@@ -195,6 +195,8 @@ fn start(
             commands::save_codeprints,
             commands::get_sftp_bookmarks,
             commands::save_sftp_bookmarks,
+            commands::get_open_tabs,
+            commands::save_open_tabs,
             commands::get_custom_themes,
             commands::save_custom_themes,
             commands::vault_status,

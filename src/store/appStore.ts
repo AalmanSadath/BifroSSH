@@ -4,6 +4,7 @@ import * as ipc from '../ipc';
 import { getVersion } from '@tauri-apps/api/app';
 import { CHECK_INTERVAL_SECS, fetchLatestRelease, newerVersion, type Release } from '../updates';
 import { STORED, UNDETECTED_OS, UNKNOWN_OS } from '../types';
+import { restoreOrder, tabsToSave } from '../sessionRestore';
 import type { AuthType, Codeprint, SftpBookmark, GeneratedKey, Identity, IdentityInput, JumpHopParams, KeyContent, KeyEntry, LogEntry, PortForwarding, ResolvedTheme, Server, ServerInput, SessionTab, Settings, SystemAppearance } from '../types';
 import type { NamedTheme } from '../styles/themes';
 
@@ -52,6 +53,17 @@ function persist(save: () => Promise<void>) {
   // the time this runs, so a failure here means the screen and the disk have
   // parted company, which is exactly the thing worth saying out loud.
   save().catch(reportFailure);
+}
+
+/**
+ * Writes down which hosts have a tab open, so the next launch can put them
+ * back. Called after every change to the strip rather than at shutdown:
+ * the window can close without the app being asked first.
+ */
+function saveOpenTabs(sessions: SessionTab[]) {
+  ipc.saveOpenTabs(tabsToSave(sessions)).catch(() => {
+    // Not worth a banner. Worst case a restart opens the previous strip.
+  });
 }
 
 function readLegacy<T>(key: string, fallback: T): T {
@@ -167,6 +179,7 @@ const DEFAULT_SETTINGS: Settings = {
   last_update_check: 0,
   auto_reconnect: true,
   auto_reconnect_attempts: 5,
+  restore_tabs: true,
   accent_color: null,
 };
 
@@ -235,6 +248,12 @@ interface AppStore {
   /** Set when `loadAll` could not read the saved data; see there. */
   loadError: string | null;
   loadAll: () => Promise<void>;
+
+  /**
+   * Opens the tabs that were open when the app last ran, one at a time.
+   * Off when the setting says so, and a no-op once anything is open.
+   */
+  restoreTabs: () => Promise<void>;
 
   /**
    * A place the SFTP panel has been asked to show: set by a click on a
@@ -544,9 +563,29 @@ export const useAppStore = create<AppStore>((set, get) => ({
       set({ servers, identities, keys, settings, sftpBookmarks, ...collections, loadError: null });
       get().autostartTunnels({ kind: 'launch' });
       get().checkForUpdates();
+      void get().restoreTabs();
     } catch (e) {
       console.error('Could not load saved data', e);
       set({ loadError: String(e) });
+    }
+  },
+
+  restoreTabs: async () => {
+    const { settings, sessions, servers, openSession } = get();
+    // Nothing to restore onto: an unlock that follows a lock still has the
+    // strip it had, and reopening over it would duplicate every tab.
+    if (!settings.restore_tabs || sessions.length > 0) return;
+    let ids: string[];
+    try {
+      ids = await ipc.getOpenTabs();
+    } catch {
+      return;
+    }
+    // One at a time: a tab's name counts the tabs the host already has, and
+    // a host that asks for a passphrase should ask on its own rather than
+    // alongside three others.
+    for (const id of restoreOrder(ids, servers)) {
+      await openSession(id);
     }
   },
 
@@ -847,10 +886,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   addSession: (tab) =>
-    set((s) => ({
-      sessions: [...s.sessions, tab],
-      activeTabId: tab.tab_id,
-    })),
+    set((s) => {
+      const sessions = [...s.sessions, tab];
+      saveOpenTabs(sessions);
+      return { sessions, activeTabId: tab.tab_id };
+    }),
 
   removeSession: (tabId) =>
     set((s) => {
@@ -868,6 +908,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       // nobody is looking at; leaving the set tells the loop to stop.
       const retrying = new Set(s.retryingTabIds);
       retrying.delete(tabId);
+      saveOpenTabs(next);
       return {
         sessions: next,
         activeTabId: nextActive,
@@ -896,11 +937,15 @@ export const useAppStore = create<AppStore>((set, get) => ({
     })),
 
   updateSessionError: (tabId, error) =>
-    set((s) => ({
-      sessions: s.sessions.map((t) =>
-        t.tab_id === tabId ? { ...t, status: 'error', error } : t
-      ),
-    })),
+    set((s) => {
+      const sessions = s.sessions.map((t) =>
+        t.tab_id === tabId ? { ...t, status: 'error' as const, error } : t
+      );
+      // A tab that could not connect drops out of the restore list, so a
+      // host that fails every time is not reopened failing every launch.
+      saveOpenTabs(sessions);
+      return { sessions };
+    }),
 
   appendSessionLog: (tabId, entry) =>
     set((s) => ({
@@ -1208,10 +1253,11 @@ async function startSession(
     useAppStore.getState().appendSessionLog(connectId, event.payload);
   });
 
-  useAppStore.setState((s) => ({
-    sessions: [...s.sessions, tab],
-    activeTabId: connectId,
-  }));
+  useAppStore.setState((s) => {
+    const sessions = [...s.sessions, tab];
+    saveOpenTabs(sessions);
+    return { sessions, activeTabId: connectId };
+  });
 
   try {
     const sessionId = await connect();
