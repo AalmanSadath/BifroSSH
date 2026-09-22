@@ -21,6 +21,7 @@ mod ops;
 mod owners;
 mod session;
 mod transfer;
+mod verify;
 #[cfg(all(test, unix))]
 mod sshd_tests;
 
@@ -32,6 +33,7 @@ pub use ops::{
     set_mode_local, set_mode_remote, set_owner_local, set_owner_remote,
 };
 pub use session::{connect_sftp, disconnect_sftp, probe_remote};
+pub use verify::{comparable, verify_landing, Side};
 pub use transfer::{conflicts_for, copy_remote_path, download_path, upload_path, Conflict, Pairing, Tagged};
 
 /// Chunk size for a streamed copy.
@@ -64,10 +66,19 @@ pub struct TransferSummary {
     /// Files left alone because one was already there and the policy was
     /// to skip.
     pub skipped_existing: u32,
+    /// Files written beside an existing copy under a keep-both policy, and so
+    /// under a name of their own.
+    pub renamed: u32,
     /// True when the user stopped it. The files already copied are left where
     /// they are; only the one in flight is removed. `files` counts what
     /// actually arrived, so a cancelled batch reports fewer than were asked for.
     pub cancelled: bool,
+    /// Where the transfer actually wrote, destination directory and name
+    /// together. None when nothing was written.
+    pub landed: Option<String>,
+    /// Files whose checksum was compared with the source and matched; 0 when
+    /// verification was off or was not possible. See `sftp::verify`.
+    pub verified: u32,
 }
 
 /// Whether a file ran to the end or was stopped part way.
@@ -86,7 +97,7 @@ struct TreeItem {
 /// Guards against a pathological or hostile tree. Deeper than any real layout.
 const MAX_DEPTH: usize = 64;
 
-fn join_remote(dir: &str, name: &str) -> String {
+pub(super) fn join_remote(dir: &str, name: &str) -> String {
     if dir == "/" {
         format!("/{}", name)
     } else {

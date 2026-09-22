@@ -90,6 +90,22 @@ export default function ConnectionSection() {
             <p className="form-hint">0 keeps trying until it comes back or you stop it.</p>
           </>
         )}
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={settings.verify_transfers}
+            onChange={(e) => patch({ verify_transfers: e.target.checked })}
+          />
+          <span>Verify transfers with a checksum</span>
+        </label>
+        <p className="form-hint">
+          After a transfer finishes, both copies are read again and compared file by file with
+          SHA-256. That costs a full read of each side, which is why it is off by default. The
+          far end needs sha256sum. A transfer that was stopped, that skipped a file or that kept
+          a second copy under another name is left unverified rather than reported as a
+          mismatch, since the two trees then legitimately differ.
+        </p>
+
         <div className="form-group">
           <label>Session logs folder</label>
           <div className="settings-inline-row">

@@ -267,6 +267,10 @@ pub struct Settings {
     /// them. On by default.
     #[serde(default = "Settings::default_restore_tabs")]
     pub restore_tabs: bool,
+    /// Read both copies back after a transfer and compare them file by file.
+    /// Off by default: it costs a full read of each side.
+    #[serde(default)]
+    pub verify_transfers: bool,
     /// Keyboard bindings the user changed, action id to comma-joined chords;
     /// an empty string unbinds. Sparse on purpose, so a default corrected in
     /// a later version still reaches everyone who never touched it. The
@@ -299,6 +303,7 @@ impl Default for Settings {
             auto_reconnect: true,
             auto_reconnect_attempts: 5,
             restore_tabs: true,
+            verify_transfers: false,
             shortcuts: std::collections::HashMap::new(),
         }
     }
@@ -465,6 +470,7 @@ mod tests {
         // which for these two means the feature is on rather than absent.
         assert!(data.settings.restore_tabs);
         assert!(data.settings.shortcuts.is_empty());
+        assert!(!data.settings.verify_transfers);
         assert!(data.open_tabs.is_empty());
     }
 

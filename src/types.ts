@@ -92,8 +92,14 @@ export interface TransferSummary {
   skipped_symlinks: number;
   /** Left alone because one was already there and the answer was skip. */
   skipped_existing: number;
+  /** Files written under a name of their own because one was already there. */
+  renamed: number;
   /** True when the user stopped it; `files` then counts what arrived. */
   cancelled: boolean;
+  /** Where it wrote, directory and name together; null when nothing was. */
+  landed: string | null;
+  /** Files read back and compared with the source; 0 when that was off. */
+  verified: number;
 }
 
 /** What a transfer does with a file that is already at the destination. */
@@ -244,6 +250,8 @@ export interface Settings {
   auto_reconnect_attempts: number;
   /** Open last time's tabs at launch and connect them. */
   restore_tabs: boolean;
+  /** Read both copies back after a transfer and compare them. */
+  verify_transfers: boolean;
   /**
    * Keyboard bindings the user changed, action id to comma-joined chords;
    * an empty string unbinds. Only the changes: see `resolve` in

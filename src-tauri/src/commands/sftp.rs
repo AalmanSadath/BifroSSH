@@ -111,6 +111,39 @@ pub async fn sftp_cancel_transfer(state: State<'_, AppState>, transfer_id: Strin
     Ok(())
 }
 
+/// Which side of the app the transfer landed on.
+enum Landing<'a> {
+    Local,
+    Remote(&'a str),
+}
+
+/// Reads both copies back and compares them, when the user asked for that.
+///
+/// Folded in here rather than inside each transfer so there is one place
+/// that decides, and so the transfer paths stay about moving bytes. A
+/// transfer that left the two trees legitimately different (cancelled,
+/// something skipped, a copy kept under another name) is left unverified
+/// rather than reported as a mismatch.
+async fn verified(
+    state: &State<'_, AppState>,
+    summary: crate::sftp::TransferSummary,
+    source: crate::sftp::Side<'_>,
+    landing: Landing<'_>,
+) -> CmdResult<crate::sftp::TransferSummary> {
+    if !state.data.lock().await.settings.verify_transfers || !crate::sftp::comparable(&summary) {
+        return Ok(summary);
+    }
+    let at = summary.landed.clone().unwrap_or_default();
+    let landed = match landing {
+        Landing::Local => crate::sftp::Side::Local(&at),
+        Landing::Remote(session_id) => crate::sftp::Side::Remote { session_id, path: &at },
+    };
+    let count = crate::sftp::verify_landing(&state.sftp_state, source, landed)
+        .await
+        .map_err(CmdError::from)?;
+    Ok(crate::sftp::TransferSummary { verified: count, ..summary })
+}
+
 #[tauri::command]
 pub async fn sftp_upload(
     app: tauri::AppHandle,
@@ -122,7 +155,8 @@ pub async fn sftp_upload(
     conflict: crate::sftp::Conflict,
 ) -> CmdResult<crate::sftp::TransferSummary> {
     let sink = crate::sftp::Tagged { app: &app, transfer_id: transfer_id.clone() };
-    crate::sftp::upload_path(&sink, &state.sftp_state, &transfer_id, &session_id, &local_path, &remote_dir, conflict).await.map_err(CmdError::from)
+    let summary = crate::sftp::upload_path(&sink, &state.sftp_state, &transfer_id, &session_id, &local_path, &remote_dir, conflict).await.map_err(CmdError::from)?;
+    verified(&state, summary, crate::sftp::Side::Local(&local_path), Landing::Remote(&session_id)).await
 }
 
 #[tauri::command]
@@ -136,7 +170,8 @@ pub async fn sftp_download(
     conflict: crate::sftp::Conflict,
 ) -> CmdResult<crate::sftp::TransferSummary> {
     let sink = crate::sftp::Tagged { app: &app, transfer_id: transfer_id.clone() };
-    crate::sftp::download_path(&sink, &state.sftp_state, &transfer_id, &session_id, &remote_path, &local_dir, conflict).await.map_err(CmdError::from)
+    let summary = crate::sftp::download_path(&sink, &state.sftp_state, &transfer_id, &session_id, &remote_path, &local_dir, conflict).await.map_err(CmdError::from)?;
+    verified(&state, summary, crate::sftp::Side::Remote { session_id: &session_id, path: &remote_path }, Landing::Local).await
 }
 
 #[tauri::command]
@@ -154,7 +189,8 @@ pub async fn sftp_copy_remote_to_remote(
     conflict: crate::sftp::Conflict,
 ) -> CmdResult<crate::sftp::TransferSummary> {
     let sink = crate::sftp::Tagged { app: &app, transfer_id: transfer_id.clone() };
-    crate::sftp::copy_remote_path(&sink, &state.sftp_state, &transfer_id, &src_session_id, &src_path, &dst_session_id, &dst_dir, conflict).await.map_err(CmdError::from)
+    let summary = crate::sftp::copy_remote_path(&sink, &state.sftp_state, &transfer_id, &src_session_id, &src_path, &dst_session_id, &dst_dir, conflict).await.map_err(CmdError::from)?;
+    verified(&state, summary, crate::sftp::Side::Remote { session_id: &src_session_id, path: &src_path }, Landing::Remote(&dst_session_id)).await
 }
 
 /// Which files a transfer would write over, asked before the user is.
@@ -268,9 +304,10 @@ pub async fn sftp_download_archive(
     into_name: Option<String>,
 ) -> CmdResult<crate::sftp::TransferSummary> {
     let sink = crate::sftp::Tagged { app: &app, transfer_id: transfer_id.clone() };
-    crate::sftp::download_archive(&sink, &state.sftp_state, &transfer_id, &session_id, &remote_path, &local_dir, into_name.as_deref())
+    let summary = crate::sftp::download_archive(&sink, &state.sftp_state, &transfer_id, &session_id, &remote_path, &local_dir, into_name.as_deref())
         .await
-        .map_err(CmdError::from)
+        .map_err(CmdError::from)?;
+    verified(&state, summary, crate::sftp::Side::Remote { session_id: &session_id, path: &remote_path }, Landing::Local).await
 }
 
 /// The same, upwards: this machine tars and the server unpacks.
@@ -285,9 +322,10 @@ pub async fn sftp_upload_archive(
     into_name: Option<String>,
 ) -> CmdResult<crate::sftp::TransferSummary> {
     let sink = crate::sftp::Tagged { app: &app, transfer_id: transfer_id.clone() };
-    crate::sftp::upload_archive(&sink, &state.sftp_state, &transfer_id, &session_id, &local_path, &remote_dir, into_name.as_deref())
+    let summary = crate::sftp::upload_archive(&sink, &state.sftp_state, &transfer_id, &session_id, &local_path, &remote_dir, into_name.as_deref())
         .await
-        .map_err(CmdError::from)
+        .map_err(CmdError::from)?;
+    verified(&state, summary, crate::sftp::Side::Local(&local_path), Landing::Remote(&session_id)).await
 }
 
 /// Between two servers: one tars, the other unpacks, and the bytes pass
@@ -305,9 +343,10 @@ pub async fn sftp_copy_archive(
     into_name: Option<String>,
 ) -> CmdResult<crate::sftp::TransferSummary> {
     let sink = crate::sftp::Tagged { app: &app, transfer_id: transfer_id.clone() };
-    crate::sftp::copy_archive(&sink, &state.sftp_state, &transfer_id, &src_session_id, &src_path, &dst_session_id, &dst_dir, into_name.as_deref())
+    let summary = crate::sftp::copy_archive(&sink, &state.sftp_state, &transfer_id, &src_session_id, &src_path, &dst_session_id, &dst_dir, into_name.as_deref())
         .await
-        .map_err(CmdError::from)
+        .map_err(CmdError::from)?;
+    verified(&state, summary, crate::sftp::Side::Remote { session_id: &src_session_id, path: &src_path }, Landing::Remote(&dst_session_id)).await
 }
 
 #[tauri::command]

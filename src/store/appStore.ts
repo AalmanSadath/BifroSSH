@@ -182,6 +182,7 @@ const DEFAULT_SETTINGS: Settings = {
   auto_reconnect: true,
   auto_reconnect_attempts: 5,
   restore_tabs: true,
+  verify_transfers: false,
   shortcuts: {},
   accent_color: null,
 };

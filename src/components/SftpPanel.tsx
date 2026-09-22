@@ -1622,6 +1622,9 @@ export default function SftpPanel() {
    */
   function describeTransfer(s: TransferSummary): string | null {
     const parts: string[] = [];
+    if (s.verified > 0) {
+      parts.push(`Verified ${s.verified} ${s.verified === 1 ? 'file' : 'files'}.`);
+    }
     if (s.cancelled) {
       parts.push(`Stopped after ${s.files} ${s.files === 1 ? 'file' : 'files'}.`);
     }
@@ -1632,6 +1635,10 @@ export default function SftpPanel() {
     if (s.skipped_existing > 0) {
       const n = s.skipped_existing;
       parts.push(`Skipped ${n} that already existed.`);
+    }
+    if (s.renamed > 0) {
+      const n = s.renamed;
+      parts.push(`Kept ${n} ${n === 1 ? 'copy' : 'copies'} beside what was there.`);
     }
     return parts.length > 0 ? parts.join(' ') : null;
   }
@@ -1737,7 +1744,7 @@ export default function SftpPanel() {
         run: async (id, conflict) => {
           if (!collides) return send(id, null);
           if (conflict === 'skip') {
-            return { files: 0, directories: 0, skipped_symlinks: 0, skipped_existing: 1, cancelled: false };
+            return { files: 0, directories: 0, skipped_symlinks: 0, skipped_existing: 1, renamed: 0, cancelled: false, landed: null, verified: 0 };
           }
           return send(id, conflict === 'keep_both' ? freeName(taken, entry.name) : null);
         },
@@ -1793,7 +1800,7 @@ export default function SftpPanel() {
               const answer = await askConflict({ name: next.name, files, more });
               if (answer === null) {
                 // The rest of the batch leaves with it.
-                const cancelledSummary: TransferSummary = { files: 0, directories: 0, skipped_symlinks: 0, skipped_existing: 0, cancelled: true };
+                const cancelledSummary: TransferSummary = { files: 0, directories: 0, skipped_symlinks: 0, skipped_existing: 0, renamed: 0, cancelled: true, landed: null, verified: 0 };
                 updateQueue((q) => finished(q, next.id, { summary: cancelledSummary }, Date.now()));
                 for (const row of queueRef.current) {
                   if (row.status === 'queued' && jobsRef.current.get(row.id)?.batch === job.batch) {

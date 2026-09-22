@@ -23,7 +23,7 @@ use russh::ChannelMsg;
 use super::listing::parent_remote;
 use super::session::get_opener;
 use super::transfer::Progress;
-use super::{SftpClientState, TransferProgress, TransferSummary};
+use super::{join_remote, SftpClientState, TransferProgress, TransferSummary};
 
 /// A path or a name as a single shell word.
 ///
@@ -176,8 +176,14 @@ pub async fn download_archive(
     }
     let (files, directories) = unpacked?;
     // tar says what went wrong; a missing tar, an unreadable directory.
-    if let Some(e) = exec_failure("tar on the server", status, &stderr) { return Err(e); }
-    Ok(TransferSummary { files, directories, ..Default::default() })
+    if let Some(e) = exec_failure("tar on the server", "tar", status, &stderr) { return Err(e); }
+    let landed = dest.join(into_name.unwrap_or(&name));
+    Ok(TransferSummary {
+        files,
+        directories,
+        landed: Some(landed.to_string_lossy().into_owned()),
+        ..Default::default()
+    })
 }
 
 /// Unpacks a gzipped tar from `reader` into `dest`, refusing any entry
@@ -216,14 +222,21 @@ fn unpack_into(reader: impl Read, dest: &Path, rename_to: Option<&str>) -> Resul
 }
 
 /// What a finished exec channel said, if anything went wrong.
-fn exec_failure(what: &str, status: Option<u32>, stderr: &str) -> Option<anyhow::Error> {
+pub(super) fn exec_failure(
+    what: &str,
+    // The program that was run, for the one failure it cannot describe
+    // itself: a shell that cannot find it says nothing on stderr.
+    tool: &str,
+    status: Option<u32>,
+    stderr: &str,
+) -> Option<anyhow::Error> {
     let code = status?;
     if code == 0 { return None; }
     let said = stderr.trim();
     Some(anyhow!(
         "{what} exited with status {code}{}",
         if said.is_empty() {
-            ". The host may have no tar installed.".to_string()
+            format!(". The host may have no {tool} installed.")
         } else {
             format!(": {said}")
         },
@@ -321,8 +334,12 @@ pub async fn upload_archive(
         return Ok(TransferSummary { cancelled: true, ..Default::default() });
     }
     let files = packed?;
-    if let Some(e) = exec_failure("tar on the server", status, &stderr) { return Err(e); }
-    Ok(TransferSummary { files, ..Default::default() })
+    if let Some(e) = exec_failure("tar on the server", "tar", status, &stderr) { return Err(e); }
+    Ok(TransferSummary {
+        files,
+        landed: Some(join_remote(remote_dir, into_name.unwrap_or(&name))),
+        ..Default::default()
+    })
 }
 
 /// Copies a directory from one server to another as one stream: the
@@ -387,9 +404,12 @@ pub async fn copy_archive(
     if cancelled {
         return Ok(TransferSummary { cancelled: true, ..Default::default() });
     }
-    if let Some(e) = exec_failure("tar on the source server", src_status, &src_stderr) { return Err(e); }
-    if let Some(e) = exec_failure("tar on the destination server", dst_status, &dst_stderr) { return Err(e); }
-    Ok(TransferSummary::default())
+    if let Some(e) = exec_failure("tar on the source server", "tar", src_status, &src_stderr) { return Err(e); }
+    if let Some(e) = exec_failure("tar on the destination server", "tar", dst_status, &dst_stderr) { return Err(e); }
+    Ok(TransferSummary {
+        landed: Some(join_remote(dst_dir, into_name.unwrap_or(&name))),
+        ..Default::default()
+    })
 }
 
 /// Reads what is left of an exec channel: its stderr and its exit status.
@@ -439,11 +459,11 @@ mod tests {
     /// worth naming rather than leaving as a bare status.
     #[test]
     fn a_failing_tar_says_what_it_said_or_guesses_why() {
-        assert!(exec_failure("tar on the server", Some(0), "").is_none());
-        assert!(exec_failure("tar on the server", None, "").is_none());
-        let e = exec_failure("tar on the server", Some(127), "").unwrap().to_string();
+        assert!(exec_failure("tar on the server", "tar", Some(0), "").is_none());
+        assert!(exec_failure("tar on the server", "tar", None, "").is_none());
+        let e = exec_failure("tar on the server", "tar", Some(127), "").unwrap().to_string();
         assert!(e.contains("no tar installed"), "{e}");
-        let e = exec_failure("tar on the server", Some(2), "tar: /x: Cannot open").unwrap().to_string();
+        let e = exec_failure("tar on the server", "tar", Some(2), "tar: /x: Cannot open").unwrap().to_string();
         assert!(e.contains("Cannot open"), "{e}");
     }
 
