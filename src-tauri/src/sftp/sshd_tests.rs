@@ -247,6 +247,43 @@ impl Progress for Trip<'_> {
     }
 }
 
+/// A batch that breaks part way has still copied something, and the caller
+/// needs to know what. Returning the error alone threw that away.
+#[tokio::test]
+async fn a_batch_that_cannot_read_a_file_reports_what_it_copied() {
+    use std::os::unix::fs::PermissionsExt;
+    if nix_is_root() {
+        eprintln!("skipping: root reads a file whatever its mode says");
+        return;
+    }
+    let Some((server, state)) = rig("broken", None).await else { return };
+    let src = server.scratch("broken-src");
+    std::fs::create_dir_all(&src).unwrap();
+    for name in ["a.txt", "b.txt", "c.txt"] {
+        std::fs::write(src.join(name), name.as_bytes()).unwrap();
+    }
+    std::fs::set_permissions(src.join("b.txt"), std::fs::Permissions::from_mode(0o000)).unwrap();
+    let dst = server.scratch("broken-out");
+
+    let summary = upload_path(&Silent, &state, "t", "s", &src.to_string_lossy(), &dst.to_string_lossy(), Conflict::Overwrite)
+        .await
+        .unwrap();
+
+    assert!(summary.failed.is_some(), "the unreadable file should be reported");
+    assert!(summary.files < 3, "copied {} of 3", summary.files);
+    let out = dst.join("broken-src");
+    let landed = std::fs::read_dir(&out).unwrap().count();
+    assert_eq!(landed as u32, summary.files, "the count matches what is there");
+
+    // Left readable so the temp directory can be removed with the server.
+    std::fs::set_permissions(src.join("b.txt"), std::fs::Permissions::from_mode(0o600)).unwrap();
+}
+
+fn nix_is_root() -> bool {
+    // Safe: getuid only reads, and cannot fail.
+    unsafe { libc::getuid() == 0 }
+}
+
 /// An interrupted file is worth keeping: it is bytes the network already
 /// carried. It must not keep the real name, which would look like a whole
 /// file to everything that reads the directory.

@@ -309,11 +309,21 @@ pub(super) fn part_path(dst_path: &str) -> String {
     format!("{dst_path}{PART}")
 }
 
+/// Whether a name is an unfinished file rather than a file. Verification and
+/// comparison ignore these: they belong to a transfer that has not happened
+/// yet, and counting them would report the destination as holding a file the
+/// source does not have.
+pub(super) fn is_part(name: &str) -> bool {
+    name.ends_with(PART)
+}
+
 /// What one file's copy ended as, and what it left behind.
 pub(super) struct Outcome {
     pub step: Step,
     /// An unfinished file was kept at `<destination>.bifrossh-part`.
     pub part: bool,
+    /// Why it stopped, where it stopped for a reason other than the user.
+    pub error: Option<String>,
 }
 
 /// What to do with a file that is already at the destination.
@@ -502,7 +512,7 @@ async fn transfer_one<S: FileSide, D: FileSide>(
     match outcome {
         Ok(Step::Finished) => {
             dst.close_write(writer).await?;
-            Ok(Outcome { step: Step::Finished, part: false })
+            Ok(Outcome { step: Step::Finished, part: false, error: None })
         }
         // A part written file is not a shorter file, and leaving it under the
         // real name puts something that looks complete beside the files that
@@ -516,21 +526,19 @@ async fn transfer_one<S: FileSide, D: FileSide>(
             if !kept {
                 dst.remove_file(dst_path).await;
             }
+            // A file that broke is reported rather than returned as an
+            // error, so the batch around it can say what it managed and what
+            // it kept.
             match other {
-                Ok(step) => Ok(Outcome { step, part: kept }),
-                Err(e) => Err(e),
+                Ok(step) => Ok(Outcome { step, part: kept, error: None }),
+                Err(e) => Ok(Outcome {
+                    step: Step::Failed,
+                    part: kept,
+                    error: Some(format!("{e:#}")),
+                }),
             }
         }
     }
-}
-
-/// How many files of a batch had arrived by the time it stopped at index `i`.
-///
-/// Saturating because the two counts are not nested: a batch cancelled on a
-/// file that was skipped has copied nothing while `skipped_existing` is
-/// already one, and the plain subtraction wrapped to four billion.
-fn copied(index: usize, skipped_existing: u32) -> u32 {
-    (index as u32).saturating_sub(skipped_existing)
 }
 
 /// Copies `src_path` into `dst_dir`, recursing if it names a directory.
@@ -566,6 +574,7 @@ async fn transfer<S: FileSide, D: FileSide>(
         return Ok(TransferSummary {
             renamed: u32::from(dest != wanted),
             resumable: u32::from(outcome.part && dest == wanted),
+            failed: outcome.error,
             landed: Some(dest),
             ..single_file_summary(outcome.step)
         });
@@ -588,6 +597,9 @@ async fn transfer<S: FileSide, D: FileSide>(
     let mut skipped_existing = 0u32;
     let mut renamed = 0u32;
     let mut resumable = 0u32;
+    let mut files_done = 0u32;
+    let mut cancelled = false;
+    let mut failed = None;
     for (i, item) in files.iter().enumerate() {
         let at = Position { index: i as u32 + 1, count };
         // A file under a directory: its parent within the tree and its own
@@ -604,7 +616,9 @@ async fn transfer<S: FileSide, D: FileSide>(
         // A kept copy lands under a name of its own, so the two trees are
         // no longer the same tree and nothing should compare them.
         if dest != wanted { renamed += 1; }
-        let outcome = transfer_one(
+        // An error opening the source or the destination never reached the
+        // copy, so there is nothing kept and nothing to report but the error.
+        let outcome = match transfer_one(
             app,
             src,
             &src.join(src_path, &item.rel),
@@ -613,37 +627,45 @@ async fn transfer<S: FileSide, D: FileSide>(
             at,
             cancel,
         )
-        .await?;
+        .await
+        {
+            Ok(outcome) => outcome,
+            Err(e) => {
+                failed = Some(format!("{e:#}"));
+                break;
+            }
+        };
         if outcome.part && dest == wanted {
             resumable += 1;
         }
         // Files already copied are left alone; only the one in flight is
-        // unfinished. `files` therefore counts what actually arrived.
-        if outcome.step == Step::Cancelled {
-            return Ok(TransferSummary {
-                files: copied(i, skipped_existing),
-                directories,
-                skipped_symlinks,
-                skipped_existing,
-                renamed,
-                resumable,
-                cancelled: true,
-                landed: Some(dest_root.clone()),
-                verified: 0,
-            });
+        // unfinished. `files` therefore counts what actually arrived, which
+        // is why it is counted here rather than worked out from the position
+        // the batch stopped at.
+        match outcome.step {
+            Step::Finished => files_done += 1,
+            Step::Cancelled => {
+                cancelled = true;
+                break;
+            }
+            Step::Failed => {
+                failed = outcome.error;
+                break;
+            }
         }
     }
 
     Ok(TransferSummary {
-        files: count - skipped_existing,
+        files: files_done,
         directories,
         skipped_symlinks,
         skipped_existing,
         renamed,
         resumable,
-        cancelled: false,
+        cancelled,
         landed: Some(dest_root),
         verified: 0,
+        failed,
     })
 }
 
@@ -779,17 +801,6 @@ mod tests {
         use super::part_path;
         assert_eq!(part_path("/tmp/notes.txt"), "/tmp/notes.txt.bifrossh-part");
         assert_eq!(part_path("/tmp/archive.tar.gz"), "/tmp/archive.tar.gz.bifrossh-part");
-    }
-
-    /// Cancelling on a file that was skipped means nothing was copied, not
-    /// four billion files.
-    #[test]
-    fn a_batch_cancelled_on_a_skipped_file_reports_nothing_copied() {
-        use super::copied;
-        assert_eq!(copied(0, 1), 0);
-        assert_eq!(copied(3, 0), 3);
-        assert_eq!(copied(3, 1), 2);
-        assert_eq!(copied(1, 3), 0);
     }
 
     /// The number goes before the extension, so a kept copy still opens

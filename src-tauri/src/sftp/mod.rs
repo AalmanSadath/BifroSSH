@@ -84,13 +84,19 @@ pub struct TransferSummary {
     /// Files whose checksum was compared with the source and matched; 0 when
     /// verification was off or was not possible. See `sftp::verify`.
     pub verified: u32,
+    /// What ended the batch early, where something did. Reported rather than
+    /// returned as an error: a connection that dies half way through three
+    /// hundred files is exactly when the caller needs to know which of them
+    /// arrived and which one is waiting to be continued.
+    pub failed: Option<String>,
 }
 
-/// Whether a file ran to the end or was stopped part way.
+/// Whether a file ran to the end, was stopped part way, or broke.
 #[derive(Clone, Copy, PartialEq)]
 enum Step {
     Finished,
     Cancelled,
+    Failed,
 }
 
 /// One entry in a directory walk, relative to the transfer root.
