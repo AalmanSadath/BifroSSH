@@ -245,6 +245,15 @@ interface AppStore {
   splitWith: (anchorTabId: string, droppedTabId: string) => void;
   unsplit: (tabId: string) => void;
 
+  /**
+   * Pane widths as percentages, parallel to `splitGroup`; empty means the
+   * panes share the row evenly. Cleared whenever the group changes shape,
+   * since widths belong to one set of panes and not to another. In memory
+   * only, as the group itself is.
+   */
+  splitWidths: number[];
+  setSplitWidths: (widths: number[]) => void;
+
   /** What the desktop reports about its own theme and accent. */
   systemAppearance: SystemAppearance;
   setSystemAppearance: (appearance: SystemAppearance) => void;
@@ -549,6 +558,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   sessions: [],
   activeTabId: 'hosts',
   splitGroup: [],
+  splitWidths: [],
 
   systemAppearance: NO_APPEARANCE,
   setSystemAppearance: (appearance) => set({ systemAppearance: appearance }),
@@ -967,6 +977,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         sessionThemeOverrides: themeOverrides,
         sessionZoom: zoom,
         splitGroup: pruneSplit(s.splitGroup, tabId),
+        splitWidths: [],
         retryingTabIds: retrying,
       };
     }),
@@ -1311,11 +1322,17 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const base = s.splitGroup.includes(anchorTabId) ? s.splitGroup : [anchorTabId];
       if (base.includes(droppedTabId) || base.length >= MAX_SPLIT) return {};
       const members = new Set([...base, droppedTabId]);
-      // Strip order, so panes read the way the tabs do.
-      return { splitGroup: s.sessions.map((t) => t.tab_id).filter((id) => members.has(id)) };
+      // Strip order, so panes read the way the tabs do. The widths go: a
+      // pane joining the row makes every old share the wrong size.
+      return {
+        splitGroup: s.sessions.map((t) => t.tab_id).filter((id) => members.has(id)),
+        splitWidths: [],
+      };
     }),
 
-  unsplit: (tabId) => set((s) => ({ splitGroup: pruneSplit(s.splitGroup, tabId) })),
+  unsplit: (tabId) => set((s) => ({ splitGroup: pruneSplit(s.splitGroup, tabId), splitWidths: [] })),
+
+  setSplitWidths: (widths) => set({ splitWidths: widths }),
 }));
 
 /**

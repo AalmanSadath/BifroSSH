@@ -208,3 +208,22 @@
   overflow-y: scroll !important;
   background-color: var(--term-bg, #0d1117) !important;
 }
+
+/* The drag handle over a pane's left edge. Inside the pane, since an element
+   between panes would break the adjacent-sibling rule that draws the border
+   between them. Same width and feel as the SFTP column handle. */
+.pane-resizer {
+  position: absolute;
+  left: -3px;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 10;
+}
+
+.pane-resizer:hover,
+.pane-resizer:active {
+  background: var(--accent);
+  opacity: 0.5;
+}

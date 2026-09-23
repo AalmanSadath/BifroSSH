@@ -8,6 +8,7 @@ import { useIdleLock } from './hooks/useIdleLock';
 import type { AuthPromptEvent, Codeprint, HostKeyPromptEvent, SessionTab, SystemAppearance, TunnelClosed, VaultStatus } from './types';
 import { fill } from './snippets';
 import { zoomPercent } from './zoom';
+import { evenAt, evenWidths, resizeAt, widthAt } from './paneSizes';
 import { WINDOW_ACTIONS, actionFor, resolve as resolveShortcuts, tabIndexFor } from './shortcuts';
 import CommandPalette from './components/CommandPalette';
 import SnippetPromptModal from './components/SnippetPromptModal';
@@ -87,7 +88,7 @@ export default function App() {
   const {
     loadAll, loadError, actionError, setActionError, sessions, activeTabId, setActiveTab, removeSession,
     renameSession, toggleBroadcast, openInSftp, sendInput, toggleLogging, splitGroup, splitWith, unsplit, openSession, quickConnect, servers, settings, keys,
-    zoomSession, resetZoom, sessionZoom,
+    zoomSession, resetZoom, sessionZoom, splitWidths, setSplitWidths,
     systemAppearance, setSystemAppearance, clearForLock,
   } = useAppStore();
 
@@ -110,6 +111,77 @@ export default function App() {
   const [tabDragOver, setTabDragOver] = useState(false);
   const activeIsSession = sessions.some((s) => s.tab_id === activeTabId);
   const splitShown = activeTabId !== null && splitGroup.includes(activeTabId);
+
+  /**
+   * Drags the boundary to the left of pane `index`.
+   *
+   * The same shape as the SFTP column resizer: percentages, zero-sum against
+   * the neighbour, window listeners so the pointer can leave the handle, and
+   * the body's cursor held for the duration. The state is written behind a
+   * frame, so a drag costs each terminal one refit per frame rather than one
+   * per mouse event; xterm refits itself from its own ResizeObserver.
+   */
+  function startPaneResize(index: number, e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    const row = (e.currentTarget as HTMLElement).closest('.term-area');
+    const rowWidth = row?.getBoundingClientRect().width ?? 1;
+    const startX = e.clientX;
+    const startWidths = splitWidths.length === splitGroup.length
+      ? splitWidths
+      : evenWidths(splitGroup.length);
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    let frame = 0;
+
+    function onMove(ev: MouseEvent) {
+      if (frame !== 0) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        const delta = ((ev.clientX - startX) / rowWidth) * 100;
+        setSplitWidths(resizeAt(startWidths, index, delta));
+      });
+    }
+
+    function onUp() {
+      if (frame !== 0) cancelAnimationFrame(frame);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    }
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
+
+  /**
+   * The handle over a pane's left edge, for every pane but the first.
+   *
+   * Inside the pane rather than between panes: the separator between two
+   * panes is drawn by an adjacent-sibling rule, which an element in between
+   * would break.
+   */
+  function paneResizer(index: number) {
+    if (index <= 0) return undefined;
+    return (
+      <div
+        className="pane-resizer"
+        title="Drag to resize. Double-click to share these two evenly."
+        onMouseDown={(e) => startPaneResize(index, e)}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          // This divider only: with three panes, evening the whole row would
+          // move a boundary nobody touched.
+          const current = splitWidths.length === splitGroup.length
+            ? splitWidths
+            : evenWidths(splitGroup.length);
+          setSplitWidths(evenAt(current, index));
+        }}
+      />
+    );
+  }
 
   function paneHeader(s: SessionTab, focused: boolean) {
     return (
@@ -618,6 +690,10 @@ export default function App() {
             const inSplit = splitGroup.includes(s.tab_id);
             const visible = activeTabId === s.tab_id || (splitShown && inSplit);
             const focused = activeTabId === s.tab_id;
+            // Only a pane in the shown split has a share of the row; a tab
+            // on its own has the whole of it.
+            const paneAt = splitShown && inSplit ? splitGroup.indexOf(s.tab_id) : -1;
+            const paneWidth = paneAt >= 0 ? widthAt(splitWidths, paneAt, splitGroup.length) : undefined;
             const server = servers.find((srv) => srv.id === s.server_id)
               ?? (s.quick_info ? {
                 id: '', name: s.server_name,
@@ -630,7 +706,15 @@ export default function App() {
             if (s.status === 'connecting' || s.status === 'error') {
               if (!server) return null;
               return (
-                <div key={s.tab_id} className="term-connecting" style={{ display: visible ? 'flex' : 'none' }}>
+                <div
+                  key={s.tab_id}
+                  className="term-connecting"
+                  style={{
+                    display: visible ? 'flex' : 'none',
+                    ...(paneWidth !== undefined ? { flex: `0 0 ${paneWidth}%` } : null),
+                  }}
+                >
+                  {paneResizer(paneAt)}
                   {splitShown && inSplit && paneHeader(s, focused)}
                   <ConnectingView
                     server={server}
@@ -651,6 +735,8 @@ export default function App() {
                 visible={visible}
                 focused={focused}
                 header={splitShown && inSplit ? paneHeader(s, focused) : undefined}
+                resizer={paneResizer(paneAt)}
+                width={paneWidth}
               />
             );
           })}

@@ -22,6 +22,10 @@ interface Props {
   focused: boolean;
   /** Split only: the pane header, with the tab's name and a way out. */
   header?: React.ReactNode;
+  /** Split only: the handle that drags this pane's left edge. */
+  resizer?: React.ReactNode;
+  /** Split only: this pane's share of the row, as a percentage. */
+  width?: number;
 }
 
 interface SearchOptions {
@@ -30,7 +34,7 @@ interface SearchOptions {
   regex: boolean;
 }
 
-export default function TerminalView({ tab, visible, focused, header }: Props) {
+export default function TerminalView({ tab, visible, focused, header, resizer, width }: Props) {
   const { tab_id: tabId, session_id: sessionId, server_id: serverId } = tab;
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -566,9 +570,16 @@ export default function TerminalView({ tab, visible, focused, header }: Props) {
   return (
     <div
       className={`terminal-pane${tab.broadcast ? ' terminal-pane-broadcast' : ''}${header && focused ? ' terminal-pane-focused' : ''}`}
-      style={{ display: visible ? 'flex' : 'none', '--term-bg': resolveTheme().background } as React.CSSProperties}
+      style={{
+        display: visible ? 'flex' : 'none',
+        // A dragged split gives each pane a share of the row; without one
+        // they all grow equally, which is what flex: 1 already does.
+        ...(width !== undefined ? { flex: `0 0 ${width}%` } : null),
+        '--term-bg': resolveTheme().background,
+      } as React.CSSProperties}
       onMouseDown={() => { if (!focused) setActiveTab(tabId); }}
     >
+      {resizer}
       {header}
       {searchOpen && (
         // Escape is handled here rather than on the input: clicking a toggle
