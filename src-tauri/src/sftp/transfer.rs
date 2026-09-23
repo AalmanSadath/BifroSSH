@@ -476,6 +476,15 @@ async fn transfer_one<S: FileSide, D: FileSide>(
     }
 }
 
+/// How many files of a batch had arrived by the time it stopped at index `i`.
+///
+/// Saturating because the two counts are not nested: a batch cancelled on a
+/// file that was skipped has copied nothing while `skipped_existing` is
+/// already one, and the plain subtraction wrapped to four billion.
+fn copied(index: usize, skipped_existing: u32) -> u32 {
+    (index as u32).saturating_sub(skipped_existing)
+}
+
 /// Copies `src_path` into `dst_dir`, recursing if it names a directory.
 ///
 /// The destination keeps the source's own name, so this is "drop it in here"
@@ -559,7 +568,7 @@ async fn transfer<S: FileSide, D: FileSide>(
         // removed. `files` therefore counts what actually arrived.
         if step == Step::Cancelled {
             return Ok(TransferSummary {
-                files: i as u32 - skipped_existing,
+                files: copied(i, skipped_existing),
                 directories,
                 skipped_symlinks,
                 skipped_existing,
@@ -708,6 +717,17 @@ pub async fn copy_remote_path(
 
 #[cfg(test)]
 mod tests {
+    /// Cancelling on a file that was skipped means nothing was copied, not
+    /// four billion files.
+    #[test]
+    fn a_batch_cancelled_on_a_skipped_file_reports_nothing_copied() {
+        use super::copied;
+        assert_eq!(copied(0, 1), 0);
+        assert_eq!(copied(3, 0), 3);
+        assert_eq!(copied(3, 1), 2);
+        assert_eq!(copied(1, 3), 0);
+    }
+
     /// The number goes before the extension, so a kept copy still opens
     /// with the same application. A dotfile has no extension to keep.
     #[test]
