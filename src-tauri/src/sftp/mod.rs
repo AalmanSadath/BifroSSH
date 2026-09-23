@@ -47,6 +47,11 @@ pub struct TransferProgress {
     pub file_name: String,
     pub transferred: u64,
     pub total: u64,
+    /// Where this file's copy started, which is not zero when an unfinished
+    /// file was continued. The window needs it to work out a rate: without it
+    /// the bytes an earlier attempt carried are counted against this attempt's
+    /// few seconds, and the speed and the estimate are both fiction.
+    pub resumed_from: u64,
     /// 1-based position of this file within the batch. Always 1/1 for a single
     /// file, so the UI can show "3 of 12" only when it means something.
     pub file_index: u32,
@@ -73,6 +78,8 @@ pub struct TransferSummary {
     /// they are; the one in flight is kept as a part file. `files` counts what
     /// actually arrived, so a cancelled batch reports fewer than were asked for.
     pub cancelled: bool,
+    /// Files continued from an unfinished copy rather than started over.
+    pub resumed: u32,
     /// Unfinished files left at the destination under `transfer::PART`, ready
     /// to be continued. Counted only where the part sits beside the name the
     /// transfer was aiming at, since a keep-both copy would never be found

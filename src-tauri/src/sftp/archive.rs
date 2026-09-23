@@ -147,6 +147,7 @@ pub async fn download_archive(
                     // Nothing knows the size of a stream that is still
                     // being produced; the panel shows bytes so far.
                     total: 0,
+                    resumed_from: 0,
                     file_index: 1,
                     file_count: 1,
                 });
@@ -319,6 +320,7 @@ pub async fn upload_archive(
             file_name: name.clone(),
             transferred: sent,
             total: 0,
+            resumed_from: 0,
             file_index: 1,
             file_count: 1,
         });
@@ -385,6 +387,7 @@ pub async fn copy_archive(
                     file_name: name.clone(),
                     transferred: moved,
                     total: 0,
+                    resumed_from: 0,
                     file_index: 1,
                     file_count: 1,
                 });

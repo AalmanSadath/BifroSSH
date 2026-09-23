@@ -192,7 +192,7 @@ async fn digests_of(
                 if stop { return Ok(out); }
                 for rel in rels {
                     let at = if rel.is_empty() { root.clone() } else { root.join(&rel) };
-                    out.insert(rel, digest_file(&at)?);
+                    out.insert(rel, digest_file(&at, None)?);
                 }
                 Ok(out)
             })
@@ -252,7 +252,7 @@ fn join_rel(root: &str, rel: &str) -> String {
 }
 
 /// Runs a command on the far end and returns its stdout.
-async fn run_capture(opener: &dyn ChannelOpener, command: &str) -> Result<String> {
+pub(super) async fn run_capture(opener: &dyn ChannelOpener, command: &str) -> Result<String> {
     let mut channel = opener
         .open_session()
         .await
@@ -323,7 +323,7 @@ fn local_digests(root: &Path) -> Result<Digests> {
     let mut out = Digests::new();
     let meta = std::fs::symlink_metadata(root).with_context(|| root.display().to_string())?;
     if meta.is_file() {
-        out.push((String::new(), digest_file(root)?));
+        out.push((String::new(), digest_file(root, None)?));
         return Ok(out);
     }
     let mut stack = vec![root.to_path_buf()];
@@ -347,7 +347,7 @@ fn local_digests(root: &Path) -> Result<Digests> {
                     .unwrap_or(&path)
                     .to_string_lossy()
                     .replace('\\', "/");
-                out.push((rel, digest_file(&path)?));
+                out.push((rel, digest_file(&path, None)?));
             }
         }
     }
@@ -355,14 +355,21 @@ fn local_digests(root: &Path) -> Result<Digests> {
     Ok(out)
 }
 
-fn digest_file(path: &Path) -> Result<String> {
+/// The digest of `path`, or of its first `limit` bytes where one is given.
+///
+/// The limit is what a resume asks about: whether the bytes already at the
+/// destination are the beginning of the file about to be continued.
+pub(super) fn digest_file(path: &Path, limit: Option<u64>) -> Result<String> {
     let mut file = std::fs::File::open(path).with_context(|| path.display().to_string())?;
     let mut hasher = Sha256::new();
     let mut buf = vec![0u8; 128 * 1024];
-    loop {
-        let read = file.read(&mut buf)?;
+    let mut left = limit.unwrap_or(u64::MAX);
+    while left > 0 {
+        let want = buf.len().min(left as usize);
+        let read = file.read(&mut buf[..want])?;
         if read == 0 { break; }
         hasher.update(&buf[..read]);
+        left -= read as u64;
     }
     Ok(hex(&hasher.finalize()))
 }

@@ -2,7 +2,7 @@
 
 use super::*;
 use super::listing::{collect_local_tree, collect_remote_tree};
-use super::session::get_session;
+use super::session::{get_opener, get_session};
 use std::fs;
 use std::future::Future;
 use std::path::Path;
@@ -83,8 +83,9 @@ fn single_file_summary(step: Step) -> TransferSummary {
 /// concatenated with the wrong slash.
 #[async_trait]
 pub(super) trait FileSide {
-    type Reader: tokio::io::AsyncRead + Unpin + Send;
-    type Writer: tokio::io::AsyncWrite + Unpin + Send;
+    // Seekable because a resume starts part way through both files.
+    type Reader: tokio::io::AsyncRead + tokio::io::AsyncSeek + Unpin + Send;
+    type Writer: tokio::io::AsyncWrite + tokio::io::AsyncSeek + Unpin + Send;
 
     async fn is_dir(&self, path: &str) -> Result<bool>;
 
@@ -105,6 +106,19 @@ pub(super) trait FileSide {
     async fn open_read(&self, path: &str) -> Result<(Self::Reader, u64)>;
 
     async fn create_write(&self, path: &str) -> Result<Self::Writer>;
+
+    /// The size of `path`, or None if nothing is there. Asked about an
+    /// unfinished file, which may well not exist.
+    async fn size(&self, path: &str) -> Option<u64>;
+
+    /// A writer over an existing file, positioned at `offset` and truncating
+    /// nothing, so a resume adds to what is already there.
+    async fn open_write_at(&self, path: &str, offset: u64) -> Result<Self::Writer>;
+
+    /// The SHA-256 of the first `len` bytes of `path`, computed where the file
+    /// lives. Nothing crosses the network for it, which is the whole point:
+    /// reading the bytes back to check them would cost what resuming saves.
+    async fn digest_prefix(&self, path: &str, len: u64) -> Result<String>;
 
     /// Moves `from` over `to`, replacing whatever `to` was.
     async fn rename(&self, from: &str, to: &str) -> Result<()>;
@@ -185,6 +199,30 @@ impl FileSide for Local {
             .with_context(|| format!("renaming {from} to {to}"))
     }
 
+    async fn size(&self, path: &str) -> Option<u64> {
+        tokio::fs::metadata(path).await.ok().map(|m| m.len())
+    }
+
+    async fn open_write_at(&self, path: &str, offset: u64) -> Result<Self::Writer> {
+        use tokio::io::AsyncSeekExt;
+        let mut file = tokio::fs::OpenOptions::new()
+            .write(true)
+            .open(path)
+            .await
+            .with_context(|| path.to_string())?;
+        file.seek(std::io::SeekFrom::Start(offset))
+            .await
+            .with_context(|| path.to_string())?;
+        Ok(file)
+    }
+
+    async fn digest_prefix(&self, path: &str, len: u64) -> Result<String> {
+        let path = std::path::PathBuf::from(path);
+        tokio::task::spawn_blocking(move || super::verify::digest_file(&path, Some(len)))
+            .await
+            .map_err(|e| anyhow!("The checksum stopped: {e}"))?
+    }
+
     // A local file is closed by dropping it; the OS does the bookkeeping.
     async fn close_read(&self, _reader: Self::Reader) {}
 
@@ -204,7 +242,24 @@ impl FileSide for Local {
     }
 }
 
-pub(super) struct Remote(pub(super) Arc<Mutex<SftpSession>>);
+/// One side of a transfer on a server: the SFTP session it copies through,
+/// and a way to open a shell channel, which is how a digest is asked for
+/// without reading the file back across the network.
+pub(super) struct Remote {
+    pub(super) sftp: Arc<Mutex<SftpSession>>,
+    pub(super) opener: Arc<dyn ChannelOpener>,
+}
+
+/// The remote side of `session_id`, both halves of it.
+pub(super) async fn remote_side(
+    sftp_state: &SftpClientState,
+    session_id: &str,
+) -> Result<Remote> {
+    Ok(Remote {
+        sftp: get_session(sftp_state, session_id).await?,
+        opener: get_opener(sftp_state, session_id).await?,
+    })
+}
 
 /// Each method takes the session lock and gives it back before returning. The
 /// handles outlive the guard, so a transfer holds no lock while it is copying,
@@ -215,7 +270,7 @@ impl FileSide for Remote {
     type Writer = russh_sftp::client::fs::File;
 
     async fn is_dir(&self, path: &str) -> Result<bool> {
-        let sftp = self.0.lock().await;
+        let sftp = self.sftp.lock().await;
         let meta = sftp
             .metadata(path)
             .await
@@ -224,16 +279,16 @@ impl FileSide for Remote {
     }
 
     async fn exists(&self, path: &str) -> bool {
-        let sftp = self.0.lock().await;
+        let sftp = self.sftp.lock().await;
         sftp.metadata(path).await.is_ok()
     }
 
     async fn walk(&self, root: &str) -> Result<(Vec<TreeItem>, u32)> {
-        collect_remote_tree(&self.0, root).await
+        collect_remote_tree(&self.sftp, root).await
     }
 
     async fn ensure_dir(&self, path: &str) -> Result<()> {
-        let sftp = self.0.lock().await;
+        let sftp = self.sftp.lock().await;
         // Unlike `create_dir_all`, SFTP's mkdir fails on a directory that is
         // already there, and that is the common case here.
         let _ = sftp.create_dir(path).await;
@@ -241,7 +296,7 @@ impl FileSide for Remote {
     }
 
     async fn open_read(&self, path: &str) -> Result<(Self::Reader, u64)> {
-        let sftp = self.0.lock().await;
+        let sftp = self.sftp.lock().await;
         let meta = sftp
             .metadata(path)
             .await
@@ -254,16 +309,48 @@ impl FileSide for Remote {
     }
 
     async fn create_write(&self, path: &str) -> Result<Self::Writer> {
-        let sftp = self.0.lock().await;
+        let sftp = self.sftp.lock().await;
         sftp.create(path)
             .await
             .with_context(|| path.to_string())
     }
 
+    async fn size(&self, path: &str) -> Option<u64> {
+        let sftp = self.sftp.lock().await;
+        sftp.metadata(path).await.ok().and_then(|m| m.size)
+    }
+
+    /// WRITE alone: no truncate, and deliberately not APPEND, which on a
+    /// server that honours it writes at the end whatever offset was asked for.
+    async fn open_write_at(&self, path: &str, offset: u64) -> Result<Self::Writer> {
+        use russh_sftp::protocol::OpenFlags;
+        use tokio::io::AsyncSeekExt;
+        let mut file = {
+            let sftp = self.sftp.lock().await;
+            sftp.open_with_flags(path, OpenFlags::WRITE)
+                .await
+                .with_context(|| path.to_string())?
+        };
+        file.seek(std::io::SeekFrom::Start(offset))
+            .await
+            .with_context(|| path.to_string())?;
+        Ok(file)
+    }
+
+    async fn digest_prefix(&self, path: &str, len: u64) -> Result<String> {
+        let command = format!("head -c {len} -- {} | sha256sum", super::archive::quote(path));
+        let out = super::verify::run_capture(self.opener.as_ref(), &command).await?;
+        let digest = out
+            .split_whitespace()
+            .next()
+            .context("The server said nothing about the unfinished file")?;
+        Ok(digest.to_string())
+    }
+
     /// The remove comes first because SSH_FXP_RENAME does not replace: an
     /// OpenSSH server refuses the rename outright when the target is there.
     async fn rename(&self, from: &str, to: &str) -> Result<()> {
-        let sftp = self.0.lock().await;
+        let sftp = self.sftp.lock().await;
         let _ = sftp.remove_file(to).await;
         sftp.rename(from.to_string(), to.to_string())
             .await
@@ -292,7 +379,7 @@ impl FileSide for Remote {
     }
 
     async fn remove_file(&self, path: &str) {
-        let sftp = self.0.lock().await;
+        let sftp = self.sftp.lock().await;
         let _ = sftp.remove_file(path).await;
     }
 }
@@ -324,6 +411,20 @@ pub(super) struct Outcome {
     pub part: bool,
     /// Why it stopped, where it stopped for a reason other than the user.
     pub error: Option<String>,
+    /// The copy started part way in, continuing an earlier attempt.
+    pub resumed: bool,
+}
+
+/// Where a resumed copy starts: the length of the unfinished file, when that
+/// is a sensible prefix of the file being copied.
+///
+/// Anything else starts at zero. A part as long as the source, or longer, is
+/// not the beginning of what is about to be written, whatever it is.
+fn resume_offset(part: Option<u64>, total: u64) -> u64 {
+    match part {
+        Some(n) if n > 0 && n < total => n,
+        _ => 0,
+    }
 }
 
 /// What to do with a file that is already at the destination.
@@ -333,6 +434,9 @@ pub enum Conflict {
     Overwrite,
     Skip,
     KeepBoth,
+    /// Continue an unfinished file where one is there, and copy over anything
+    /// else. What a stopped transfer is run again with.
+    Resume,
 }
 
 /// `name` split into what comes before its last dot and the dot onward:
@@ -366,14 +470,25 @@ async fn free_path<D: FileSide>(dst: &D, dir: &str, name: &str) -> String {
 /// copy needs a different name and only this function knows which.
 async fn resolve_conflict<D: FileSide>(dst: &D, dir: &str, name: &str, policy: Conflict) -> Option<String> {
     let wanted = dst.join(dir, name);
-    if policy == Conflict::Overwrite || !dst.exists(&wanted).await {
+    // Resuming aims at the same name a plain overwrite would: the unfinished
+    // file is beside it, and what is already there is what the resume
+    // continues or replaces.
+    if matches!(policy, Conflict::Overwrite | Conflict::Resume) || !dst.exists(&wanted).await {
         return Some(wanted);
     }
     match policy {
         Conflict::Skip => None,
         Conflict::KeepBoth => Some(free_path(dst, dir, name).await),
-        Conflict::Overwrite => Some(wanted),
+        Conflict::Overwrite | Conflict::Resume => Some(wanted),
     }
+}
+
+/// What the batch around one file asks of it: where it sits in the run, what
+/// to do about anything already at the destination, and the flag that stops it.
+struct Job<'a> {
+    at: Position,
+    policy: Conflict,
+    cancel: &'a AtomicBool,
 }
 
 /// Where one file sits in its batch, for the progress the UI shows.
@@ -438,10 +553,10 @@ async fn transfer_one<S: FileSide, D: FileSide>(
     src_path: &str,
     dst: &D,
     dst_path: &str,
-    at: Position,
-    cancel: &AtomicBool,
+    job: Job<'_>,
 ) -> Result<Outcome> {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let Job { at, policy, cancel } = job;
+    use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
     let file_name = Path::new(dst_path)
         .file_name()
@@ -451,12 +566,47 @@ async fn transfer_one<S: FileSide, D: FileSide>(
 
     let (mut reader, total) = src.open_read(src_path).await?;
     let part = part_path(dst_path);
-    let mut writer = dst.create_write(dst_path).await?;
+
+    // What is already there is only worth keeping if it is the beginning of
+    // what is about to be written. Both digests are computed where their file
+    // lives, so this costs a read on each machine and nothing on the wire.
+    let mut offset = 0u64;
+    if policy == Conflict::Resume {
+        offset = resume_offset(dst.size(&part).await, total);
+        if offset > 0 {
+            let here = src.digest_prefix(src_path, offset).await;
+            let there = dst.digest_prefix(&part, offset).await;
+            let same = matches!((&here, &there), (Ok(a), Ok(b)) if a == b);
+            if !same {
+                offset = 0;
+            }
+        }
+    }
+    if offset == 0 {
+        // Whatever is in that part file belongs to a different copy of this
+        // path. Left alone under Skip and Keep both, which are not writing
+        // over the file it sits beside.
+        if matches!(policy, Conflict::Overwrite | Conflict::Resume) {
+            dst.remove_file(&part).await;
+        }
+    } else {
+        reader
+            .seek(std::io::SeekFrom::Start(offset))
+            .await
+            .with_context(|| src_path.to_string())?;
+    }
+
+    let mut writer = if offset > 0 {
+        dst.open_write_at(&part, offset).await?
+    } else {
+        dst.create_write(dst_path).await?
+    };
 
     // Held outside the copy so the failure path below can ask whether anything
     // arrived, which is what decides between keeping a part file and removing
-    // an empty stub.
-    let mut transferred = 0u64;
+    // an empty stub. It counts from the resume point, so the progress the
+    // window sees is the position in the file rather than in this attempt.
+    let mut transferred = offset;
     let outcome = async {
         let mut buf = vec![0u8; CHUNK];
         loop {
@@ -480,6 +630,7 @@ async fn transfer_one<S: FileSide, D: FileSide>(
                 file_name: file_name.clone(),
                 transferred,
                 total,
+                resumed_from: offset,
                 file_index: at.index,
                 file_count: at.count,
             });
@@ -512,7 +663,17 @@ async fn transfer_one<S: FileSide, D: FileSide>(
     match outcome {
         Ok(Step::Finished) => {
             dst.close_write(writer).await?;
-            Ok(Outcome { step: Step::Finished, part: false, error: None })
+            // A resumed file finishes under the part name and takes the real
+            // one only now that it is whole.
+            if offset > 0 {
+                dst.rename(&part, dst_path).await?;
+            }
+            Ok(Outcome {
+                step: Step::Finished,
+                part: false,
+                error: None,
+                resumed: offset > 0,
+            })
         }
         // A part written file is not a shorter file, and leaving it under the
         // real name puts something that looks complete beside the files that
@@ -522,7 +683,13 @@ async fn transfer_one<S: FileSide, D: FileSide>(
         // asked to move a file it still holds open.
         other => {
             let _ = dst.close_write(writer).await;
-            let kept = transferred > 0 && dst.rename(dst_path, &part).await.is_ok();
+            // A resume was already writing into the part file, so there is
+            // nothing to move: it simply grew and stopped again.
+            let kept = if offset > 0 {
+                true
+            } else {
+                transferred > 0 && dst.rename(dst_path, &part).await.is_ok()
+            };
             if !kept {
                 dst.remove_file(dst_path).await;
             }
@@ -530,11 +697,12 @@ async fn transfer_one<S: FileSide, D: FileSide>(
             // error, so the batch around it can say what it managed and what
             // it kept.
             match other {
-                Ok(step) => Ok(Outcome { step, part: kept, error: None }),
+                Ok(step) => Ok(Outcome { step, part: kept, error: None, resumed: false }),
                 Err(e) => Ok(Outcome {
                     step: Step::Failed,
                     part: kept,
                     error: Some(format!("{e:#}")),
+                    resumed: false,
                 }),
             }
         }
@@ -570,9 +738,11 @@ async fn transfer<S: FileSide, D: FileSide>(
             return Ok(TransferSummary { skipped_existing: 1, ..Default::default() });
         };
         let at = Position { index: 1, count: 1 };
-        let outcome = transfer_one(app, src, src_path, dst, &dest, at, cancel).await?;
+        let job = Job { at, policy, cancel };
+        let outcome = transfer_one(app, src, src_path, dst, &dest, job).await?;
         return Ok(TransferSummary {
             renamed: u32::from(dest != wanted),
+            resumed: u32::from(outcome.resumed),
             resumable: u32::from(outcome.part && dest == wanted),
             failed: outcome.error,
             landed: Some(dest),
@@ -597,6 +767,7 @@ async fn transfer<S: FileSide, D: FileSide>(
     let mut skipped_existing = 0u32;
     let mut renamed = 0u32;
     let mut resumable = 0u32;
+    let mut resumed = 0u32;
     let mut files_done = 0u32;
     let mut cancelled = false;
     let mut failed = None;
@@ -624,8 +795,7 @@ async fn transfer<S: FileSide, D: FileSide>(
             &src.join(src_path, &item.rel),
             dst,
             &dest,
-            at,
-            cancel,
+            Job { at, policy, cancel },
         )
         .await
         {
@@ -637,6 +807,9 @@ async fn transfer<S: FileSide, D: FileSide>(
         };
         if outcome.part && dest == wanted {
             resumable += 1;
+        }
+        if outcome.resumed {
+            resumed += 1;
         }
         // Files already copied are left alone; only the one in flight is
         // unfinished. `files` therefore counts what actually arrived, which
@@ -661,6 +834,7 @@ async fn transfer<S: FileSide, D: FileSide>(
         skipped_symlinks,
         skipped_existing,
         renamed,
+        resumed,
         resumable,
         cancelled,
         landed: Some(dest_root),
@@ -712,16 +886,16 @@ pub async fn conflicts_for(
 ) -> Result<Vec<String>> {
     match pairing {
         Pairing::Upload { session_id } => {
-            let remote = Remote(get_session(sftp_state, &session_id).await?);
+            let remote = remote_side(sftp_state, &session_id).await?;
             conflicts(&Local, src_path, &remote, dst_dir).await
         }
         Pairing::Download { session_id } => {
-            let remote = Remote(get_session(sftp_state, &session_id).await?);
+            let remote = remote_side(sftp_state, &session_id).await?;
             conflicts(&remote, src_path, &Local, dst_dir).await
         }
         Pairing::Copy { src_session_id, dst_session_id } => {
-            let src = Remote(get_session(sftp_state, &src_session_id).await?);
-            let dst = Remote(get_session(sftp_state, &dst_session_id).await?);
+            let src = remote_side(sftp_state, &src_session_id).await?;
+            let dst = remote_side(sftp_state, &dst_session_id).await?;
             conflicts(&src, src_path, &dst, dst_dir).await
         }
     }
@@ -737,7 +911,7 @@ pub async fn upload_path(
     remote_dir: &str,
     policy: Conflict,
 ) -> Result<TransferSummary> {
-    let remote = Remote(get_session(sftp_state, session_id).await?);
+    let remote = remote_side(sftp_state, session_id).await?;
     let guard = sftp_state.begin_transfer(transfer_id);
     transfer(app, &Local, local_path, &remote, remote_dir, policy, &guard.cancel).await
 }
@@ -751,7 +925,7 @@ pub(super) async fn upload_quiet(
     local_path: &str,
     remote_dir: &str,
 ) -> Result<()> {
-    let remote = Remote(get_session(sftp_state, session_id).await?);
+    let remote = remote_side(sftp_state, session_id).await?;
     let cancel = AtomicBool::new(false);
     transfer(&Silent, &Local, local_path, &remote, remote_dir, Conflict::Overwrite, &cancel).await?;
     Ok(())
@@ -767,7 +941,7 @@ pub async fn download_path(
     local_dir: &str,
     policy: Conflict,
 ) -> Result<TransferSummary> {
-    let remote = Remote(get_session(sftp_state, session_id).await?);
+    let remote = remote_side(sftp_state, session_id).await?;
     let guard = sftp_state.begin_transfer(transfer_id);
     transfer(app, &remote, remote_path, &Local, local_dir, policy, &guard.cancel).await
 }
@@ -786,14 +960,26 @@ pub async fn copy_remote_path(
     dst_dir: &str,
     policy: Conflict,
 ) -> Result<TransferSummary> {
-    let src = Remote(get_session(sftp_state, src_session_id).await?);
-    let dst = Remote(get_session(sftp_state, dst_session_id).await?);
+    let src = remote_side(sftp_state, src_session_id).await?;
+    let dst = remote_side(sftp_state, dst_session_id).await?;
     let guard = sftp_state.begin_transfer(transfer_id);
     transfer(app, &src, src_path, &dst, dst_dir, policy, &guard.cancel).await
 }
 
 #[cfg(test)]
 mod tests {
+    /// Only a part shorter than the file it belongs to is a prefix of it.
+    /// One the same length or longer is something else entirely.
+    #[test]
+    fn a_resume_starts_where_the_unfinished_file_ends() {
+        use super::resume_offset;
+        assert_eq!(resume_offset(None, 100), 0);
+        assert_eq!(resume_offset(Some(0), 100), 0);
+        assert_eq!(resume_offset(Some(40), 100), 40);
+        assert_eq!(resume_offset(Some(100), 100), 0);
+        assert_eq!(resume_offset(Some(140), 100), 0);
+    }
+
     /// The suffix goes on the end of the whole name, extension included, so
     /// the part of `notes.txt` cannot be mistaken for a text file.
     #[test]

@@ -247,6 +247,117 @@ impl Progress for Trip<'_> {
     }
 }
 
+/// Remembers where the first file of a run started, which is how a test can
+/// tell a resume from a copy that quietly began again at zero.
+#[derive(Default)]
+struct Seen {
+    first: std::sync::Mutex<Option<u64>>,
+}
+
+impl Progress for Seen {
+    fn report(&self, progress: TransferProgress) {
+        let mut first = self.first.lock().unwrap();
+        if first.is_none() {
+            *first = Some(progress.resumed_from);
+        }
+    }
+}
+
+/// Uploads `file` into `dst`, stopping once `after` bytes have gone.
+async fn stopped_upload(state: &SftpClientState, file: &Path, dst: &Path, after: u64) -> TransferSummary {
+    let trip = Trip { state, id: "t", after };
+    upload_path(&trip, state, "t", "s", &file.to_string_lossy(), &dst.to_string_lossy(), Conflict::Overwrite)
+        .await
+        .unwrap()
+}
+
+/// The point of keeping the unfinished file: the second attempt carries only
+/// what is left, and what lands is the whole file and not a seam.
+#[tokio::test]
+async fn a_stopped_upload_resumes_to_a_byte_exact_file() {
+    let Some((server, state)) = rig("resume", None).await else { return };
+    let src = server.scratch("resume-src");
+    std::fs::create_dir_all(&src).unwrap();
+    let file = src.join("big.bin");
+    let bytes: Vec<u8> = (0..3_000_000u32).map(|i| (i % 251) as u8).collect();
+    std::fs::write(&file, &bytes).unwrap();
+    let dst = server.scratch("resume-out");
+    std::fs::create_dir_all(&dst).unwrap();
+
+    let stopped = stopped_upload(&state, &file, &dst, 1_000_000).await;
+    assert_eq!(stopped.resumable, 1);
+
+    let seen = Seen::default();
+    let summary = upload_path(&seen, &state, "t2", "s", &file.to_string_lossy(), &dst.to_string_lossy(), Conflict::Resume)
+        .await
+        .unwrap();
+
+    assert_eq!(summary.files, 1);
+    assert_eq!(summary.resumed, 1);
+    assert_eq!(summary.resumable, 0);
+    let started_at = seen.first.lock().unwrap().unwrap();
+    assert!(started_at > 0, "the second attempt began at {started_at}, not where the first stopped");
+    assert_eq!(std::fs::read(dst.join("big.bin")).unwrap(), bytes);
+    assert!(!dst.join(format!("big.bin{PART}")).exists(), "the part file is gone");
+}
+
+/// The bytes already there are only usable if they are the beginning of the
+/// file being copied now. A source replaced between attempts is not.
+#[tokio::test]
+async fn a_resume_whose_source_changed_starts_over() {
+    let Some((server, state)) = rig("resume-changed", None).await else { return };
+    let src = server.scratch("changed-src");
+    std::fs::create_dir_all(&src).unwrap();
+    let file = src.join("big.bin");
+    std::fs::write(&file, vec![1u8; 3_000_000]).unwrap();
+    let dst = server.scratch("changed-out");
+    std::fs::create_dir_all(&dst).unwrap();
+
+    stopped_upload(&state, &file, &dst, 1_000_000).await;
+
+    // Same length, different content: only the digest can tell.
+    let replaced = vec![2u8; 3_000_000];
+    std::fs::write(&file, &replaced).unwrap();
+
+    let seen = Seen::default();
+    let summary = upload_path(&seen, &state, "t2", "s", &file.to_string_lossy(), &dst.to_string_lossy(), Conflict::Resume)
+        .await
+        .unwrap();
+
+    assert_eq!(summary.files, 1);
+    assert_eq!(summary.resumed, 0, "nothing of the old copy was reused");
+    assert_eq!(seen.first.lock().unwrap().unwrap(), 0);
+    assert_eq!(std::fs::read(dst.join("big.bin")).unwrap(), replaced);
+}
+
+/// A resume that is stopped again is still resumable, and the file it leaves
+/// is longer than the one it started from.
+#[tokio::test]
+async fn a_resume_that_is_stopped_again_keeps_the_longer_part() {
+    let Some((server, state)) = rig("resume-twice", None).await else { return };
+    let src = server.scratch("twice-src");
+    std::fs::create_dir_all(&src).unwrap();
+    let file = src.join("big.bin");
+    std::fs::write(&file, vec![3u8; 4_000_000]).unwrap();
+    let dst = server.scratch("twice-out");
+    std::fs::create_dir_all(&dst).unwrap();
+
+    stopped_upload(&state, &file, &dst, 1_000_000).await;
+    let part = dst.join(format!("big.bin{PART}"));
+    let first = std::fs::metadata(&part).unwrap().len();
+
+    let trip = Trip { state: &state, id: "t2", after: 2_500_000 };
+    let summary = upload_path(&trip, &state, "t2", "s", &file.to_string_lossy(), &dst.to_string_lossy(), Conflict::Resume)
+        .await
+        .unwrap();
+
+    assert!(summary.cancelled);
+    assert_eq!(summary.resumable, 1);
+    let second = std::fs::metadata(&part).unwrap().len();
+    assert!(second > first, "kept {second}, was {first}");
+    assert!(!dst.join("big.bin").exists());
+}
+
 /// A batch that breaks part way has still copied something, and the caller
 /// needs to know what. Returning the error alone threw that away.
 #[tokio::test]
@@ -464,7 +575,7 @@ async fn a_tree_names_only_the_files_that_would_be_written_over() {
     std::fs::write(dst.join("proj/b.txt"), b"old").unwrap();
     std::fs::write(dst.join("proj/sub/d.txt"), b"old").unwrap();
 
-    let remote = super::transfer::Remote(session::get_session(&state, "s").await.unwrap());
+    let remote = super::transfer::remote_side(&state, "s").await.unwrap();
     let mut found = conflicts(&super::transfer::Local, &src.to_string_lossy(), &remote, &dst.to_string_lossy()).await.unwrap();
     found.sort();
     assert_eq!(found, vec!["b.txt", "sub/d.txt"]);
