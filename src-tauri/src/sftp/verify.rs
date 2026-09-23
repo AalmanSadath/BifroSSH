@@ -11,16 +11,19 @@
 //! that legitimately differ, and is reported as not verified rather than as
 //! a mismatch.
 
+use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{anyhow, bail, Context, Result};
 use russh::ChannelMsg;
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use super::archive::{exec_failure, quote};
-use super::listing::parent_remote;
-use super::session::get_opener;
+use super::listing::{collect_local_tree, collect_remote_tree, parent_remote};
+use super::session::{get_opener, get_session};
 use super::{ChannelOpener, SftpClientState, TransferSummary};
 
 /// A file's path relative to the top of what was transferred, and its digest.
@@ -47,6 +50,237 @@ pub async fn verify_landing(
     let sent = digests(sftp_state, source).await?;
     let arrived = digests(sftp_state, landed).await?;
     compare(&sent, &arrived)
+}
+
+/// What one file, or one path in a comparison, is called and how big it is.
+type Sizes = Vec<(String, u64)>;
+
+/// How two directories differ.
+///
+/// Paths are relative to each side's root, so the two roots can be called
+/// anything and live on different machines.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct TreeDiff {
+    pub only_left: Vec<String>,
+    pub only_right: Vec<String>,
+    /// Same path on both sides, different content.
+    pub differing: Vec<String>,
+    /// Files the same on both sides.
+    pub same: u32,
+    /// True when the user stopped it, in which case the lists are partial.
+    pub cancelled: bool,
+    /// Files whose sizes matched and so had to be read and hashed.
+    pub hashed: u32,
+}
+
+/// Compares two directories without copying anything.
+///
+/// Size first: a pair of different sizes is different, and a path on one side
+/// only is missing, neither of which needs a byte read. Only the pairs whose
+/// sizes match are hashed, which is the one case a cheap check cannot settle.
+pub async fn compare_trees(
+    sftp_state: &SftpClientState,
+    // The same id a transfer would carry, so the panel's cancel reaches this
+    // through the machinery it already has.
+    transfer_id: &str,
+    left: Side<'_>,
+    right: Side<'_>,
+) -> Result<TreeDiff> {
+    let guard = sftp_state.begin_transfer(transfer_id);
+    let cancel = &*guard.cancel;
+    let left_sizes = sizes(sftp_state, &left).await?;
+    let right_sizes = sizes(sftp_state, &right).await?;
+
+    let right_by_path: HashMap<&str, u64> =
+        right_sizes.iter().map(|(rel, size)| (rel.as_str(), *size)).collect();
+    let left_paths: HashMap<&str, u64> =
+        left_sizes.iter().map(|(rel, size)| (rel.as_str(), *size)).collect();
+
+    let mut diff = TreeDiff::default();
+    let mut candidates: Vec<String> = Vec::new();
+    for (rel, size) in &left_sizes {
+        match right_by_path.get(rel.as_str()) {
+            None => diff.only_left.push(rel.clone()),
+            Some(other) if other != size => diff.differing.push(rel.clone()),
+            Some(_) => candidates.push(rel.clone()),
+        }
+    }
+    for (rel, _) in &right_sizes {
+        if !left_paths.contains_key(rel.as_str()) {
+            diff.only_right.push(rel.clone());
+        }
+    }
+
+    if cancel.load(Ordering::Relaxed) {
+        diff.cancelled = true;
+        return Ok(sorted(diff));
+    }
+
+    if !candidates.is_empty() {
+        diff.hashed = candidates.len() as u32;
+        let left_digests = digests_of(sftp_state, &left, &candidates, cancel).await?;
+        if cancel.load(Ordering::Relaxed) {
+            diff.cancelled = true;
+            return Ok(sorted(diff));
+        }
+        let right_digests = digests_of(sftp_state, &right, &candidates, cancel).await?;
+        for rel in &candidates {
+            match (left_digests.get(rel), right_digests.get(rel)) {
+                (Some(a), Some(b)) if a == b => diff.same += 1,
+                // A file that vanished between the walk and the hash is as
+                // good as different; saying so beats saying nothing.
+                _ => diff.differing.push(rel.clone()),
+            }
+        }
+        diff.cancelled = cancel.load(Ordering::Relaxed);
+    }
+    Ok(sorted(diff))
+}
+
+fn sorted(mut diff: TreeDiff) -> TreeDiff {
+    diff.only_left.sort();
+    diff.only_right.sort();
+    diff.differing.sort();
+    diff
+}
+
+/// Every regular file under a side, by path relative to it, with its size.
+async fn sizes(sftp_state: &SftpClientState, side: &Side<'_>) -> Result<Sizes> {
+    match side {
+        Side::Local(path) => {
+            let root = PathBuf::from(*path);
+            tokio::task::spawn_blocking(move || {
+                if root.is_file() {
+                    let size = std::fs::metadata(&root)?.len();
+                    return Ok(vec![(String::new(), size)]);
+                }
+                let (items, _skipped) = collect_local_tree(&root)?;
+                Ok(items.into_iter().filter(|i| !i.is_dir).map(|i| (i.rel, i.size)).collect())
+            })
+            .await
+            .map_err(|e| anyhow!("The walk stopped: {e}"))?
+        }
+        Side::Remote { session_id, path } => {
+            let sftp = get_session(sftp_state, session_id).await?;
+            {
+                let guard = sftp.lock().await;
+                let meta = guard.metadata(*path).await.with_context(|| path.to_string())?;
+                if !meta.file_type().is_dir() {
+                    return Ok(vec![(String::new(), meta.size.unwrap_or(0))]);
+                }
+            }
+            let (items, _skipped) = collect_remote_tree(&sftp, path).await?;
+            Ok(items.into_iter().filter(|i| !i.is_dir).map(|i| (i.rel, i.size)).collect())
+        }
+    }
+}
+
+/// Hashes only the paths asked for, relative to the side's root.
+async fn digests_of(
+    sftp_state: &SftpClientState,
+    side: &Side<'_>,
+    rels: &[String],
+    cancel: &AtomicBool,
+) -> Result<HashMap<String, String>> {
+    match side {
+        Side::Local(path) => {
+            let root = PathBuf::from(*path);
+            let rels = rels.to_vec();
+            let stop = cancel.load(Ordering::Relaxed);
+            tokio::task::spawn_blocking(move || {
+                let mut out = HashMap::new();
+                if stop { return Ok(out); }
+                for rel in rels {
+                    let at = if rel.is_empty() { root.clone() } else { root.join(&rel) };
+                    out.insert(rel, digest_file(&at)?);
+                }
+                Ok(out)
+            })
+            .await
+            .map_err(|e| anyhow!("The checksum stopped: {e}"))?
+        }
+        Side::Remote { session_id, path } => {
+            let opener = get_opener(sftp_state, session_id).await?;
+            let mut out = HashMap::new();
+            // One command per batch: an argument list of ten thousand paths
+            // is past what a shell will take, and a batch still costs one
+            // round trip rather than one per file.
+            for chunk in rels.chunks(BATCH) {
+                if cancel.load(Ordering::Relaxed) { break; }
+                let digests = remote_digests_of(opener.as_ref(), path, chunk).await?;
+                out.extend(digests);
+            }
+            Ok(out)
+        }
+    }
+}
+
+/// Paths per `sha256sum` command. Keeps the command line well inside any
+/// shell's limit while still costing one round trip for many files.
+const BATCH: usize = 200;
+
+async fn remote_digests_of(
+    opener: &dyn ChannelOpener,
+    root: &str,
+    rels: &[String],
+) -> Result<HashMap<String, String>> {
+    let mut args = String::new();
+    for rel in rels {
+        args.push(' ');
+        args.push_str(&quote(&join_rel(root, rel)));
+    }
+    let command = format!("sha256sum --{args}");
+    let out = run_capture(opener, &command).await?;
+
+    let mut digests = HashMap::new();
+    for line in out.lines() {
+        let line = line.trim_end_matches('\r');
+        if line.is_empty() { continue; }
+        let Some((digest, path)) = line.split_once("  ") else {
+            bail!("Could not read what sha256sum said: {line}");
+        };
+        let rel = path.strip_prefix(&format!("{root}/")).unwrap_or("").to_string();
+        let rel = if path == root { String::new() } else { rel };
+        digests.insert(rel, digest.to_string());
+    }
+    Ok(digests)
+}
+
+/// A path relative to a remote root, joined the way the far end spells it.
+fn join_rel(root: &str, rel: &str) -> String {
+    if rel.is_empty() { root.to_string() } else { format!("{}/{}", root.trim_end_matches('/'), rel) }
+}
+
+/// Runs a command on the far end and returns its stdout.
+async fn run_capture(opener: &dyn ChannelOpener, command: &str) -> Result<String> {
+    let mut channel = opener
+        .open_session()
+        .await
+        .context("Could not open a channel for sha256sum")?;
+    channel
+        .exec(true, command)
+        .await
+        .context("The server refused to run sha256sum")?;
+
+    let mut stdout = Vec::new();
+    let mut stderr = String::new();
+    let mut status = None;
+    while let Some(msg) = channel.wait().await {
+        match msg {
+            ChannelMsg::Data { ref data } => stdout.extend_from_slice(data),
+            ChannelMsg::ExtendedData { ref data, .. } => stderr.push_str(&String::from_utf8_lossy(data)),
+            ChannelMsg::ExitStatus { exit_status } => status = Some(exit_status),
+            // Not Eof: the exit status arrives after it, so breaking there
+            // loses the reason the command failed.
+            ChannelMsg::Close => break,
+            _ => {}
+        }
+    }
+    let _ = channel.close().await;
+    if let Some(e) = exec_failure("sha256sum on the server", "sha256sum", status, &stderr) {
+        return Err(e);
+    }
+    Ok(String::from_utf8_lossy(&stdout).into_owned())
 }
 
 /// Whether a summary describes a transfer whose two trees should match.
@@ -276,6 +510,14 @@ mod tests {
 
         let extra = d(&[("a", "11"), ("b", "22"), ("c", "33")]);
         assert!(compare(&sent, &extra).unwrap_err().to_string().contains('c'));
+    }
+
+    #[test]
+    fn a_batch_names_each_path_under_the_root_it_is_relative_to() {
+        assert_eq!(join_rel("/srv/tree", "sub/a.txt"), "/srv/tree/sub/a.txt");
+        assert_eq!(join_rel("/srv/tree/", "a.txt"), "/srv/tree/a.txt");
+        // The empty path is the transferred file itself.
+        assert_eq!(join_rel("/srv/notes.txt", ""), "/srv/notes.txt");
     }
 
     #[test]

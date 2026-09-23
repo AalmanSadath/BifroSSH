@@ -193,6 +193,34 @@ pub async fn sftp_copy_remote_to_remote(
     verified(&state, summary, crate::sftp::Side::Remote { session_id: &src_session_id, path: &src_path }, Landing::Remote(&dst_session_id)).await
 }
 
+/// Compares two directories, or a directory and its copy on another host.
+///
+/// Nothing is written and nothing is moved. Cancelled through the same id a
+/// transfer uses, since a comparison of a large tree is just as long a wait.
+#[tauri::command]
+pub async fn sftp_compare_trees(
+    state: State<'_, AppState>,
+    transfer_id: String,
+    left_session_id: Option<String>,
+    left_path: String,
+    right_session_id: Option<String>,
+    right_path: String,
+) -> CmdResult<crate::sftp::TreeDiff> {
+    // A missing session id is the local side, the way sftp_conflicts reads
+    // its optional ids.
+    let left = match left_session_id.as_deref() {
+        Some(id) => crate::sftp::Side::Remote { session_id: id, path: &left_path },
+        None => crate::sftp::Side::Local(&left_path),
+    };
+    let right = match right_session_id.as_deref() {
+        Some(id) => crate::sftp::Side::Remote { session_id: id, path: &right_path },
+        None => crate::sftp::Side::Local(&right_path),
+    };
+    crate::sftp::compare_trees(&state.sftp_state, &transfer_id, left, right)
+        .await
+        .map_err(CmdError::from)
+}
+
 /// Which files a transfer would write over, asked before the user is.
 ///
 /// `kind` names the pairing; the session ids that pairing needs must be

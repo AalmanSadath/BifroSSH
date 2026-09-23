@@ -33,7 +33,7 @@ pub use ops::{
     set_mode_local, set_mode_remote, set_owner_local, set_owner_remote,
 };
 pub use session::{connect_sftp, disconnect_sftp, probe_remote};
-pub use verify::{comparable, verify_landing, Side};
+pub use verify::{comparable, compare_trees, verify_landing, Side, TreeDiff};
 pub use transfer::{conflicts_for, copy_remote_path, download_path, upload_path, Conflict, Pairing, Tagged};
 
 /// Chunk size for a streamed copy.
@@ -92,6 +92,10 @@ enum Step {
 struct TreeItem {
     rel: String,
     is_dir: bool,
+    /// The file's size; 0 for a directory. Free from the walk, which reads
+    /// each entry's attributes anyway, and what lets a comparison settle two
+    /// files of different size without reading either.
+    size: u64,
 }
 
 /// Guards against a pathological or hostile tree. Deeper than any real layout.

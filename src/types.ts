@@ -102,6 +102,21 @@ export interface TransferSummary {
   verified: number;
 }
 
+/** How two folders differ; see `compare_trees` in Rust. */
+export interface TreeDiff {
+  /** Paths, relative to each root, present on one side only. */
+  only_left: string[];
+  only_right: string[];
+  /** Same path on both sides, different content. */
+  differing: string[];
+  /** Files the same on both sides. */
+  same: number;
+  /** True when the user stopped it; the lists are then partial. */
+  cancelled: boolean;
+  /** Files whose sizes matched and so had to be read and hashed. */
+  hashed: number;
+}
+
 /** What a transfer does with a file that is already at the destination. */
 export type Conflict = 'overwrite' | 'skip' | 'keep_both';
 

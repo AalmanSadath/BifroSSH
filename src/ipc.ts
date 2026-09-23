@@ -48,6 +48,7 @@ import type {
   SystemAppearance,
   TransferKind,
   TransferSummary,
+  TreeDiff,
   VaultInitMode,
   VaultStatus,
 } from './types';
@@ -183,6 +184,14 @@ export const saveSftpBookmarks = (items: SftpBookmark[]) =>
 
 export const probeHost = (host: string, port: number, timeoutSecs: number) =>
   invoke<HostProbe>('probe_host', { host, port, timeoutSecs });
+
+export const sftpCompareTrees = (
+  transferId: string,
+  leftSessionId: string | null,
+  leftPath: string,
+  rightSessionId: string | null,
+  rightPath: string,
+) => invoke<TreeDiff>('sftp_compare_trees', { transferId, leftSessionId, leftPath, rightSessionId, rightPath });
 
 export const getOpenTabs = () => invoke<string[]>('get_open_tabs');
 

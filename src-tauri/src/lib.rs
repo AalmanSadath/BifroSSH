@@ -242,6 +242,7 @@ fn start(
             commands::sftp_delete_remote,
             commands::sftp_rename_remote,
             commands::sftp_conflicts,
+            commands::sftp_compare_trees,
             commands::sftp_open_local,
             commands::sftp_open_remote,
             commands::sftp_set_mode_local,
