@@ -344,6 +344,22 @@ export const sftpCopyRemoteToRemote = (
  * The files, relative to the item, that a transfer would write over.
  * Asked before the transfer so the user can be asked before anything is.
  */
+/**
+ * Copies named files of a finished transfer again, over what is there.
+ *
+ * `rels` come straight out of a summary's `mismatched`, relative to the
+ * transfer root, and `destRoot` is that summary's `landed`.
+ */
+export const sftpRecopy = (
+  transferId: string,
+  kind: TransferKind,
+  srcSessionId: string | null,
+  srcPath: string,
+  dstSessionId: string | null,
+  destRoot: string,
+  rels: string[],
+) => invoke<TransferSummary>('sftp_recopy', { transferId, kind, srcSessionId, srcPath, dstSessionId, destRoot, rels });
+
 export const sftpConflicts = (
   kind: TransferKind,
   srcSessionId: string | null,
