@@ -80,6 +80,11 @@ pub struct TransferSummary {
     pub cancelled: bool,
     /// Files continued from an unfinished copy rather than started over.
     pub resumed: u32,
+    /// Of those, the ones whose finished copy did not match the source, by
+    /// path relative to the transfer root; a single file is the empty string.
+    /// Empty is the normal answer, and the only one that means the resume can
+    /// be trusted.
+    pub mismatched: Vec<String>,
     /// Unfinished files left at the destination under `transfer::PART`, ready
     /// to be continued. Counted only where the part sits beside the name the
     /// transfer was aiming at, since a keep-both copy would never be found

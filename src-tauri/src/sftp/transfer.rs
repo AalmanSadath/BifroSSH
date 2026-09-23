@@ -5,12 +5,13 @@ use super::listing::{collect_local_tree, collect_remote_tree};
 use super::session::{get_opener, get_session};
 use std::fs;
 use std::future::Future;
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
 use russh_sftp::client::SftpSession;
 use tauri::Emitter;
@@ -120,6 +121,10 @@ pub(super) trait FileSide {
     /// reading the bytes back to check them would cost what resuming saves.
     async fn digest_prefix(&self, path: &str, len: u64) -> Result<String>;
 
+    /// The SHA-256 of each of `paths`, whole, keyed by the path given. Also
+    /// computed where the files live.
+    async fn digests(&self, paths: &[String]) -> Result<HashMap<String, String>>;
+
     /// Moves `from` over `to`, replacing whatever `to` was.
     async fn rename(&self, from: &str, to: &str) -> Result<()>;
 
@@ -221,6 +226,20 @@ impl FileSide for Local {
         tokio::task::spawn_blocking(move || super::verify::digest_file(&path, Some(len)))
             .await
             .map_err(|e| anyhow!("The checksum stopped: {e}"))?
+    }
+
+    async fn digests(&self, paths: &[String]) -> Result<HashMap<String, String>> {
+        let paths = paths.to_vec();
+        tokio::task::spawn_blocking(move || {
+            let mut out = HashMap::new();
+            for path in paths {
+                let digest = super::verify::digest_file(Path::new(&path), None)?;
+                out.insert(path, digest);
+            }
+            Ok(out)
+        })
+        .await
+        .map_err(|e| anyhow!("The checksum stopped: {e}"))?
     }
 
     // A local file is closed by dropping it; the OS does the bookkeeping.
@@ -347,6 +366,30 @@ impl FileSide for Remote {
         Ok(digest.to_string())
     }
 
+    /// In batches, because one exec per file would cost a channel each and
+    /// a directory resumed after a dropped connection can be hundreds.
+    async fn digests(&self, paths: &[String]) -> Result<HashMap<String, String>> {
+        let mut out = HashMap::new();
+        for batch in paths.chunks(DIGEST_BATCH) {
+            let mut args = String::new();
+            for path in batch {
+                args.push(' ');
+                args.push_str(&super::archive::quote(path));
+            }
+            let command = format!("sha256sum --{args}");
+            let said = super::verify::run_capture(self.opener.as_ref(), &command).await?;
+            for line in said.lines() {
+                let line = line.trim_end_matches('\r');
+                if line.is_empty() { continue; }
+                let Some((digest, path)) = line.split_once("  ") else {
+                    bail!("Could not read what sha256sum said: {line}");
+                };
+                out.insert(path.to_string(), digest.to_string());
+            }
+        }
+        Ok(out)
+    }
+
     /// The remove comes first because SSH_FXP_RENAME does not replace: an
     /// OpenSSH server refuses the rename outright when the target is there.
     async fn rename(&self, from: &str, to: &str) -> Result<()> {
@@ -383,6 +426,10 @@ impl FileSide for Remote {
         let _ = sftp.remove_file(path).await;
     }
 }
+
+/// How many paths go into one `sha256sum`. The same batch size the tree
+/// comparison uses, for the same reason: a command line has a limit.
+const DIGEST_BATCH: usize = 200;
 
 /// The suffix an unfinished file wears while it waits to be continued.
 ///
@@ -709,6 +756,49 @@ async fn transfer_one<S: FileSide, D: FileSide>(
     }
 }
 
+/// Reads every resumed file back, both sides, and names the ones that do not
+/// match.
+///
+/// Forced, whatever the verification setting says. Everything else copied one
+/// stream straight through; a resumed file is two attempts joined at a byte
+/// nobody watched, so it is the one case where "it arrived" is worth proving
+/// rather than assuming.
+///
+/// `done` holds, per file, the source path, the path it landed at, and the
+/// path relative to the transfer root that names it to the user. A digest
+/// that could not be taken counts as a mismatch: not being able to prove a
+/// file is right and knowing it is wrong call for the same answer.
+async fn check_resumed<S: FileSide, D: FileSide>(
+    src: &S,
+    dst: &D,
+    done: &[(String, String, String)],
+) -> (Vec<String>, Option<String>) {
+    if done.is_empty() {
+        return (Vec::new(), None);
+    }
+    let here: Vec<String> = done.iter().map(|(s, _, _)| s.clone()).collect();
+    let there: Vec<String> = done.iter().map(|(_, d, _)| d.clone()).collect();
+    let all = || done.iter().map(|(_, _, rel)| rel.clone()).collect::<Vec<_>>();
+
+    let sent = match src.digests(&here).await {
+        Ok(d) => d,
+        Err(e) => return (all(), Some(format!("Could not check the resumed files: {e:#}"))),
+    };
+    let arrived = match dst.digests(&there).await {
+        Ok(d) => d,
+        Err(e) => return (all(), Some(format!("Could not check the resumed files: {e:#}"))),
+    };
+
+    let mut mismatched = Vec::new();
+    for (src_path, dst_path, rel) in done {
+        match (sent.get(src_path), arrived.get(dst_path)) {
+            (Some(a), Some(b)) if a == b => {}
+            _ => mismatched.push(rel.clone()),
+        }
+    }
+    (mismatched, None)
+}
+
 /// Copies `src_path` into `dst_dir`, recursing if it names a directory.
 ///
 /// The destination keeps the source's own name, so this is "drop it in here"
@@ -740,11 +830,17 @@ async fn transfer<S: FileSide, D: FileSide>(
         let at = Position { index: 1, count: 1 };
         let job = Job { at, policy, cancel };
         let outcome = transfer_one(app, src, src_path, dst, &dest, job).await?;
+        let done = match outcome.resumed && outcome.step == Step::Finished {
+            true => vec![(src_path.to_string(), dest.clone(), String::new())],
+            false => Vec::new(),
+        };
+        let (mismatched, check_failed) = check_resumed(src, dst, &done).await;
         return Ok(TransferSummary {
             renamed: u32::from(dest != wanted),
             resumed: u32::from(outcome.resumed),
+            mismatched,
             resumable: u32::from(outcome.part && dest == wanted),
-            failed: outcome.error,
+            failed: outcome.error.or(check_failed),
             landed: Some(dest),
             ..single_file_summary(outcome.step)
         });
@@ -768,6 +864,7 @@ async fn transfer<S: FileSide, D: FileSide>(
     let mut renamed = 0u32;
     let mut resumable = 0u32;
     let mut resumed = 0u32;
+    let mut resumed_files: Vec<(String, String, String)> = Vec::new();
     let mut files_done = 0u32;
     let mut cancelled = false;
     let mut failed = None;
@@ -810,6 +907,9 @@ async fn transfer<S: FileSide, D: FileSide>(
         }
         if outcome.resumed {
             resumed += 1;
+            if outcome.step == Step::Finished {
+                resumed_files.push((src.join(src_path, &item.rel), dest.clone(), item.rel.clone()));
+            }
         }
         // Files already copied are left alone; only the one in flight is
         // unfinished. `files` therefore counts what actually arrived, which
@@ -828,6 +928,7 @@ async fn transfer<S: FileSide, D: FileSide>(
         }
     }
 
+    let (mismatched, check_failed) = check_resumed(src, dst, &resumed_files).await;
     Ok(TransferSummary {
         files: files_done,
         directories,
@@ -835,11 +936,12 @@ async fn transfer<S: FileSide, D: FileSide>(
         skipped_existing,
         renamed,
         resumed,
+        mismatched,
         resumable,
         cancelled,
         landed: Some(dest_root),
         verified: 0,
-        failed,
+        failed: failed.or(check_failed),
     })
 }
 
@@ -978,6 +1080,42 @@ mod tests {
         assert_eq!(resume_offset(Some(40), 100), 40);
         assert_eq!(resume_offset(Some(100), 100), 0);
         assert_eq!(resume_offset(Some(140), 100), 0);
+    }
+
+    /// Every resumed file is read back whole, because a resume joins two
+    /// attempts at a byte nobody watched. A digest that cannot be taken at
+    /// all counts against the file: not being able to prove it arrived and
+    /// knowing it did not deserve the same answer.
+    #[tokio::test]
+    async fn a_resumed_file_is_named_when_it_does_not_match_what_was_sent() {
+        use super::{check_resumed, Local};
+        let dir = std::env::temp_dir().join(format!("bifrossh-check-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = |n: &str| dir.join(n).to_string_lossy().into_owned();
+        std::fs::write(dir.join("src.bin"), b"the same bytes").unwrap();
+        std::fs::write(dir.join("same.bin"), b"the same bytes").unwrap();
+        std::fs::write(dir.join("other.bin"), b"other bytes!!!").unwrap();
+
+        let matched = [(path("src.bin"), path("same.bin"), "a.bin".to_string())];
+        let (mismatched, failed) = check_resumed(&Local, &Local, &matched).await;
+        assert!(mismatched.is_empty());
+        assert!(failed.is_none());
+
+        let differing = [(path("src.bin"), path("other.bin"), "a.bin".to_string())];
+        let (mismatched, failed) = check_resumed(&Local, &Local, &differing).await;
+        assert_eq!(mismatched, vec!["a.bin".to_string()]);
+        assert!(failed.is_none());
+
+        let missing = [(path("src.bin"), path("gone.bin"), String::new())];
+        let (mismatched, failed) = check_resumed(&Local, &Local, &missing).await;
+        assert_eq!(mismatched, vec![String::new()]);
+        assert!(failed.is_some(), "the reason the check could not be made is kept");
+
+        // Nothing resumed, nothing read back.
+        let (mismatched, failed) = check_resumed(&Local, &Local, &[]).await;
+        assert!(mismatched.is_empty() && failed.is_none());
+
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// The suffix goes on the end of the whole name, extension included, so

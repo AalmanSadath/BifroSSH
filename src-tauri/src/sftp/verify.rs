@@ -292,6 +292,7 @@ pub(super) async fn run_capture(opener: &dyn ChannelOpener, command: &str) -> Re
 pub fn comparable(summary: &TransferSummary) -> bool {
     !summary.cancelled
         && summary.failed.is_none()
+        && summary.mismatched.is_empty()
         && summary.resumable == 0
         && summary.skipped_existing == 0
         && summary.skipped_symlinks == 0

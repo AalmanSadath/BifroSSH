@@ -298,6 +298,7 @@ async fn a_stopped_upload_resumes_to_a_byte_exact_file() {
     let started_at = seen.first.lock().unwrap().unwrap();
     assert!(started_at > 0, "the second attempt began at {started_at}, not where the first stopped");
     assert_eq!(std::fs::read(dst.join("big.bin")).unwrap(), bytes);
+    assert!(summary.mismatched.is_empty(), "read back whole and matched");
     assert!(!dst.join(format!("big.bin{PART}")).exists(), "the part file is gone");
 }
 
