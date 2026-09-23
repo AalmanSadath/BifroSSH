@@ -85,6 +85,39 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.14.4" date="2026-09-24">
+      <description>
+        <p>
+          The tabs that were open when the app last closed are opened again
+          and connected, one after another. Keyboard shortcuts can be
+          rebound, and the editor says which action already holds a chord
+          rather than letting one shadow the other in silence.
+        </p>
+        <p>
+          Settings is a rail of categories rather than one long scroll:
+          Appearance, Terminal, Shortcuts, Connection, Security, Data and
+          About.
+        </p>
+        <p>
+          A terminal can be zoomed on its own with Ctrl and the wheel or
+          the plus and minus keys, leaving the other tabs alone, and
+          Ctrl+1 to Ctrl+9 select a tab. The panes of a split can be
+          dragged to the widths you want.
+        </p>
+        <p>
+          The hosts page can check which hosts are reachable and how long
+          they take to answer. It opens a plain TCP connection and closes
+          it again: nothing is authenticated, and nothing appears in the
+          server's log as a failed login.
+        </p>
+        <p>
+          A file browser can compare a folder with the one in the other
+          pane and list what differs, without copying anything, and
+          transfers can be checked with a SHA-256 of both copies once the
+          transfer is done.
+        </p>
+      </description>
+    </release>
     <release version="0.14.3" date="2026-09-23">
       <description>
         <p>
