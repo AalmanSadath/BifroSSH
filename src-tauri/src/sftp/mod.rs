@@ -34,7 +34,10 @@ pub use ops::{
 };
 pub use session::{connect_sftp, disconnect_sftp, probe_remote};
 pub use verify::{comparable, compare_trees, verify_landing, Side, TreeDiff};
-pub use transfer::{conflicts_for, copy_remote_path, download_path, upload_path, Conflict, Pairing, Tagged};
+pub use transfer::{
+    conflicts_for, copy_remote_path, download_path, recopy_paths, upload_path, Conflict, Pairing,
+    Tagged,
+};
 
 /// Chunk size for a streamed copy.
 const CHUNK: usize = 128 * 1024; // 128 KB

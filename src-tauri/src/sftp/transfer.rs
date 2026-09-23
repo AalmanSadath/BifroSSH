@@ -945,6 +945,73 @@ async fn transfer<S: FileSide, D: FileSide>(
     })
 }
 
+/// Copies just the named files of a tree again, over whatever is there.
+///
+/// `rels` are paths relative to the transfer root, the vocabulary the rest of
+/// this module already speaks: the empty string is the transferred file
+/// itself. What the user gets after being told which resumed files did not
+/// match and choosing to send them again.
+async fn transfer_only<S: FileSide, D: FileSide>(
+    app: &impl Progress,
+    src: &S,
+    src_root: &str,
+    dst: &D,
+    dest_root: &str,
+    rels: &[String],
+    cancel: &AtomicBool,
+) -> Result<TransferSummary> {
+    let count = rels.len() as u32;
+    let mut files_done = 0u32;
+    let mut resumable = 0u32;
+    let mut cancelled = false;
+    let mut failed = None;
+
+    for (i, rel) in rels.iter().enumerate() {
+        let (src_path, dst_path) = if rel.is_empty() {
+            (src_root.to_string(), dest_root.to_string())
+        } else {
+            (src.join(src_root, rel), dst.join(dest_root, rel))
+        };
+        // The tree is already there, but a directory could have been removed
+        // between the transfer and the answer to the dialog.
+        if let Some(cut) = rel.rfind('/') {
+            dst.ensure_dir(&dst.join(dest_root, &rel[..cut])).await?;
+        }
+        let at = Position { index: i as u32 + 1, count };
+        let job = Job { at, policy: Conflict::Overwrite, cancel };
+        let outcome = match transfer_one(app, src, &src_path, dst, &dst_path, job).await {
+            Ok(outcome) => outcome,
+            Err(e) => {
+                failed = Some(format!("{e:#}"));
+                break;
+            }
+        };
+        if outcome.part {
+            resumable += 1;
+        }
+        match outcome.step {
+            Step::Finished => files_done += 1,
+            Step::Cancelled => {
+                cancelled = true;
+                break;
+            }
+            Step::Failed => {
+                failed = outcome.error;
+                break;
+            }
+        }
+    }
+
+    Ok(TransferSummary {
+        files: files_done,
+        resumable,
+        cancelled,
+        landed: Some(dest_root.to_string()),
+        failed,
+        ..Default::default()
+    })
+}
+
 /// The names, relative to `src_path`, of files a transfer would find
 /// already at the destination. What the panel asks before it asks the user.
 pub(super) async fn conflicts<S: FileSide, D: FileSide>(
@@ -999,6 +1066,35 @@ pub async fn conflicts_for(
             let src = remote_side(sftp_state, &src_session_id).await?;
             let dst = remote_side(sftp_state, &dst_session_id).await?;
             conflicts(&src, src_path, &dst, dst_dir).await
+        }
+    }
+}
+
+/// Copies the named files of a finished transfer again, in whichever
+/// pairing it ran.
+pub async fn recopy_paths(
+    app: &impl Progress,
+    sftp_state: &SftpClientState,
+    transfer_id: &str,
+    pairing: Pairing,
+    src_path: &str,
+    dest_root: &str,
+    rels: &[String],
+) -> Result<TransferSummary> {
+    let guard = sftp_state.begin_transfer(transfer_id);
+    match pairing {
+        Pairing::Upload { session_id } => {
+            let remote = remote_side(sftp_state, &session_id).await?;
+            transfer_only(app, &Local, src_path, &remote, dest_root, rels, &guard.cancel).await
+        }
+        Pairing::Download { session_id } => {
+            let remote = remote_side(sftp_state, &session_id).await?;
+            transfer_only(app, &remote, src_path, &Local, dest_root, rels, &guard.cancel).await
+        }
+        Pairing::Copy { src_session_id, dst_session_id } => {
+            let src = remote_side(sftp_state, &src_session_id).await?;
+            let dst = remote_side(sftp_state, &dst_session_id).await?;
+            transfer_only(app, &src, src_path, &dst, dest_root, rels, &guard.cancel).await
         }
     }
 }

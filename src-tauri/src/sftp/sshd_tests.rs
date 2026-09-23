@@ -14,7 +14,7 @@ use super::listing::list_remote;
 use super::archive::{copy_archive, download_archive, upload_archive};
 use super::ops::{delete_remote, mkdir, rename_remote, set_mode_remote, set_owner_remote};
 use super::edit::{watch, EditEvent};
-use super::transfer::{conflicts, download_path, upload_path, upload_quiet, Conflict, Progress, Silent, PART};
+use super::transfer::{conflicts, download_path, recopy_paths, upload_path, upload_quiet, Conflict, Pairing, Progress, Silent, PART};
 use super::verify::{compare_trees, verify_landing, Side};
 
 use std::path::{Path, PathBuf};
@@ -357,6 +357,72 @@ async fn a_resume_that_is_stopped_again_keeps_the_longer_part() {
     let second = std::fs::metadata(&part).unwrap().len();
     assert!(second > first, "kept {second}, was {first}");
     assert!(!dst.join("big.bin").exists());
+}
+
+/// Copying again after a mismatch touches the files named and nothing else.
+#[tokio::test]
+async fn a_recopy_writes_only_the_files_it_names() {
+    let Some((server, state)) = rig("recopy", None).await else { return };
+    let src = server.scratch("recopy-src");
+    std::fs::create_dir_all(src.join("sub")).unwrap();
+    std::fs::write(src.join("a.txt"), b"a one").unwrap();
+    std::fs::write(src.join("sub/b.txt"), b"b one").unwrap();
+    let dst = server.scratch("recopy-out");
+
+    upload_path(&Silent, &state, "t", "s", &src.to_string_lossy(), &dst.to_string_lossy(), Conflict::Overwrite)
+        .await
+        .unwrap();
+    let out = dst.join("recopy-src");
+
+    // Both copies are changed at the destination; only one is named.
+    std::fs::write(out.join("a.txt"), b"tampered").unwrap();
+    std::fs::write(out.join("sub/b.txt"), b"tampered").unwrap();
+
+    let summary = recopy_paths(
+        &Silent,
+        &state,
+        "t2",
+        Pairing::Upload { session_id: "s".into() },
+        &src.to_string_lossy(),
+        &out.to_string_lossy(),
+        &["sub/b.txt".to_string()],
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(summary.files, 1);
+    assert_eq!(std::fs::read(out.join("sub/b.txt")).unwrap(), b"b one");
+    assert_eq!(std::fs::read(out.join("a.txt")).unwrap(), b"tampered", "not named, not touched");
+}
+
+/// A single file has no relative path, and is named by the empty string all
+/// the way through.
+#[tokio::test]
+async fn a_recopy_of_a_single_file_takes_the_empty_path() {
+    let Some((server, state)) = rig("recopy-one", None).await else { return };
+    let src = server.scratch("one-src");
+    std::fs::create_dir_all(&src).unwrap();
+    let file = src.join("only.txt");
+    std::fs::write(&file, b"the real thing").unwrap();
+    let dst = server.scratch("one-out");
+    std::fs::create_dir_all(&dst).unwrap();
+    let landed = dst.join("only.txt");
+    std::fs::write(&landed, b"something else").unwrap();
+
+    let summary = recopy_paths(
+        &Silent,
+        &state,
+        "t",
+        Pairing::Upload { session_id: "s".into() },
+        &file.to_string_lossy(),
+        &landed.to_string_lossy(),
+        &[String::new()],
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(summary.files, 1);
+    assert_eq!(std::fs::read(&landed).unwrap(), b"the real thing");
 }
 
 /// A batch that breaks part way has still copied something, and the caller
