@@ -500,12 +500,17 @@ async fn transfer<S: FileSide, D: FileSide>(
         return Err(anyhow!("No destination directory"));
     }
     if !src.is_dir(src_path).await? {
+        let wanted = dst.join(dst_dir, &name);
         let Some(dest) = resolve_conflict(dst, dst_dir, &name, policy).await else {
             return Ok(TransferSummary { skipped_existing: 1, ..Default::default() });
         };
         let at = Position { index: 1, count: 1 };
         let step = transfer_one(app, src, src_path, dst, &dest, at, cancel).await?;
-        return Ok(single_file_summary(step));
+        return Ok(TransferSummary {
+            renamed: u32::from(dest != wanted),
+            landed: Some(dest),
+            ..single_file_summary(step)
+        });
     }
     let dest_root = dst.join(dst_dir, &name);
 
@@ -523,6 +528,7 @@ async fn transfer<S: FileSide, D: FileSide>(
     }
 
     let mut skipped_existing = 0u32;
+    let mut renamed = 0u32;
     for (i, item) in files.iter().enumerate() {
         let at = Position { index: i as u32 + 1, count };
         // A file under a directory: its parent within the tree and its own
@@ -531,10 +537,14 @@ async fn transfer<S: FileSide, D: FileSide>(
             Some(cut) => (dst.join(&dest_root, &item.rel[..cut]), &item.rel[cut + 1..]),
             None => (dest_root.clone(), item.rel.as_str()),
         };
+        let wanted = dst.join(&rel_dir, file_name);
         let Some(dest) = resolve_conflict(dst, &rel_dir, file_name, policy).await else {
             skipped_existing += 1;
             continue;
         };
+        // A kept copy lands under a name of its own, so the two trees are
+        // no longer the same tree and nothing should compare them.
+        if dest != wanted { renamed += 1; }
         let step = transfer_one(
             app,
             src,
@@ -553,7 +563,10 @@ async fn transfer<S: FileSide, D: FileSide>(
                 directories,
                 skipped_symlinks,
                 skipped_existing,
+                renamed,
                 cancelled: true,
+                landed: Some(dest_root.clone()),
+                verified: 0,
             });
         }
     }
@@ -563,7 +576,10 @@ async fn transfer<S: FileSide, D: FileSide>(
         directories,
         skipped_symlinks,
         skipped_existing,
+        renamed,
         cancelled: false,
+        landed: Some(dest_root),
+        verified: 0,
     })
 }
 

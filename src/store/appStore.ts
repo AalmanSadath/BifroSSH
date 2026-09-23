@@ -4,7 +4,10 @@ import * as ipc from '../ipc';
 import { getVersion } from '@tauri-apps/api/app';
 import { CHECK_INTERVAL_SECS, fetchLatestRelease, newerVersion, type Release } from '../updates';
 import { STORED, UNDETECTED_OS, UNKNOWN_OS } from '../types';
-import type { AuthType, Codeprint, SftpBookmark, GeneratedKey, Identity, IdentityInput, JumpHopParams, KeyContent, KeyEntry, LogEntry, PortForwarding, ResolvedTheme, Server, ServerInput, SessionTab, Settings, SystemAppearance } from '../types';
+import { restoreOrder, tabsToSave } from '../sessionRestore';
+import { clampZoom } from '../zoom';
+import { isStale, type Probed } from '../probe';
+import type { AuthType, Codeprint, ProbeState, SftpBookmark, GeneratedKey, Identity, IdentityInput, JumpHopParams, KeyContent, KeyEntry, LogEntry, PortForwarding, ResolvedTheme, Server, ServerInput, SessionTab, Settings, SettingsSection, SystemAppearance } from '../types';
 import type { NamedTheme } from '../styles/themes';
 
 /**
@@ -52,6 +55,17 @@ function persist(save: () => Promise<void>) {
   // the time this runs, so a failure here means the screen and the disk have
   // parted company, which is exactly the thing worth saying out loud.
   save().catch(reportFailure);
+}
+
+/**
+ * Writes down which hosts have a tab open, so the next launch can put them
+ * back. Called after every change to the strip rather than at shutdown:
+ * the window can close without the app being asked first.
+ */
+function saveOpenTabs(sessions: SessionTab[]) {
+  ipc.saveOpenTabs(tabsToSave(sessions)).catch(() => {
+    // Not worth a banner. Worst case a restart opens the previous strip.
+  });
 }
 
 function readLegacy<T>(key: string, fallback: T): T {
@@ -167,6 +181,9 @@ const DEFAULT_SETTINGS: Settings = {
   last_update_check: 0,
   auto_reconnect: true,
   auto_reconnect_attempts: 5,
+  restore_tabs: true,
+  verify_transfers: false,
+  shortcuts: {},
   accent_color: null,
 };
 
@@ -228,13 +245,49 @@ interface AppStore {
   splitWith: (anchorTabId: string, droppedTabId: string) => void;
   unsplit: (tabId: string) => void;
 
+  /**
+   * Pane widths as percentages, parallel to `splitGroup`; empty means the
+   * panes share the row evenly. Cleared whenever the group changes shape,
+   * since widths belong to one set of panes and not to another. In memory
+   * only, as the group itself is.
+   */
+  splitWidths: number[];
+  setSplitWidths: (widths: number[]) => void;
+
   /** What the desktop reports about its own theme and accent. */
   systemAppearance: SystemAppearance;
   setSystemAppearance: (appearance: SystemAppearance) => void;
 
+  /**
+   * Which category the settings panel is showing. In the store rather than
+   * in the panel so the palette and the panel's own links can open one.
+   */
+  settingsSection: SettingsSection;
+  /** Shows the settings panel, on the category asked for. */
+  openSettings: (section?: SettingsSection) => void;
+
+  /**
+   * The last reachability check per host id, or that one is in flight.
+   * Nothing probes on its own: this fills only when the user asks.
+   */
+  hostProbes: Record<string, ProbeState>;
+  /**
+   * Checks each host that has no fresh result. Hosts reached through a jump
+   * host are marked skipped rather than dialled: that would mean connecting
+   * to the bastion with its credentials, which a reachability check has no
+   * business doing.
+   */
+  probeHosts: (ids: string[], force?: boolean) => Promise<void>;
+
   /** Set when `loadAll` could not read the saved data; see there. */
   loadError: string | null;
   loadAll: () => Promise<void>;
+
+  /**
+   * Opens the tabs that were open when the app last ran, one at a time.
+   * Off when the setting says so, and a no-op once anything is open.
+   */
+  restoreTabs: () => Promise<void>;
 
   /**
    * A place the SFTP panel has been asked to show: set by a click on a
@@ -319,6 +372,17 @@ interface AppStore {
   /** Keyed by tab id. */
   sessionThemeOverrides: Record<string, string>;
   setSessionTheme: (tabId: string, themeKey: string) => void;
+
+  /**
+   * A tab's own terminal font size, keyed by tab id; a tab with no entry
+   * follows the setting. Not saved, the same as the theme override: a zoom
+   * is for the session in front of you.
+   */
+  sessionZoom: Record<string, number>;
+  /** Steps the active tab's size by `delta` points, within the setting's range. */
+  zoomSession: (tabId: string, delta: number) => void;
+  /** Drops the tab's own size so it follows the setting again. */
+  resetZoom: (tabId: string) => void;
 
   addSession: (tab: SessionTab) => void;
   removeSession: (tabId: string) => void;
@@ -488,11 +552,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
   retryingTunnelIds: new Set<string>(),
   codeprints: [],
   sessionThemeOverrides: {},
+  sessionZoom: {},
   keys: [],
   settings: DEFAULT_SETTINGS,
   sessions: [],
   activeTabId: 'hosts',
   splitGroup: [],
+  splitWidths: [],
 
   systemAppearance: NO_APPEARANCE,
   setSystemAppearance: (appearance) => set({ systemAppearance: appearance }),
@@ -502,7 +568,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     // The retries stop too: a locked vault has no credentials to
     // reconnect with, and every attempt would fail on the way to the
     // attempt limit.
-    set({ servers: [], identities: [], keys: [], portForwardings: [], codeprints: [], retryingTabIds: new Set() }),
+    set({ servers: [], identities: [], keys: [], portForwardings: [], codeprints: [], retryingTabIds: new Set(), hostProbes: {} }),
   actionError: null,
   setActionError: (message) => set({ actionError: message }),
 
@@ -544,9 +610,29 @@ export const useAppStore = create<AppStore>((set, get) => ({
       set({ servers, identities, keys, settings, sftpBookmarks, ...collections, loadError: null });
       get().autostartTunnels({ kind: 'launch' });
       get().checkForUpdates();
+      void get().restoreTabs();
     } catch (e) {
       console.error('Could not load saved data', e);
       set({ loadError: String(e) });
+    }
+  },
+
+  restoreTabs: async () => {
+    const { settings, sessions, servers, openSession } = get();
+    // Nothing to restore onto: an unlock that follows a lock still has the
+    // strip it had, and reopening over it would duplicate every tab.
+    if (!settings.restore_tabs || sessions.length > 0) return;
+    let ids: string[];
+    try {
+      ids = await ipc.getOpenTabs();
+    } catch {
+      return;
+    }
+    // One at a time: a tab's name counts the tabs the host already has, and
+    // a host that asks for a passphrase should ask on its own rather than
+    // alongside three others.
+    for (const id of restoreOrder(ids, servers)) {
+      await openSession(id);
     }
   },
 
@@ -840,6 +926,20 @@ export const useAppStore = create<AppStore>((set, get) => ({
     });
   },
 
+  zoomSession: (tabId, delta) =>
+    set((s) => ({
+      sessionZoom: {
+        ...s.sessionZoom,
+        [tabId]: clampZoom((s.sessionZoom[tabId] ?? s.settings.font_size) + delta),
+      },
+    })),
+
+  resetZoom: (tabId) =>
+    set((s) => {
+      const { [tabId]: _dropped, ...rest } = s.sessionZoom;
+      return { sessionZoom: rest };
+    }),
+
   setSessionTheme: (tabId, themeKey) => {
     set((s) => ({
       sessionThemeOverrides: { ...s.sessionThemeOverrides, [tabId]: themeKey },
@@ -847,10 +947,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   addSession: (tab) =>
-    set((s) => ({
-      sessions: [...s.sessions, tab],
-      activeTabId: tab.tab_id,
-    })),
+    set((s) => {
+      const sessions = [...s.sessions, tab];
+      saveOpenTabs(sessions);
+      return { sessions, activeTabId: tab.tab_id };
+    }),
 
   removeSession: (tabId) =>
     set((s) => {
@@ -864,15 +965,19 @@ export const useAppStore = create<AppStore>((set, get) => ({
       // The override is keyed on a tab id that will never be reused, so
       // leaving it behind grows the map for the life of the process.
       const { [tabId]: _dropped, ...themeOverrides } = s.sessionThemeOverrides;
+      const { [tabId]: _zoom, ...zoom } = s.sessionZoom;
       // A retry in flight for a tab that has gone would reconnect a host
       // nobody is looking at; leaving the set tells the loop to stop.
       const retrying = new Set(s.retryingTabIds);
       retrying.delete(tabId);
+      saveOpenTabs(next);
       return {
         sessions: next,
         activeTabId: nextActive,
         sessionThemeOverrides: themeOverrides,
+        sessionZoom: zoom,
         splitGroup: pruneSplit(s.splitGroup, tabId),
+        splitWidths: [],
         retryingTabIds: retrying,
       };
     }),
@@ -896,11 +1001,15 @@ export const useAppStore = create<AppStore>((set, get) => ({
     })),
 
   updateSessionError: (tabId, error) =>
-    set((s) => ({
-      sessions: s.sessions.map((t) =>
-        t.tab_id === tabId ? { ...t, status: 'error', error } : t
-      ),
-    })),
+    set((s) => {
+      const sessions = s.sessions.map((t) =>
+        t.tab_id === tabId ? { ...t, status: 'error' as const, error } : t
+      );
+      // A tab that could not connect drops out of the restore list, so a
+      // host that fails every time is not reopened failing every launch.
+      saveOpenTabs(sessions);
+      return { sessions };
+    }),
 
   appendSessionLog: (tabId, entry) =>
     set((s) => ({
@@ -1154,6 +1263,57 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   setActiveTab: (id) => set({ activeTabId: id }),
 
+  hostProbes: {},
+
+  probeHosts: async (ids, force = false) => {
+    const { servers, settings, hostProbes } = get();
+    const now = Date.now();
+    // Asked for by hand means asked again: a fresh result is skipped only
+    // when something else wanted the numbers filled in.
+    const todo = ids.filter((id) =>
+      hostProbes[id] !== 'running' && (force ? hostProbes[id] !== 'skipped' : isStale(hostProbes[id], now)));
+    if (todo.length === 0) return;
+
+    set((s) => {
+      const marked = { ...s.hostProbes };
+      for (const id of todo) marked[id] = 'running';
+      return { hostProbes: marked };
+    });
+
+    const write = (id: string, state: ProbeState) =>
+      set((s) => ({ hostProbes: { ...s.hostProbes, [id]: state } }));
+
+    // A few at a time: a page of hosts that are all down would otherwise
+    // open one socket each and wait out the timeout together.
+    const queue = [...todo];
+    const worker = async () => {
+      for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
+        const server = servers.find((s) => s.id === id);
+        if (!server) continue;
+        if (server.proxy_jump) { write(id, 'skipped'); continue; }
+        try {
+          const probe = await ipc.probeHost(
+            server.host,
+            server.port,
+            server.connection_timeout ?? settings.connection_timeout_secs,
+          );
+          write(id, { ...probe, at: Date.now() } satisfies Probed);
+        } catch (e) {
+          write(id, { reachable: false, ms: 0, error: String(e), at: Date.now() });
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(6, todo.length) }, worker));
+  },
+
+  settingsSection: 'appearance',
+
+  openSettings: (section) =>
+    set((s) => ({
+      activeTabId: 'settings',
+      settingsSection: section ?? s.settingsSection,
+    })),
+
   splitWith: (anchorTabId, droppedTabId) =>
     set((s) => {
       if (anchorTabId === droppedTabId) return {};
@@ -1162,11 +1322,17 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const base = s.splitGroup.includes(anchorTabId) ? s.splitGroup : [anchorTabId];
       if (base.includes(droppedTabId) || base.length >= MAX_SPLIT) return {};
       const members = new Set([...base, droppedTabId]);
-      // Strip order, so panes read the way the tabs do.
-      return { splitGroup: s.sessions.map((t) => t.tab_id).filter((id) => members.has(id)) };
+      // Strip order, so panes read the way the tabs do. The widths go: a
+      // pane joining the row makes every old share the wrong size.
+      return {
+        splitGroup: s.sessions.map((t) => t.tab_id).filter((id) => members.has(id)),
+        splitWidths: [],
+      };
     }),
 
-  unsplit: (tabId) => set((s) => ({ splitGroup: pruneSplit(s.splitGroup, tabId) })),
+  unsplit: (tabId) => set((s) => ({ splitGroup: pruneSplit(s.splitGroup, tabId), splitWidths: [] })),
+
+  setSplitWidths: (widths) => set({ splitWidths: widths }),
 }));
 
 /**
@@ -1208,10 +1374,11 @@ async function startSession(
     useAppStore.getState().appendSessionLog(connectId, event.payload);
   });
 
-  useAppStore.setState((s) => ({
-    sessions: [...s.sessions, tab],
-    activeTabId: connectId,
-  }));
+  useAppStore.setState((s) => {
+    const sessions = [...s.sessions, tab];
+    saveOpenTabs(sessions);
+    return { sessions, activeTabId: connectId };
+  });
 
   try {
     const sessionId = await connect();

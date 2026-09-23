@@ -46,7 +46,7 @@ pub type BoxedTransport = Box<dyn Transport + 'static>;
 
 /// Split out of `open_transport` so that the failure message, which is the
 /// part a user actually reads, can be tested without a Tauri AppHandle.
-async fn resolve_addr(host: &str, port: u16) -> Result<SocketAddr> {
+pub(crate) async fn resolve_addr(host: &str, port: u16) -> Result<SocketAddr> {
     tokio::net::lookup_host(format!("{}:{}", host, port))
         .await
         .map_err(|e| anyhow!("Cannot resolve host {}: {}", host, e))?

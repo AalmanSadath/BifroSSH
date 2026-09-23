@@ -15,6 +15,7 @@ use super::archive::{copy_archive, download_archive, upload_archive};
 use super::ops::{delete_remote, mkdir, rename_remote, set_mode_remote, set_owner_remote};
 use super::edit::{watch, EditEvent};
 use super::transfer::{conflicts, download_path, upload_path, upload_quiet, Conflict, Silent};
+use super::verify::{compare_trees, verify_landing, Side};
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -498,6 +499,110 @@ async fn a_compressed_download_lands_the_same_tree() {
         .await
         .unwrap();
     assert_eq!(std::fs::read(out2.join("odd name's/f.txt")).unwrap(), b"odd\n");
+}
+
+/// Verification is the one thing that reads both copies back, and it has to
+/// agree with a real `sha256sum` on the far end rather than with this
+/// module's idea of one.
+#[tokio::test]
+async fn a_checksum_tells_an_intact_copy_from_a_changed_one() {
+    let Some((server, state)) = rig("verify", None).await else { return };
+    let root = server.scratch("verify");
+    let src = root.join("tree");
+    std::fs::create_dir_all(src.join("sub")).unwrap();
+    write_files(&src, 3);
+    std::fs::write(src.join("sub/deep.txt"), b"deep\n").unwrap();
+
+    let dst = server.scratch("verify-out");
+    let summary = upload_path(&Silent, &state, "t", "s", &src.to_string_lossy(), &dst.to_string_lossy(), Conflict::Overwrite)
+        .await
+        .unwrap();
+    let landed = summary.landed.clone().expect("an upload says where it landed");
+
+    let count = verify_landing(
+        &state,
+        Side::Local(&src.to_string_lossy()),
+        Side::Remote { session_id: "s", path: &landed },
+    )
+    .await
+    .unwrap();
+    assert_eq!(count, 4, "three files and the one in sub");
+
+    // One byte on the far end, and the comparison has to name that file.
+    std::fs::write(PathBuf::from(&landed).join("sub/deep.txt"), b"deeq\n").unwrap();
+    let err = verify_landing(
+        &state,
+        Side::Local(&src.to_string_lossy()),
+        Side::Remote { session_id: "s", path: &landed },
+    )
+    .await
+    .unwrap_err()
+    .to_string();
+    assert!(err.contains("sub/deep.txt"), "{err}");
+
+    // A single file compares as itself, whatever it is called where it
+    // landed, which is what a kept-both copy relies on.
+    let one = src.join("f0000.txt");
+    let renamed = root.join("f0000 (2).txt");
+    std::fs::copy(&one, &renamed).unwrap();
+    let same = verify_landing(
+        &state,
+        Side::Local(&one.to_string_lossy()),
+        Side::Remote { session_id: "s", path: &renamed.to_string_lossy() },
+    )
+    .await
+    .unwrap();
+    assert_eq!(same, 1);
+}
+
+/// Comparing is the cheap question: what differs, without copying anything.
+/// Size settles most of it; only the same-size pairs are read.
+#[tokio::test]
+async fn a_comparison_finds_what_differs_without_copying() {
+    let Some((server, state)) = rig("compare", None).await else { return };
+    let root = server.scratch("compare");
+    let left = root.join("left");
+    let right = root.join("right");
+    std::fs::create_dir_all(left.join("sub")).unwrap();
+    std::fs::create_dir_all(right.join("sub")).unwrap();
+    write_files(&left, 3);
+    write_files(&right, 3);
+    std::fs::write(left.join("sub/deep.txt"), b"deep\n").unwrap();
+    std::fs::write(right.join("sub/deep.txt"), b"deep\n").unwrap();
+
+    let as_local = |p: &Path| p.to_string_lossy().into_owned();
+    let same = compare_trees(
+        &state,
+        "c1",
+        Side::Local(&as_local(&left)),
+        Side::Remote { session_id: "s", path: &as_local(&right) },
+    )
+    .await
+    .unwrap();
+    assert_eq!(same.same, 4, "three files and the one in sub");
+    assert!(same.only_left.is_empty() && same.only_right.is_empty() && same.differing.is_empty());
+    assert_eq!(same.hashed, 4, "every pair matched on size and had to be read");
+
+    // One of each kind of difference.
+    std::fs::write(right.join("sub/deep.txt"), b"deeq\n").unwrap();
+    std::fs::write(left.join("only-here.txt"), b"x\n").unwrap();
+    std::fs::write(right.join("f0000.txt"), b"much longer than it was\n").unwrap();
+
+    let diff = compare_trees(
+        &state,
+        "c2",
+        Side::Local(&as_local(&left)),
+        Side::Remote { session_id: "s", path: &as_local(&right) },
+    )
+    .await
+    .unwrap();
+    assert_eq!(diff.only_left, vec!["only-here.txt"]);
+    assert!(diff.only_right.is_empty());
+    assert_eq!(diff.differing, vec!["f0000.txt", "sub/deep.txt"]);
+    assert_eq!(diff.same, 2);
+    // The file whose size changed was never read; only the two matching
+    // pairs and the one that differs at the same size were.
+    assert_eq!(diff.hashed, 3);
 }
 
 /// Upwards, and then between two sessions: the same tree has to survive

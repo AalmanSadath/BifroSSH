@@ -301,10 +301,10 @@ pub(super) fn collect_local_tree(root: &Path) -> Result<(Vec<TreeItem>, u32)> {
             if link {
                 skipped += 1;
             } else if meta.is_dir() {
-                items.push(TreeItem { rel: child_rel.clone(), is_dir: true });
+                items.push(TreeItem { rel: child_rel.clone(), is_dir: true, size: 0 });
                 queue.push((entry.path(), child_rel, depth + 1));
             } else if meta.is_file() {
-                items.push(TreeItem { rel: child_rel, is_dir: false });
+                items.push(TreeItem { rel: child_rel, is_dir: false, size: meta.len() });
             }
         }
     }
@@ -346,10 +346,10 @@ pub(super) async fn collect_remote_tree(
             if file_type.is_symlink() {
                 skipped += 1;
             } else if file_type.is_dir() {
-                items.push(TreeItem { rel: child_rel.clone(), is_dir: true });
+                items.push(TreeItem { rel: child_rel.clone(), is_dir: true, size: 0 });
                 queue.push((join_remote(&dir, &name), child_rel, depth + 1));
             } else {
-                items.push(TreeItem { rel: child_rel, is_dir: false });
+                items.push(TreeItem { rel: child_rel, is_dir: false, size: entry.metadata().size.unwrap_or(0) });
             }
         }
     }

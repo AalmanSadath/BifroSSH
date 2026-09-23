@@ -1069,3 +1069,44 @@
   color: var(--text-muted);
   white-space: nowrap;
 }
+
+/* Comparison results: a list the user reads, so wider and taller than the
+   conflict question, which is sized for three names. */
+.sftp-compare-dialog {
+  min-width: 460px;
+  max-width: 620px;
+}
+
+.sftp-compare-paths {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: monospace;
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.sftp-compare-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 320px;
+  overflow-y: auto;
+  margin-bottom: 10px;
+}
+
+.sftp-compare-group-title {
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* The shared list is capped for the three-name case; here the scrolling
+   happens on the group box instead. */
+.sftp-compare-list {
+  max-height: none;
+  margin-bottom: 0;
+}

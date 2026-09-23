@@ -5,6 +5,7 @@ import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { findPaths } from '../paths';
+import { TERMINAL_ACTIONS, actionFor, resolve as resolveShortcuts } from '../shortcuts';
 import * as ipc from '../ipc';
 import { listen } from '@tauri-apps/api/event';
 import { useAppStore } from '../store/appStore';
@@ -21,6 +22,10 @@ interface Props {
   focused: boolean;
   /** Split only: the pane header, with the tab's name and a way out. */
   header?: React.ReactNode;
+  /** Split only: the handle that drags this pane's left edge. */
+  resizer?: React.ReactNode;
+  /** Split only: this pane's share of the row, as a percentage. */
+  width?: number;
 }
 
 interface SearchOptions {
@@ -29,7 +34,7 @@ interface SearchOptions {
   regex: boolean;
 }
 
-export default function TerminalView({ tab, visible, focused, header }: Props) {
+export default function TerminalView({ tab, visible, focused, header, resizer, width }: Props) {
   const { tab_id: tabId, session_id: sessionId, server_id: serverId } = tab;
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -45,7 +50,16 @@ export default function TerminalView({ tab, visible, focused, header }: Props) {
   sessionIdRef.current = sessionId;
   /** Whether a session has been bound before, so the next one is a reconnect. */
   const boundOnceRef = useRef(false);
-  const { settings, servers, removeSession, markDropped, reconnectSession, stopRetrying, retryingTabIds, sendInput, setActiveTab, sessionThemeOverrides, customThemes } = useAppStore();
+  const { settings, servers, removeSession, markDropped, reconnectSession, stopRetrying, retryingTabIds, sendInput, setActiveTab, sessionThemeOverrides, sessionZoom, zoomSession, customThemes } = useAppStore();
+
+  // This tab's own size if it has been zoomed, else the one every terminal
+  // uses. Same precedence as the theme override below it.
+  const fontSize = sessionZoom[tabId] ?? settings.font_size;
+
+  // The key handler below is attached once with the terminal; the bindings
+  // can change under it, so it reads them through a ref.
+  const shortcutsRef = useRef(resolveShortcuts(settings.shortcuts));
+  shortcutsRef.current = resolveShortcuts(settings.shortcuts);
   const retrying = retryingTabIds.has(tabId);
 
   // The countdown in the dropped banner. Half a second's worth of
@@ -202,7 +216,7 @@ export default function TerminalView({ tab, visible, focused, header }: Props) {
     const theme = resolveTheme();
     const term = new Terminal({
       theme,
-      fontSize: settings.font_size,
+      fontSize,
       fontFamily: settings.font_family,
       lineHeight: 1.2,
       cursorStyle: settings.cursor_style,
@@ -333,28 +347,30 @@ export default function TerminalView({ tab, visible, focused, header }: Props) {
     // itself, so text copied out of a terminal pasted double and text copied
     // from another application did not.
     term.attachCustomKeyEventHandler((ev) => {
-      if (ev.type === 'keydown' && ev.ctrlKey && ev.shiftKey) {
-        // Ctrl+Shift+F, not Ctrl+F: a bare Ctrl+F is a control character the
-        // remote shell, less and vim all want, and taking it would break them.
-        if (ev.code === 'KeyF') {
+      if (ev.type !== 'keydown') return true;
+      // Only the terminal's own three. By default they are Ctrl+Shift, not
+      // Ctrl: a bare Ctrl+F is a control character the remote shell, less and
+      // vim all want, and taking it would break them. An action the user
+      // unbound matches nothing and so reaches the shell.
+      switch (actionFor(ev, shortcutsRef.current, TERMINAL_ACTIONS)) {
+        case 'term-search':
           ev.preventDefault();
           setSearchOpen(true);
           requestAnimationFrame(() => searchInputRef.current?.select());
           return false;
-        }
-        if (ev.code === 'KeyC') {
+        case 'term-copy': {
           ev.preventDefault();
           const sel = term.getSelection();
           if (sel) navigator.clipboard.writeText(sel).catch(() => {});
           return false;
         }
-        if (ev.code === 'KeyV') {
+        case 'term-paste':
           ev.preventDefault();
           pasteFromClipboard();
           return false;
-        }
+        default:
+          return true;
       }
-      return true;
     });
 
     term.onData((data) => {
@@ -484,7 +500,7 @@ export default function TerminalView({ tab, visible, focused, header }: Props) {
     const term = termRef.current;
     if (!term) return;
     term.options.theme = resolveTheme();
-    term.options.fontSize = settings.font_size;
+    term.options.fontSize = fontSize;
     term.options.fontFamily = settings.font_family;
     term.options.cursorStyle = settings.cursor_style;
     term.options.cursorBlink = settings.cursor_blink;
@@ -492,7 +508,7 @@ export default function TerminalView({ tab, visible, focused, header }: Props) {
     fitRef.current?.fit();
   }, [
     resolveTheme,
-    settings.font_size,
+    fontSize,
     settings.font_family,
     settings.cursor_style,
     settings.cursor_blink,
@@ -523,6 +539,22 @@ export default function TerminalView({ tab, visible, focused, header }: Props) {
     return () => ro.disconnect();
   }, []);
 
+  // Ctrl+wheel zooms this tab. Not passive, because without preventDefault
+  // the webview zooms the whole window underneath, which moves every panel
+  // and cannot be undone from the terminal.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      zoomSession(tabId, e.deltaY < 0 ? 1 : -1);
+    };
+    container.addEventListener('wheel', onWheel, { passive: false });
+    return () => container.removeEventListener('wheel', onWheel);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabId]);
+
   // Re-runs as the query or the toggles change, so the count and highlights
   // track what is in the box rather than waiting for Enter.
   useEffect(() => {
@@ -538,9 +570,16 @@ export default function TerminalView({ tab, visible, focused, header }: Props) {
   return (
     <div
       className={`terminal-pane${tab.broadcast ? ' terminal-pane-broadcast' : ''}${header && focused ? ' terminal-pane-focused' : ''}`}
-      style={{ display: visible ? 'flex' : 'none', '--term-bg': resolveTheme().background } as React.CSSProperties}
+      style={{
+        display: visible ? 'flex' : 'none',
+        // A dragged split gives each pane a share of the row; without one
+        // they all grow equally, which is what flex: 1 already does.
+        ...(width !== undefined ? { flex: `0 0 ${width}%` } : null),
+        '--term-bg': resolveTheme().background,
+      } as React.CSSProperties}
       onMouseDown={() => { if (!focused) setActiveTab(tabId); }}
     >
+      {resizer}
       {header}
       {searchOpen && (
         // Escape is handled here rather than on the input: clicking a toggle

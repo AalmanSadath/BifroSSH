@@ -5,7 +5,7 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useAppStore, buildJumpChain, resolveServerAuth } from '../store/appStore';
 import OsIcon from './OsIcon';
 import { matchesHost } from '../hosts';
-import type { Conflict, EditEvent, FileEntry, LogEntry, Server, SftpBookmark, TransferKind, TransferProgress, TransferSummary } from '../types';
+import type { Conflict, EditEvent, FileEntry, LogEntry, Server, SftpBookmark, TransferKind, TransferProgress, TransferSummary, TreeDiff } from '../types';
 import { bookmarksFor, isBookmarked, labelFor } from '../bookmarks';
 import {
   cancel as cancelItem, clearFinished, enqueue, finished, nextToRun, progressed, prune, start,
@@ -15,6 +15,8 @@ import ConnectingView from './ConnectingView';
 import ContextMenu from './shared/ContextMenu';
 import PermissionsDialog, { type OwnerChange } from './PermissionsDialog';
 import ConflictDialog, { type ConflictAnswer, type ConflictPrompt } from './ConflictDialog';
+import CompareDialog from './CompareDialog';
+import { diffSummary, isIdentical } from '../compare';
 import { useDismissOnOutside } from './shared/useDismissOnOutside';
 import { freeName, localStyle, remoteStyle, resolveTyped, styleFor, type PathStyle } from '../paths';
 
@@ -118,6 +120,8 @@ interface FileBrowserProps {
   onBookmarkPath?: (path: string) => void;
   /** Tars a remote directory on the server and unpacks it on the other side. */
   onCompressedCopy?: (entry: FileEntry) => void;
+  /** Compares a directory with the one open in the other pane. */
+  onCompare?: (entry: FileEntry) => void;
   /** How to take this pane's paths apart: POSIX remotely, native locally. */
   pathStyle: PathStyle;
 }
@@ -125,7 +129,7 @@ interface FileBrowserProps {
 function FileBrowser({ title, icon, path, home, entries, loading, error, notice, onDismissNotice, onNavigate,
   onRefresh, onNewFolder, extraActions, onLocalBtn,
   canCopyToTarget, onCopyToTarget, onRename, onDelete, onSetMode, onOpen, onMove,
-  bookmarks, bookmarked, onToggleBookmark, onDeleteBookmark, onBookmarkPath, onCompressedCopy,
+  bookmarks, bookmarked, onToggleBookmark, onDeleteBookmark, onBookmarkPath, onCompressedCopy, onCompare,
   side, isDropTarget, onDragEnter: onDragEnterCb, onDragLeave: onDragLeaveCb, onFileDrop, onReconnect,
   pathStyle,
 }: FileBrowserProps) {
@@ -800,6 +804,15 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
                   Copy to Target compressed
                 </button>
               )}
+              {contextMenu.entry.is_dir && contextMenu.entry.name !== '..' && onCompare && (
+                <button
+                  className="menu-item"
+                  title="Reads both folders and reports what differs. Nothing is copied."
+                  onClick={() => { onCompare(contextMenu.entry!); setContextMenu(null); }}
+                >
+                  Compare with the other pane
+                </button>
+              )}
               {contextMenu.entry.is_dir && contextMenu.entry.name !== '..' && onBookmarkPath && (
                 <button className="menu-item" onClick={() => { onBookmarkPath(contextMenu.entry!.path); setContextMenu(null); }}>
                   Bookmark this folder
@@ -1347,8 +1360,15 @@ function usePane(initialMode: PaneMode) {
 type Pane = ReturnType<typeof usePane>;
 
 /** Whether dragging from `src` onto `dst` is a transfer this app can make. */
+/** Whether a pane is showing files rather than picking a host or connecting. */
+function browsing(p: Pane): boolean {
+  return p.mode === 'local' || p.mode === 'connected';
+}
+
+/** How long a comparison runs before it is worth a dialog of its own. */
+const COMPARE_DIALOG_DELAY_MS = 500;
+
 function canMove(src: Pane, dst: Pane): boolean {
-  const browsing = (p: Pane) => p.mode === 'local' || p.mode === 'connected';
   // Local to local is the one pairing with no command behind it.
   return browsing(src) && browsing(dst) && !(src.mode === 'local' && dst.mode === 'local');
 }
@@ -1622,6 +1642,9 @@ export default function SftpPanel() {
    */
   function describeTransfer(s: TransferSummary): string | null {
     const parts: string[] = [];
+    if (s.verified > 0) {
+      parts.push(`Verified ${s.verified} ${s.verified === 1 ? 'file' : 'files'}.`);
+    }
     if (s.cancelled) {
       parts.push(`Stopped after ${s.files} ${s.files === 1 ? 'file' : 'files'}.`);
     }
@@ -1633,7 +1656,47 @@ export default function SftpPanel() {
       const n = s.skipped_existing;
       parts.push(`Skipped ${n} that already existed.`);
     }
+    if (s.renamed > 0) {
+      const n = s.renamed;
+      parts.push(`Kept ${n} ${n === 1 ? 'copy' : 'copies'} beside what was there.`);
+    }
     return parts.length > 0 ? parts.join(' ') : null;
+  }
+
+  /**
+   * Compares `entry` with the directory the other pane is showing.
+   *
+   * Nothing is copied and nothing is written: the two trees are walked, the
+   * pairs that match on size are hashed, and what differs is listed. An
+   * identical pair says so in the pane's notice rather than opening a modal
+   * with nothing in it.
+   */
+  async function compareWith(pane: Pane, other: Pane, entry: FileEntry) {
+    const id = crypto.randomUUID();
+    const right = other.listing.path;
+    setComparing({ id, left: entry.path, right, diff: null, waited: false });
+    // Long enough that a quick answer never flashes a dialog, short enough
+    // that a slow one does not look like nothing happened.
+    const slow = setTimeout(() => {
+      setComparing((c) => (c && c.id === id && c.diff === null ? { ...c, waited: true } : c));
+    }, COMPARE_DIALOG_DELAY_MS);
+    try {
+      const diff = await ipc.sftpCompareTrees(
+        id,
+        pane.mode === 'local' ? null : pane.requireSid(),
+        entry.path,
+        other.mode === 'local' ? null : other.requireSid(),
+        right,
+      );
+      pane.say(diffSummary(diff));
+      if (isIdentical(diff)) setComparing(null);
+      else setComparing((c) => (c && c.id === id ? { ...c, diff } : c));
+    } catch (e) {
+      setComparing(null);
+      pane.fail(String(e));
+    } finally {
+      clearTimeout(slow);
+    }
   }
 
   /**
@@ -1696,6 +1759,13 @@ export default function SftpPanel() {
    * itself is plain JSX rendered while the state is set. One slot is enough
    * because one transfer runs at a time.
    */
+  // A comparison in flight or finished: its id is what cancels it, and the
+  // diff is null until it comes back. `waited` turns on once it has run long
+  // enough to be worth a dialog: a comparison of two small folders answers
+  // in the notice before a modal would be read, and one that opened and shut
+  // again looks like a fault rather than an answer.
+  const [comparing, setComparing] = useState<{ id: string; left: string; right: string; diff: TreeDiff | null; waited: boolean } | null>(null);
+
   const [conflictPrompt, setConflictPrompt] = useState<{ prompt: ConflictPrompt; resolve: (a: ConflictAnswer | null) => void } | null>(null);
   function askConflict(prompt: ConflictPrompt): Promise<ConflictAnswer | null> {
     return new Promise((resolve) => setConflictPrompt({ prompt, resolve }));
@@ -1737,7 +1807,7 @@ export default function SftpPanel() {
         run: async (id, conflict) => {
           if (!collides) return send(id, null);
           if (conflict === 'skip') {
-            return { files: 0, directories: 0, skipped_symlinks: 0, skipped_existing: 1, cancelled: false };
+            return { files: 0, directories: 0, skipped_symlinks: 0, skipped_existing: 1, renamed: 0, cancelled: false, landed: null, verified: 0 };
           }
           return send(id, conflict === 'keep_both' ? freeName(taken, entry.name) : null);
         },
@@ -1793,7 +1863,7 @@ export default function SftpPanel() {
               const answer = await askConflict({ name: next.name, files, more });
               if (answer === null) {
                 // The rest of the batch leaves with it.
-                const cancelledSummary: TransferSummary = { files: 0, directories: 0, skipped_symlinks: 0, skipped_existing: 0, cancelled: true };
+                const cancelledSummary: TransferSummary = { files: 0, directories: 0, skipped_symlinks: 0, skipped_existing: 0, renamed: 0, cancelled: true, landed: null, verified: 0 };
                 updateQueue((q) => finished(q, next.id, { summary: cancelledSummary }, Date.now()));
                 for (const row of queueRef.current) {
                   if (row.status === 'queued' && jobsRef.current.get(row.id)?.batch === job.batch) {
@@ -1860,6 +1930,13 @@ export default function SftpPanel() {
             ? (entry) => compressedCopy(side === 'left' ? 'right' : 'left', entry)
             : undefined
         }
+        onCompare={
+          // Unlike a copy, two local folders are a legitimate comparison, so
+          // the gate is only that both panes are showing files.
+          browsing(pane) && browsing(other)
+            ? (entry) => compareWith(pane, other, entry)
+            : undefined
+        }
         onRename={pane.rename}
         onDelete={pane.removeMany}
         onSetMode={pane.setPerms}
@@ -1922,6 +1999,18 @@ export default function SftpPanel() {
 
   return (
     <div className="sftp-container">
+      {/* Only once there is something to read, or once it has taken long
+          enough to be worth saying it is still going. */}
+      {comparing && (comparing.diff !== null || comparing.waited) && (
+        <CompareDialog
+          left={comparing.left}
+          right={comparing.right}
+          diff={comparing.diff}
+          onCancel={() => { ipc.sftpCancelTransfer(comparing.id).catch(() => {}); }}
+          onClose={() => setComparing(null)}
+        />
+      )}
+
       {conflictPrompt && (
         <ConflictDialog
           prompt={conflictPrompt.prompt}

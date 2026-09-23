@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import * as ipc from '../ipc';
 import { useAppStore } from '../store/appStore';
 import { bySection, rankCommands, type Command } from '../palette';
-import type { Codeprint } from '../types';
+import type { Codeprint, SettingsSection } from '../types';
 
 interface Props {
   onClose: () => void;
@@ -22,7 +22,18 @@ const PANELS: { id: string; label: string }[] = [
   { id: 'keychain', label: 'Keychain' },
   { id: 'knownhosts', label: 'Known Hosts' },
   { id: 'theme-editor', label: 'Theme Editor' },
-  { id: 'settings', label: 'Settings' },
+];
+
+// Settings is not one panel any more but a rail of categories, so the
+// palette offers the categories rather than the door they are behind.
+const SETTINGS_SECTIONS: { id: SettingsSection; label: string }[] = [
+  { id: 'appearance', label: 'Appearance' },
+  { id: 'terminal', label: 'Terminal' },
+  { id: 'shortcuts', label: 'Keyboard shortcuts' },
+  { id: 'connection', label: 'Connection' },
+  { id: 'security', label: 'Security' },
+  { id: 'data', label: 'Backup and transfer' },
+  { id: 'about', label: 'About' },
 ];
 
 /**
@@ -34,7 +45,7 @@ const PANELS: { id: string; label: string }[] = [
 export default function CommandPalette({ onClose, onCodeprint, onAddHost, onLock }: Props) {
   const {
     servers, sessions, activeTabId, codeprints, setActiveTab, openSession, openInSftp,
-    removeSession, toggleBroadcast, toggleLogging, checkForUpdates,
+    removeSession, toggleBroadcast, toggleLogging, checkForUpdates, openSettings,
   } = useAppStore();
   const [query, setQuery] = useState('');
   const [cursor, setCursor] = useState(0);
@@ -106,6 +117,16 @@ export default function CommandPalette({ onClose, onCodeprint, onAddHost, onLock
       });
     }
 
+    for (const section of SETTINGS_SECTIONS) {
+      items.push({
+        id: `settings:${section.id}`,
+        title: section.label,
+        subtitle: 'Settings',
+        group: 'Panels',
+        run: done(() => openSettings(section.id)),
+      });
+    }
+
     items.push({ id: 'action:add-host', title: 'Add host', group: 'Actions', run: done(onAddHost) });
     if (active?.server_id && !active.quick_info) {
       items.push({
@@ -145,7 +166,7 @@ export default function CommandPalette({ onClose, onCodeprint, onAddHost, onLock
       id: 'action:updates',
       title: 'Check for updates',
       group: 'Actions',
-      run: done(() => { void checkForUpdates(true); setActiveTab('settings'); }),
+      run: done(() => { void checkForUpdates(true); openSettings('about'); }),
     });
     return items;
   // The store actions are stable; the lists are what this depends on.

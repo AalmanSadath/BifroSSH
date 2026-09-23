@@ -4,7 +4,7 @@ import type { TransferProgress, TransferSummary } from './types';
 
 const item = (id: string) => ({ id, name: id, target: 'right' as const, destination: 'pi' });
 const summary = (over: Partial<TransferSummary> = {}): TransferSummary =>
-  ({ files: 1, directories: 0, skipped_symlinks: 0, skipped_existing: 0, cancelled: false, ...over });
+  ({ files: 1, directories: 0, skipped_symlinks: 0, skipped_existing: 0, renamed: 0, cancelled: false, landed: null, verified: 0, ...over });
 const progress = (id: string, transferred: number): TransferProgress =>
   ({ transfer_id: id, file_name: 'f', transferred, total: 10, file_index: 1, file_count: 1 });
 

@@ -408,6 +408,26 @@
   text-overflow: ellipsis;
 }
 
+/* Only present while a tab is zoomed, and a button because clicking it is
+   the quickest way back to the size everything else uses. */
+.tab-zoom {
+  flex-shrink: 0;
+  margin-left: 5px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: none;
+  color: var(--text-dim);
+  font-size: 10px;
+  line-height: 15px;
+  cursor: pointer;
+}
+
+.tab-zoom:hover {
+  border-color: var(--text-dim);
+  color: var(--text-primary);
+}
+
 .tab-split {
   color: var(--text-dim);
   font-size: 12px;

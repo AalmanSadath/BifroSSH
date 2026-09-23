@@ -10,9 +10,10 @@ import ConfirmModal from './shared/ConfirmModal';
 import ContextMenu from './shared/ContextMenu';
 import { cardKeys } from './shared/cardKeys';
 import { EditIcon, NoteIcon } from './shared/icons';
+import { probeClass, probeLabel, probeTitle } from '../probe';
 
 export default function HostsPanel() {
-  const { servers, sessions, settings, setActiveTab, removeSession, deleteServer, openSession } = useAppStore();
+  const { servers, sessions, settings, setActiveTab, removeSession, deleteServer, openSession, hostProbes, probeHosts } = useAppStore();
   const [showServerForm, setShowServerForm] = useState(false);
   const [showSshImport, setShowSshImport] = useState(false);
   const [editServer, setEditServer] = useState<Server | null>(null);
@@ -30,6 +31,7 @@ export default function HostsPanel() {
   const activeFilter = groupFilter !== null && (groups.includes(groupFilter) || (groupFilter === UNGROUPED && anyUngrouped))
     ? groupFilter : null;
   const sections = hostSections(servers, query, activeFilter);
+  const checking = Object.values(hostProbes).includes('running');
   const chips = groups.length > 0
     ? [null, ...groups, ...(anyUngrouped ? [UNGROUPED] : [])]
     : [];
@@ -59,6 +61,16 @@ export default function HostsPanel() {
           <button className="btn-secondary btn-sm" onClick={() => setShowSshImport(true)}>
             Import from ssh config
           </button>
+          {servers.length > 0 && (
+            <button
+              className="btn-secondary btn-sm"
+              onClick={() => { void probeHosts(sections.flatMap((sec) => sec.servers.map((h) => h.id)), true); }}
+              disabled={checking}
+              title={hint('Open a TCP connection to each host shown and time it. Nothing is authenticated.')}
+            >
+              {checking ? 'Checking…' : 'Check hosts'}
+            </button>
+          )}
           {servers.length > 0 && (
             <input
               className="hosts-search"
@@ -138,7 +150,20 @@ export default function HostsPanel() {
                           </span>
                         )}
                       </div>
-                      <span className="card-sub">{server.host}:{server.port}</span>
+                      {/* The check joins the address rather than taking a
+                          line of its own: the card's two-line height is what
+                          keeps every card in a row the same size. */}
+                      <span className="card-sub" title={probeTitle(hostProbes[server.id])}>
+                        {server.host}:{server.port}
+                        {probeLabel(hostProbes[server.id]) !== null && (
+                          <>
+                            {' \u00b7 '}
+                            <span className={`host-probe${probeClass(hostProbes[server.id])}`}>
+                              {probeLabel(hostProbes[server.id])}
+                            </span>
+                          </>
+                        )}
+                      </span>
                     </div>
                     <button
                       className="host-card-edit-btn"

@@ -7,6 +7,9 @@ import { setLocalPlatform } from './paths';
 import { useIdleLock } from './hooks/useIdleLock';
 import type { AuthPromptEvent, Codeprint, HostKeyPromptEvent, SessionTab, SystemAppearance, TunnelClosed, VaultStatus } from './types';
 import { fill } from './snippets';
+import { zoomPercent } from './zoom';
+import { evenAt, evenWidths, resizeAt, widthAt } from './paneSizes';
+import { WINDOW_ACTIONS, actionFor, resolve as resolveShortcuts, tabIndexFor } from './shortcuts';
 import CommandPalette from './components/CommandPalette';
 import SnippetPromptModal from './components/SnippetPromptModal';
 import HostKeyPrompt from './components/HostKeyPrompt';
@@ -85,6 +88,7 @@ export default function App() {
   const {
     loadAll, loadError, actionError, setActionError, sessions, activeTabId, setActiveTab, removeSession,
     renameSession, toggleBroadcast, openInSftp, sendInput, toggleLogging, splitGroup, splitWith, unsplit, openSession, quickConnect, servers, settings, keys,
+    zoomSession, resetZoom, sessionZoom, splitWidths, setSplitWidths,
     systemAppearance, setSystemAppearance, clearForLock,
   } = useAppStore();
 
@@ -107,6 +111,77 @@ export default function App() {
   const [tabDragOver, setTabDragOver] = useState(false);
   const activeIsSession = sessions.some((s) => s.tab_id === activeTabId);
   const splitShown = activeTabId !== null && splitGroup.includes(activeTabId);
+
+  /**
+   * Drags the boundary to the left of pane `index`.
+   *
+   * The same shape as the SFTP column resizer: percentages, zero-sum against
+   * the neighbour, window listeners so the pointer can leave the handle, and
+   * the body's cursor held for the duration. The state is written behind a
+   * frame, so a drag costs each terminal one refit per frame rather than one
+   * per mouse event; xterm refits itself from its own ResizeObserver.
+   */
+  function startPaneResize(index: number, e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    const row = (e.currentTarget as HTMLElement).closest('.term-area');
+    const rowWidth = row?.getBoundingClientRect().width ?? 1;
+    const startX = e.clientX;
+    const startWidths = splitWidths.length === splitGroup.length
+      ? splitWidths
+      : evenWidths(splitGroup.length);
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    let frame = 0;
+
+    function onMove(ev: MouseEvent) {
+      if (frame !== 0) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        const delta = ((ev.clientX - startX) / rowWidth) * 100;
+        setSplitWidths(resizeAt(startWidths, index, delta));
+      });
+    }
+
+    function onUp() {
+      if (frame !== 0) cancelAnimationFrame(frame);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    }
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
+
+  /**
+   * The handle over a pane's left edge, for every pane but the first.
+   *
+   * Inside the pane rather than between panes: the separator between two
+   * panes is drawn by an adjacent-sibling rule, which an element in between
+   * would break.
+   */
+  function paneResizer(index: number) {
+    if (index <= 0) return undefined;
+    return (
+      <div
+        className="pane-resizer"
+        title="Drag to resize. Double-click to share these two evenly."
+        onMouseDown={(e) => startPaneResize(index, e)}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          // This divider only: with three panes, evening the whole row would
+          // move a boundary nobody touched.
+          const current = splitWidths.length === splitGroup.length
+            ? splitWidths
+            : evenWidths(splitGroup.length);
+          setSplitWidths(evenAt(current, index));
+        }}
+      />
+    );
+  }
 
   function paneHeader(s: SessionTab, focused: boolean) {
     return (
@@ -176,22 +251,6 @@ export default function App() {
       }));
     });
     return () => { unlisten.then((f) => f()); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Ctrl+Shift+L. The terminal passes every Ctrl+Shift chord but F, C and V
-  // through, and the file list's Ctrl+L has no shift, so nothing else wants
-  // this. Capture phase so no handler below can take it first.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.shiftKey && e.code === 'KeyL') {
-        e.preventDefault();
-        e.stopPropagation();
-        void lockNow();
-      }
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -327,65 +386,81 @@ export default function App() {
   const tabsRef = useRef({ sessions, activeTabId });
   tabsRef.current = { sessions, activeTabId };
 
+  // Same reason: the bindings change while the listener stays the one that
+  // was bound on the first render.
+  const shortcutsRef = useRef(resolveShortcuts(settings.shortcuts));
+  shortcutsRef.current = resolveShortcuts(settings.shortcuts);
+
   /**
-   * Tab keys. Cycling is over session tabs only, in strip order, wrapping;
-   * from a fixed tab, next lands on the first session and previous on the
-   * last. Capture phase on the window, and the event is stopped there, not
-   * just defaulted: xterm's key handler does not look at defaultPrevented,
-   * and let through it turned Ctrl+PageUp into the shell receiving "5~".
+   * Every window-level shortcut, bindings from the settings.
    *
-   * Ctrl+W is left alone: it is readline's delete-word, and every shell
-   * wants it. Ctrl+Shift+W is what GNOME Terminal uses for the same reason.
+   * Capture phase, and the event is stopped there rather than only
+   * defaulted: xterm's key handler does not look at defaultPrevented, and
+   * let through, Ctrl+PageUp turned into the shell receiving "5~". The
+   * terminal's own three chords are matched in TerminalView, after this
+   * handler has had its turn, so a chord bound in both places acts here.
+   *
+   * Tab cycling is over session tabs only, in strip order, wrapping; from a
+   * fixed tab, next lands on the first session and previous on the last.
    */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!e.ctrlKey || e.altKey || e.metaKey) return;
+      const action = actionFor(e, shortcutsRef.current, WINDOW_ACTIONS);
+      if (action === null) return;
       const { sessions: tabs, activeTabId: active } = tabsRef.current;
       const idx = tabs.findIndex((t) => t.tab_id === active);
+      // The tab from the ref, not from closeTab and friends: those read the
+      // sessions of the render they were made in, and this listener was
+      // made once.
+      const current = idx >= 0 ? tabs[idx] : undefined;
+      e.preventDefault();
+      e.stopPropagation();
 
-      const next = e.code === 'Tab' && !e.shiftKey || e.code === 'PageDown';
-      const prev = e.code === 'Tab' && e.shiftKey || e.code === 'PageUp';
-      if (next || prev) {
-        e.preventDefault();
-        e.stopPropagation();
-        if (tabs.length === 0) return;
-        const target = idx < 0
-          ? (next ? 0 : tabs.length - 1)
-          : (idx + (next ? 1 : tabs.length - 1)) % tabs.length;
-        setActiveTab(tabs[target].tab_id);
-        return;
-      }
-      if (e.code === 'KeyK' && !e.shiftKey) {
-        e.preventDefault();
-        e.stopPropagation();
-        setPaletteOpen((open) => !open);
-        return;
-      }
-
-      if (e.shiftKey && e.code === 'KeyT') {
-        e.preventDefault();
-        e.stopPropagation();
-        const current = idx >= 0 ? tabs[idx] : undefined;
-        // A quick connection has no host record to open again.
-        if (current && current.server_id) openSession(current.server_id);
-        return;
-      }
-      if (e.shiftKey && e.code === 'KeyB') {
-        e.preventDefault();
-        e.stopPropagation();
-        if (idx >= 0) toggleBroadcast(tabs[idx].tab_id);
-        return;
-      }
-      if (e.shiftKey && e.code === 'KeyW') {
-        e.preventDefault();
-        e.stopPropagation();
-        // Not closeTab: that reads `sessions` from the render it was made
-        // in, and this listener was made once. The tab from the ref is the
-        // live one.
-        const current = idx >= 0 ? tabs[idx] : undefined;
-        if (!current) return;
-        if (current.session_id) ipc.sshDisconnect(current.session_id).catch(() => {});
-        removeSession(current.tab_id);
+      switch (action) {
+        case 'next-tab':
+        case 'prev-tab': {
+          if (tabs.length === 0) return;
+          const next = action === 'next-tab';
+          const target = idx < 0
+            ? (next ? 0 : tabs.length - 1)
+            : (idx + (next ? 1 : tabs.length - 1)) % tabs.length;
+          setActiveTab(tabs[target].tab_id);
+          return;
+        }
+        case 'palette':
+          setPaletteOpen((open) => !open);
+          return;
+        case 'zoom-in':
+          if (current) zoomSession(current.tab_id, 1);
+          return;
+        case 'zoom-out':
+          if (current) zoomSession(current.tab_id, -1);
+          return;
+        case 'zoom-reset':
+          if (current) resetZoom(current.tab_id);
+          return;
+        case 'lock-vault':
+          void lockNow();
+          return;
+        case 'duplicate-tab':
+          // A quick connection has no host record to open again.
+          if (current && current.server_id) openSession(current.server_id);
+          return;
+        case 'toggle-broadcast':
+          if (current) toggleBroadcast(current.tab_id);
+          return;
+        case 'close-tab':
+          if (!current) return;
+          if (current.session_id) ipc.sshDisconnect(current.session_id).catch(() => {});
+          removeSession(current.tab_id);
+          return;
+        default: {
+          // The numbered tabs, which are one action each so that each can be
+          // rebound on its own.
+          const at = tabIndexFor(action, tabs.length);
+          if (at !== null) setActiveTab(tabs[at].tab_id);
+          return;
+        }
       }
     };
     window.addEventListener('keydown', onKey, true);
@@ -562,6 +637,17 @@ export default function App() {
                   <span className="tab-broadcast" title="Broadcasting: input also goes to every other tab marked the same way">⇶</span>
                 )}
                 <span className="tab-title">{s.server_name}</span>
+                {/* A tab whose text is a different size than the rest says
+                    why, and clicking it puts the tab back on the setting. */}
+                {zoomPercent(sessionZoom[s.tab_id], settings.font_size) !== null && (
+                  <button
+                    className="tab-zoom"
+                    title="Zoom for this tab. Click to reset."
+                    onClick={(e) => { e.stopPropagation(); resetZoom(s.tab_id); }}
+                  >
+                    {zoomPercent(sessionZoom[s.tab_id], settings.font_size)}%
+                  </button>
+                )}
                 <button className="tab-close" onClick={(e) => handleCloseTab(s.tab_id, e)}>&#10005;</button>
               </div>
             ))}
@@ -604,6 +690,10 @@ export default function App() {
             const inSplit = splitGroup.includes(s.tab_id);
             const visible = activeTabId === s.tab_id || (splitShown && inSplit);
             const focused = activeTabId === s.tab_id;
+            // Only a pane in the shown split has a share of the row; a tab
+            // on its own has the whole of it.
+            const paneAt = splitShown && inSplit ? splitGroup.indexOf(s.tab_id) : -1;
+            const paneWidth = paneAt >= 0 ? widthAt(splitWidths, paneAt, splitGroup.length) : undefined;
             const server = servers.find((srv) => srv.id === s.server_id)
               ?? (s.quick_info ? {
                 id: '', name: s.server_name,
@@ -616,7 +706,15 @@ export default function App() {
             if (s.status === 'connecting' || s.status === 'error') {
               if (!server) return null;
               return (
-                <div key={s.tab_id} className="term-connecting" style={{ display: visible ? 'flex' : 'none' }}>
+                <div
+                  key={s.tab_id}
+                  className="term-connecting"
+                  style={{
+                    display: visible ? 'flex' : 'none',
+                    ...(paneWidth !== undefined ? { flex: `0 0 ${paneWidth}%` } : null),
+                  }}
+                >
+                  {paneResizer(paneAt)}
                   {splitShown && inSplit && paneHeader(s, focused)}
                   <ConnectingView
                     server={server}
@@ -637,6 +735,8 @@ export default function App() {
                 visible={visible}
                 focused={focused}
                 header={splitShown && inSplit ? paneHeader(s, focused) : undefined}
+                resizer={paneResizer(paneAt)}
+                width={paneWidth}
               />
             );
           })}

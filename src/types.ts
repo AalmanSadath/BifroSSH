@@ -92,8 +92,29 @@ export interface TransferSummary {
   skipped_symlinks: number;
   /** Left alone because one was already there and the answer was skip. */
   skipped_existing: number;
+  /** Files written under a name of their own because one was already there. */
+  renamed: number;
   /** True when the user stopped it; `files` then counts what arrived. */
   cancelled: boolean;
+  /** Where it wrote, directory and name together; null when nothing was. */
+  landed: string | null;
+  /** Files read back and compared with the source; 0 when that was off. */
+  verified: number;
+}
+
+/** How two folders differ; see `compare_trees` in Rust. */
+export interface TreeDiff {
+  /** Paths, relative to each root, present on one side only. */
+  only_left: string[];
+  only_right: string[];
+  /** Same path on both sides, different content. */
+  differing: string[];
+  /** Files the same on both sides. */
+  same: number;
+  /** True when the user stopped it; the lists are then partial. */
+  cancelled: boolean;
+  /** Files whose sizes matched and so had to be read and hashed. */
+  hashed: number;
 }
 
 /** What a transfer does with a file that is already at the destination. */
@@ -184,6 +205,30 @@ export interface GeneratedKey {
   public_openssh: string;
 }
 
+/** What one reachability check found; see `probe_host` in Rust. */
+export interface HostProbe {
+  reachable: boolean;
+  /** Round trip in milliseconds; 0 when it did not answer. */
+  ms: number;
+  error: string | null;
+}
+
+/**
+ * A host's check as the cards see it: in flight, not attempted, or a result
+ * with the time it landed.
+ */
+export type ProbeState = 'running' | 'skipped' | (HostProbe & { at: number });
+
+/** A category of the settings panel, and the rail item that shows it. */
+export type SettingsSection =
+  | 'appearance'
+  | 'terminal'
+  | 'shortcuts'
+  | 'connection'
+  | 'security'
+  | 'data'
+  | 'about';
+
 export interface Settings {
   theme: string;
   font_size: number;
@@ -218,6 +263,16 @@ export interface Settings {
   auto_reconnect: boolean;
   /** Tries before giving up; 0 keeps trying. */
   auto_reconnect_attempts: number;
+  /** Open last time's tabs at launch and connect them. */
+  restore_tabs: boolean;
+  /** Read both copies back after a transfer and compare them. */
+  verify_transfers: boolean;
+  /**
+   * Keyboard bindings the user changed, action id to comma-joined chords;
+   * an empty string unbinds. Only the changes: see `resolve` in
+   * `src/shortcuts.ts`.
+   */
+  shortcuts: Record<string, string>;
 }
 
 /** How the user chose to keep the master key on the first run screen. */

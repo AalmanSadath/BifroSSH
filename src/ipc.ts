@@ -26,6 +26,7 @@ import type {
   FileEntry,
   GeneratedKey,
   HostKeyDecision,
+  HostProbe,
   Identity,
   IdentityInput,
   ImportOptions,
@@ -47,6 +48,7 @@ import type {
   SystemAppearance,
   TransferKind,
   TransferSummary,
+  TreeDiff,
   VaultInitMode,
   VaultStatus,
 } from './types';
@@ -179,6 +181,21 @@ export const getSftpBookmarks = () => invoke<SftpBookmark[]>('get_sftp_bookmarks
 
 export const saveSftpBookmarks = (items: SftpBookmark[]) =>
   invoke<void>('save_sftp_bookmarks', { items });
+
+export const probeHost = (host: string, port: number, timeoutSecs: number) =>
+  invoke<HostProbe>('probe_host', { host, port, timeoutSecs });
+
+export const sftpCompareTrees = (
+  transferId: string,
+  leftSessionId: string | null,
+  leftPath: string,
+  rightSessionId: string | null,
+  rightPath: string,
+) => invoke<TreeDiff>('sftp_compare_trees', { transferId, leftSessionId, leftPath, rightSessionId, rightPath });
+
+export const getOpenTabs = () => invoke<string[]>('get_open_tabs');
+
+export const saveOpenTabs = (items: string[]) => invoke<void>('save_open_tabs', { items });
 
 export const getCustomThemes = () =>
   invoke<Record<string, NamedTheme>>('get_custom_themes');
