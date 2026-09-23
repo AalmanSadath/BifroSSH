@@ -70,9 +70,14 @@ pub struct TransferSummary {
     /// under a name of their own.
     pub renamed: u32,
     /// True when the user stopped it. The files already copied are left where
-    /// they are; only the one in flight is removed. `files` counts what
+    /// they are; the one in flight is kept as a part file. `files` counts what
     /// actually arrived, so a cancelled batch reports fewer than were asked for.
     pub cancelled: bool,
+    /// Unfinished files left at the destination under `transfer::PART`, ready
+    /// to be continued. Counted only where the part sits beside the name the
+    /// transfer was aiming at, since a keep-both copy would never be found
+    /// again by a later attempt.
+    pub resumable: u32,
     /// Where the transfer actually wrote, destination directory and name
     /// together. None when nothing was written.
     pub landed: Option<String>,
@@ -82,7 +87,7 @@ pub struct TransferSummary {
 }
 
 /// Whether a file ran to the end or was stopped part way.
-#[derive(PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 enum Step {
     Finished,
     Cancelled,

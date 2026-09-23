@@ -14,7 +14,7 @@ use super::listing::list_remote;
 use super::archive::{copy_archive, download_archive, upload_archive};
 use super::ops::{delete_remote, mkdir, rename_remote, set_mode_remote, set_owner_remote};
 use super::edit::{watch, EditEvent};
-use super::transfer::{conflicts, download_path, upload_path, upload_quiet, Conflict, Silent};
+use super::transfer::{conflicts, download_path, upload_path, upload_quiet, Conflict, Progress, Silent, PART};
 use super::verify::{compare_trees, verify_landing, Side};
 
 use std::path::{Path, PathBuf};
@@ -227,6 +227,61 @@ async fn a_directory_with_more_files_than_the_handle_limit_downloads() {
         let name = format!("f{i:04}.txt");
         assert_eq!(std::fs::read_to_string(dst.join("many").join(&name)).unwrap(), format!("file {i}\n"));
     }
+}
+
+/// A progress sink that pulls the plug part way, so a test can see what an
+/// interrupted transfer leaves behind. Cancelling from another task would
+/// race the copy; cancelling from the report is exactly as many bytes in as
+/// it says.
+struct Trip<'a> {
+    state: &'a SftpClientState,
+    id: &'a str,
+    after: u64,
+}
+
+impl Progress for Trip<'_> {
+    fn report(&self, progress: TransferProgress) {
+        if progress.transferred >= self.after {
+            self.state.request_cancel(self.id);
+        }
+    }
+}
+
+/// An interrupted file is worth keeping: it is bytes the network already
+/// carried. It must not keep the real name, which would look like a whole
+/// file to everything that reads the directory.
+#[tokio::test]
+async fn a_cancelled_upload_keeps_a_part_file_and_not_the_name() {
+    let Some((server, state)) = rig("part", None).await else { return };
+    let src = server.scratch("part-src");
+    std::fs::create_dir_all(&src).unwrap();
+    let file = src.join("big.bin");
+    std::fs::write(&file, vec![9u8; 4_000_000]).unwrap();
+    let dst = server.scratch("part-out");
+    std::fs::create_dir_all(&dst).unwrap();
+
+    let trip = Trip { state: &state, id: "t", after: 1_000_000 };
+    let summary = upload_path(
+        &trip,
+        &state,
+        "t",
+        "s",
+        &file.to_string_lossy(),
+        &dst.to_string_lossy(),
+        Conflict::Overwrite,
+    )
+    .await
+    .unwrap();
+
+    assert!(summary.cancelled);
+    assert_eq!(summary.files, 0, "nothing finished");
+    assert_eq!(summary.resumable, 1);
+
+    let landed = dst.join("big.bin");
+    assert!(!landed.exists(), "a half file must not wear the real name");
+    let part = dst.join(format!("big.bin{PART}"));
+    let kept = std::fs::metadata(&part).unwrap().len();
+    assert!(kept > 0 && kept < 4_000_000, "kept {kept} of 4000000");
 }
 
 #[tokio::test]

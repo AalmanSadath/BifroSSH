@@ -106,6 +106,9 @@ pub(super) trait FileSide {
 
     async fn create_write(&self, path: &str) -> Result<Self::Writer>;
 
+    /// Moves `from` over `to`, replacing whatever `to` was.
+    async fn rename(&self, from: &str, to: &str) -> Result<()>;
+
     /// Finishes with a reader. Best effort: nothing was written through it.
     async fn close_read(&self, reader: Self::Reader);
 
@@ -174,6 +177,12 @@ impl FileSide for Local {
         tokio::fs::File::create(path)
             .await
             .with_context(|| path.to_string())
+    }
+
+    async fn rename(&self, from: &str, to: &str) -> Result<()> {
+        tokio::fs::rename(from, to)
+            .await
+            .with_context(|| format!("renaming {from} to {to}"))
     }
 
     // A local file is closed by dropping it; the OS does the bookkeeping.
@@ -251,6 +260,16 @@ impl FileSide for Remote {
             .with_context(|| path.to_string())
     }
 
+    /// The remove comes first because SSH_FXP_RENAME does not replace: an
+    /// OpenSSH server refuses the rename outright when the target is there.
+    async fn rename(&self, from: &str, to: &str) -> Result<()> {
+        let sftp = self.0.lock().await;
+        let _ = sftp.remove_file(to).await;
+        sftp.rename(from.to_string(), to.to_string())
+            .await
+            .with_context(|| format!("renaming {from} to {to}"))
+    }
+
     // Dropping a russh_sftp File sends the CLOSE without waiting for it, and
     // that path never decrements the client's count of open handles. Only the
     // awaited close, reached through shutdown, does. The client refuses to
@@ -276,6 +295,25 @@ impl FileSide for Remote {
         let sftp = self.0.lock().await;
         let _ = sftp.remove_file(path).await;
     }
+}
+
+/// The suffix an unfinished file wears while it waits to be continued.
+///
+/// A half written file under its real name is indistinguishable from a whole
+/// one: to `exists`, to the conflict policy, to the file browser and to the
+/// person looking at the directory. The suffix is what makes "this is only
+/// part of a file" a fact anything can read.
+pub(super) const PART: &str = ".bifrossh-part";
+
+pub(super) fn part_path(dst_path: &str) -> String {
+    format!("{dst_path}{PART}")
+}
+
+/// What one file's copy ended as, and what it left behind.
+pub(super) struct Outcome {
+    pub step: Step,
+    /// An unfinished file was kept at `<destination>.bifrossh-part`.
+    pub part: bool,
 }
 
 /// What to do with a file that is already at the destination.
@@ -392,7 +430,7 @@ async fn transfer_one<S: FileSide, D: FileSide>(
     dst_path: &str,
     at: Position,
     cancel: &AtomicBool,
-) -> Result<Step> {
+) -> Result<Outcome> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let file_name = Path::new(dst_path)
@@ -402,11 +440,15 @@ async fn transfer_one<S: FileSide, D: FileSide>(
         .into_owned();
 
     let (mut reader, total) = src.open_read(src_path).await?;
+    let part = part_path(dst_path);
     let mut writer = dst.create_write(dst_path).await?;
 
+    // Held outside the copy so the failure path below can ask whether anything
+    // arrived, which is what decides between keeping a part file and removing
+    // an empty stub.
+    let mut transferred = 0u64;
     let outcome = async {
         let mut buf = vec![0u8; CHUNK];
-        let mut transferred = 0u64;
         loop {
             if cancel.load(Ordering::Relaxed) {
                 return Ok(Step::Cancelled);
@@ -460,18 +502,24 @@ async fn transfer_one<S: FileSide, D: FileSide>(
     match outcome {
         Ok(Step::Finished) => {
             dst.close_write(writer).await?;
-            Ok(Step::Finished)
+            Ok(Outcome { step: Step::Finished, part: false })
         }
-        // A part written file is not a shorter file, it is a corrupt one, and
-        // nothing here can resume it. Removing it is the honest outcome;
-        // leaving it puts something that looks complete beside the files that
-        // are. This covers a failure as well as a cancel. The close comes
-        // first so the server is not asked to remove a file it still holds
-        // open.
+        // A part written file is not a shorter file, and leaving it under the
+        // real name puts something that looks complete beside the files that
+        // are. It is still the bytes the network already carried, so it is
+        // moved aside under the part suffix rather than thrown away, and only
+        // an empty stub is removed. The close comes first so the server is not
+        // asked to move a file it still holds open.
         other => {
             let _ = dst.close_write(writer).await;
-            dst.remove_file(dst_path).await;
-            other
+            let kept = transferred > 0 && dst.rename(dst_path, &part).await.is_ok();
+            if !kept {
+                dst.remove_file(dst_path).await;
+            }
+            match other {
+                Ok(step) => Ok(Outcome { step, part: kept }),
+                Err(e) => Err(e),
+            }
         }
     }
 }
@@ -514,11 +562,12 @@ async fn transfer<S: FileSide, D: FileSide>(
             return Ok(TransferSummary { skipped_existing: 1, ..Default::default() });
         };
         let at = Position { index: 1, count: 1 };
-        let step = transfer_one(app, src, src_path, dst, &dest, at, cancel).await?;
+        let outcome = transfer_one(app, src, src_path, dst, &dest, at, cancel).await?;
         return Ok(TransferSummary {
             renamed: u32::from(dest != wanted),
+            resumable: u32::from(outcome.part && dest == wanted),
             landed: Some(dest),
-            ..single_file_summary(step)
+            ..single_file_summary(outcome.step)
         });
     }
     let dest_root = dst.join(dst_dir, &name);
@@ -538,6 +587,7 @@ async fn transfer<S: FileSide, D: FileSide>(
 
     let mut skipped_existing = 0u32;
     let mut renamed = 0u32;
+    let mut resumable = 0u32;
     for (i, item) in files.iter().enumerate() {
         let at = Position { index: i as u32 + 1, count };
         // A file under a directory: its parent within the tree and its own
@@ -554,7 +604,7 @@ async fn transfer<S: FileSide, D: FileSide>(
         // A kept copy lands under a name of its own, so the two trees are
         // no longer the same tree and nothing should compare them.
         if dest != wanted { renamed += 1; }
-        let step = transfer_one(
+        let outcome = transfer_one(
             app,
             src,
             &src.join(src_path, &item.rel),
@@ -564,15 +614,19 @@ async fn transfer<S: FileSide, D: FileSide>(
             cancel,
         )
         .await?;
+        if outcome.part && dest == wanted {
+            resumable += 1;
+        }
         // Files already copied are left alone; only the one in flight is
-        // removed. `files` therefore counts what actually arrived.
-        if step == Step::Cancelled {
+        // unfinished. `files` therefore counts what actually arrived.
+        if outcome.step == Step::Cancelled {
             return Ok(TransferSummary {
                 files: copied(i, skipped_existing),
                 directories,
                 skipped_symlinks,
                 skipped_existing,
                 renamed,
+                resumable,
                 cancelled: true,
                 landed: Some(dest_root.clone()),
                 verified: 0,
@@ -586,6 +640,7 @@ async fn transfer<S: FileSide, D: FileSide>(
         skipped_symlinks,
         skipped_existing,
         renamed,
+        resumable,
         cancelled: false,
         landed: Some(dest_root),
         verified: 0,
@@ -717,6 +772,15 @@ pub async fn copy_remote_path(
 
 #[cfg(test)]
 mod tests {
+    /// The suffix goes on the end of the whole name, extension included, so
+    /// the part of `notes.txt` cannot be mistaken for a text file.
+    #[test]
+    fn an_unfinished_file_is_named_after_the_one_it_will_become() {
+        use super::part_path;
+        assert_eq!(part_path("/tmp/notes.txt"), "/tmp/notes.txt.bifrossh-part");
+        assert_eq!(part_path("/tmp/archive.tar.gz"), "/tmp/archive.tar.gz.bifrossh-part");
+    }
+
     /// Cancelling on a file that was skipped means nothing was copied, not
     /// four billion files.
     #[test]
