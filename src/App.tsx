@@ -8,6 +8,7 @@ import { useIdleLock } from './hooks/useIdleLock';
 import type { AuthPromptEvent, Codeprint, HostKeyPromptEvent, SessionTab, SystemAppearance, TunnelClosed, VaultStatus } from './types';
 import { fill } from './snippets';
 import { zoomPercent } from './zoom';
+import { activityChip, anyBusy } from './activity';
 import { evenAt, evenWidths, resizeAt, widthAt } from './paneSizes';
 import { WINDOW_ACTIONS, actionFor, resolve as resolveShortcuts, tabIndexFor } from './shortcuts';
 import CommandPalette from './components/CommandPalette';
@@ -88,7 +89,7 @@ export default function App() {
   const {
     loadAll, loadError, actionError, setActionError, sessions, activeTabId, setActiveTab, removeSession,
     renameSession, toggleBroadcast, openInSftp, sendInput, toggleLogging, splitGroup, splitWith, unsplit, openSession, quickConnect, servers, settings, keys,
-    zoomSession, resetZoom, sessionZoom, splitWidths, setSplitWidths,
+    zoomSession, resetZoom, sessionZoom, splitWidths, setSplitWidths, sessionActivity,
     systemAppearance, setSystemAppearance, clearForLock,
   } = useAppStore();
 
@@ -110,6 +111,24 @@ export default function App() {
   const [tabCtx, setTabCtx] = useState<{ x: number; y: number; session: SessionTab; mode: TabCtxMode } | null>(null);
   const [tabDragOver, setTabDragOver] = useState(false);
   const activeIsSession = sessions.some((s) => s.tab_id === activeTabId);
+
+  // A running command's chip counts up, so the strip re-renders while
+  // anything is running and stops the moment nothing is. Nothing ticks on an
+  // idle window, which is most of them.
+  const [, setTick] = useState(0);
+  const busy = anyBusy(sessionActivity);
+  useEffect(() => {
+    if (!busy) return;
+    const timer = setInterval(() => setTick((n) => n + 1), 1000);
+    return () => clearInterval(timer);
+  }, [busy]);
+
+  /** The tab's or pane's "still running" chip, where there is one to show. */
+  function activityFor(tabId: string) {
+    const chip = activityChip(sessionActivity[tabId], Date.now());
+    if (!chip) return null;
+    return <span className={`tab-activity tab-activity-${chip.kind}`} title={chip.title}>{chip.text}</span>;
+  }
   const splitShown = activeTabId !== null && splitGroup.includes(activeTabId);
 
   /**
@@ -187,6 +206,7 @@ export default function App() {
     return (
       <div className={`pane-header${focused ? ' pane-header-focused' : ''}`}>
         <span className="pane-header-title">{s.server_name}</span>
+        {activityFor(s.tab_id)}
         <button
           className="pane-header-close"
           title="Remove from split"
@@ -637,6 +657,7 @@ export default function App() {
                   <span className="tab-broadcast" title="Broadcasting: input also goes to every other tab marked the same way">⇶</span>
                 )}
                 <span className="tab-title">{s.server_name}</span>
+                {activityFor(s.tab_id)}
                 {/* A tab whose text is a different size than the rest says
                     why, and clicking it puts the tab back on the setting. */}
                 {zoomPercent(sessionZoom[s.tab_id], settings.font_size) !== null && (

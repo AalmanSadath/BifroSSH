@@ -6,6 +6,7 @@ import { CHECK_INTERVAL_SECS, fetchLatestRelease, newerVersion, type Release } f
 import { STORED, UNDETECTED_OS, UNKNOWN_OS } from '../types';
 import { restoreOrder, tabsToSave } from '../sessionRestore';
 import { clampZoom } from '../zoom';
+import { nextActivity, type Activity, type Mark } from '../activity';
 import { isStale, type Probed } from '../probe';
 import type { AuthType, Codeprint, ProbeState, SftpBookmark, GeneratedKey, Identity, IdentityInput, JumpHopParams, KeyContent, KeyEntry, LogEntry, PortForwarding, ResolvedTheme, Server, ServerInput, SessionTab, Settings, SettingsSection, SystemAppearance } from '../types';
 import type { NamedTheme } from '../styles/themes';
@@ -379,6 +380,14 @@ interface AppStore {
    * is for the session in front of you.
    */
   sessionZoom: Record<string, number>;
+  /**
+   * What each tab's shell is doing, from the OSC 133 marks it sends. Absent
+   * for a tab whose shell sends none, which is most of them until the
+   * integration snippet is installed.
+   */
+  sessionActivity: Record<string, Activity>;
+  /** One mark from a tab's output, moving it between running and idle. */
+  markActivity: (tabId: string, mark: Mark) => void;
   /** Steps the active tab's size by `delta` points, within the setting's range. */
   zoomSession: (tabId: string, delta: number) => void;
   /** Drops the tab's own size so it follows the setting again. */
@@ -553,6 +562,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   codeprints: [],
   sessionThemeOverrides: {},
   sessionZoom: {},
+  sessionActivity: {},
   keys: [],
   settings: DEFAULT_SETTINGS,
   sessions: [],
@@ -940,6 +950,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
       return { sessionZoom: rest };
     }),
 
+  markActivity: (tabId, mark) =>
+    set((s) => ({
+      sessionActivity: {
+        ...s.sessionActivity,
+        [tabId]: nextActivity(s.sessionActivity[tabId], mark, Date.now()),
+      },
+    })),
+
   setSessionTheme: (tabId, themeKey) => {
     set((s) => ({
       sessionThemeOverrides: { ...s.sessionThemeOverrides, [tabId]: themeKey },
@@ -966,6 +984,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       // leaving it behind grows the map for the life of the process.
       const { [tabId]: _dropped, ...themeOverrides } = s.sessionThemeOverrides;
       const { [tabId]: _zoom, ...zoom } = s.sessionZoom;
+      const { [tabId]: _activity, ...activity } = s.sessionActivity;
       // A retry in flight for a tab that has gone would reconnect a host
       // nobody is looking at; leaving the set tells the loop to stop.
       const retrying = new Set(s.retryingTabIds);
@@ -976,6 +995,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         activeTabId: nextActive,
         sessionThemeOverrides: themeOverrides,
         sessionZoom: zoom,
+        sessionActivity: activity,
         splitGroup: pruneSplit(s.splitGroup, tabId),
         splitWidths: [],
         retryingTabIds: retrying,
@@ -1047,11 +1067,17 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   markDropped: (tabId) => {
-    set((s) => ({
-      sessions: s.sessions.map((t) =>
-        t.tab_id === tabId ? { ...t, status: 'dropped', session_id: null, error: undefined } : t
-      ),
-    }));
+    set((s) => {
+      // Whatever was running went with the connection, and its shell will
+      // never send the mark that rounds it off.
+      const { [tabId]: _activity, ...activity } = s.sessionActivity;
+      return {
+        sessions: s.sessions.map((t) =>
+          t.tab_id === tabId ? { ...t, status: 'dropped', session_id: null, error: undefined } : t
+        ),
+        sessionActivity: activity,
+      };
+    });
 
     const { settings, sessions } = get();
     const tab = sessions.find((t) => t.tab_id === tabId);

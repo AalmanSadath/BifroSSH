@@ -428,6 +428,31 @@
   color: var(--text-primary);
 }
 
+/* What the tab's shell is doing, when it says: elapsed time while a command
+   runs, then how it ended, briefly. Monospace digits so a counter climbing
+   through 9s does not shift the tab's width. */
+.tab-activity {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  border-radius: 3px;
+  color: var(--text-muted);
+  background: var(--bg-hover);
+}
+
+.tab-activity-busy {
+  color: var(--accent);
+}
+
+.tab-activity-done {
+  color: var(--success);
+}
+
+.tab-activity-failed {
+  color: var(--danger);
+}
+
 .tab-split {
   color: var(--text-dim);
   font-size: 12px;
