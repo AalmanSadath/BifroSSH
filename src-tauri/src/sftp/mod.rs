@@ -17,6 +17,7 @@ use russh_sftp::client::SftpSession;
 mod edit;
 mod listing;
 mod remote_exec;
+mod sides;
 mod archive;
 mod ops;
 mod owners;
