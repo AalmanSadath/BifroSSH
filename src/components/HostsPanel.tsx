@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import * as ipc from '../ipc';
 import { useAppStore, reportFailure } from '../store/appStore';
+import { useHint } from './shared/useHint';
 import { UNGROUPED, groupNames, groupOf, hostSections } from '../hosts';
 import type { Server } from '../types';
 import ServerForm from './ServerForm';
@@ -13,14 +14,14 @@ import { EditIcon, NoteIcon } from './shared/icons';
 import { probeClass, probeLabel, probeTitle } from '../probe';
 
 export default function HostsPanel() {
-  const { servers, sessions, settings, setActiveTab, removeSession, deleteServer, openSession, hostProbes, probeHosts } = useAppStore();
+  const { servers, sessions, setActiveTab, removeSession, deleteServer, openSession, hostProbes, probeHosts } = useAppStore();
   const [showServerForm, setShowServerForm] = useState(false);
   const [showSshImport, setShowSshImport] = useState(false);
   const [editServer, setEditServer] = useState<Server | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ kind: 'server'; x: number; y: number; server: Server } | { kind: 'panel'; x: number; y: number } | null>(null);
   const [query, setQuery] = useState('');
-  const hint = (t: string) => settings.show_hover_hints ? t : undefined;
+  const hint = useHint();
   const [groupFilter, setGroupFilter] = useState<string | null>(null);
 
   const connectedIds = new Set(sessions.map((s) => s.server_id));

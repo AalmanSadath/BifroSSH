@@ -22,6 +22,7 @@ import { batchSettled, record, take, type Mismatch, type Pending } from '../mism
 import CompareDialog from './CompareDialog';
 import { diffSummary, isIdentical } from '../compare';
 import { useDismissOnOutside } from './shared/useDismissOnOutside';
+import { useHint } from './shared/useHint';
 import { freeName, localStyle, remoteStyle, resolveTyped, styleFor, type PathStyle } from '../paths';
 import { HEADERS, formatDate, formatSize, visibleEntries, type SortCol } from '../fileList';
 import { fileDragPayload, readDragPayload } from '../dragPayload';
@@ -121,8 +122,7 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
   side, isDropTarget, onDragEnter: onDragEnterCb, onDragLeave: onDragLeaveCb, onFileDrop, onReconnect,
   pathStyle,
 }: FileBrowserProps) {
-  const { settings } = useAppStore();
-  const hint = (t: string) => settings.show_hover_hints ? t : undefined;
+  const hint = useHint();
   const segments = pathStyle.segments(path);
   /** The bar as a text field: the text being typed, or null for crumbs. */
   const [typedPath, setTypedPath] = useState<string | null>(null);
@@ -853,8 +853,7 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
 }
 
 function ConnectPrompt({ onSelectHost, onGoLocal }: { onSelectHost: () => void; onGoLocal?: () => void }) {
-  const { settings } = useAppStore();
-  const hint = (t: string) => settings.show_hover_hints ? t : undefined;
+  const hint = useHint();
   return (
     <div className="sftp-connect-prompt" onContextMenu={(e) => e.preventDefault()}>
       <div className="sftp-source-list">
@@ -902,8 +901,8 @@ interface HostPickerProps {
 }
 
 function HostPicker({ servers, connectingId, activeServerId, error, onConnect, onBack, onGoLocal }: HostPickerProps) {
-  const { settings, identities } = useAppStore();
-  const hint = (t: string) => settings.show_hover_hints ? t : undefined;
+  const { identities } = useAppStore();
+  const hint = useHint();
   const [query, setQuery] = useState('');
   const shown = servers.filter((s) => matchesHost(s, query));
   return (

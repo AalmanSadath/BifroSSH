@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import * as ipc from '../ipc';
 import { useAppStore, reportFailure } from '../store/appStore';
 import { useCopy } from './shared/useCopy';
+import { useHint } from './shared/useHint';
 import { STORED } from '../types';
 import type { AgentKeyInfo, Identity } from '../types';
 import ConfirmModal from './shared/ConfirmModal';
@@ -26,10 +27,10 @@ function clickableProps(onActivate: () => void) {
 }
 
 export default function KeychainPanel() {
-  const { keys, identities, settings, saveKeyFromContent, generateKey, getKeyContent, updateKey, deleteKey, saveIdentity, deleteIdentity } = useAppStore();
+  const { keys, identities, saveKeyFromContent, generateKey, getKeyContent, updateKey, deleteKey, saveIdentity, deleteIdentity } = useAppStore();
   // Four copy buttons, each saying so for itself.
   const { copied, copy } = useCopy();
-  const hint = (t: string) => settings.show_hover_hints ? t : undefined;
+  const hint = useHint();
 
   // import drawer
   const [showKeyForm, setShowKeyForm] = useState(false);

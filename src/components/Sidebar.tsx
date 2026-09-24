@@ -1,14 +1,15 @@
 import { useState } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { useAppStore } from '../store/appStore';
+import { useHint } from './shared/useHint';
 
 
 const PANELS = ['hosts', 'sftp', 'keychain', 'knownhosts', 'portforwarding', 'settings', 'theme-editor'];
 
 export default function Sidebar() {
-  const { activeTabId, setActiveTab, settings, updateAvailable } = useAppStore();
+  const { activeTabId, setActiveTab, updateAvailable } = useAppStore();
   const [collapsed, setCollapsed] = useState(false);
-  const hint = (t: string) => settings.show_hover_hints ? t : undefined;
+  const hint = useHint();
 
   const activePanel = PANELS.includes(activeTabId ?? '') ? activeTabId : null;
 

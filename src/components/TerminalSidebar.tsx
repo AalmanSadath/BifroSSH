@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAppStore } from '../store/appStore';
 import { useCopy } from './shared/useCopy';
+import { useHint } from './shared/useHint';
 import ConnectLog, { formatLogs } from './ConnectLog';
 import SnippetPromptModal from './SnippetPromptModal';
 import { fill, placeholders } from '../snippets';
@@ -45,7 +46,7 @@ export default function TerminalSidebar({ activeSessionId }: Props) {
   } = useAppStore();
   const { copied, failed, copy } = useCopy();
 
-  const hint = (t: string) => settings.show_hover_hints ? t : undefined;
+  const hint = useHint();
 
   const [section, setSection] = useState<'codeprints' | 'theme' | 'log'>('codeprints');
 

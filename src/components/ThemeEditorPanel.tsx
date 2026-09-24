@@ -1,6 +1,7 @@
 import { Fragment, useState } from 'react';
 import PortalDropdown from './shared/PortalDropdown';
 import { useAppStore } from '../store/appStore';
+import { useHint } from './shared/useHint';
 import { THEMES } from '../styles/themes';
 import type { NamedTheme } from '../styles/themes';
 import { ColorPickerField } from './ColorPicker';
@@ -104,8 +105,7 @@ function PresetDropdown({ allThemes, customThemes, onSelect }: {
 }
 
 function TerminalPreview({ colors }: { colors: ThemeColors }) {
-  const { settings } = useAppStore();
-  const hint = (t: string) => settings.show_hover_hints ? t : undefined;
+  const hint = useHint();
   const { background, foreground, cursor, green, blue, red, yellow,
     brightBlack, brightBlue, brightRed, magenta, cyan, white, black,
     brightGreen, brightYellow, brightMagenta, brightCyan, brightWhite } = colors;
