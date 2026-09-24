@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAppStore } from '../store/appStore';
+import { useCopy } from './shared/useCopy';
 import ConnectLog, { formatLogs } from './ConnectLog';
 import SnippetPromptModal from './SnippetPromptModal';
 import { fill, placeholders } from '../snippets';
@@ -42,6 +43,7 @@ export default function TerminalSidebar({ activeSessionId }: Props) {
     addCodeprint, updateCodeprint, deleteCodeprint, sendInput,
     sessionThemeOverrides, setSessionTheme,
   } = useAppStore();
+  const { copied, failed, copy } = useCopy();
 
   const hint = (t: string) => settings.show_hover_hints ? t : undefined;
 
@@ -149,10 +151,10 @@ export default function TerminalSidebar({ activeSessionId }: Props) {
             <button
               className="btn-secondary btn-sm"
               disabled={logs.length === 0}
-              onClick={() => navigator.clipboard.writeText(formatLogs(logs)).catch(() => {})}
+              onClick={() => void copy(formatLogs(logs))}
               title={hint('Copy the connection log')}
             >
-              Copy
+              {copied ? 'Copied' : failed ? 'Copy failed' : 'Copy'}
             </button>
           </div>
           <ConnectLog

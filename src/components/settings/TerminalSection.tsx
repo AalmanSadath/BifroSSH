@@ -5,7 +5,8 @@ import NumberSetting from '../shared/NumberSetting';
 import ThemePicker, { ThumbNail } from '../ThemePicker';
 import { THEMES } from '../../styles/themes';
 import { Picker, usePatch, type PickerOption } from './Picker';
-import { SHELLS, snippetFor, type ShellKind } from '../../shellIntegration';
+import { useCopy } from '../shared/useCopy';
+import { SHELLS, snippetFor } from '../../shellIntegration';
 import type { CursorStyle } from '../../types';
 
 const CURSOR_STYLES: PickerOption<CursorStyle>[] = [
@@ -20,14 +21,8 @@ export default function TerminalSection() {
   const patch = usePatch();
   const [themeExpanded, setThemeExpanded] = useState(false);
   const [fonts, setFonts] = useState<string[]>([]);
-  const [copied, setCopied] = useState<ShellKind | null>(null);
-
-  function copy(shell: ShellKind) {
-    void navigator.clipboard.writeText(snippetFor(shell)).then(() => {
-      setCopied(shell);
-      setTimeout(() => setCopied(null), 2000);
-    });
-  }
+  // Keyed by shell, so the button that was pressed is the one that says so.
+  const { copied, failed, copy } = useCopy();
 
   useEffect(() => {
     ipc.listFonts().then(setFonts).catch(() => setFonts([]));
@@ -132,9 +127,9 @@ export default function TerminalSection() {
             <button
               key={id}
               className="sftp-action-btn"
-              onClick={() => copy(id)}
+              onClick={() => void copy(snippetFor(id), id)}
             >
-              {copied === id ? 'Copied' : `Copy for ${label}`}
+              {copied === id ? 'Copied' : failed ? 'Copy failed' : `Copy for ${label}`}
             </button>
           ))}
         </div>

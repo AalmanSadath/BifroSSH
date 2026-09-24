@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCopy } from './useCopy';
 import * as ipc from '../../ipc';
 import PassphraseInput from './PassphraseInput';
 
@@ -43,23 +43,22 @@ export default function GeneratedPassphraseField({
   onError,
   onReset,
 }: Props) {
-  const [copied, setCopied] = useState(false);
+  const { copied, copy, clear: clearCopied } = useCopy();
 
   async function roll() {
     try {
       onChange(await ipc.generatePassphrase(), true);
       onSavedChange(false);
-      setCopied(false);
+      clearCopied();
     } catch (e) {
       onError(String(e));
     }
   }
 
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(passphrase);
-      setCopied(true);
-    } catch {
+  async function copyPassphrase() {
+    // The caller shows the failure itself: on this screen a passphrase that
+    // did not reach the clipboard is something to act on, not a label.
+    if (!(await copy(passphrase))) {
       onError('Could not reach the clipboard. Write it down instead.');
     }
   }
@@ -67,7 +66,7 @@ export default function GeneratedPassphraseField({
   function typeMyOwn() {
     onChange('', false);
     onSavedChange(false);
-    setCopied(false);
+    clearCopied();
     onReset?.();
   }
 
@@ -105,7 +104,7 @@ export default function GeneratedPassphraseField({
           <strong>Write this down before continuing.</strong>
           {warning}
           <div className="setup-phrase-actions">
-            <button type="button" className="btn-secondary" onClick={copy}>
+            <button type="button" className="btn-secondary" onClick={() => void copyPassphrase()}>
               {copied ? 'Copied' : 'Copy'}
             </button>
             <button type="button" className="link-btn" onClick={typeMyOwn}>

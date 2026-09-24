@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import * as ipc from '../ipc';
 import { useAppStore, reportFailure } from '../store/appStore';
+import { useCopy } from './shared/useCopy';
 import { STORED } from '../types';
 import type { AgentKeyInfo, Identity } from '../types';
 import ConfirmModal from './shared/ConfirmModal';
@@ -26,6 +27,8 @@ function clickableProps(onActivate: () => void) {
 
 export default function KeychainPanel() {
   const { keys, identities, settings, saveKeyFromContent, generateKey, getKeyContent, updateKey, deleteKey, saveIdentity, deleteIdentity } = useAppStore();
+  // Four copy buttons, each saying so for itself.
+  const { copied, copy } = useCopy();
   const hint = (t: string) => settings.show_hover_hints ? t : undefined;
 
   // import drawer
@@ -433,14 +436,14 @@ export default function KeychainPanel() {
                     <label>Public key — add this to your server's authorized_keys</label>
                     <div className="key-pub-box">
                       <code>{genResult.public_openssh}</code>
-                      <button type="button" className="btn-secondary btn-sm" onClick={() => navigator.clipboard.writeText(genResult!.public_openssh)}>Copy</button>
+                      <button type="button" className="btn-secondary btn-sm" onClick={() => void copy(genResult!.public_openssh, 'gen-pub')}>{copied === 'gen-pub' ? 'Copied' : 'Copy'}</button>
                     </div>
                   </div>
                   <div className="form-group">
                     <label>Private key</label>
                     <div className="key-pub-box">
                       <code>{genResult.private_pem}</code>
-                      <button type="button" className="btn-secondary btn-sm" onClick={() => navigator.clipboard.writeText(genResult!.private_pem)}>Copy</button>
+                      <button type="button" className="btn-secondary btn-sm" onClick={() => void copy(genResult!.private_pem, 'gen-key')}>{copied === 'gen-key' ? 'Copied' : 'Copy'}</button>
                     </div>
                   </div>
                 </>
@@ -672,7 +675,7 @@ export default function KeychainPanel() {
                       <label>Public key</label>
                       <div className="key-pub-box">
                         <code>{editKeyPublic}</code>
-                        <button type="button" className="btn-secondary btn-sm" onClick={() => navigator.clipboard.writeText(editKeyPublic!)}>Copy</button>
+                        <button type="button" className="btn-secondary btn-sm" onClick={() => void copy(editKeyPublic!, 'edit-pub')}>{copied === 'edit-pub' ? 'Copied' : 'Copy'}</button>
                       </div>
                     </div>
                   )}
@@ -686,7 +689,7 @@ export default function KeychainPanel() {
                         rows={10}
                         spellCheck={false}
                       />
-                      <button type="button" className="btn-secondary btn-sm" onClick={() => navigator.clipboard.writeText(editKeyPrivate)}>Copy</button>
+                      <button type="button" className="btn-secondary btn-sm" onClick={() => void copy(editKeyPrivate, 'edit-key')}>{copied === 'edit-key' ? 'Copied' : 'Copy'}</button>
                     </div>
                   </div>
                   {editKeyError && <p className="form-error">{editKeyError}</p>}

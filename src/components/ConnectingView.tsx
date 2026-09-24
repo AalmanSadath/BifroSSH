@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useCopy } from './shared/useCopy';
 import type { LogEntry, Server } from '../types';
 import OsIcon from './OsIcon';
 import ConnectLog, { formatLogs } from './ConnectLog';
@@ -23,33 +24,13 @@ export default function ConnectingView({
 
   const [showLogs, setShowLogs] = useState(false);
   /** What the copy button last did, so it can say so. */
-  const [copied, setCopied] = useState<'no' | 'yes' | 'failed'>('no');
+  const { copied, failed, copy } = useCopy();
 
   const isError = !!error;
 
   useEffect(() => {
     if (isError) setShowLogs(true);
   }, [isError]);
-
-  // Back to "Copy logs" after a moment, so the button is ready to be used
-  // again and does not sit there claiming a copy that happened a minute ago.
-  useEffect(() => {
-    if (copied === 'no') return;
-    const id = setTimeout(() => setCopied('no'), 2000);
-    return () => clearTimeout(id);
-  }, [copied]);
-
-  async function copyLogs() {
-    try {
-      await navigator.clipboard.writeText(formatLogs(logs));
-      setCopied('yes');
-    } catch {
-      // Silence here was survivable while nothing confirmed a success either.
-      // Now that the button says "Copied", a failure that says nothing reads
-      // as the same thing, so it has to speak up.
-      setCopied('failed');
-    }
-  }
 
   return (
     <div className="connecting-page">
@@ -93,8 +74,8 @@ export default function ConnectingView({
           )}
           {isError && (
             <div className="connecting-actions-end">
-              <button className="btn-secondary btn-sm" onClick={copyLogs}>
-                {copied === 'yes' ? 'Copied' : copied === 'failed' ? 'Copy failed' : 'Copy logs'}
+              <button className="btn-secondary btn-sm" onClick={() => void copy(formatLogs(logs))}>
+                {copied ? 'Copied' : failed ? 'Copy failed' : 'Copy logs'}
               </button>
               {onRetry && (
                 <button className="btn-primary btn-sm" onClick={onRetry}>{retryLabel}</button>
