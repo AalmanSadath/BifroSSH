@@ -13,6 +13,7 @@ import { terminalFor } from './terminalRegistry';
 import { transcriptLines, transcriptName, transcriptText } from './transcript';
 import { parseSSHInput } from './sshInput';
 import { readTabDrag, tabDragPayload } from './dragPayload';
+import { usePromptQueue } from './usePromptQueue';
 import { evenAt, evenWidths, resizeAt, widthAt } from './paneSizes';
 import { WINDOW_ACTIONS, actionFor, resolve as resolveShortcuts, tabIndexFor } from './shortcuts';
 import CommandPalette from './components/CommandPalette';
@@ -246,8 +247,10 @@ export default function App() {
   const [renameValue, setRenameValue] = useState('');
   const renameInputRef = useRef<HTMLInputElement>(null);
 
-  const [hostKeyPrompts, setHostKeyPrompts] = useState<HostKeyPromptEvent[]>([]);
-  const [authPrompts, setAuthPrompts] = useState<AuthPromptEvent[]>([]);
+  // Emitted globally rather than per connect, so one modal of each kind
+  // serves terminal sessions, SFTP, tunnels and OS detection alike.
+  const [hostKeyPrompts, dismissHostKeyPrompt] = usePromptQueue<HostKeyPromptEvent>('host-key-prompt');
+  const [authPrompts, dismissAuthPrompt] = usePromptQueue<AuthPromptEvent>('auth-prompt');
 
   // Nothing is loaded until the vault is open. While locked the backend holds
   // no key, so loadAll would fail on every call anyway; gating it here keeps
@@ -300,47 +303,6 @@ export default function App() {
   }, []);
 
   useIdleLock(vault && !vault.locked ? settings.auto_lock_minutes : 0, () => { void lockNow(); });
-
-  // Host key prompts are emitted globally rather than per-connect, so this one
-  // modal serves terminal sessions, SFTP, tunnels and OS detection alike.
-  useEffect(() => {
-    const dismiss = (requestId: string) =>
-      setHostKeyPrompts((q) => q.filter((p) => p.request_id !== requestId));
-
-    const unlisten = Promise.all([
-      listen<HostKeyPromptEvent>('host-key-prompt', (e) => {
-        setHostKeyPrompts((q) =>
-          q.some((p) => p.request_id === e.payload.request_id) ? q : [...q, e.payload],
-        );
-      }),
-      // The connect gave up (timed out, or was cancelled) before the user
-      // answered — retract the modal instead of leaving it pointing at nothing.
-      listen<{ request_id: string }>('host-key-prompt-cancel', (e) => dismiss(e.payload.request_id)),
-    ]);
-
-    return () => {
-      unlisten.then((fns) => fns.forEach((fn) => fn()));
-    };
-  }, []);
-
-  // Keyboard-interactive rounds (PAM, 2FA). Same global pattern as above.
-  useEffect(() => {
-    const dismiss = (requestId: string) =>
-      setAuthPrompts((q) => q.filter((p) => p.request_id !== requestId));
-
-    const unlisten = Promise.all([
-      listen<AuthPromptEvent>('auth-prompt', (e) => {
-        setAuthPrompts((q) =>
-          q.some((p) => p.request_id === e.payload.request_id) ? q : [...q, e.payload],
-        );
-      }),
-      listen<{ request_id: string }>('auth-prompt-cancel', (e) => dismiss(e.payload.request_id)),
-    ]);
-
-    return () => {
-      unlisten.then((fns) => fns.forEach((fn) => fn()));
-    };
-  }, []);
 
   useEffect(() => {
     const unlisten = listen<TunnelClosed>('tunnel-closed', (e) => {
@@ -851,9 +813,7 @@ export default function App() {
         <HostKeyPrompt
           key={hostKeyPrompts[0].request_id}
           event={hostKeyPrompts[0]}
-          onResolved={(id) =>
-            setHostKeyPrompts((q) => q.filter((p) => p.request_id !== id))
-          }
+          onResolved={dismissHostKeyPrompt}
         />
       )}
 
@@ -862,7 +822,7 @@ export default function App() {
         <AuthPromptModal
           key={authPrompts[0].request_id}
           event={authPrompts[0]}
-          onResolved={(id) => setAuthPrompts((q) => q.filter((p) => p.request_id !== id))}
+          onResolved={dismissAuthPrompt}
         />
       )}
 
