@@ -18,9 +18,9 @@ use tokio::sync::Mutex;
 #[cfg(unix)]
 use base64::Engine as _;
 
-use crate::ssh::{keyboard_interactive, AuthPrompter};
+use super::auth::{keyboard_interactive, AuthPrompter};
 #[cfg(unix)]
-use crate::ssh::agent_auth;
+use super::auth::agent_auth;
 
 // ── Test server ──────────────────────────────────────────────────────────────
 
