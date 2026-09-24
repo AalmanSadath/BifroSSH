@@ -16,7 +16,8 @@ export function parseHex(hex: string): [number, number, number] | null {
   return [0, 2, 4].map((i) => parseInt(s.slice(i, i + 2), 16)) as [number, number, number];
 }
 
-function toHex([r, g, b]: [number, number, number]): string {
+/** The inverse of `parseHex`, clamping each channel into range. */
+export function toHex([r, g, b]: [number, number, number]): string {
   const c = (v: number) => Math.round(Math.min(255, Math.max(0, v))).toString(16).padStart(2, '0');
   return `#${c(r)}${c(g)}${c(b)}`;
 }
