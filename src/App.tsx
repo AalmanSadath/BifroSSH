@@ -116,7 +116,7 @@ export default function App() {
   // anything is running and stops the moment nothing is. Nothing ticks on an
   // idle window, which is most of them.
   const [, setTick] = useState(0);
-  const busy = anyBusy(sessionActivity);
+  const busy = anyBusy(sessionActivity, Date.now());
   useEffect(() => {
     if (!busy) return;
     const timer = setInterval(() => setTick((n) => n + 1), 1000);

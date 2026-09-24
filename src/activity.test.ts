@@ -45,9 +45,16 @@ describe('nextActivity', () => {
     expect(nextActivity(running, mark('D;127'), 200).exit).toBe(127);
   });
 
-  it('clears the last command at the next prompt, so a tick does not outlive its screen', () => {
+  it('keeps what a command ended as when the prompt follows it', () => {
+    // bash sends D and A together from one PROMPT_COMMAND, so a prompt that
+    // cleared the result would wipe the tick as it was being set.
     const done = nextActivity(nextActivity(IDLE, mark('C'), 100), mark('D;0'), 200);
-    expect(nextActivity(done, mark('A'), 300)).toEqual(IDLE);
+    expect(nextActivity(done, mark('A'), 200)).toEqual(done);
+  });
+
+  it('clears the last command when the next one starts', () => {
+    const done = nextActivity(nextActivity(IDLE, mark('C'), 100), mark('D;1'), 200);
+    expect(nextActivity(done, mark('C'), 300)).toMatchObject({ busy: true, exit: null, endedAt: null });
   });
 
   it('ends a command at the next prompt when the shell sends no D', () => {
@@ -81,11 +88,14 @@ describe('activityChip', () => {
 });
 
 describe('anyBusy', () => {
-  it('is true while anything is running or has just finished', () => {
+  it('is true while anything is running or its mark is still shown', () => {
     const running = nextActivity(IDLE, mark('C'), 0);
-    expect(anyBusy({})).toBe(false);
-    expect(anyBusy({ a: IDLE })).toBe(false);
-    expect(anyBusy({ a: running })).toBe(true);
-    expect(anyBusy({ a: nextActivity(running, mark('D;0'), 100) })).toBe(true);
+    const done = nextActivity(running, mark('D;0'), 100);
+    expect(anyBusy({}, 1000)).toBe(false);
+    expect(anyBusy({ a: IDLE }, 1000)).toBe(false);
+    expect(anyBusy({ a: running }, 1000)).toBe(true);
+    expect(anyBusy({ a: done }, 1000)).toBe(true);
+    // Once the tick has gone there is nothing left to count, so no timer.
+    expect(anyBusy({ a: done }, 100 + DONE_SHOWN_MS)).toBe(false);
   });
 });

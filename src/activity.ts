@@ -62,10 +62,13 @@ export const IDLE: Activity = { busy: false, since: 0, exit: null, endedAt: null
 /**
  * The state a mark moves a tab into.
  *
- * A prompt clears what the last command left, so the tick on a tab does not
- * outlive the screen it belonged to. `B` means the shell is waiting for
- * typing, which is the same as idle and is left alone deliberately: some
- * shells emit B without ever emitting A.
+ * A prompt ends a command the shell never rounded off, and otherwise changes
+ * nothing: bash sends D and A together from one PROMPT_COMMAND, so a prompt
+ * that cleared the last result would wipe the tick in the same breath as
+ * setting it. What ends a result's life is its own window, and the next
+ * command starting. `B` means the shell is waiting for typing, which is the
+ * same as idle and is left alone deliberately: some shells emit B without
+ * ever emitting A.
  */
 export function nextActivity(state: Activity | undefined, mark: Mark, now: number): Activity {
   const at = state ?? IDLE;
@@ -75,7 +78,7 @@ export function nextActivity(state: Activity | undefined, mark: Mark, now: numbe
     case 'done':
       return { busy: false, since: at.since, exit: mark.exit, endedAt: now };
     case 'prompt':
-      return at.busy ? { busy: false, since: at.since, exit: at.exit, endedAt: now } : IDLE;
+      return at.busy ? { busy: false, since: at.since, exit: at.exit, endedAt: now } : at;
     case 'input':
       return at;
   }
@@ -109,9 +112,16 @@ export function activityChip(state: Activity | undefined, now: number): Chip | n
   return { kind: 'failed', text: `✗ ${state.exit}`, title: `The last command exited ${state.exit}` };
 }
 
-/** Whether anything is running, which is what the tab strip ticks for. */
-export function anyBusy(states: Record<string, Activity>): boolean {
-  return Object.values(states).some((a) => a.busy || a.endedAt !== null);
+/**
+ * Whether anything has a chip that will change, which is what the tab strip
+ * ticks for. A finished command counts only while its mark is still shown:
+ * `endedAt` is never cleared, so asking about it alone would leave a timer
+ * running on an idle window for the rest of the session.
+ */
+export function anyBusy(states: Record<string, Activity>, now: number): boolean {
+  return Object.values(states).some(
+    (a) => a.busy || (a.endedAt !== null && now - a.endedAt < DONE_SHOWN_MS),
+  );
 }
 
 function elapsed(ms: number): string {
