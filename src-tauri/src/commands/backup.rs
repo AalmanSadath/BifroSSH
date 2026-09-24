@@ -51,11 +51,11 @@ pub async fn export_data(
     passphrase: String,
     include_secrets: bool,
     overwrite: bool,
-) -> CmdResult<crate::transfer::ExportResult> {
+) -> CmdResult<crate::backup::ExportResult> {
     let key = state.key()?;
     let (content, counts) = {
         let data = state.data.lock().await;
-        crate::transfer::build_export(&data, &key, &passphrase, include_secrets)
+        crate::backup::build_export(&data, &key, &passphrase, include_secrets)
             ?
     };
 
@@ -79,7 +79,7 @@ pub async fn export_data(
         })?;
     }
 
-    Ok(crate::transfer::ExportResult {
+    Ok(crate::backup::ExportResult {
         path,
         bytes: content.len(),
         counts,
@@ -92,12 +92,12 @@ pub async fn preview_import(
     state: State<'_, AppState>,
     path: String,
     passphrase: String,
-) -> CmdResult<crate::transfer::MergePlan> {
-    let content = crate::transfer::read_export_file(&path)?;
+) -> CmdResult<crate::backup::MergePlan> {
+    let content = crate::backup::read_export_file(&path)?;
     let (file, payload, _) =
-        crate::transfer::open_export(&content, &passphrase)?;
+        crate::backup::open_export(&content, &passphrase)?;
     let data = state.data.lock().await;
-    Ok(crate::transfer::plan_merge(&file, &payload, &data))
+    Ok(crate::backup::plan_merge(&file, &payload, &data))
 }
 
 #[tauri::command]
@@ -105,17 +105,17 @@ pub async fn import_data(
     state: State<'_, AppState>,
     path: String,
     passphrase: String,
-    options: crate::transfer::ImportOptions,
-) -> CmdResult<crate::transfer::ImportReport> {
-    let content = crate::transfer::read_export_file(&path)?;
+    options: crate::backup::ImportOptions,
+) -> CmdResult<crate::backup::ImportReport> {
+    let content = crate::backup::read_export_file(&path)?;
     let (_, payload, export_key) =
-        crate::transfer::open_export(&content, &passphrase)?;
+        crate::backup::open_export(&content, &passphrase)?;
 
     // The key is taken before the lock so a locked vault fails without having
     // merged anything into the copy in memory.
     let master = state.key()?;
     let mut data = state.data.lock().await;
-    let report = crate::transfer::apply_merge(payload, &export_key, &master, &mut data, &options)?;
+    let report = crate::backup::apply_merge(payload, &export_key, &master, &mut data, &options)?;
     save_app_data(&data, &master)?;
     Ok(report)
 }

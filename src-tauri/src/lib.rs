@@ -25,7 +25,7 @@ mod agent_tests;
 mod ssh_auth_tests;
 mod store;
 mod suspend;
-mod transfer;
+mod backup;
 mod tunnel;
 mod wordlist;
 

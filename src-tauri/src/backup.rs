@@ -1,4 +1,4 @@
-//! Moving a BifroSSH setup between machines.
+//! Moving a BifroSSH setup between machines: the export and import of it.
 //!
 //! `data.json` cannot simply be copied: it is sealed with a master key that
 //! belongs to the machine it was made on, and the passwords and private keys
