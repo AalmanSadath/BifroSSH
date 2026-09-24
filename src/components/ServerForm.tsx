@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import * as ipc from '../ipc';
 import { SHELLS, withIntegration } from '../shellIntegration';
+import { hasClear, withClear } from '../runOnConnect';
 import { useAppStore } from '../store/appStore';
 import ThemePicker, { ThumbNail } from './ThemePicker';
 import { THEMES } from '../styles/themes';
@@ -353,6 +354,20 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
               spellCheck={false}
               title="Sent to the shell as if typed, followed by Enter, once the shell is up."
             />
+            {/* The line is typed at the shell, so the shell echoes it above
+                the first prompt. Clearing afterwards leaves the screen as if
+                nothing had been typed, which a long line like the shell
+                integration snippet is worth. */}
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={hasClear(runOnConnect)}
+                disabled={runOnConnect.trim() === ''}
+                onChange={(e) => setRunOnConnect((v) => withClear(v, e.target.checked))}
+              />
+              <span>Clear the screen afterwards</span>
+            </label>
+
             {/* What the tab's activity chip needs from the far end. Added
                 rather than sent on its own: this host's shell is something
                 only the person who set it up knows. */}
@@ -363,7 +378,12 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
                   key={id}
                   type="button"
                   className="sftp-action-btn"
-                  onClick={() => setRunOnConnect((v) => withIntegration(v, id))}
+                  onClick={() => setRunOnConnect((v) => {
+                    // Added before the clear, which has to stay last to mean
+                    // anything.
+                    const clearing = hasClear(v);
+                    return withClear(withIntegration(withClear(v, false), id), clearing);
+                  })}
                   title={`Add the ${label} marks to what this host runs on connect`}
                 >
                   Add for {label}
