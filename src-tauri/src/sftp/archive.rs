@@ -21,19 +21,10 @@ use anyhow::{anyhow, bail, Context, Result};
 use russh::ChannelMsg;
 
 use super::listing::parent_remote;
+use super::remote_exec::{drain_exec, exec_failure, quote};
 use super::session::get_opener;
 use super::transfer::Progress;
 use super::{join_remote, SftpClientState, TransferProgress, TransferSummary};
-
-/// A path or a name as a single shell word.
-///
-/// The command is one string handed to the server's shell, so a directory
-/// called `a b` or `don't` has to survive it. Single quotes take
-/// everything literally; the only character that needs care is the quote
-/// itself, which is closed, escaped and reopened.
-pub(super) fn quote(word: &str) -> String {
-    format!("'{}'", word.replace('\'', r"'\''"))
-}
 
 /// The last segment of a remote path: what tar is asked to pack.
 fn remote_name(remote_path: &str) -> &str {
@@ -222,28 +213,6 @@ fn unpack_into(reader: impl Read, dest: &Path, rename_to: Option<&str>) -> Resul
     Ok((files, directories))
 }
 
-/// What a finished exec channel said, if anything went wrong.
-pub(super) fn exec_failure(
-    what: &str,
-    // The program that was run, for the one failure it cannot describe
-    // itself: a shell that cannot find it says nothing on stderr.
-    tool: &str,
-    status: Option<u32>,
-    stderr: &str,
-) -> Option<anyhow::Error> {
-    let code = status?;
-    if code == 0 { return None; }
-    let said = stderr.trim();
-    Some(anyhow!(
-        "{what} exited with status {code}{}",
-        if said.is_empty() {
-            format!(". The host may have no {tool} installed.")
-        } else {
-            format!(": {said}")
-        },
-    ))
-}
-
 /// Packs `local_path` into a gzipped tar written to `writer`. Blocking.
 fn pack_from(local_path: &Path, writer: impl Write, pack_as: Option<&str>) -> Result<u32> {
     let parent = local_path.parent().unwrap_or(Path::new("."));
@@ -413,21 +382,6 @@ pub async fn copy_archive(
         landed: Some(join_remote(dst_dir, into_name.unwrap_or(&name))),
         ..Default::default()
     })
-}
-
-/// Reads what is left of an exec channel: its stderr and its exit status.
-async fn drain_exec(channel: &mut russh::Channel<russh::client::Msg>) -> (Option<u32>, String) {
-    let mut status = None;
-    let mut stderr = String::new();
-    while let Some(msg) = channel.wait().await {
-        match msg {
-            ChannelMsg::ExtendedData { ref data, .. } => stderr.push_str(&String::from_utf8_lossy(data)),
-            ChannelMsg::ExitStatus { exit_status } => status = Some(exit_status),
-            ChannelMsg::Close => break,
-            _ => {}
-        }
-    }
-    (status, stderr)
 }
 
 #[cfg(test)]

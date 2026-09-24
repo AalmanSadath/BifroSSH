@@ -1,5 +1,6 @@
 import React, { useState, useId } from 'react';
 import { useAppStore } from '../store/appStore';
+import { useHint } from './shared/useHint';
 import type { PortForwarding } from '../types';
 import ConfirmModal from './shared/ConfirmModal';
 import ContextMenu from './shared/ContextMenu';
@@ -444,6 +445,7 @@ function HostChip({ name, onRemove }: { name: string; onRemove: () => void }) {
 
 export default function PortForwardingPanel() {
   const { servers, portForwardings, savePortForwarding, deletePortForwarding, activeTunnelIds, retryingTunnelIds, startTunnel, stopTunnel } = useAppStore();
+  const hint = useHint();
   const [drawerMode, setDrawerMode] = useState<'none' | 'wizard' | 'edit'>('none');
   const [wizStep, setWizStep] = useState<WizStep>('type');
   const [wizDraft, setWizDraft] = useState<Draft>(DEFAULT_WIZ);
@@ -805,7 +807,7 @@ export default function PortForwardingPanel() {
                   {...cardKeys(() => handleCardDoubleClick(pf))}
                   onDoubleClick={() => handleCardDoubleClick(pf)}
                   onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, pf }); }}
-                  title="Double-click to activate · Right-click for options"
+                  title={hint('Double-click to activate · Right-click for options')}
                 >
                   <div className="pf-card-left">
                     <div
@@ -819,17 +821,17 @@ export default function PortForwardingPanel() {
                     <div className="pf-card-header">
                       <span className="card-title">{pf.label}</span>
                       {(pf.autostart_on_launch || pf.autostart_on_connect) && (
-                        <span className="pf-card-auto" title="Starts on its own">auto</span>
+                        <span className="pf-card-auto" title={hint('Starts on its own')}>auto</span>
                       )}
                       {active && <span className="pf-card-active-dot" />}
-                      {retrying && <span className="pf-card-retry-dot" title="Dropped. Trying to start it again." />}
+                      {retrying && <span className="pf-card-retry-dot" title={hint('Dropped. Trying to start it again.')} />}
                     </div>
                     <span className="card-sub">{pfCardDesc(pf)}</span>
                   </div>
                   <button
                     className="card-edit-btn"
                     onClick={(e) => { e.stopPropagation(); editExisting(pf); }}
-                    title="Edit"
+                    title={hint('Edit')}
                   >
                     <EditIcon />
                   </button>

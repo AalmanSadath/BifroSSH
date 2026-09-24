@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCopy } from './shared/useCopy';
+import { useHint } from './shared/useHint';
 import * as ipc from '../ipc';
 import { useAppStore, reportFailure } from '../store/appStore';
 import type { HostKeyPolicy, KnownHostEntry } from '../types';
@@ -16,12 +18,14 @@ function label(entry: KnownHostEntry) {
 
 export default function KnownHostsPanel() {
   const { settings, saveSettings } = useAppStore();
+  const hint = useHint();
   const [hosts, setHosts] = useState<KnownHostEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [confirmForget, setConfirmForget] = useState<KnownHostEntry | null>(null);
-  const [copied, setCopied] = useState<string | null>(null);
+  // Keyed by fingerprint: the list marks the row that was pressed.
+  const { copied, copy } = useCopy(1200);
 
   const refresh = useCallback(async () => {
     try {
@@ -64,16 +68,6 @@ export default function KnownHostsPanel() {
       setError(String(e));
     } finally {
       setConfirmForget(null);
-    }
-  }
-
-  async function copyFingerprint(entry: KnownHostEntry) {
-    try {
-      await navigator.clipboard.writeText(entry.fingerprint);
-      setCopied(entry.fingerprint);
-      setTimeout(() => setCopied(null), 1200);
-    } catch {
-      /* clipboard unavailable — not worth interrupting the user */
     }
   }
 
@@ -154,8 +148,8 @@ export default function KnownHostsPanel() {
                   <button
                     type="button"
                     className="hostkey-fp kh-fp"
-                    title="Copy fingerprint"
-                    onClick={() => copyFingerprint(h)}
+                    title={hint('Copy fingerprint')}
+                    onClick={() => void copy(h.fingerprint, h.fingerprint)}
                   >
                     {copied === h.fingerprint ? 'Copied' : h.fingerprint}
                   </button>
@@ -172,7 +166,7 @@ export default function KnownHostsPanel() {
                 ) : (
                   // ~/.ssh/known_hosts belongs to OpenSSH and is mounted
                   // read-only under Flatpak — never written by this app.
-                  <span className="kh-readonly" title="Managed by OpenSSH, not editable here">
+                  <span className="kh-readonly" title={hint('Managed by OpenSSH, not editable here')}>
                     read-only
                   </span>
                 )}

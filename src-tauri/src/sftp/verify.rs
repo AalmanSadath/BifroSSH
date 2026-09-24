@@ -17,11 +17,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{anyhow, bail, Context, Result};
-use russh::ChannelMsg;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-use super::archive::{exec_failure, quote};
+use super::remote_exec::{digest_lines, quote, run_capture, sha256sum_command};
 use super::listing::{collect_local_tree, collect_remote_tree, parent_remote};
 use super::session::{get_opener, get_session};
 use super::{ChannelOpener, SftpClientState, TransferSummary};
@@ -224,23 +223,19 @@ async fn remote_digests_of(
     root: &str,
     rels: &[String],
 ) -> Result<HashMap<String, String>> {
-    let mut args = String::new();
-    for rel in rels {
-        args.push(' ');
-        args.push_str(&quote(&join_rel(root, rel)));
-    }
-    let command = format!("sha256sum --{args}");
-    let out = run_capture(opener, &command).await?;
+    let joined: Vec<String> = rels.iter().map(|rel| join_rel(root, rel)).collect();
+    let command = sha256sum_command(joined.iter().map(String::as_str));
+    let out = run_capture(opener, "sha256sum", &command).await?;
 
     let mut digests = HashMap::new();
-    for line in out.lines() {
-        let line = line.trim_end_matches('\r');
-        if line.is_empty() { continue; }
-        let Some((digest, path)) = line.split_once("  ") else {
-            bail!("Could not read what sha256sum said: {line}");
+    for line in digest_lines(&out) {
+        let (path, digest) = line?;
+        // Keyed the way the caller asked: relative to the root it named.
+        let rel = if path == root {
+            String::new()
+        } else {
+            path.strip_prefix(&format!("{root}/")).unwrap_or("").to_string()
         };
-        let rel = path.strip_prefix(&format!("{root}/")).unwrap_or("").to_string();
-        let rel = if path == root { String::new() } else { rel };
         digests.insert(rel, digest.to_string());
     }
     Ok(digests)
@@ -249,38 +244,6 @@ async fn remote_digests_of(
 /// A path relative to a remote root, joined the way the far end spells it.
 fn join_rel(root: &str, rel: &str) -> String {
     if rel.is_empty() { root.to_string() } else { format!("{}/{}", root.trim_end_matches('/'), rel) }
-}
-
-/// Runs a command on the far end and returns its stdout.
-pub(super) async fn run_capture(opener: &dyn ChannelOpener, command: &str) -> Result<String> {
-    let mut channel = opener
-        .open_session()
-        .await
-        .context("Could not open a channel for sha256sum")?;
-    channel
-        .exec(true, command)
-        .await
-        .context("The server refused to run sha256sum")?;
-
-    let mut stdout = Vec::new();
-    let mut stderr = String::new();
-    let mut status = None;
-    while let Some(msg) = channel.wait().await {
-        match msg {
-            ChannelMsg::Data { ref data } => stdout.extend_from_slice(data),
-            ChannelMsg::ExtendedData { ref data, .. } => stderr.push_str(&String::from_utf8_lossy(data)),
-            ChannelMsg::ExitStatus { exit_status } => status = Some(exit_status),
-            // Not Eof: the exit status arrives after it, so breaking there
-            // loses the reason the command failed.
-            ChannelMsg::Close => break,
-            _ => {}
-        }
-    }
-    let _ = channel.close().await;
-    if let Some(e) = exec_failure("sha256sum on the server", "sha256sum", status, &stderr) {
-        return Err(e);
-    }
-    Ok(String::from_utf8_lossy(&stdout).into_owned())
 }
 
 /// Whether a summary describes a transfer whose two trees should match.
@@ -398,36 +361,9 @@ pub(super) fn digest_command(remote_path: &str) -> String {
 }
 
 async fn remote_digests(opener: &dyn ChannelOpener, remote_path: &str) -> Result<Digests> {
-    let mut channel = opener
-        .open_session()
-        .await
-        .context("Could not open a channel for sha256sum")?;
-    channel
-        .exec(true, digest_command(remote_path))
-        .await
-        .context("The server refused to run sha256sum")?;
-
-    let mut stdout = Vec::new();
-    let mut stderr = String::new();
-    let mut status = None;
-    while let Some(msg) = channel.wait().await {
-        match msg {
-            ChannelMsg::Data { ref data } => stdout.extend_from_slice(data),
-            ChannelMsg::ExtendedData { ref data, .. } => stderr.push_str(&String::from_utf8_lossy(data)),
-            ChannelMsg::ExitStatus { exit_status } => status = Some(exit_status),
-            // Not Eof: the exit status arrives after it, so breaking there
-            // loses the reason the command failed.
-            ChannelMsg::Close => break,
-            _ => {}
-        }
-    }
-    let _ = channel.close().await;
-    if let Some(e) = exec_failure("sha256sum on the server", "sha256sum", status, &stderr) {
-        return Err(e);
-    }
-
+    let out = run_capture(opener, "sha256sum", &digest_command(remote_path)).await?;
     let name = remote_path.trim_end_matches('/').rsplit('/').next().unwrap_or(remote_path);
-    parse_digests(&String::from_utf8_lossy(&stdout), name)
+    parse_digests(&out, name)
 }
 
 /// Reads `sha256sum` output into digests relative to `name`.
@@ -436,12 +372,8 @@ async fn remote_digests(opener: &dyn ChannelOpener, remote_path: &str) -> Result
 /// given, which here is `name` or something under it.
 pub(super) fn parse_digests(out: &str, name: &str) -> Result<Digests> {
     let mut digests = Digests::new();
-    for line in out.lines() {
-        let line = line.trim_end_matches('\r');
-        if line.is_empty() { continue; }
-        let Some((digest, path)) = line.split_once("  ") else {
-            bail!("Could not read what sha256sum said: {line}");
-        };
+    for line in digest_lines(out) {
+        let (path, digest) = line?;
         let path = path.strip_prefix("./").unwrap_or(path);
         if crate::sftp::transfer::is_part(path) {
             continue;

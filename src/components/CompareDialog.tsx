@@ -1,4 +1,5 @@
 import { diffGroups, differenceCount, isIdentical } from '../compare';
+import SftpDialog from './shared/SftpDialog';
 import type { TreeDiff } from '../types';
 
 interface Props {
@@ -22,60 +23,58 @@ interface Props {
 export default function CompareDialog({ left, right, diff, onCancel, onClose }: Props) {
   const groups = diff === null ? [] : diffGroups(diff);
 
+  // Escape stops a comparison still running, and dismisses a finished one;
+  // both are "I am done with this dialog".
+  const title = diff === null
+    ? 'Comparing…'
+    : isIdentical(diff) ? 'No differences' : `${differenceCount(diff)} differences`;
+
   return (
-    <div
-      className="sftp-confirm-overlay"
-      onKeyDown={(e) => {
-        // Escape stops a comparison still running, and dismisses a finished
-        // one; both are "I am done with this dialog".
-        if (e.key === 'Escape') { if (diff === null) onCancel(); else onClose(); }
-      }}
+    <SftpDialog
+      title={title}
+      onEscape={() => { if (diff === null) onCancel(); else onClose(); }}
+      className="sftp-compare-dialog"
     >
-      <div className="sftp-confirm-dialog sftp-compare-dialog">
-        <p className="sftp-confirm-title">
-          {diff === null ? 'Comparing…' : isIdentical(diff) ? 'No differences' : `${differenceCount(diff)} differences`}
-        </p>
-        <p className="sftp-confirm-sub sftp-compare-paths">
-          <span>{left}</span>
-          <span>{right}</span>
-        </p>
+      <p className="sftp-confirm-sub sftp-compare-paths">
+        <span>{left}</span>
+        <span>{right}</span>
+      </p>
 
-        {diff === null ? (
+      {diff === null ? (
+        <p className="sftp-confirm-sub">
+          Files of different size are settled without reading them; the rest are read and
+          hashed on both sides.
+        </p>
+      ) : (
+        <>
           <p className="sftp-confirm-sub">
-            Files of different size are settled without reading them; the rest are read and
-            hashed on both sides.
+            {diff.same} the same, {diff.hashed} read and hashed.
+            {diff.cancelled && ' Stopped before the end, so this is partial.'}
           </p>
-        ) : (
-          <>
-            <p className="sftp-confirm-sub">
-              {diff.same} the same, {diff.hashed} read and hashed.
-              {diff.cancelled && ' Stopped before the end, so this is partial.'}
-            </p>
-            {groups.length > 0 && (
-              <div className="sftp-compare-groups">
-                {groups.map((group) => (
-                  <div key={group.title} className="sftp-compare-group">
-                    <div className="sftp-compare-group-title">
-                      {group.title} ({group.files.length})
-                    </div>
-                    <ul className="sftp-conflict-list sftp-compare-list">
-                      {group.files.map((file) => <li key={file}>{file === '' ? '(the file itself)' : file}</li>)}
-                    </ul>
+          {groups.length > 0 && (
+            <div className="sftp-compare-groups">
+              {groups.map((group) => (
+                <div key={group.title} className="sftp-compare-group">
+                  <div className="sftp-compare-group-title">
+                    {group.title} ({group.files.length})
                   </div>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-
-        <div className="sftp-confirm-actions">
-          {diff === null ? (
-            <button className="sftp-action-btn" onClick={onCancel} autoFocus>Stop</button>
-          ) : (
-            <button className="sftp-action-btn sftp-perms-apply-btn" onClick={onClose} autoFocus>Close</button>
+                  <ul className="sftp-conflict-list sftp-compare-list">
+                    {group.files.map((file) => <li key={file}>{file === '' ? '(the file itself)' : file}</li>)}
+                  </ul>
+                </div>
+              ))}
+            </div>
           )}
-        </div>
-      </div>
+        </>
+      )}
+
+      <div className="sftp-confirm-actions">
+        {diff === null ? (
+          <button className="sftp-action-btn" onClick={onCancel} autoFocus>Stop</button>
+        ) : (
+          <button className="sftp-action-btn sftp-perms-apply-btn" onClick={onClose} autoFocus>Close</button>
+        )}
     </div>
+    </SftpDialog>
   );
 }

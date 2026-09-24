@@ -9,8 +9,12 @@ import type { AuthPromptEvent, Codeprint, HostKeyPromptEvent, SessionTab, System
 import { fill } from './snippets';
 import { zoomPercent } from './zoom';
 import { activityChip, anyBusy } from './activity';
-import { terminalFor } from './terminalRegistry';
-import { transcriptLines, transcriptName, transcriptText } from './transcript';
+import { parseSSHInput } from './sshInput';
+import { readTabDrag, tabDragPayload } from './dragPayload';
+import { usePromptQueue } from './usePromptQueue';
+import { useTranscript } from './useTranscript';
+import { useDragResize } from './components/shared/useDragResize';
+import { useHint } from './components/shared/useHint';
 import { evenAt, evenWidths, resizeAt, widthAt } from './paneSizes';
 import { WINDOW_ACTIONS, actionFor, resolve as resolveShortcuts, tabIndexFor } from './shortcuts';
 import CommandPalette from './components/CommandPalette';
@@ -37,57 +41,6 @@ import Modal from './components/shared/Modal';
 import PassphraseInput from './components/shared/PassphraseInput';
 import PortalDropdown from './components/shared/PortalDropdown';
 
-/**
- * A dragged tab travels as text/plain JSON, the way an SFTP entry does:
- * WebKitGTK carries only the standard clipboard types across a drag, so a
- * type of our own arrives empty. The `kind` field is what tells the two
- * payloads apart, and the SFTP drop handler ignores one without entries.
- */
-const TAB_DRAG_KIND = 'bifrossh-tab';
-
-function readTabDrag(e: React.DragEvent): string | null {
-  try {
-    const parsed = JSON.parse(e.dataTransfer.getData('text/plain')) as { kind?: string; tab_id?: string };
-    return parsed.kind === TAB_DRAG_KIND && parsed.tab_id ? parsed.tab_id : null;
-  } catch {
-    return null;
-  }
-}
-
-function parseSSHInput(input: string): { user: string; host: string; port: number; password?: string } | null {
-  let s = input.trim();
-  if (s.toLowerCase().startsWith('ssh ')) s = s.slice(4).trim();
-  if (!s) return null;
-
-  let port = 22;
-  let password: string | undefined;
-  const tokens = s.split(/\s+/);
-  const remaining: string[] = [];
-
-  for (let i = 0; i < tokens.length; i++) {
-    const t = tokens[i];
-    if ((t === '-p' || t === '--port') && tokens[i + 1]) {
-      port = parseInt(tokens[++i], 10) || 22;
-    } else if (/^-p\d+$/.test(t)) {
-      port = parseInt(t.slice(2), 10) || 22;
-    } else if ((t === '-pw' || t === '--password') && tokens[i + 1]) {
-      password = tokens[++i];
-    } else if (t.startsWith('-pw') && t.length > 3) {
-      password = t.slice(3);
-    } else {
-      remaining.push(t);
-    }
-  }
-
-  const dest = remaining.find((t) => t.includes('@'));
-  if (!dest) return null;
-  const atIdx = dest.indexOf('@');
-  const user = dest.slice(0, atIdx);
-  const host = dest.slice(atIdx + 1);
-  if (!user || !host) return null;
-  return { user, host, port, password };
-}
-
 export default function App() {
   const {
     loadAll, loadError, actionError, setActionError, sessions, activeTabId, setActiveTab, removeSession,
@@ -113,10 +66,9 @@ export default function App() {
   const [termSidebarOpen, setTermSidebarOpen] = useState(false);
   const [tabCtx, setTabCtx] = useState<{ x: number; y: number; session: SessionTab; mode: TabCtxMode } | null>(null);
   const [tabDragOver, setTabDragOver] = useState(false);
-  // A transcript waiting for a path: the text is taken when the menu entry is
-  // pressed, so what lands is what was on screen then rather than whatever
-  // has arrived by the time the picker is answered.
-  const [saving, setSaving] = useState<{ text: string; startDir: string; name: string } | null>(null);
+  const transcript = useTranscript(setActionError);
+  const startDrag = useDragResize();
+  const hint = useHint();
   const activeIsSession = sessions.some((s) => s.tab_id === activeTabId);
 
   // A running command's chip counts up, so the strip re-renders while
@@ -130,78 +82,11 @@ export default function App() {
     return () => clearInterval(timer);
   }, [busy]);
 
-  /**
-   * A tab's scrollback as plain text, on the clipboard.
-   *
-   * Session logging writes from connect time onward and has to be turned on
-   * beforehand; this is whatever is there now, which is the case where
-   * something has already happened and is worth keeping.
-   */
-  function transcriptOf(session: SessionTab): string | null {
-    const term = terminalFor(session.tab_id);
-    if (!term) return null;
-    const text = transcriptText(transcriptLines(term.buffer.active));
-    if (text === '') {
-      setActionError(`Nothing has been printed in "${session.server_name}" yet`);
-      return null;
-    }
-    return text;
-  }
-
-  async function copyTranscript(session: SessionTab) {
-    const text = transcriptOf(session);
-    if (text === null) return;
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch (e) {
-      setActionError(`Could not copy the transcript: ${e}`);
-    }
-  }
-
-  /**
-   * The same text, to a file the user picks. The picker opens where an export
-   * would, with a name made from the host and the time.
-   */
-  async function saveTranscript(session: SessionTab) {
-    const text = transcriptOf(session);
-    if (text === null) return;
-    let startDir = '';
-    try {
-      startDir = await ipc.defaultExportDir();
-    } catch {
-      // No Downloads to find: the picker falls back to the home directory.
-    }
-    setSaving({ text, startDir, name: transcriptName(session.server_name, new Date()) });
-  }
-
-  /**
-   * Writes it, and asks before replacing a file that is already there. The
-   * refusal comes from the open rather than from a check of our own, so
-   * nothing can appear at that path in between.
-   */
-  async function writeTranscript(path: string, text: string, overwrite = false) {
-    try {
-      await ipc.writeTextFile(path, text, overwrite);
-      setSaving(null);
-    } catch (e) {
-      const message = String(e);
-      if (!overwrite && message.includes('already exists')) {
-        if (window.confirm(`${path} already exists. Save anyway?`)) {
-          await writeTranscript(path, text, true);
-          return;
-        }
-        return;
-      }
-      setSaving(null);
-      setActionError(message);
-    }
-  }
-
   /** The tab's or pane's "still running" chip, where there is one to show. */
   function activityFor(tabId: string) {
     const chip = activityChip(sessionActivity[tabId], Date.now());
     if (!chip) return null;
-    return <span className={`tab-activity tab-activity-${chip.kind}`} title={chip.title}>{chip.text}</span>;
+    return <span className={`tab-activity tab-activity-${chip.kind}`} title={hint(chip.title)}>{chip.text}</span>;
   }
   const splitShown = activeTabId !== null && splitGroup.includes(activeTabId);
 
@@ -215,38 +100,13 @@ export default function App() {
    * per mouse event; xterm refits itself from its own ResizeObserver.
    */
   function startPaneResize(index: number, e: React.MouseEvent) {
-    e.preventDefault();
-    e.stopPropagation();
     const row = (e.currentTarget as HTMLElement).closest('.term-area');
-    const rowWidth = row?.getBoundingClientRect().width ?? 1;
-    const startX = e.clientX;
     const startWidths = splitWidths.length === splitGroup.length
       ? splitWidths
       : evenWidths(splitGroup.length);
-
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    let frame = 0;
-
-    function onMove(ev: MouseEvent) {
-      if (frame !== 0) return;
-      frame = requestAnimationFrame(() => {
-        frame = 0;
-        const delta = ((ev.clientX - startX) / rowWidth) * 100;
-        setSplitWidths(resizeAt(startWidths, index, delta));
-      });
-    }
-
-    function onUp() {
-      if (frame !== 0) cancelAnimationFrame(frame);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    }
-
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    startDrag(e, row?.getBoundingClientRect().width ?? 1, (delta) => {
+      setSplitWidths(resizeAt(startWidths, index, delta));
+    });
   }
 
   /**
@@ -261,7 +121,7 @@ export default function App() {
     return (
       <div
         className="pane-resizer"
-        title="Drag to resize. Double-click to share these two evenly."
+        title={hint('Drag to resize. Double-click to share these two evenly.')}
         onMouseDown={(e) => startPaneResize(index, e)}
         onDoubleClick={(e) => {
           e.stopPropagation();
@@ -283,7 +143,7 @@ export default function App() {
         {activityFor(s.tab_id)}
         <button
           className="pane-header-close"
-          title="Remove from split"
+          title={hint('Remove from split')}
           onMouseDown={(e) => e.stopPropagation()}
           onClick={() => unsplit(s.tab_id)}
         >
@@ -295,8 +155,10 @@ export default function App() {
   const [renameValue, setRenameValue] = useState('');
   const renameInputRef = useRef<HTMLInputElement>(null);
 
-  const [hostKeyPrompts, setHostKeyPrompts] = useState<HostKeyPromptEvent[]>([]);
-  const [authPrompts, setAuthPrompts] = useState<AuthPromptEvent[]>([]);
+  // Emitted globally rather than per connect, so one modal of each kind
+  // serves terminal sessions, SFTP, tunnels and OS detection alike.
+  const [hostKeyPrompts, dismissHostKeyPrompt] = usePromptQueue<HostKeyPromptEvent>('host-key-prompt');
+  const [authPrompts, dismissAuthPrompt] = usePromptQueue<AuthPromptEvent>('auth-prompt');
 
   // Nothing is loaded until the vault is open. While locked the backend holds
   // no key, so loadAll would fail on every call anyway; gating it here keeps
@@ -349,47 +211,6 @@ export default function App() {
   }, []);
 
   useIdleLock(vault && !vault.locked ? settings.auto_lock_minutes : 0, () => { void lockNow(); });
-
-  // Host key prompts are emitted globally rather than per-connect, so this one
-  // modal serves terminal sessions, SFTP, tunnels and OS detection alike.
-  useEffect(() => {
-    const dismiss = (requestId: string) =>
-      setHostKeyPrompts((q) => q.filter((p) => p.request_id !== requestId));
-
-    const unlisten = Promise.all([
-      listen<HostKeyPromptEvent>('host-key-prompt', (e) => {
-        setHostKeyPrompts((q) =>
-          q.some((p) => p.request_id === e.payload.request_id) ? q : [...q, e.payload],
-        );
-      }),
-      // The connect gave up (timed out, or was cancelled) before the user
-      // answered — retract the modal instead of leaving it pointing at nothing.
-      listen<{ request_id: string }>('host-key-prompt-cancel', (e) => dismiss(e.payload.request_id)),
-    ]);
-
-    return () => {
-      unlisten.then((fns) => fns.forEach((fn) => fn()));
-    };
-  }, []);
-
-  // Keyboard-interactive rounds (PAM, 2FA). Same global pattern as above.
-  useEffect(() => {
-    const dismiss = (requestId: string) =>
-      setAuthPrompts((q) => q.filter((p) => p.request_id !== requestId));
-
-    const unlisten = Promise.all([
-      listen<AuthPromptEvent>('auth-prompt', (e) => {
-        setAuthPrompts((q) =>
-          q.some((p) => p.request_id === e.payload.request_id) ? q : [...q, e.payload],
-        );
-      }),
-      listen<{ request_id: string }>('auth-prompt-cancel', (e) => dismiss(e.payload.request_id)),
-    ]);
-
-    return () => {
-      unlisten.then((fns) => fns.forEach((fn) => fn()));
-    };
-  }, []);
 
   useEffect(() => {
     const unlisten = listen<TunnelClosed>('tunnel-closed', (e) => {
@@ -721,14 +542,14 @@ export default function App() {
                 onContextMenu={(e) => handleTabContextMenu(e, s)}
                 draggable
                 onDragStart={(e) => {
-                  e.dataTransfer.setData('text/plain', JSON.stringify({ kind: TAB_DRAG_KIND, tab_id: s.tab_id }));
+                  e.dataTransfer.setData('text/plain', tabDragPayload(s.tab_id));
                   e.dataTransfer.effectAllowed = 'move';
                 }}
               >
-                {splitGroup.includes(s.tab_id) && <span className="tab-split" title="Shown in a split">⊟</span>}
-                {s.logging === 'tab' && <span className="tab-logging" title="Output is being logged to a file">●</span>}
+                {splitGroup.includes(s.tab_id) && <span className="tab-split" title={hint('Shown in a split')}>⊟</span>}
+                {s.logging === 'tab' && <span className="tab-logging" title={hint('Output is being logged to a file')}>●</span>}
                 {s.broadcast && (
-                  <span className="tab-broadcast" title="Broadcasting: input also goes to every other tab marked the same way">⇶</span>
+                  <span className="tab-broadcast" title={hint('Broadcasting: input also goes to every other tab marked the same way')}>⇶</span>
                 )}
                 <span className="tab-title">{s.server_name}</span>
                 {activityFor(s.tab_id)}
@@ -737,7 +558,7 @@ export default function App() {
                 {zoomPercent(sessionZoom[s.tab_id], settings.font_size) !== null && (
                   <button
                     className="tab-zoom"
-                    title="Zoom for this tab. Click to reset."
+                    title={hint('Zoom for this tab. Click to reset.')}
                     onClick={(e) => { e.stopPropagation(); resetZoom(s.tab_id); }}
                   >
                     {zoomPercent(sessionZoom[s.tab_id], settings.font_size)}%
@@ -750,7 +571,7 @@ export default function App() {
               <button
                 className={`tab-sidebar-toggle${termSidebarOpen ? ' active' : ''}`}
                 onClick={() => setTermSidebarOpen((v) => !v)}
-                title="Toggle terminal sidebar"
+                title={hint('Toggle terminal sidebar')}
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3" y="3" width="18" height="18" rx="2"/>
@@ -775,7 +596,7 @@ export default function App() {
             onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setTabDragOver(false); }}
             onDrop={(e) => {
               setTabDragOver(false);
-              const dropped = readTabDrag(e);
+              const dropped = readTabDrag(e.dataTransfer.getData('text/plain'));
               if (!dropped || !activeTabId || !activeIsSession) return;
               e.preventDefault();
               splitWith(activeTabId, dropped);
@@ -862,21 +683,21 @@ export default function App() {
           onTranscript={(tabId, to) => {
             const session = sessions.find((t) => t.tab_id === tabId);
             if (!session) return;
-            if (to === 'clipboard') void copyTranscript(session);
-            else void saveTranscript(session);
+            if (to === 'clipboard') void transcript.copy(session);
+            else void transcript.save(session);
           }}
         />
       )}
 
-      {saving && (
+      {transcript.saving && (
         <FilePickerModal
           mode="save"
           title="Save transcript"
-          startDir={saving.startDir}
-          defaultName={saving.name}
+          startDir={transcript.saving.startDir}
+          defaultName={transcript.saving.name}
           extensions={['.txt']}
-          onCancel={() => setSaving(null)}
-          onChoose={(path) => { void writeTranscript(path, saving.text); }}
+          onCancel={transcript.cancelSave}
+          onChoose={(path) => { void transcript.write(path, transcript.saving!.text); }}
         />
       )}
 
@@ -900,9 +721,7 @@ export default function App() {
         <HostKeyPrompt
           key={hostKeyPrompts[0].request_id}
           event={hostKeyPrompts[0]}
-          onResolved={(id) =>
-            setHostKeyPrompts((q) => q.filter((p) => p.request_id !== id))
-          }
+          onResolved={dismissHostKeyPrompt}
         />
       )}
 
@@ -911,7 +730,7 @@ export default function App() {
         <AuthPromptModal
           key={authPrompts[0].request_id}
           event={authPrompts[0]}
-          onResolved={(id) => setAuthPrompts((q) => q.filter((p) => p.request_id !== id))}
+          onResolved={dismissAuthPrompt}
         />
       )}
 
@@ -992,10 +811,10 @@ export default function App() {
               </button>
               {/* Logging starts at connect; this is what is already on
                   screen, scrollback included. */}
-              <button className="menu-item" onClick={() => { copyTranscript(tabCtx.session); setTabCtx(null); }}>
+              <button className="menu-item" onClick={() => { void transcript.copy(tabCtx.session); setTabCtx(null); }}>
                 Copy transcript
               </button>
-              <button className="menu-item" onClick={() => { void saveTranscript(tabCtx.session); setTabCtx(null); }}>
+              <button className="menu-item" onClick={() => { void transcript.save(tabCtx.session); setTabCtx(null); }}>
                 Save transcript…
               </button>
               {splitGroup.includes(tabCtx.session.tab_id) && (

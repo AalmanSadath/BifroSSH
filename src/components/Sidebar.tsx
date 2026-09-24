@@ -1,14 +1,15 @@
 import { useState } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { useAppStore } from '../store/appStore';
+import { useHint } from './shared/useHint';
 
 
 const PANELS = ['hosts', 'sftp', 'keychain', 'knownhosts', 'portforwarding', 'settings', 'theme-editor'];
 
 export default function Sidebar() {
-  const { activeTabId, setActiveTab, settings, updateAvailable } = useAppStore();
+  const { activeTabId, setActiveTab, updateAvailable } = useAppStore();
   const [collapsed, setCollapsed] = useState(false);
-  const hint = (t: string) => settings.show_hover_hints ? t : undefined;
+  const hint = useHint();
 
   const activePanel = PANELS.includes(activeTabId ?? '') ? activeTabId : null;
 
@@ -38,7 +39,7 @@ export default function Sidebar() {
         <button
           className={`nav-btn ${activePanel === 'hosts' || activePanel === null ? 'active' : ''}`}
           onClick={() => setActiveTab('hosts')}
-          title={collapsed ? 'Hosts' : undefined}
+          title={collapsed ? hint('Hosts') : undefined}
         >
           <span className="nav-icon">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -53,7 +54,7 @@ export default function Sidebar() {
         <button
           className={`nav-btn ${activePanel === 'sftp' ? 'active' : ''}`}
           onClick={() => setActiveTab('sftp')}
-          title={collapsed ? 'SFTP' : undefined}
+          title={collapsed ? hint('SFTP') : undefined}
         >
           <span className="nav-icon">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -66,7 +67,7 @@ export default function Sidebar() {
         <button
           className={`nav-btn ${activePanel === 'portforwarding' ? 'active' : ''}`}
           onClick={() => setActiveTab('portforwarding')}
-          title={collapsed ? 'Port Forwarding' : undefined}
+          title={collapsed ? hint('Port Forwarding') : undefined}
         >
           <span className="nav-icon">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -83,7 +84,7 @@ export default function Sidebar() {
           <button
             className={`nav-btn ${activePanel === 'keychain' ? 'active' : ''}`}
             onClick={() => setActiveTab('keychain')}
-            title={collapsed ? 'Keychain' : undefined}
+            title={collapsed ? hint('Keychain') : undefined}
           >
             <span className="nav-icon">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -98,7 +99,7 @@ export default function Sidebar() {
           <button
             className={`nav-btn ${activePanel === 'knownhosts' ? 'active' : ''}`}
             onClick={() => setActiveTab('knownhosts')}
-            title={collapsed ? 'Known Hosts' : undefined}
+            title={collapsed ? hint('Known Hosts') : undefined}
           >
             <span className="nav-icon">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -127,7 +128,7 @@ export default function Sidebar() {
         <button
           className={`nav-btn ${activePanel === 'theme-editor' ? 'active' : ''}`}
           onClick={() => setActiveTab('theme-editor')}
-          title={collapsed ? 'Theme Editor' : undefined}
+          title={collapsed ? hint('Theme Editor') : undefined}
         >
           <span className="nav-icon">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -143,7 +144,7 @@ export default function Sidebar() {
         <button
           className={`nav-btn ${activePanel === 'settings' ? 'active' : ''}`}
           onClick={() => setActiveTab('settings')}
-          title={collapsed ? 'Settings' : undefined}
+          title={collapsed ? hint('Settings') : undefined}
         >
           <span className="nav-icon">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">

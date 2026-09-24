@@ -10,6 +10,7 @@ import * as ipc from '../ipc';
 import { listen } from '@tauri-apps/api/event';
 import { useAppStore } from '../store/appStore';
 import { parseMark } from '../activity';
+import { useHint } from './shared/useHint';
 import { registerTerminal, unregisterTerminal } from '../terminalRegistry';
 import type { SessionTab, SshClosed } from '../types';
 import { THEMES } from '../styles/themes';
@@ -53,6 +54,7 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
   /** Whether a session has been bound before, so the next one is a reconnect. */
   const boundOnceRef = useRef(false);
   const { settings, servers, removeSession, markDropped, reconnectSession, stopRetrying, retryingTabIds, sendInput, setActiveTab, sessionThemeOverrides, sessionZoom, zoomSession, customThemes, markActivity } = useAppStore();
+  const hint = useHint();
 
   // This tab's own size if it has been zoomed, else the one every terminal
   // uses. Same precedence as the theme override below it.
@@ -664,7 +666,7 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
           <button
             type="button"
             className="term-search-btn"
-            title="Previous match (Shift+Enter)"
+            title={hint('Previous match (Shift+Enter)')}
             onClick={() => {
               runSearch(false);
               searchInputRef.current?.focus();
@@ -675,7 +677,7 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
           <button
             type="button"
             className="term-search-btn"
-            title="Next match (Enter)"
+            title={hint('Next match (Enter)')}
             onClick={() => {
               runSearch(true);
               searchInputRef.current?.focus();
@@ -686,7 +688,7 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
           <button
             type="button"
             className="term-search-btn"
-            title="Close (Escape)"
+            title={hint('Close (Escape)')}
             onClick={closeSearch}
           >
             ✕

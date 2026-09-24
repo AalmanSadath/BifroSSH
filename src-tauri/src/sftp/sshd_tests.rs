@@ -642,8 +642,8 @@ async fn a_tree_names_only_the_files_that_would_be_written_over() {
     std::fs::write(dst.join("proj/b.txt"), b"old").unwrap();
     std::fs::write(dst.join("proj/sub/d.txt"), b"old").unwrap();
 
-    let remote = super::transfer::remote_side(&state, "s").await.unwrap();
-    let mut found = conflicts(&super::transfer::Local, &src.to_string_lossy(), &remote, &dst.to_string_lossy()).await.unwrap();
+    let remote = super::sides::remote_side(&state, "s").await.unwrap();
+    let mut found = conflicts(&super::sides::Local, &src.to_string_lossy(), &remote, &dst.to_string_lossy()).await.unwrap();
     found.sort();
     assert_eq!(found, vec!["b.txt", "sub/d.txt"]);
 
@@ -654,7 +654,7 @@ async fn a_tree_names_only_the_files_that_would_be_written_over() {
     assert_eq!(std::fs::read(dst.join("proj/a.txt")).unwrap(), b"x");
 
     // A single file that is not there is no conflict at all.
-    let none = conflicts(&super::transfer::Local, &src.join("a.txt").to_string_lossy(), &remote, &server.scratch("empty").to_string_lossy()).await.unwrap();
+    let none = conflicts(&super::sides::Local, &src.join("a.txt").to_string_lossy(), &remote, &server.scratch("empty").to_string_lossy()).await.unwrap();
     assert!(none.is_empty());
 }
 

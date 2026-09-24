@@ -21,11 +21,10 @@ mod ssh;
 // the whole module is Unix only.
 #[cfg(all(test, unix))]
 mod agent_tests;
-#[cfg(test)]
-mod ssh_auth_tests;
 mod store;
 mod suspend;
-mod transfer;
+mod backup;
+mod osdetect;
 mod tunnel;
 mod wordlist;
 

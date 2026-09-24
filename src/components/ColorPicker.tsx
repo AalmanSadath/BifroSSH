@@ -1,16 +1,7 @@
 import { useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import ContextMenu from './shared/ContextMenu';
-
-function hexToRgb(hex: string) {
-  const c = hex.startsWith('#') ? hex.slice(1) : hex;
-  if (c.length !== 6) return { r: 0, g: 0, b: 0 };
-  return { r: parseInt(c.slice(0,2),16), g: parseInt(c.slice(2,4),16), b: parseInt(c.slice(4,6),16) };
-}
-
-function rgbToHex(r: number, g: number, b: number) {
-  return '#' + [r,g,b].map(v => Math.round(Math.max(0,Math.min(255,v))).toString(16).padStart(2,'0')).join('');
-}
+import { parseHex, toHex } from '../styles/accent';
 
 function rgbToHsv(r: number, g: number, b: number) {
   r /= 255; g /= 255; b /= 255;
@@ -46,20 +37,22 @@ interface PanelProps {
 }
 
 function PickerPanel({ value, onChange, onClose, pos }: PanelProps) {
-  const valid = /^#[0-9a-fA-F]{6}$/.test(value);
-  const initRgb = valid ? hexToRgb(value) : { r: 0, g: 0, b: 0 };
-  const initHsv = rgbToHsv(initRgb.r, initRgb.g, initRgb.b);
+  // Black when what came in is not a colour, which is where the picker has
+  // to start from anyway: there is no such thing as no position on the wheel.
+  const parsed = parseHex(value);
+  const [ir, ig, ib] = parsed ?? [0, 0, 0];
+  const initHsv = rgbToHsv(ir, ig, ib);
 
   const [hue, setHue] = useState(initHsv.h);
   const [sat, setSat] = useState(initHsv.s);
   const [bri, setBri] = useState(initHsv.v);
-  const [hexVal, setHexVal] = useState(valid ? value : '#000000');
+  const [hexVal, setHexVal] = useState(parsed ? toHex(parsed) : '#000000');
 
   const areaRef = useRef<HTMLDivElement>(null);
   const hueRef = useRef<HTMLDivElement>(null);
   function emit(h: number, s: number, v: number) {
     const { r, g, b } = hsvToRgb(h, s, v);
-    const hex = rgbToHex(r, g, b);
+    const hex = toHex([r, g, b]);
     setHexVal(hex);
     onChange(hex);
   }
@@ -94,7 +87,7 @@ function PickerPanel({ value, onChange, onClose, pos }: PanelProps) {
     const nb = key==='b' ? newVal : b;
     const hsv = rgbToHsv(nr, ng, nb);
     setHue(hsv.h); setSat(hsv.s); setBri(hsv.v);
-    const hex = rgbToHex(nr, ng, nb);
+    const hex = toHex([nr, ng, nb]);
     setHexVal(hex); onChange(hex);
   }
 
@@ -140,10 +133,13 @@ function PickerPanel({ value, onChange, onClose, pos }: PanelProps) {
           spellCheck={false}
           onChange={(e) => {
             setHexVal(e.target.value);
-            if (/^#[0-9a-fA-F]{6}$/.test(e.target.value)) {
-              onChange(e.target.value);
-              const rgb = hexToRgb(e.target.value);
-              const hsv = rgbToHsv(rgb.r, rgb.g, rgb.b);
+            // Typed a colour: follow it. Typed half of one: leave the wheel
+            // where it is rather than jumping somewhere the user did not ask
+            // for while they are still typing.
+            const typed = parseHex(e.target.value);
+            if (typed) {
+              onChange(toHex(typed));
+              const hsv = rgbToHsv(typed[0], typed[1], typed[2]);
               setHue(hsv.h); setSat(hsv.s); setBri(hsv.v);
             }
           }}
@@ -158,7 +154,9 @@ export function ColorPickerField({ value, onChange }: { value: string; onChange:
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
   const swatchRef = useRef<HTMLDivElement>(null);
-  const valid = /^#[0-9a-fA-F]{6}$/.test(value);
+  // `#abc` is a colour too, and the swatch should show it rather than the
+  // black it used to fall back to.
+  const swatch = parseHex(value);
 
   function openPicker() {
     const r = swatchRef.current?.getBoundingClientRect();
@@ -171,7 +169,7 @@ export function ColorPickerField({ value, onChange }: { value: string; onChange:
       <div
         ref={swatchRef}
         className="te-color-swatch"
-        style={{ background: valid ? value : '#000', cursor: 'pointer' }}
+        style={{ background: swatch ? toHex(swatch) : '#000', cursor: 'pointer' }}
         onClick={openPicker}
       />
       <input

@@ -16,28 +16,17 @@ import ConnectingView from './ConnectingView';
 import ContextMenu from './shared/ContextMenu';
 import PermissionsDialog, { type OwnerChange } from './PermissionsDialog';
 import ConflictDialog, { type ConflictAnswer, type ConflictPrompt } from './ConflictDialog';
+import SftpDialog from './shared/SftpDialog';
 import MismatchDialog from './MismatchDialog';
 import { batchSettled, record, take, type Mismatch, type Pending } from '../mismatches';
 import CompareDialog from './CompareDialog';
 import { diffSummary, isIdentical } from '../compare';
 import { useDismissOnOutside } from './shared/useDismissOnOutside';
+import { useHint } from './shared/useHint';
+import { useDragResize } from './shared/useDragResize';
 import { freeName, localStyle, remoteStyle, resolveTyped, styleFor, type PathStyle } from '../paths';
-
-function formatSize(bytes: number, isDir: boolean): string {
-  if (isDir) return '- -';
-  if (bytes === 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-  return `${(bytes / Math.pow(1024, i)).toFixed(i ? 1 : 0)} ${units[i]}`;
-}
-
-function formatDate(ts: number | null): string {
-  if (!ts) return '- -';
-  return new Date(ts * 1000).toLocaleString(undefined, {
-    month: 'numeric', day: 'numeric', year: 'numeric',
-    hour: 'numeric', minute: '2-digit',
-  });
-}
+import { HEADERS, formatDate, formatSize, visibleEntries, type SortCol } from '../fileList';
+import { fileDragPayload, readDragPayload } from '../dragPayload';
 
 function FolderIcon({ size = 16 }: { size?: number }) {
   return (
@@ -60,8 +49,6 @@ function FileIcon({ size = 16 }: { size?: number }) {
   );
 }
 
-const HEADERS = ['Name', 'Date Modified', 'Size', 'Owner', 'Type'] as const;
-type SortCol = typeof HEADERS[number];
 const DEFAULT_COL_WIDTHS = [38, 22, 10, 14, 16];
 
 /**
@@ -110,7 +97,7 @@ interface FileBrowserProps {
   isDropTarget?: boolean;
   onDragEnter?: () => void;
   onDragLeave?: () => void;
-  onFileDrop?: (entries: FileEntry[], fromSide: 'left' | 'right') => void;
+  onFileDrop?: (entries: FileEntry[]) => void;
   onReconnect?: () => void;
   /** This pane's saved directories, already narrowed to it. */
   bookmarks?: SftpBookmark[];
@@ -136,8 +123,8 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
   side, isDropTarget, onDragEnter: onDragEnterCb, onDragLeave: onDragLeaveCb, onFileDrop, onReconnect,
   pathStyle,
 }: FileBrowserProps) {
-  const { settings } = useAppStore();
-  const hint = (t: string) => settings.show_hover_hints ? t : undefined;
+  const hint = useHint();
+  const startDrag = useDragResize();
   const segments = pathStyle.segments(path);
   /** The bar as a text field: the text being typed, or null for crumbs. */
   const [typedPath, setTypedPath] = useState<string | null>(null);
@@ -244,34 +231,18 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
   }
 
   function startResize(colIdx: number, e: React.MouseEvent<HTMLDivElement>) {
-    e.preventDefault();
-    const tableWidth = tableRef.current?.getBoundingClientRect().width ?? 800;
-    const startX = e.clientX;
     const startW = colWidths[colIdx];
     const startNextW = colWidths[colIdx + 1] ?? 0;
-
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-
-    function onMove(ev: MouseEvent) {
-      const dPct = ((ev.clientX - startX) / tableWidth) * 100;
-      setColWidths(prev => {
+    startDrag(e, tableRef.current?.getBoundingClientRect().width ?? 800, (delta) => {
+      setColWidths((prev) => {
         const next = [...prev];
-        next[colIdx] = Math.max(6, startW + dPct);
-        if (colIdx + 1 < next.length) next[colIdx + 1] = Math.max(6, startNextW - dPct);
+        // Zero-sum against the neighbour, and neither of the pair narrower
+        // than its header.
+        next[colIdx] = Math.max(6, startW + delta);
+        if (colIdx + 1 < next.length) next[colIdx + 1] = Math.max(6, startNextW - delta);
         return next;
       });
-    }
-
-    function onUp() {
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    }
-
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    });
   }
 
   /**
@@ -282,24 +253,13 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
    * rows 3 to 6 selected whichever files happened to sit at 3 to 6 in
    * directory order.
    */
-  const visible: FileEntry[] = (() => {
-    const dotdot = entries.filter(en => en.name === '..');
-    const needle = filter?.toLowerCase() ?? '';
-    const rest = entries
-      .filter(en => en.name !== '..' && (showHidden || !en.hidden))
-      .filter(en => needle === '' || en.name.toLowerCase().includes(needle))
-      .sort((a, b) => {
-        if (dirsOnTop && a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
-        let cmp = 0;
-        if (sortCol === 'Name') cmp = a.name.localeCompare(b.name);
-        else if (sortCol === 'Date Modified') cmp = (a.modified ?? 0) - (b.modified ?? 0);
-        else if (sortCol === 'Size') cmp = a.size - b.size;
-        else if (sortCol === 'Owner') cmp = a.owner.localeCompare(b.owner);
-        else if (sortCol === 'Type') cmp = a.kind.localeCompare(b.kind);
-        return sortAsc ? cmp : -cmp;
-      });
-    return [...dotdot, ...rest];
-  })();
+  const visible = visibleEntries(entries, {
+    sortCol,
+    sortAsc,
+    dirsOnTop,
+    showHidden,
+    filter: filter ?? '',
+  });
 
   function handleRowClick(e: React.MouseEvent, entry: FileEntry, idx: number) {
     if (entry.name === '..') return;
@@ -429,7 +389,8 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
   }
 
   function handleDragStart(e: React.DragEvent, entry: FileEntry) {
-    e.dataTransfer.setData('text/plain', JSON.stringify({ side, entries: batchFor(entry) }));
+    if (!side) return;
+    e.dataTransfer.setData('text/plain', fileDragPayload(side, batchFor(entry)));
     e.dataTransfer.effectAllowed = 'copyMove';
     dragFromHereRef.current = true;
   }
@@ -460,36 +421,20 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
     if (dragCountRef.current === 0) setTimeout(() => { if (dragCountRef.current === 0) onDragLeaveCb?.(); }, 0);
   }
 
-  /** The payload of one of our own drags, or null for anything else. */
-  function readDragPayload(e: React.DragEvent): { fromSide: 'left' | 'right'; dropped: FileEntry[] } | null {
-    const raw = e.dataTransfer.getData('text/plain');
-    if (!raw) return null;
-    try {
-      const { side: fromSide, entries: dropped } = JSON.parse(raw) as {
-        side: 'left' | 'right';
-        entries: FileEntry[];
-      };
-      return dropped.length > 0 ? { fromSide, dropped } : null;
-    } catch {
-      // A drag from outside the app carries whatever that app put on the
-      // clipboard, which is not this payload. Nothing to do and nothing worth
-      // saying: the drop simply is not one of ours.
-      return null;
-    }
-  }
-
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
     dragCountRef.current = 0;
     onDragLeaveCb?.();
     if (!onFileDrop) return;
-    const payload = readDragPayload(e);
-    if (payload && payload.fromSide !== side) onFileDrop(payload.dropped, payload.fromSide);
+    const payload = readDragPayload(e.dataTransfer.getData('text/plain'));
+    // A drop from this pane onto itself is not a transfer; the row handler
+    // above deals with those as moves.
+    if (payload && payload.fromSide !== side) onFileDrop(payload.dropped);
   }
 
   /** A drop on a directory row: a move when it came from this pane. */
   function handleRowDrop(e: React.DragEvent, dir: FileEntry) {
-    const payload = readDragPayload(e);
+    const payload = readDragPayload(e.dataTransfer.getData('text/plain'));
     if (!payload || payload.fromSide !== side) return;
     e.preventDefault();
     e.stopPropagation();
@@ -667,7 +612,7 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
           <span className="sftp-filter-count">
             {visible.filter((en) => en.name !== '..').length} of {entries.filter((en) => en.name !== '..' && (showHidden || !en.hidden)).length}
           </span>
-          <button className="sftp-filter-close" onClick={closeFilter} title="Clear filter" aria-label="Clear filter">✕</button>
+          <button className="sftp-filter-close" onClick={closeFilter} title={hint('Clear filter')} aria-label="Clear filter">✕</button>
         </div>
       )}
 
@@ -757,7 +702,7 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
                       <span className="sftp-name-text">{entry.name}</span>
                     )}
                     {!renamingEntry && entry.symlink && (
-                      <span className="sftp-link-tag" title="A symbolic link. Size and type are its target's.">
+                      <span className="sftp-link-tag" title={hint("A symbolic link. Size and type are its target's.")}>
                         link
                       </span>
                     )}
@@ -801,7 +746,7 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
               {contextMenu.entry.is_dir && contextMenu.entry.name !== '..' && onCompressedCopy && (
                 <button
                   className="menu-item"
-                  title="Runs tar on the server and unpacks the stream here. Much quicker for a folder of many small files."
+                  title={hint('Runs tar on the server and unpacks the stream here. Much quicker for a folder of many small files.')}
                   onClick={() => { onCompressedCopy(contextMenu.entry!); setContextMenu(null); }}
                 >
                   Copy to Target compressed
@@ -810,7 +755,7 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
               {contextMenu.entry.is_dir && contextMenu.entry.name !== '..' && onCompare && (
                 <button
                   className="menu-item"
-                  title="Reads both folders and reports what differs. Nothing is copied."
+                  title={hint('Reads both folders and reports what differs. Nothing is copied.')}
                   onClick={() => { onCompare(contextMenu.entry!); setContextMenu(null); }}
                 >
                   Compare with the other pane
@@ -860,7 +805,7 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
             className="sftp-notice-close"
             onClick={onDismissNotice}
             aria-label="Dismiss"
-            title="Dismiss"
+            title={hint('Dismiss')}
           >
             ✕
           </button>
@@ -868,20 +813,20 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
       )}
 
       {confirmDelete && (
-        <div className="sftp-confirm-overlay">
-          <div className="sftp-confirm-dialog">
-            <p className="sftp-confirm-title">
-              {confirmDelete.length === 1
-                ? `Delete "${confirmDelete[0].name}"?`
-                : `Delete ${confirmDelete.length} items?`}
-            </p>
-            <p className="sftp-confirm-sub">This cannot be undone.</p>
-            <div className="sftp-confirm-actions">
-              <button className="sftp-action-btn" onClick={() => setConfirmDelete(null)}>Cancel</button>
-              <button className="sftp-confirm-delete-btn" onClick={() => { onDelete?.(confirmDelete); setConfirmDelete(null); }}>Delete</button>
-            </div>
+        <SftpDialog
+          title={confirmDelete.length === 1
+            ? `Delete "${confirmDelete[0].name}"?`
+            : `Delete ${confirmDelete.length} items?`}
+          onEscape={() => setConfirmDelete(null)}
+        >
+          <p className="sftp-confirm-sub">This cannot be undone.</p>
+          <div className="sftp-confirm-actions">
+            {/* Focused so a delete is never one stray Return away, and so
+                Escape reaches the dialog that is listening for it. */}
+            <button className="sftp-action-btn" onClick={() => setConfirmDelete(null)} autoFocus>Cancel</button>
+            <button className="sftp-confirm-delete-btn" onClick={() => { onDelete?.(confirmDelete); setConfirmDelete(null); }}>Delete</button>
           </div>
-        </div>
+        </SftpDialog>
       )}
 
       {permEntries && (
@@ -896,8 +841,7 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
 }
 
 function ConnectPrompt({ onSelectHost, onGoLocal }: { onSelectHost: () => void; onGoLocal?: () => void }) {
-  const { settings } = useAppStore();
-  const hint = (t: string) => settings.show_hover_hints ? t : undefined;
+  const hint = useHint();
   return (
     <div className="sftp-connect-prompt" onContextMenu={(e) => e.preventDefault()}>
       <div className="sftp-source-list">
@@ -945,8 +889,8 @@ interface HostPickerProps {
 }
 
 function HostPicker({ servers, connectingId, activeServerId, error, onConnect, onBack, onGoLocal }: HostPickerProps) {
-  const { settings, identities } = useAppStore();
-  const hint = (t: string) => settings.show_hover_hints ? t : undefined;
+  const { identities } = useAppStore();
+  const hint = useHint();
   const [query, setQuery] = useState('');
   const shown = servers.filter((s) => matchesHost(s, query));
   return (
@@ -1417,6 +1361,7 @@ interface TransferJob {
 
 /** One transfer in the queue: its name, where it is going, how it is doing. */
 function QueueRow({ row, onCancel, onResume }: { row: QueueItem; onCancel: () => void; onResume: () => void }) {
+  const hint = useHint();
   const p = row.progress;
   const { text: status, pct } = statusLine(row, Date.now());
   const running = row.status === 'running';
@@ -1435,7 +1380,7 @@ function QueueRow({ row, onCancel, onResume }: { row: QueueItem; onCancel: () =>
             type="button"
             className="sftp-resume-btn"
             onClick={onResume}
-            title="Continue from where it stopped"
+            title={hint('Continue from where it stopped')}
           >
             Resume
           </button>

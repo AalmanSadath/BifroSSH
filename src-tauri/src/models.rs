@@ -162,11 +162,15 @@ pub struct Server {
 }
 
 impl Server {
+    // Not a container-level default: `name`, `host` and `port` are required
+    // on purpose, and a record missing one of them is a host that would list
+    // fine and never connect. Better to say the document is wrong.
     fn default_os() -> String { UNDETECTED_OS.to_string() }
     fn default_hide_run_on_connect() -> bool { true }
 }
 
-/// [`Server::os`] for a host nobody has asked yet.
+/// [`Server::os`] for a host nobody has asked yet, which is what an absent
+/// `os` deserializes to.
 ///
 /// The frontend decides whether to run detection on this exact value, so the
 /// two must agree: see `UNDETECTED_OS` in `types.ts`.
@@ -207,23 +211,26 @@ pub struct KeyEntry {
     pub algorithm: Option<String>,
 }
 
+/// Every field defaults, and the defaults are `Default::default()` rather
+/// than a second copy of them written as attributes: the pair had drifted
+/// into ten functions saying what `impl Default` already said, and four
+/// fields with no default at all, which made a settings file missing any one
+/// of them fail the whole document.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Settings {
     pub theme: String,
     pub font_size: u16,
     pub font_family: String,
-    #[serde(default, deserialize_with = "lenient")]
+    #[serde(deserialize_with = "lenient")]
     pub cursor_style: CursorStyle,
     pub cursor_blink: bool,
-    #[serde(default, deserialize_with = "lenient")]
+    #[serde(deserialize_with = "lenient")]
     pub app_theme: AppTheme,
-    #[serde(default = "Settings::default_connection_timeout")]
     pub connection_timeout_secs: u32,
-    #[serde(default = "Settings::default_show_hover_hints")]
     pub show_hover_hints: bool,
-    #[serde(default = "Settings::default_sftp_inactivity_timeout")]
     pub sftp_inactivity_timeout_secs: u32,
-    #[serde(default, deserialize_with = "lenient")]
+    #[serde(deserialize_with = "lenient")]
     pub host_key_policy: HostKeyPolicy,
     /// `#rrggbb` the user picked, or None to follow the desktop's own accent
     /// and fall back to the palette's built-in one where there is none.
@@ -231,7 +238,6 @@ pub struct Settings {
     /// Held as an override rather than seeded at first launch, so a desktop
     /// that changes its accent is still followed by everyone who never chose
     /// one of their own.
-    #[serde(default)]
     pub accent_color: Option<String>,
     /// Seconds between keepalives on terminal and tunnel connections; 0 is off.
     /// Stops idle sessions being dropped by NAT and firewall idle timers, and
@@ -239,52 +245,40 @@ pub struct Settings {
     ///
     /// Not applied to SFTP: those set an inactivity timeout to close idle
     /// sessions, and keepalive traffic would stop it ever firing.
-    #[serde(default = "Settings::default_keepalive_interval")]
     pub keepalive_interval_secs: u32,
     /// Minutes without input before the vault locks itself; 0 is off, and
     /// off is the default. Input means the user's, not a server's: output
     /// arriving in a terminal does not count.
-    #[serde(default)]
     pub auto_lock_minutes: u32,
     /// Lock before the machine sleeps, so what is on screen after resume is
     /// the unlock screen. On by default.
-    #[serde(default = "Settings::default_lock_on_suspend")]
     pub lock_on_suspend: bool,
     /// Lines a terminal keeps above the screen. Was a constant of the same
     /// value; a settings file from before this reads the same.
-    #[serde(default = "Settings::default_scrollback_lines")]
     pub scrollback_lines: u32,
     /// Where session logs are written; None is `<data dir>/logs`.
-    #[serde(default)]
     pub session_log_dir: Option<String>,
     /// Ask GitHub once a day whether a newer release exists. On by default;
     /// the check is one anonymous GET of the releases endpoint.
-    #[serde(default = "Settings::default_check_for_updates")]
     pub check_for_updates: bool,
     /// When the last check ran, epoch seconds; 0 for never.
-    #[serde(default)]
     pub last_update_check: u64,
     /// Bring a dropped terminal back on its own, the way an autostart
     /// tunnel already does. On by default.
-    #[serde(default = "Settings::default_auto_reconnect")]
     pub auto_reconnect: bool,
     /// How many times before it gives up and leaves the button; 0 is
     /// until it comes back or the user says stop.
-    #[serde(default = "Settings::default_auto_reconnect_attempts")]
     pub auto_reconnect_attempts: u32,
     /// Open the tabs that were open when the app last closed, and connect
     /// them. On by default.
-    #[serde(default = "Settings::default_restore_tabs")]
     pub restore_tabs: bool,
     /// Read both copies back after a transfer and compare them file by file.
     /// Off by default: it costs a full read of each side.
-    #[serde(default)]
     pub verify_transfers: bool,
     /// Keyboard bindings the user changed, action id to comma-joined chords;
     /// an empty string unbinds. Sparse on purpose, so a default corrected in
     /// a later version still reaches everyone who never touched it. The
     /// frontend owns the table of actions and the chord spelling.
-    #[serde(default)]
     pub shortcuts: std::collections::HashMap<String, String>,
 }
 
@@ -316,19 +310,6 @@ impl Default for Settings {
             shortcuts: std::collections::HashMap::new(),
         }
     }
-}
-
-impl Settings {
-    fn default_check_for_updates() -> bool { true }
-    fn default_auto_reconnect() -> bool { true }
-    fn default_auto_reconnect_attempts() -> u32 { 5 }
-    fn default_restore_tabs() -> bool { true }
-    fn default_connection_timeout() -> u32 { 60 }
-    fn default_show_hover_hints() -> bool { true }
-    fn default_sftp_inactivity_timeout() -> u32 { 300 }
-    fn default_keepalive_interval() -> u32 { 30 }
-    fn default_lock_on_suspend() -> bool { true }
-    fn default_scrollback_lines() -> u32 { 10_000 }
 }
 
 /// A saved port forwarding rule.
@@ -382,6 +363,9 @@ pub struct AppData {
     pub servers: Vec<Server>,
     pub identities: Vec<Identity>,
     pub keys: Vec<KeyEntry>,
+    // A document written before a field existed, or hand-edited without one,
+    // keeps every other record it holds rather than failing as a whole.
+    #[serde(default)]
     pub settings: Settings,
     #[serde(default)]
     pub port_forwardings: Vec<PortForwarding>,
@@ -484,6 +468,65 @@ mod tests {
         // A host saved before the startup command could be hidden keeps the
         // behaviour the app shipped with, which is to hide it.
         assert!(data.servers[0].hide_run_on_connect);
+    }
+
+    /// The value the frontend tests against for "nobody has asked this host
+    /// yet" is what an absent `os` reads as. The two ends agree by this
+    /// constant; nothing else keeps them in step.
+    #[test]
+    fn a_host_nobody_has_asked_reads_as_undetected() {
+        let server: Server = serde_json::from_str(
+            r#"{ "id": "s1", "name": "box", "host": "example.com", "port": 22 }"#,
+        )
+        .unwrap();
+        assert_eq!(server.os, UNDETECTED_OS);
+        assert!(server.hide_run_on_connect, "hiding the startup command is the default");
+    }
+
+    /// A settings file written by an older version, or edited by hand, is
+    /// missing whatever it never knew about. Every field takes its default
+    /// rather than the document failing and the app falling back to a
+    /// backup, which used to happen for four fields that had no default.
+    #[test]
+    fn a_settings_file_missing_fields_keeps_the_rest_of_the_document() {
+        let data: AppData = serde_json::from_str(
+            r#"{
+                "servers": [{ "id": "s1", "name": "box", "host": "example.com", "port": 22 }],
+                "identities": [], "keys": [],
+                "settings": { "font_size": 18 }
+            }"#,
+        )
+        .expect("a settings file missing fields should still load");
+
+        assert_eq!(data.settings.font_size, 18, "what it did say is kept");
+        assert_eq!(data.settings.theme, Settings::default().theme);
+        assert_eq!(data.settings.font_family, "monospace");
+        assert!(data.settings.cursor_blink);
+        assert_eq!(data.servers.len(), 1, "the rest of the document survives");
+    }
+
+    /// And with no settings key at all.
+    #[test]
+    fn a_document_with_no_settings_takes_them_all() {
+        let data: AppData = serde_json::from_str(
+            r#"{ "servers": [], "identities": [], "keys": [] }"#,
+        )
+        .expect("settings are not required to be there");
+        assert_eq!(data.settings.scrollback_lines, Settings::default().scrollback_lines);
+    }
+
+    /// A host, on the other hand, is not guessable. One missing the address
+    /// to connect to would list like any other and fail every time it was
+    /// opened, so the document is refused instead.
+    #[test]
+    fn a_host_without_an_address_is_refused() {
+        let parsed = serde_json::from_str::<AppData>(
+            r#"{
+                "servers": [{ "id": "s1", "name": "box", "port": 22 }],
+                "identities": [], "keys": [], "settings": {}
+            }"#,
+        );
+        assert!(parsed.is_err(), "a host with no hostname is not a host");
     }
 
     /// Commands are the other direction: nothing has been saved yet, so a
