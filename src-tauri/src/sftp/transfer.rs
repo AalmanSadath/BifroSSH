@@ -357,8 +357,8 @@ impl FileSide for Remote {
     }
 
     async fn digest_prefix(&self, path: &str, len: u64) -> Result<String> {
-        let command = format!("head -c {len} -- {} | sha256sum", super::archive::quote(path));
-        let out = super::verify::run_capture(self.opener.as_ref(), &command).await?;
+        let command = format!("head -c {len} -- {} | sha256sum", super::remote_exec::quote(path));
+        let out = super::remote_exec::run_capture(self.opener.as_ref(), "sha256sum", &command).await?;
         let digest = out
             .split_whitespace()
             .next()
@@ -374,10 +374,10 @@ impl FileSide for Remote {
             let mut args = String::new();
             for path in batch {
                 args.push(' ');
-                args.push_str(&super::archive::quote(path));
+                args.push_str(&super::remote_exec::quote(path));
             }
             let command = format!("sha256sum --{args}");
-            let said = super::verify::run_capture(self.opener.as_ref(), &command).await?;
+            let said = super::remote_exec::run_capture(self.opener.as_ref(), "sha256sum", &command).await?;
             for line in said.lines() {
                 let line = line.trim_end_matches('\r');
                 if line.is_empty() { continue; }
