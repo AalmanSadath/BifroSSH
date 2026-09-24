@@ -12,6 +12,7 @@ import { activityChip, anyBusy } from './activity';
 import { terminalFor } from './terminalRegistry';
 import { transcriptLines, transcriptName, transcriptText } from './transcript';
 import { parseSSHInput } from './sshInput';
+import { readTabDrag, tabDragPayload } from './dragPayload';
 import { evenAt, evenWidths, resizeAt, widthAt } from './paneSizes';
 import { WINDOW_ACTIONS, actionFor, resolve as resolveShortcuts, tabIndexFor } from './shortcuts';
 import CommandPalette from './components/CommandPalette';
@@ -37,23 +38,6 @@ import ContextMenu from './components/shared/ContextMenu';
 import Modal from './components/shared/Modal';
 import PassphraseInput from './components/shared/PassphraseInput';
 import PortalDropdown from './components/shared/PortalDropdown';
-
-/**
- * A dragged tab travels as text/plain JSON, the way an SFTP entry does:
- * WebKitGTK carries only the standard clipboard types across a drag, so a
- * type of our own arrives empty. The `kind` field is what tells the two
- * payloads apart, and the SFTP drop handler ignores one without entries.
- */
-const TAB_DRAG_KIND = 'bifrossh-tab';
-
-function readTabDrag(e: React.DragEvent): string | null {
-  try {
-    const parsed = JSON.parse(e.dataTransfer.getData('text/plain')) as { kind?: string; tab_id?: string };
-    return parsed.kind === TAB_DRAG_KIND && parsed.tab_id ? parsed.tab_id : null;
-  } catch {
-    return null;
-  }
-}
 
 export default function App() {
   const {
@@ -688,7 +672,7 @@ export default function App() {
                 onContextMenu={(e) => handleTabContextMenu(e, s)}
                 draggable
                 onDragStart={(e) => {
-                  e.dataTransfer.setData('text/plain', JSON.stringify({ kind: TAB_DRAG_KIND, tab_id: s.tab_id }));
+                  e.dataTransfer.setData('text/plain', tabDragPayload(s.tab_id));
                   e.dataTransfer.effectAllowed = 'move';
                 }}
               >
@@ -742,7 +726,7 @@ export default function App() {
             onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setTabDragOver(false); }}
             onDrop={(e) => {
               setTabDragOver(false);
-              const dropped = readTabDrag(e);
+              const dropped = readTabDrag(e.dataTransfer.getData('text/plain'));
               if (!dropped || !activeTabId || !activeIsSession) return;
               e.preventDefault();
               splitWith(activeTabId, dropped);

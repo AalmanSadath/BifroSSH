@@ -22,22 +22,8 @@ import CompareDialog from './CompareDialog';
 import { diffSummary, isIdentical } from '../compare';
 import { useDismissOnOutside } from './shared/useDismissOnOutside';
 import { freeName, localStyle, remoteStyle, resolveTyped, styleFor, type PathStyle } from '../paths';
-
-function formatSize(bytes: number, isDir: boolean): string {
-  if (isDir) return '- -';
-  if (bytes === 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-  return `${(bytes / Math.pow(1024, i)).toFixed(i ? 1 : 0)} ${units[i]}`;
-}
-
-function formatDate(ts: number | null): string {
-  if (!ts) return '- -';
-  return new Date(ts * 1000).toLocaleString(undefined, {
-    month: 'numeric', day: 'numeric', year: 'numeric',
-    hour: 'numeric', minute: '2-digit',
-  });
-}
+import { HEADERS, formatDate, formatSize, visibleEntries, type SortCol } from '../fileList';
+import { fileDragPayload, readDragPayload } from '../dragPayload';
 
 function FolderIcon({ size = 16 }: { size?: number }) {
   return (
@@ -60,8 +46,6 @@ function FileIcon({ size = 16 }: { size?: number }) {
   );
 }
 
-const HEADERS = ['Name', 'Date Modified', 'Size', 'Owner', 'Type'] as const;
-type SortCol = typeof HEADERS[number];
 const DEFAULT_COL_WIDTHS = [38, 22, 10, 14, 16];
 
 /**
@@ -282,24 +266,13 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
    * rows 3 to 6 selected whichever files happened to sit at 3 to 6 in
    * directory order.
    */
-  const visible: FileEntry[] = (() => {
-    const dotdot = entries.filter(en => en.name === '..');
-    const needle = filter?.toLowerCase() ?? '';
-    const rest = entries
-      .filter(en => en.name !== '..' && (showHidden || !en.hidden))
-      .filter(en => needle === '' || en.name.toLowerCase().includes(needle))
-      .sort((a, b) => {
-        if (dirsOnTop && a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
-        let cmp = 0;
-        if (sortCol === 'Name') cmp = a.name.localeCompare(b.name);
-        else if (sortCol === 'Date Modified') cmp = (a.modified ?? 0) - (b.modified ?? 0);
-        else if (sortCol === 'Size') cmp = a.size - b.size;
-        else if (sortCol === 'Owner') cmp = a.owner.localeCompare(b.owner);
-        else if (sortCol === 'Type') cmp = a.kind.localeCompare(b.kind);
-        return sortAsc ? cmp : -cmp;
-      });
-    return [...dotdot, ...rest];
-  })();
+  const visible = visibleEntries(entries, {
+    sortCol,
+    sortAsc,
+    dirsOnTop,
+    showHidden,
+    filter: filter ?? '',
+  });
 
   function handleRowClick(e: React.MouseEvent, entry: FileEntry, idx: number) {
     if (entry.name === '..') return;
@@ -429,7 +402,8 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
   }
 
   function handleDragStart(e: React.DragEvent, entry: FileEntry) {
-    e.dataTransfer.setData('text/plain', JSON.stringify({ side, entries: batchFor(entry) }));
+    if (!side) return;
+    e.dataTransfer.setData('text/plain', fileDragPayload(side, batchFor(entry)));
     e.dataTransfer.effectAllowed = 'copyMove';
     dragFromHereRef.current = true;
   }
@@ -460,36 +434,18 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
     if (dragCountRef.current === 0) setTimeout(() => { if (dragCountRef.current === 0) onDragLeaveCb?.(); }, 0);
   }
 
-  /** The payload of one of our own drags, or null for anything else. */
-  function readDragPayload(e: React.DragEvent): { fromSide: 'left' | 'right'; dropped: FileEntry[] } | null {
-    const raw = e.dataTransfer.getData('text/plain');
-    if (!raw) return null;
-    try {
-      const { side: fromSide, entries: dropped } = JSON.parse(raw) as {
-        side: 'left' | 'right';
-        entries: FileEntry[];
-      };
-      return dropped.length > 0 ? { fromSide, dropped } : null;
-    } catch {
-      // A drag from outside the app carries whatever that app put on the
-      // clipboard, which is not this payload. Nothing to do and nothing worth
-      // saying: the drop simply is not one of ours.
-      return null;
-    }
-  }
-
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
     dragCountRef.current = 0;
     onDragLeaveCb?.();
     if (!onFileDrop) return;
-    const payload = readDragPayload(e);
+    const payload = readDragPayload(e.dataTransfer.getData('text/plain'));
     if (payload && payload.fromSide !== side) onFileDrop(payload.dropped, payload.fromSide);
   }
 
   /** A drop on a directory row: a move when it came from this pane. */
   function handleRowDrop(e: React.DragEvent, dir: FileEntry) {
-    const payload = readDragPayload(e);
+    const payload = readDragPayload(e.dataTransfer.getData('text/plain'));
     if (!payload || payload.fromSide !== side) return;
     e.preventDefault();
     e.stopPropagation();
