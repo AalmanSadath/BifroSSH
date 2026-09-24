@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { FileEntry } from '../types';
+import SftpDialog from './shared/SftpDialog';
 
 /** An octal string typed by hand, or null when it names no valid mode. */
 export function parseOctal(s: string): number | null {
@@ -95,12 +96,7 @@ export default function PermissionsDialog({ entries, onApply, onCancel }: Props)
     : `Permissions of ${entries.length} items`;
 
   return (
-    <div
-      className="sftp-confirm-overlay"
-      onKeyDown={(e) => { if (e.key === 'Escape') onCancel(); }}
-    >
-      <div className="sftp-confirm-dialog sftp-perms-dialog">
-        <p className="sftp-confirm-title">{title}</p>
+    <SftpDialog title={title} onEscape={onCancel} className="sftp-perms-dialog">
 
         <table className="sftp-perms-grid">
           <thead>
@@ -172,8 +168,7 @@ export default function PermissionsDialog({ entries, onApply, onCancel }: Props)
           >
             Apply
           </button>
-        </div>
       </div>
-    </div>
+    </SftpDialog>
   );
 }

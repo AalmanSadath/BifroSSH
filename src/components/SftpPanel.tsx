@@ -16,6 +16,7 @@ import ConnectingView from './ConnectingView';
 import ContextMenu from './shared/ContextMenu';
 import PermissionsDialog, { type OwnerChange } from './PermissionsDialog';
 import ConflictDialog, { type ConflictAnswer, type ConflictPrompt } from './ConflictDialog';
+import SftpDialog from './shared/SftpDialog';
 import MismatchDialog from './MismatchDialog';
 import { batchSettled, record, take, type Mismatch, type Pending } from '../mismatches';
 import CompareDialog from './CompareDialog';
@@ -824,20 +825,20 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
       )}
 
       {confirmDelete && (
-        <div className="sftp-confirm-overlay">
-          <div className="sftp-confirm-dialog">
-            <p className="sftp-confirm-title">
-              {confirmDelete.length === 1
-                ? `Delete "${confirmDelete[0].name}"?`
-                : `Delete ${confirmDelete.length} items?`}
-            </p>
-            <p className="sftp-confirm-sub">This cannot be undone.</p>
-            <div className="sftp-confirm-actions">
-              <button className="sftp-action-btn" onClick={() => setConfirmDelete(null)}>Cancel</button>
-              <button className="sftp-confirm-delete-btn" onClick={() => { onDelete?.(confirmDelete); setConfirmDelete(null); }}>Delete</button>
-            </div>
+        <SftpDialog
+          title={confirmDelete.length === 1
+            ? `Delete "${confirmDelete[0].name}"?`
+            : `Delete ${confirmDelete.length} items?`}
+          onEscape={() => setConfirmDelete(null)}
+        >
+          <p className="sftp-confirm-sub">This cannot be undone.</p>
+          <div className="sftp-confirm-actions">
+            {/* Focused so a delete is never one stray Return away, and so
+                Escape reaches the dialog that is listening for it. */}
+            <button className="sftp-action-btn" onClick={() => setConfirmDelete(null)} autoFocus>Cancel</button>
+            <button className="sftp-confirm-delete-btn" onClick={() => { onDelete?.(confirmDelete); setConfirmDelete(null); }}>Delete</button>
           </div>
-        </div>
+        </SftpDialog>
       )}
 
       {permEntries && (

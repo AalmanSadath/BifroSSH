@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Conflict } from '../types';
+import SftpDialog from './shared/SftpDialog';
 
 /** What the user decided, and whether it holds for the rest of the batch. */
 export interface ConflictAnswer {
@@ -35,39 +36,33 @@ export default function ConflictDialog({ prompt, onAnswer }: Props) {
   const single = prompt.files.length === 1 && prompt.files[0] === prompt.name;
   const answer = (choice: Conflict) => onAnswer({ choice, applyToAll });
 
+  const title = single
+    ? `"${prompt.name}" already exists`
+    : `${prompt.files.length} ${prompt.files.length === 1 ? 'file' : 'files'} in "${prompt.name}" already exist`;
+
   return (
-    <div
-      className="sftp-confirm-overlay"
-      onKeyDown={(e) => { if (e.key === 'Escape') onAnswer(null); }}
-    >
-      <div className="sftp-confirm-dialog sftp-conflict-dialog">
-        <p className="sftp-confirm-title">
-          {single
-            ? `"${prompt.name}" already exists`
-            : `${prompt.files.length} ${prompt.files.length === 1 ? 'file' : 'files'} in "${prompt.name}" already exist`}
-        </p>
-        {!single && (
-          <ul className="sftp-conflict-list">
-            {prompt.files.slice(0, SHOWN).map((f) => <li key={f}>{f}</li>)}
-            {prompt.files.length > SHOWN && <li>and {prompt.files.length - SHOWN} more</li>}
-          </ul>
-        )}
-        <p className="sftp-confirm-sub">
-          Overwrite replaces {single ? 'it' : 'them'}. Keep both writes the new {single ? 'one' : 'ones'} under a numbered name.
-        </p>
-        {prompt.more && (
-          <label className="checkbox-row sftp-conflict-all">
-            <input type="checkbox" checked={applyToAll} onChange={(e) => setApplyToAll(e.target.checked)} />
-            <span>Do this for the rest</span>
-          </label>
-        )}
-        <div className="sftp-confirm-actions">
-          <button className="sftp-action-btn" onClick={() => onAnswer(null)} autoFocus>Cancel</button>
-          <button className="sftp-action-btn" onClick={() => answer('skip')}>Skip</button>
-          <button className="sftp-action-btn" onClick={() => answer('keep_both')}>Keep both</button>
-          <button className="sftp-action-btn sftp-perms-apply-btn" onClick={() => answer('overwrite')}>Overwrite</button>
-        </div>
+    <SftpDialog title={title} onEscape={() => onAnswer(null)} className="sftp-conflict-dialog">
+      {!single && (
+        <ul className="sftp-conflict-list">
+          {prompt.files.slice(0, SHOWN).map((f) => <li key={f}>{f}</li>)}
+          {prompt.files.length > SHOWN && <li>and {prompt.files.length - SHOWN} more</li>}
+        </ul>
+      )}
+      <p className="sftp-confirm-sub">
+        Overwrite replaces {single ? 'it' : 'them'}. Keep both writes the new {single ? 'one' : 'ones'} under a numbered name.
+      </p>
+      {prompt.more && (
+        <label className="checkbox-row sftp-conflict-all">
+          <input type="checkbox" checked={applyToAll} onChange={(e) => setApplyToAll(e.target.checked)} />
+          <span>Do this for the rest</span>
+        </label>
+      )}
+      <div className="sftp-confirm-actions">
+        <button className="sftp-action-btn" onClick={() => onAnswer(null)} autoFocus>Cancel</button>
+        <button className="sftp-action-btn" onClick={() => answer('skip')}>Skip</button>
+        <button className="sftp-action-btn" onClick={() => answer('keep_both')}>Keep both</button>
+        <button className="sftp-action-btn sftp-perms-apply-btn" onClick={() => answer('overwrite')}>Overwrite</button>
       </div>
-    </div>
+    </SftpDialog>
   );
 }
