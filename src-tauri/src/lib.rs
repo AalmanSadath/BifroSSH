@@ -187,6 +187,7 @@ fn start(
             commands::import_ssh_config_hosts,
             commands::default_export_dir,
             commands::export_data,
+            commands::write_text_file,
             commands::preview_import,
             commands::import_data,
             commands::get_port_forwardings,

@@ -12,6 +12,8 @@ interface Props {
   onAddHost: () => void;
   /** Locks the vault, the same call the shortcut makes. */
   onLock: () => void;
+  /** The active tab's scrollback, copied or written to a file; App owns both. */
+  onTranscript: (tabId: string, to: 'clipboard' | 'file') => void;
 }
 
 // SFTP is not here: the panel and the hosts that open in it share a
@@ -42,7 +44,7 @@ const SETTINGS_SECTIONS: { id: SettingsSection; label: string }[] = [
  * is something the app could already do somewhere else; what it saves is
  * knowing where that somewhere is.
  */
-export default function CommandPalette({ onClose, onCodeprint, onAddHost, onLock }: Props) {
+export default function CommandPalette({ onClose, onCodeprint, onAddHost, onLock, onTranscript }: Props) {
   const {
     servers, sessions, activeTabId, codeprints, setActiveTab, openSession, openInSftp,
     removeSession, toggleBroadcast, toggleLogging, checkForUpdates, openSettings,
@@ -149,6 +151,20 @@ export default function CommandPalette({ onClose, onCodeprint, onAddHost, onLock
         title: active.logging === 'tab' ? 'Stop logging this tab' : 'Log this tab to a file',
         group: 'Actions',
         run: done(() => { void toggleLogging(active.tab_id); }),
+      });
+      items.push({
+        id: 'action:transcript-copy',
+        title: 'Copy this tab as text',
+        subtitle: active.server_name,
+        group: 'Actions',
+        run: done(() => onTranscript(active.tab_id, 'clipboard')),
+      });
+      items.push({
+        id: 'action:transcript-save',
+        title: 'Save this tab as a text file',
+        subtitle: active.server_name,
+        group: 'Actions',
+        run: done(() => onTranscript(active.tab_id, 'file')),
       });
       items.push({
         id: 'action:close',

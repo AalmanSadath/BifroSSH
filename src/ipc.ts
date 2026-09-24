@@ -193,6 +193,13 @@ export const sftpCompareTrees = (
   rightPath: string,
 ) => invoke<TreeDiff>('sftp_compare_trees', { transferId, leftSessionId, leftPath, rightSessionId, rightPath });
 
+/**
+ * Writes text to a path the user chose. Without `overwrite` a file that is
+ * already there is an error rather than something quietly replaced.
+ */
+export const writeTextFile = (path: string, contents: string, overwrite: boolean) =>
+  invoke<void>('write_text_file', { path, contents, overwrite });
+
 export const getOpenTabs = () => invoke<string[]>('get_open_tabs');
 
 export const saveOpenTabs = (items: string[]) => invoke<void>('save_open_tabs', { items });

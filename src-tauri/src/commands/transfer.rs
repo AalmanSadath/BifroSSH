@@ -19,6 +19,31 @@ pub async fn default_export_dir() -> CmdResult<String> {
     Ok(dir.to_string_lossy().into_owned())
 }
 
+/// Writes text the user asked to keep: a terminal transcript today.
+///
+/// Private from the moment it exists, like an export: a transcript holds
+/// whatever the session printed, which can be anything. Without `overwrite`
+/// the refusal is the open itself rather than a prior exists() check, so a
+/// symlink appearing between the two cannot be followed.
+#[tauri::command]
+pub async fn write_text_file(path: String, contents: String, overwrite: bool) -> CmdResult<()> {
+    let file = std::path::Path::new(&path);
+    let bytes = contents.as_bytes();
+    if overwrite {
+        crate::store::write_private(file, bytes)
+            .map_err(|e| format!("Could not write {path}: {e:#}"))?;
+    } else {
+        crate::store::write_new_private(file, bytes).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::AlreadyExists {
+                format!("{path} already exists")
+            } else {
+                format!("Could not write {path}: {e}")
+            }
+        })?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn export_data(
     state: State<'_, AppState>,
