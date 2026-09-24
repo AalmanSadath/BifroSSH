@@ -192,7 +192,7 @@ async fn digests_of(
                 if stop { return Ok(out); }
                 for rel in rels {
                     let at = if rel.is_empty() { root.clone() } else { root.join(&rel) };
-                    out.insert(rel, digest_file(&at)?);
+                    out.insert(rel, digest_file(&at, None)?);
                 }
                 Ok(out)
             })
@@ -252,7 +252,7 @@ fn join_rel(root: &str, rel: &str) -> String {
 }
 
 /// Runs a command on the far end and returns its stdout.
-async fn run_capture(opener: &dyn ChannelOpener, command: &str) -> Result<String> {
+pub(super) async fn run_capture(opener: &dyn ChannelOpener, command: &str) -> Result<String> {
     let mut channel = opener
         .open_session()
         .await
@@ -284,8 +284,16 @@ async fn run_capture(opener: &dyn ChannelOpener, command: &str) -> Result<String
 }
 
 /// Whether a summary describes a transfer whose two trees should match.
+///
+/// A batch that stopped, for whatever reason, copied less than it was asked
+/// to, and an unfinished file sitting at the destination is one more thing
+/// the source does not have. Resuming is not disqualifying: a resume that
+/// ran to the end leaves the same two trees any other finished transfer does.
 pub fn comparable(summary: &TransferSummary) -> bool {
     !summary.cancelled
+        && summary.failed.is_none()
+        && summary.mismatched.is_empty()
+        && summary.resumable == 0
         && summary.skipped_existing == 0
         && summary.skipped_symlinks == 0
         && summary.renamed == 0
@@ -316,7 +324,7 @@ fn local_digests(root: &Path) -> Result<Digests> {
     let mut out = Digests::new();
     let meta = std::fs::symlink_metadata(root).with_context(|| root.display().to_string())?;
     if meta.is_file() {
-        out.push((String::new(), digest_file(root)?));
+        out.push((String::new(), digest_file(root, None)?));
         return Ok(out);
     }
     let mut stack = vec![root.to_path_buf()];
@@ -330,12 +338,17 @@ fn local_digests(root: &Path) -> Result<Digests> {
             if meta.is_dir() {
                 stack.push(path);
             } else if meta.is_file() {
+                // An unfinished file belongs to a transfer that has not
+                // happened yet, not to the tree being compared.
+                if crate::sftp::transfer::is_part(&entry.file_name().to_string_lossy()) {
+                    continue;
+                }
                 let rel = path
                     .strip_prefix(root)
                     .unwrap_or(&path)
                     .to_string_lossy()
                     .replace('\\', "/");
-                out.push((rel, digest_file(&path)?));
+                out.push((rel, digest_file(&path, None)?));
             }
         }
     }
@@ -343,14 +356,21 @@ fn local_digests(root: &Path) -> Result<Digests> {
     Ok(out)
 }
 
-fn digest_file(path: &Path) -> Result<String> {
+/// The digest of `path`, or of its first `limit` bytes where one is given.
+///
+/// The limit is what a resume asks about: whether the bytes already at the
+/// destination are the beginning of the file about to be continued.
+pub(super) fn digest_file(path: &Path, limit: Option<u64>) -> Result<String> {
     let mut file = std::fs::File::open(path).with_context(|| path.display().to_string())?;
     let mut hasher = Sha256::new();
     let mut buf = vec![0u8; 128 * 1024];
-    loop {
-        let read = file.read(&mut buf)?;
+    let mut left = limit.unwrap_or(u64::MAX);
+    while left > 0 {
+        let want = buf.len().min(left as usize);
+        let read = file.read(&mut buf[..want])?;
         if read == 0 { break; }
         hasher.update(&buf[..read]);
+        left -= read as u64;
     }
     Ok(hex(&hasher.finalize()))
 }
@@ -370,9 +390,10 @@ pub(super) fn digest_command(remote_path: &str) -> String {
     let name = trimmed.rsplit('/').next().unwrap_or(trimmed);
     let parent = parent_remote(trimmed);
     format!(
-        "cd {} && find {} -type f -exec sha256sum -- {{}} +",
+        "cd {} && find {} -type f ! -name '*{}' -exec sha256sum -- {{}} +",
         quote(&parent),
         quote(name),
+        crate::sftp::transfer::PART,
     )
 }
 
@@ -422,6 +443,9 @@ pub(super) fn parse_digests(out: &str, name: &str) -> Result<Digests> {
             bail!("Could not read what sha256sum said: {line}");
         };
         let path = path.strip_prefix("./").unwrap_or(path);
+        if crate::sftp::transfer::is_part(path) {
+            continue;
+        }
         let rel = if path == name {
             String::new()
         } else {
@@ -472,8 +496,17 @@ mod tests {
     fn the_command_survives_a_name_the_shell_would_eat() {
         assert_eq!(
             digest_command("/tmp/it's here/a b"),
-            "cd '/tmp/it'\\''s here' && find 'a b' -type f -exec sha256sum -- {} +"
+            "cd '/tmp/it'\\''s here' && find 'a b' -type f ! -name '*.bifrossh-part' -exec sha256sum -- {} +"
         );
+    }
+
+    /// An unfinished file from an earlier attempt is not part of the tree.
+    /// Counting it would report the destination as holding something the
+    /// source does not have, which reads as a failed verification.
+    #[test]
+    fn an_unfinished_file_is_not_compared() {
+        let out = "aa  tree/one.txt\nbb  tree/two.txt.bifrossh-part\n";
+        assert_eq!(parse_digests(out, "tree").unwrap(), d(&[("one.txt", "aa")]));
     }
 
     #[test]
@@ -529,5 +562,11 @@ mod tests {
         assert!(!comparable(&TransferSummary { skipped_existing: 1, landed: landed(), ..Default::default() }));
         assert!(!comparable(&TransferSummary { skipped_symlinks: 1, landed: landed(), ..Default::default() }));
         assert!(!comparable(&TransferSummary { renamed: 1, landed: landed(), ..Default::default() }));
+        assert!(!comparable(&TransferSummary { resumable: 1, landed: landed(), ..Default::default() }));
+        assert!(!comparable(&TransferSummary {
+            failed: Some("the connection went away".into()),
+            landed: landed(),
+            ..Default::default()
+        }));
     }
 }

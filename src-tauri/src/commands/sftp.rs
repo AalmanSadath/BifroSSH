@@ -223,6 +223,52 @@ pub async fn sftp_compare_trees(
 
 /// Which files a transfer would write over, asked before the user is.
 ///
+/// Copies named files of a finished transfer again, over what is there.
+///
+/// `rels` are relative to the transfer root and come straight back from a
+/// summary, so the frontend never joins a path. `dest_root` is where that
+/// transfer landed. `kind` names the pairing, as it does for the conflict
+/// check.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn sftp_recopy(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    transfer_id: String,
+    kind: String,
+    src_session_id: Option<String>,
+    src_path: String,
+    dst_session_id: Option<String>,
+    dest_root: String,
+    rels: Vec<String>,
+) -> CmdResult<crate::sftp::TransferSummary> {
+    let pairing = pairing_for(&kind, src_session_id, dst_session_id)?;
+    let sink = crate::sftp::Tagged { app: &app, transfer_id: transfer_id.clone() };
+    crate::sftp::recopy_paths(&sink, &state.sftp_state, &transfer_id, pairing, &src_path, &dest_root, &rels)
+        .await
+        .map_err(CmdError::from)
+}
+
+/// The pairing a `kind` names, with the session ids it needs. The ones it
+/// does not need are ignored.
+fn pairing_for(
+    kind: &str,
+    src_session_id: Option<String>,
+    dst_session_id: Option<String>,
+) -> CmdResult<crate::sftp::Pairing> {
+    use crate::sftp::Pairing;
+    let need = |id: Option<String>| id.ok_or_else(|| CmdError::from("Missing session id"));
+    Ok(match kind {
+        "upload" => Pairing::Upload { session_id: need(dst_session_id)? },
+        "download" => Pairing::Download { session_id: need(src_session_id)? },
+        "copy" => Pairing::Copy {
+            src_session_id: need(src_session_id)?,
+            dst_session_id: need(dst_session_id)?,
+        },
+        other => return Err(CmdError::from(format!("Unknown transfer kind: {other}"))),
+    })
+}
+
 /// `kind` names the pairing; the session ids that pairing needs must be
 /// present, the others are ignored.
 #[tauri::command]
@@ -234,14 +280,7 @@ pub async fn sftp_conflicts(
     dst_session_id: Option<String>,
     dst_dir: String,
 ) -> CmdResult<Vec<String>> {
-    use crate::sftp::Pairing;
-    let need = |id: Option<String>| id.ok_or_else(|| CmdError::from("Missing session id"));
-    let pairing = match kind.as_str() {
-        "upload" => Pairing::Upload { session_id: need(dst_session_id)? },
-        "download" => Pairing::Download { session_id: need(src_session_id)? },
-        "copy" => Pairing::Copy { src_session_id: need(src_session_id)?, dst_session_id: need(dst_session_id)? },
-        other => return Err(CmdError::from(format!("Unknown transfer kind: {other}"))),
-    };
+    let pairing = pairing_for(&kind, src_session_id, dst_session_id)?;
     crate::sftp::conflicts_for(&state.sftp_state, pairing, &src_path, &dst_dir).await.map_err(CmdError::from)
 }
 

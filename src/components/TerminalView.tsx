@@ -9,6 +9,8 @@ import { TERMINAL_ACTIONS, actionFor, resolve as resolveShortcuts } from '../sho
 import * as ipc from '../ipc';
 import { listen } from '@tauri-apps/api/event';
 import { useAppStore } from '../store/appStore';
+import { parseMark } from '../activity';
+import { registerTerminal, unregisterTerminal } from '../terminalRegistry';
 import type { SessionTab, SshClosed } from '../types';
 import { THEMES } from '../styles/themes';
 import '@xterm/xterm/css/xterm.css';
@@ -50,7 +52,7 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
   sessionIdRef.current = sessionId;
   /** Whether a session has been bound before, so the next one is a reconnect. */
   const boundOnceRef = useRef(false);
-  const { settings, servers, removeSession, markDropped, reconnectSession, stopRetrying, retryingTabIds, sendInput, setActiveTab, sessionThemeOverrides, sessionZoom, zoomSession, customThemes } = useAppStore();
+  const { settings, servers, removeSession, markDropped, reconnectSession, stopRetrying, retryingTabIds, sendInput, setActiveTab, sessionThemeOverrides, sessionZoom, zoomSession, customThemes, markActivity } = useAppStore();
 
   // This tab's own size if it has been zoomed, else the one every terminal
   // uses. Same precedence as the theme override below it.
@@ -58,6 +60,11 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
 
   // The key handler below is attached once with the terminal; the bindings
   // can change under it, so it reads them through a ref.
+  // The OSC handler is registered once, with the terminal, so it reaches the
+  // store through a ref rather than the first render's action.
+  const markActivityRef = useRef(markActivity);
+  markActivityRef.current = markActivity;
+
   const shortcutsRef = useRef(resolveShortcuts(settings.shortcuts));
   shortcutsRef.current = resolveShortcuts(settings.shortcuts);
   const retrying = retryingTabIds.has(tabId);
@@ -266,6 +273,15 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
         })));
       },
     });
+    // OSC 133: the marks a shell emits around each command, if it has been
+    // told to. True so the sequence is consumed rather than printed by
+    // anything downstream; a shell that sends none simply never calls this.
+    term.parser.registerOscHandler(133, (data) => {
+      const mark = parseMark(data);
+      if (mark) markActivityRef.current(tabId, mark);
+      return true;
+    });
+
     term.open(container);
     fitAddon.fit();
 
@@ -398,7 +414,11 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
       if (pos.end.y > cursorAbsRow) term.clearSelection();
     });
 
+    // What the tab menu reaches for when it is asked for a transcript.
+    registerTerminal(tabId, term);
+
     return () => {
+      unregisterTerminal(tabId);
       container.removeEventListener('contextmenu', onContextMenu, true);
       container.removeEventListener('mouseup', onMouseUp);
       term.dispose();

@@ -984,6 +984,23 @@
   cursor: default;
 }
 
+/* Beside the ✕ on a row that kept an unfinished file. Accented rather than
+   muted: it is the one thing worth doing with that row. */
+.sftp-resume-btn {
+  flex-shrink: 0;
+  padding: 2px 9px;
+  font-size: 11px;
+  color: var(--accent);
+  background: none;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.sftp-resume-btn:hover {
+  background: var(--bg-hover);
+}
+
 .sftp-progress-track {
   height: 4px;
   background: var(--bg-hover);

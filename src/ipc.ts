@@ -193,6 +193,13 @@ export const sftpCompareTrees = (
   rightPath: string,
 ) => invoke<TreeDiff>('sftp_compare_trees', { transferId, leftSessionId, leftPath, rightSessionId, rightPath });
 
+/**
+ * Writes text to a path the user chose. Without `overwrite` a file that is
+ * already there is an error rather than something quietly replaced.
+ */
+export const writeTextFile = (path: string, contents: string, overwrite: boolean) =>
+  invoke<void>('write_text_file', { path, contents, overwrite });
+
 export const getOpenTabs = () => invoke<string[]>('get_open_tabs');
 
 export const saveOpenTabs = (items: string[]) => invoke<void>('save_open_tabs', { items });
@@ -344,6 +351,22 @@ export const sftpCopyRemoteToRemote = (
  * The files, relative to the item, that a transfer would write over.
  * Asked before the transfer so the user can be asked before anything is.
  */
+/**
+ * Copies named files of a finished transfer again, over what is there.
+ *
+ * `rels` come straight out of a summary's `mismatched`, relative to the
+ * transfer root, and `destRoot` is that summary's `landed`.
+ */
+export const sftpRecopy = (
+  transferId: string,
+  kind: TransferKind,
+  srcSessionId: string | null,
+  srcPath: string,
+  dstSessionId: string | null,
+  destRoot: string,
+  rels: string[],
+) => invoke<TransferSummary>('sftp_recopy', { transferId, kind, srcSessionId, srcPath, dstSessionId, destRoot, rels });
+
 export const sftpConflicts = (
   kind: TransferKind,
   srcSessionId: string | null,

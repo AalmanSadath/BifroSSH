@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import * as ipc from '../ipc';
+import { SHELLS, withIntegration } from '../shellIntegration';
 import { useAppStore } from '../store/appStore';
 import ThemePicker, { ThumbNail } from './ThemePicker';
 import { THEMES } from '../styles/themes';
@@ -56,6 +57,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
   const [logSessions, setLogSessions] = useState(server?.log_sessions ?? false);
   const [group, setGroup] = useState(server?.group ?? '');
   const [runOnConnect, setRunOnConnect] = useState(server?.run_on_connect ?? '');
+  const [hideRunOnConnect, setHideRunOnConnect] = useState(server?.hide_run_on_connect ?? true);
   const [notes, setNotes] = useState(server?.notes ?? '');
   const [showGroups, setShowGroups] = useState(false);
   const [groupRect, setGroupRect] = useState<AnchorRect | null>(null);
@@ -122,6 +124,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
           log_sessions: logSessions,
           group: group.trim() || null,
           run_on_connect: runOnConnect.trim() || null,
+          hide_run_on_connect: hideRunOnConnect,
           notes: notes.trim() || null,
         },
         (!identityId && !keyId && password.trim()) ? password.trim() : undefined,
@@ -352,6 +355,38 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
               spellCheck={false}
               title="Sent to the shell as if typed, followed by Enter, once the shell is up."
             />
+            {/* The line is typed at the shell, so the shell echoes it above
+                the first prompt. The app knows the bytes it sent and takes
+                them back out of the output, which leaves the banner and the
+                prompt exactly as they were. Off for a command whose being
+                typed is the point. */}
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={hideRunOnConnect}
+                disabled={runOnConnect.trim() === ''}
+                onChange={(e) => setHideRunOnConnect(e.target.checked)}
+              />
+              <span>Keep it out of the terminal</span>
+            </label>
+
+            {/* What the tab's activity chip needs from the far end. Added
+                rather than sent on its own: this host's shell is something
+                only the person who set it up knows. */}
+            <div className="shell-integration-row">
+              <span className="form-hint">Shell integration, for the tab's activity chip:</span>
+              {SHELLS.map(({ id, label }) => (
+                <button
+                  key={id}
+                  type="button"
+                  className="sftp-action-btn"
+                  onClick={() => setRunOnConnect((v) => withIntegration(v, id))}
+                  title={`Add the ${label} marks to what this host runs on connect`}
+                >
+                  Add for {label}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="form-group">

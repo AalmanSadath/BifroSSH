@@ -8,13 +8,16 @@ import { matchesHost } from '../hosts';
 import type { Conflict, EditEvent, FileEntry, LogEntry, Server, SftpBookmark, TransferKind, TransferProgress, TransferSummary, TreeDiff } from '../types';
 import { bookmarksFor, isBookmarked, labelFor } from '../bookmarks';
 import {
-  cancel as cancelItem, clearFinished, enqueue, finished, nextToRun, progressed, prune, start,
-  type QueueItem,
+  cancel as cancelItem, clearFinished, enqueue, finished, nextToRun, progressed, prune, requeue,
+  resumable, start, type QueueItem,
 } from '../transferQueue';
+import { describeTransfer, statusLine } from '../transferStatus';
 import ConnectingView from './ConnectingView';
 import ContextMenu from './shared/ContextMenu';
 import PermissionsDialog, { type OwnerChange } from './PermissionsDialog';
 import ConflictDialog, { type ConflictAnswer, type ConflictPrompt } from './ConflictDialog';
+import MismatchDialog from './MismatchDialog';
+import { batchSettled, record, take, type Mismatch, type Pending } from '../mismatches';
 import CompareDialog from './CompareDialog';
 import { diffSummary, isIdentical } from '../compare';
 import { useDismissOnOutside } from './shared/useDismissOnOutside';
@@ -1404,58 +1407,18 @@ interface TransferJob {
   target: 'left' | 'right';
   run: (transferId: string, conflict: Conflict) => Promise<TransferSummary>;
   check: () => Promise<string[]>;
-}
-
-function formatSpeed(bytesPerSec: number): string {
-  if (bytesPerSec >= 1024 * 1024) return `${(bytesPerSec / (1024 * 1024)).toFixed(1)} MB/s`;
-  if (bytesPerSec >= 1024) return `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
-  return `${Math.round(bytesPerSec)} B/s`;
+  /**
+   * Sends named files of this transfer again, over what is there. Absent on
+   * a compressed copy: a tar stream is one file the far end unpacks, and
+   * naming one of the files inside it means nothing.
+   */
+  recopy?: (transferId: string, destRoot: string, rels: string[]) => Promise<TransferSummary>;
 }
 
 /** One transfer in the queue: its name, where it is going, how it is doing. */
-function QueueRow({ row, onCancel }: { row: QueueItem; onCancel: () => void }) {
+function QueueRow({ row, onCancel, onResume }: { row: QueueItem; onCancel: () => void; onResume: () => void }) {
   const p = row.progress;
-  let status: string;
-  let pct = 0;
-  if (row.status === 'queued') status = 'Waiting';
-  else if (row.status === 'done') status = 'Done';
-  else if (row.status === 'cancelled') status = 'Stopped';
-  else if (row.status === 'failed') status = row.error ?? 'Failed';
-  else if (!p) status = row.cancelling ? 'Stopping…' : 'Starting…';
-  else if (p.total === 0) {
-    // A stream whose size nobody knows yet: a compressed download. Bytes
-    // so far and a rate are all there is to say.
-    const elapsed = (Date.now() - p.startTime) / 1000;
-    const speed = elapsed > 0.1 ? p.transferred / elapsed : 0;
-    const silentFor = Math.round((Date.now() - p.at) / 1000);
-    status = row.cancelling
-      ? 'Stopping…'
-      : silentFor >= 10
-        ? `${formatSize(p.transferred, false)} · stalled for ${silentFor}s`
-        : `${formatSize(p.transferred, false)} · ${formatSpeed(speed)}`;
-  }
-  else {
-    pct = p.total > 0 ? Math.min(100, Math.round((p.transferred / p.total) * 100)) : 0;
-    const elapsed = (Date.now() - p.startTime) / 1000;
-    const speed = elapsed > 0.1 ? p.transferred / elapsed : 0;
-    const remaining = speed > 0 ? (p.total - p.transferred) / speed : null;
-    const eta = remaining !== null
-      ? remaining < 60 ? `${Math.ceil(remaining)}s` : `${Math.ceil(remaining / 60)}m`
-      : '…';
-    // Reporting silence rather than a stale rate. The backend gives a
-    // stalled transfer a minute before it calls the connection dead, and
-    // saying nothing for that minute is what made a dead transfer look
-    // like a working one. Ten seconds rather than five: one 128 KB chunk
-    // takes 6.4s at 20 KB/s, so a shorter window would call a slow link
-    // stalled.
-    const silentFor = Math.round((Date.now() - p.at) / 1000);
-    const count = p.file_count > 1 ? `${p.file_index}/${p.file_count} · ` : '';
-    status = row.cancelling
-      ? 'Stopping…'
-      : silentFor >= 10
-        ? `${count}${pct}% · stalled for ${silentFor}s`
-        : `${count}${pct}% · ${formatSpeed(speed)} · ETA ${eta}`;
-  }
+  const { text: status, pct } = statusLine(row, Date.now());
   const running = row.status === 'running';
   return (
     <div className={`sftp-queue-row sftp-queue-${row.status}`}>
@@ -1467,6 +1430,16 @@ function QueueRow({ row, onCancel }: { row: QueueItem; onCancel: () => void }) {
         <span className="sftp-queue-stat" title={row.status === 'failed' ? row.error ?? undefined : undefined}>
           {running && p ? p.file_name !== row.name ? `${p.file_name} · ${status}` : status : status}
         </span>
+        {resumable(row) && (
+          <button
+            type="button"
+            className="sftp-resume-btn"
+            onClick={onResume}
+            title="Continue from where it stopped"
+          >
+            Resume
+          </button>
+        )}
         <button
           type="button"
           className="sftp-cancel-btn"
@@ -1633,37 +1606,6 @@ export default function SftpPanel() {
   useEffect(() => { left.goLocal(); }, []);
 
   /**
-   * What a finished transfer is worth saying, or nothing.
-   *
-   * The backend has always counted these and the panel has always thrown the
-   * answer away, so a batch that quietly copied less than was asked for looked
-   * identical to one that copied all of it. Only the two surprises are
-   * reported: a transfer that did what was asked needs no announcement.
-   */
-  function describeTransfer(s: TransferSummary): string | null {
-    const parts: string[] = [];
-    if (s.verified > 0) {
-      parts.push(`Verified ${s.verified} ${s.verified === 1 ? 'file' : 'files'}.`);
-    }
-    if (s.cancelled) {
-      parts.push(`Stopped after ${s.files} ${s.files === 1 ? 'file' : 'files'}.`);
-    }
-    if (s.skipped_symlinks > 0) {
-      const n = s.skipped_symlinks;
-      parts.push(`${n} ${n === 1 ? 'symlink was' : 'symlinks were'} not copied.`);
-    }
-    if (s.skipped_existing > 0) {
-      const n = s.skipped_existing;
-      parts.push(`Skipped ${n} that already existed.`);
-    }
-    if (s.renamed > 0) {
-      const n = s.renamed;
-      parts.push(`Kept ${n} ${n === 1 ? 'copy' : 'copies'} beside what was there.`);
-    }
-    return parts.length > 0 ? parts.join(' ') : null;
-  }
-
-  /**
    * Compares `entry` with the directory the other pane is showing.
    *
    * Nothing is copied and nothing is written: the two trees are walked, the
@@ -1725,6 +1667,7 @@ export default function SftpPanel() {
           return ipc.sftpCopyRemoteToRemote(id, srcSid!, entry.path, dstSid!, dstDir, conflict);
         },
         check: () => ipc.sftpConflicts(kind, srcSid, entry.path, dstSid, dstDir),
+        recopy: (id, destRoot, rels) => ipc.sftpRecopy(id, kind, srcSid, entry.path, dstSid, destRoot, rels),
       })));
     } catch (e) {
       dst.fail(String(e));
@@ -1747,6 +1690,7 @@ export default function SftpPanel() {
         name: localStyle().basename(path),
         run: (id, conflict) => ipc.sftpUpload(id, sid, path, dstDir, conflict),
         check: () => ipc.sftpConflicts('upload', null, path, sid, dstDir),
+        recopy: (id, destRoot, rels) => ipc.sftpRecopy(id, 'upload', null, path, sid, destRoot, rels),
       })));
     } catch (e) {
       dst.fail(String(e));
@@ -1765,6 +1709,40 @@ export default function SftpPanel() {
   // in the notice before a modal would be read, and one that opened and shut
   // again looks like a fault rather than an answer.
   const [comparing, setComparing] = useState<{ id: string; left: string; right: string; diff: TreeDiff | null; waited: boolean } | null>(null);
+
+  // Resumed files whose copy did not match, gathered per batch until the
+  // batch has finished. A ref rather than state: the pump reads and clears it
+  // between awaits, where a re-render is too late to be of use.
+  const pendingRef = useRef<Pending>({});
+  const [mismatches, setMismatches] = useState<{ batch: string; items: Mismatch[] } | null>(null);
+
+  /** Whether a row is still named by something waiting to be asked about. */
+  function waitingOn(id: string): boolean {
+    return Object.values(pendingRef.current).some((items) => items.some((m) => m.jobId === id));
+  }
+
+  /**
+   * The dialog's Copy again: one new row per row that had mismatches, each
+   * sending only the files it named. Ordinary queue rows, so they report,
+   * cancel and fail like anything else.
+   */
+  function copyAgain(items: Mismatch[]) {
+    setMismatches(null);
+    const first = jobsRef.current.get(items[0]?.jobId ?? '');
+    if (!first) return;
+    enqueueBatch(first.target, items.flatMap((m) => {
+      const job = jobsRef.current.get(m.jobId);
+      const again = job?.recopy;
+      if (!again) return [];
+      return [{
+        name: m.name,
+        run: (id: string) => again(id, m.landed, m.rels),
+        check: async () => [],
+        recopy: again,
+      }];
+    }));
+    for (const m of items) jobsRef.current.delete(m.jobId);
+  }
 
   const [conflictPrompt, setConflictPrompt] = useState<{ prompt: ConflictPrompt; resolve: (a: ConflictAnswer | null) => void } | null>(null);
   function askConflict(prompt: ConflictPrompt): Promise<ConflictAnswer | null> {
@@ -1807,7 +1785,7 @@ export default function SftpPanel() {
         run: async (id, conflict) => {
           if (!collides) return send(id, null);
           if (conflict === 'skip') {
-            return { files: 0, directories: 0, skipped_symlinks: 0, skipped_existing: 1, renamed: 0, cancelled: false, landed: null, verified: 0 };
+            return { files: 0, directories: 0, skipped_symlinks: 0, skipped_existing: 1, renamed: 0, cancelled: false, resumed: 0, mismatched: [], resumable: 0, landed: null, verified: 0, failed: null };
           }
           return send(id, conflict === 'keep_both' ? freeName(taken, entry.name) : null);
         },
@@ -1821,7 +1799,7 @@ export default function SftpPanel() {
   /** One drop's entries become rows of one batch, then the pump is woken. */
   function enqueueBatch(
     target: 'left' | 'right',
-    items: { name: string; run: TransferJob['run']; check: TransferJob['check'] }[],
+    items: { name: string; run: TransferJob['run']; check: TransferJob['check']; recopy?: TransferJob['recopy'] }[],
   ) {
     const dst = target === 'left' ? left : right;
     const destination = dst.mode === 'local' ? 'local' : dst.serverName;
@@ -1829,7 +1807,7 @@ export default function SftpPanel() {
     setDropTarget(null);
     for (const item of items) {
       const id = crypto.randomUUID();
-      jobsRef.current.set(id, { batch, target, run: item.run, check: item.check });
+      jobsRef.current.set(id, { batch, target, run: item.run, check: item.check, recopy: item.recopy });
       updateQueue((q) => enqueue(q, { id, name: item.name, target, destination }));
     }
     void pump();
@@ -1855,15 +1833,17 @@ export default function SftpPanel() {
         updateQueue((q) => start(q, next.id));
         const dst = () => panesRef.current[job.target];
         try {
-          let conflict: Conflict = batchPolicyRef.current.get(job.batch) ?? 'overwrite';
-          if (!batchPolicyRef.current.has(job.batch)) {
+          // A resume is already an answer to "what about the file that is
+          // there", so it neither asks nor takes the batch's earlier answer.
+          let conflict: Conflict = next.resume ? 'resume' : batchPolicyRef.current.get(job.batch) ?? 'overwrite';
+          if (!next.resume && !batchPolicyRef.current.has(job.batch)) {
             const files = await job.check();
             if (files.length > 0) {
               const more = queueRef.current.some((q) => q.id !== next.id && q.status === 'queued' && jobsRef.current.get(q.id)?.batch === job.batch);
               const answer = await askConflict({ name: next.name, files, more });
               if (answer === null) {
                 // The rest of the batch leaves with it.
-                const cancelledSummary: TransferSummary = { files: 0, directories: 0, skipped_symlinks: 0, skipped_existing: 0, renamed: 0, cancelled: true, landed: null, verified: 0 };
+                const cancelledSummary: TransferSummary = { files: 0, directories: 0, skipped_symlinks: 0, skipped_existing: 0, renamed: 0, cancelled: true, resumed: 0, mismatched: [], resumable: 0, landed: null, verified: 0, failed: null };
                 updateQueue((q) => finished(q, next.id, { summary: cancelledSummary }, Date.now()));
                 for (const row of queueRef.current) {
                   if (row.status === 'queued' && jobsRef.current.get(row.id)?.batch === job.batch) {
@@ -1881,18 +1861,48 @@ export default function SftpPanel() {
           updateQueue((q) => finished(q, next.id, { summary }, Date.now()));
           const said = describeTransfer(summary);
           if (said) dst().say(said);
+          if (summary.mismatched.length > 0 && job.recopy && summary.landed) {
+            pendingRef.current = record(pendingRef.current, job.batch, {
+              jobId: next.id,
+              name: next.name,
+              landed: summary.landed,
+              rels: summary.mismatched,
+            });
+          }
         } catch (e) {
           updateQueue((q) => finished(q, next.id, { error: String(e) }, Date.now()));
         } finally {
-          jobsRef.current.delete(next.id);
+          // The job is what a Resume, or a Copy again, would run, so it stays
+          // as long as either is still on offer.
+          const row = queueRef.current.find((q) => q.id === next.id);
+          const wanted = (row && resumable(row)) || waitingOn(next.id);
+          if (!wanted) jobsRef.current.delete(next.id);
           // Whether it finished, failed part way or was stopped, there is
           // something new on the destination to show.
           await dst().refresh();
+        }
+        // Asked once the drop it belongs to has nothing left to run, rather
+        // than once per row, which would put a dialog in front of every file
+        // of a batch.
+        const batch = job.batch;
+        if (
+          pendingRef.current[batch] !== undefined
+          && batchSettled(queueRef.current, (id) => jobsRef.current.get(id)?.batch, batch)
+        ) {
+          const { taken, rest } = take(pendingRef.current, batch);
+          pendingRef.current = rest;
+          if (taken.length > 0) setMismatches({ batch, items: taken });
         }
       }
     } finally {
       pumpingRef.current = false;
     }
+  }
+
+  /** The Resume on a settled row: back into the queue, continuing what it left. */
+  function resumeRow(id: string) {
+    updateQueue((q) => requeue(q, id));
+    void pump();
   }
 
   /** The ✕ on a row: a queued one leaves, the running one is asked to stop, a finished one is dismissed. */
@@ -2017,6 +2027,16 @@ export default function SftpPanel() {
           onAnswer={(a) => { conflictPrompt.resolve(a); setConflictPrompt(null); }}
         />
       )}
+      {mismatches && (
+        <MismatchDialog
+          mismatches={mismatches.items}
+          onLeave={() => {
+            setMismatches(null);
+            for (const m of mismatches.items) jobsRef.current.delete(m.jobId);
+          }}
+          onCopyAgain={() => copyAgain(mismatches.items)}
+        />
+      )}
       <div className="sftp-panels-row">
         <div className="sftp-file-panel" data-side="left">{renderPane(left, right, 'left')}</div>
         <div className="sftp-divider" />
@@ -2036,7 +2056,14 @@ export default function SftpPanel() {
               </button>
             )}
           </div>
-          {queue.map((row) => <QueueRow key={row.id} row={row} onCancel={() => cancelRow(row.id)} />)}
+          {queue.map((row) => (
+            <QueueRow
+              key={row.id}
+              row={row}
+              onCancel={() => cancelRow(row.id)}
+              onResume={() => resumeRow(row.id)}
+            />
+          ))}
         </div>
       )}
     </div>

@@ -428,6 +428,33 @@
   color: var(--text-primary);
 }
 
+/* What the tab's shell is doing, when it says: amber while a command runs,
+   then green or red for how it ended. Monospace digits so an exit code beside
+   the dot does not shift the tab's width. */
+.tab-activity {
+  flex-shrink: 0;
+  padding: 0 2px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  background: none;
+}
+
+/* Pulsing rather than still, so a running command reads as something in
+   progress at a glance, the way the host list's connecting dot does. */
+.tab-activity-busy {
+  color: var(--warning);
+  animation: dot-pulse 1s ease-in-out infinite;
+}
+
+.tab-activity-done {
+  color: var(--success);
+}
+
+.tab-activity-failed {
+  color: var(--danger);
+}
+
 .tab-split {
   color: var(--text-dim);
   font-size: 12px;

@@ -14,7 +14,7 @@ use super::listing::list_remote;
 use super::archive::{copy_archive, download_archive, upload_archive};
 use super::ops::{delete_remote, mkdir, rename_remote, set_mode_remote, set_owner_remote};
 use super::edit::{watch, EditEvent};
-use super::transfer::{conflicts, download_path, upload_path, upload_quiet, Conflict, Silent};
+use super::transfer::{conflicts, download_path, recopy_paths, upload_path, upload_quiet, Conflict, Pairing, Progress, Silent, PART};
 use super::verify::{compare_trees, verify_landing, Side};
 
 use std::path::{Path, PathBuf};
@@ -229,6 +229,276 @@ async fn a_directory_with_more_files_than_the_handle_limit_downloads() {
     }
 }
 
+/// A progress sink that pulls the plug part way, so a test can see what an
+/// interrupted transfer leaves behind. Cancelling from another task would
+/// race the copy; cancelling from the report is exactly as many bytes in as
+/// it says.
+struct Trip<'a> {
+    state: &'a SftpClientState,
+    id: &'a str,
+    after: u64,
+}
+
+impl Progress for Trip<'_> {
+    fn report(&self, progress: TransferProgress) {
+        if progress.transferred >= self.after {
+            self.state.request_cancel(self.id);
+        }
+    }
+}
+
+/// Remembers where the first file of a run started, which is how a test can
+/// tell a resume from a copy that quietly began again at zero.
+#[derive(Default)]
+struct Seen {
+    first: std::sync::Mutex<Option<u64>>,
+}
+
+impl Progress for Seen {
+    fn report(&self, progress: TransferProgress) {
+        let mut first = self.first.lock().unwrap();
+        if first.is_none() {
+            *first = Some(progress.resumed_from);
+        }
+    }
+}
+
+/// Uploads `file` into `dst`, stopping once `after` bytes have gone.
+async fn stopped_upload(state: &SftpClientState, file: &Path, dst: &Path, after: u64) -> TransferSummary {
+    let trip = Trip { state, id: "t", after };
+    upload_path(&trip, state, "t", "s", &file.to_string_lossy(), &dst.to_string_lossy(), Conflict::Overwrite)
+        .await
+        .unwrap()
+}
+
+/// The point of keeping the unfinished file: the second attempt carries only
+/// what is left, and what lands is the whole file and not a seam.
+#[tokio::test]
+async fn a_stopped_upload_resumes_to_a_byte_exact_file() {
+    let Some((server, state)) = rig("resume", None).await else { return };
+    let src = server.scratch("resume-src");
+    std::fs::create_dir_all(&src).unwrap();
+    let file = src.join("big.bin");
+    let bytes: Vec<u8> = (0..3_000_000u32).map(|i| (i % 251) as u8).collect();
+    std::fs::write(&file, &bytes).unwrap();
+    let dst = server.scratch("resume-out");
+    std::fs::create_dir_all(&dst).unwrap();
+
+    let stopped = stopped_upload(&state, &file, &dst, 1_000_000).await;
+    assert_eq!(stopped.resumable, 1);
+
+    let seen = Seen::default();
+    let summary = upload_path(&seen, &state, "t2", "s", &file.to_string_lossy(), &dst.to_string_lossy(), Conflict::Resume)
+        .await
+        .unwrap();
+
+    assert_eq!(summary.files, 1);
+    assert_eq!(summary.resumed, 1);
+    assert_eq!(summary.resumable, 0);
+    let started_at = seen.first.lock().unwrap().unwrap();
+    assert!(started_at > 0, "the second attempt began at {started_at}, not where the first stopped");
+    assert_eq!(std::fs::read(dst.join("big.bin")).unwrap(), bytes);
+    assert!(summary.mismatched.is_empty(), "read back whole and matched");
+    assert!(!dst.join(format!("big.bin{PART}")).exists(), "the part file is gone");
+}
+
+/// The bytes already there are only usable if they are the beginning of the
+/// file being copied now. A source replaced between attempts is not.
+#[tokio::test]
+async fn a_resume_whose_source_changed_starts_over() {
+    let Some((server, state)) = rig("resume-changed", None).await else { return };
+    let src = server.scratch("changed-src");
+    std::fs::create_dir_all(&src).unwrap();
+    let file = src.join("big.bin");
+    std::fs::write(&file, vec![1u8; 3_000_000]).unwrap();
+    let dst = server.scratch("changed-out");
+    std::fs::create_dir_all(&dst).unwrap();
+
+    stopped_upload(&state, &file, &dst, 1_000_000).await;
+
+    // Same length, different content: only the digest can tell.
+    let replaced = vec![2u8; 3_000_000];
+    std::fs::write(&file, &replaced).unwrap();
+
+    let seen = Seen::default();
+    let summary = upload_path(&seen, &state, "t2", "s", &file.to_string_lossy(), &dst.to_string_lossy(), Conflict::Resume)
+        .await
+        .unwrap();
+
+    assert_eq!(summary.files, 1);
+    assert_eq!(summary.resumed, 0, "nothing of the old copy was reused");
+    assert_eq!(seen.first.lock().unwrap().unwrap(), 0);
+    assert_eq!(std::fs::read(dst.join("big.bin")).unwrap(), replaced);
+}
+
+/// A resume that is stopped again is still resumable, and the file it leaves
+/// is longer than the one it started from.
+#[tokio::test]
+async fn a_resume_that_is_stopped_again_keeps_the_longer_part() {
+    let Some((server, state)) = rig("resume-twice", None).await else { return };
+    let src = server.scratch("twice-src");
+    std::fs::create_dir_all(&src).unwrap();
+    let file = src.join("big.bin");
+    std::fs::write(&file, vec![3u8; 4_000_000]).unwrap();
+    let dst = server.scratch("twice-out");
+    std::fs::create_dir_all(&dst).unwrap();
+
+    stopped_upload(&state, &file, &dst, 1_000_000).await;
+    let part = dst.join(format!("big.bin{PART}"));
+    let first = std::fs::metadata(&part).unwrap().len();
+
+    let trip = Trip { state: &state, id: "t2", after: 2_500_000 };
+    let summary = upload_path(&trip, &state, "t2", "s", &file.to_string_lossy(), &dst.to_string_lossy(), Conflict::Resume)
+        .await
+        .unwrap();
+
+    assert!(summary.cancelled);
+    assert_eq!(summary.resumable, 1);
+    let second = std::fs::metadata(&part).unwrap().len();
+    assert!(second > first, "kept {second}, was {first}");
+    assert!(!dst.join("big.bin").exists());
+}
+
+/// Copying again after a mismatch touches the files named and nothing else.
+#[tokio::test]
+async fn a_recopy_writes_only_the_files_it_names() {
+    let Some((server, state)) = rig("recopy", None).await else { return };
+    let src = server.scratch("recopy-src");
+    std::fs::create_dir_all(src.join("sub")).unwrap();
+    std::fs::write(src.join("a.txt"), b"a one").unwrap();
+    std::fs::write(src.join("sub/b.txt"), b"b one").unwrap();
+    let dst = server.scratch("recopy-out");
+
+    upload_path(&Silent, &state, "t", "s", &src.to_string_lossy(), &dst.to_string_lossy(), Conflict::Overwrite)
+        .await
+        .unwrap();
+    let out = dst.join("recopy-src");
+
+    // Both copies are changed at the destination; only one is named.
+    std::fs::write(out.join("a.txt"), b"tampered").unwrap();
+    std::fs::write(out.join("sub/b.txt"), b"tampered").unwrap();
+
+    let summary = recopy_paths(
+        &Silent,
+        &state,
+        "t2",
+        Pairing::Upload { session_id: "s".into() },
+        &src.to_string_lossy(),
+        &out.to_string_lossy(),
+        &["sub/b.txt".to_string()],
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(summary.files, 1);
+    assert_eq!(std::fs::read(out.join("sub/b.txt")).unwrap(), b"b one");
+    assert_eq!(std::fs::read(out.join("a.txt")).unwrap(), b"tampered", "not named, not touched");
+}
+
+/// A single file has no relative path, and is named by the empty string all
+/// the way through.
+#[tokio::test]
+async fn a_recopy_of_a_single_file_takes_the_empty_path() {
+    let Some((server, state)) = rig("recopy-one", None).await else { return };
+    let src = server.scratch("one-src");
+    std::fs::create_dir_all(&src).unwrap();
+    let file = src.join("only.txt");
+    std::fs::write(&file, b"the real thing").unwrap();
+    let dst = server.scratch("one-out");
+    std::fs::create_dir_all(&dst).unwrap();
+    let landed = dst.join("only.txt");
+    std::fs::write(&landed, b"something else").unwrap();
+
+    let summary = recopy_paths(
+        &Silent,
+        &state,
+        "t",
+        Pairing::Upload { session_id: "s".into() },
+        &file.to_string_lossy(),
+        &landed.to_string_lossy(),
+        &[String::new()],
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(summary.files, 1);
+    assert_eq!(std::fs::read(&landed).unwrap(), b"the real thing");
+}
+
+/// A batch that breaks part way has still copied something, and the caller
+/// needs to know what. Returning the error alone threw that away.
+#[tokio::test]
+async fn a_batch_that_cannot_read_a_file_reports_what_it_copied() {
+    use std::os::unix::fs::PermissionsExt;
+    if nix_is_root() {
+        eprintln!("skipping: root reads a file whatever its mode says");
+        return;
+    }
+    let Some((server, state)) = rig("broken", None).await else { return };
+    let src = server.scratch("broken-src");
+    std::fs::create_dir_all(&src).unwrap();
+    for name in ["a.txt", "b.txt", "c.txt"] {
+        std::fs::write(src.join(name), name.as_bytes()).unwrap();
+    }
+    std::fs::set_permissions(src.join("b.txt"), std::fs::Permissions::from_mode(0o000)).unwrap();
+    let dst = server.scratch("broken-out");
+
+    let summary = upload_path(&Silent, &state, "t", "s", &src.to_string_lossy(), &dst.to_string_lossy(), Conflict::Overwrite)
+        .await
+        .unwrap();
+
+    assert!(summary.failed.is_some(), "the unreadable file should be reported");
+    assert!(summary.files < 3, "copied {} of 3", summary.files);
+    let out = dst.join("broken-src");
+    let landed = std::fs::read_dir(&out).unwrap().count();
+    assert_eq!(landed as u32, summary.files, "the count matches what is there");
+
+    // Left readable so the temp directory can be removed with the server.
+    std::fs::set_permissions(src.join("b.txt"), std::fs::Permissions::from_mode(0o600)).unwrap();
+}
+
+fn nix_is_root() -> bool {
+    // Safe: getuid only reads, and cannot fail.
+    unsafe { libc::getuid() == 0 }
+}
+
+/// An interrupted file is worth keeping: it is bytes the network already
+/// carried. It must not keep the real name, which would look like a whole
+/// file to everything that reads the directory.
+#[tokio::test]
+async fn a_cancelled_upload_keeps_a_part_file_and_not_the_name() {
+    let Some((server, state)) = rig("part", None).await else { return };
+    let src = server.scratch("part-src");
+    std::fs::create_dir_all(&src).unwrap();
+    let file = src.join("big.bin");
+    std::fs::write(&file, vec![9u8; 4_000_000]).unwrap();
+    let dst = server.scratch("part-out");
+    std::fs::create_dir_all(&dst).unwrap();
+
+    let trip = Trip { state: &state, id: "t", after: 1_000_000 };
+    let summary = upload_path(
+        &trip,
+        &state,
+        "t",
+        "s",
+        &file.to_string_lossy(),
+        &dst.to_string_lossy(),
+        Conflict::Overwrite,
+    )
+    .await
+    .unwrap();
+
+    assert!(summary.cancelled);
+    assert_eq!(summary.files, 0, "nothing finished");
+    assert_eq!(summary.resumable, 1);
+
+    let landed = dst.join("big.bin");
+    assert!(!landed.exists(), "a half file must not wear the real name");
+    let part = dst.join(format!("big.bin{PART}"));
+    let kept = std::fs::metadata(&part).unwrap().len();
+    assert!(kept > 0 && kept < 4_000_000, "kept {kept} of 4000000");
+}
+
 #[tokio::test]
 async fn an_uploaded_tree_reads_back_byte_for_byte() {
     let Some((server, state)) = rig("upload", None).await else { return };
@@ -372,7 +642,7 @@ async fn a_tree_names_only_the_files_that_would_be_written_over() {
     std::fs::write(dst.join("proj/b.txt"), b"old").unwrap();
     std::fs::write(dst.join("proj/sub/d.txt"), b"old").unwrap();
 
-    let remote = super::transfer::Remote(session::get_session(&state, "s").await.unwrap());
+    let remote = super::transfer::remote_side(&state, "s").await.unwrap();
     let mut found = conflicts(&super::transfer::Local, &src.to_string_lossy(), &remote, &dst.to_string_lossy()).await.unwrap();
     found.sort();
     assert_eq!(found, vec!["b.txt", "sub/d.txt"]);

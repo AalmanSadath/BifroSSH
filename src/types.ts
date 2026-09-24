@@ -57,8 +57,10 @@ export interface Server {
   log_sessions: boolean;
   /** Hosts are sectioned by this on the hosts page. Null or empty: no group. */
   group: string | null;
-  /** One line sent to the shell as if typed, the moment the shell is up. */
+  /** One line sent to the shell as if typed, once it has finished saying hello. */
   run_on_connect: string | null;
+  /** Keep that line out of the terminal, by removing its echo. On by default. */
+  hide_run_on_connect: boolean;
   /** Free text the user keeps about this host; searched with the rest. */
   notes: string | null;
 }
@@ -79,6 +81,12 @@ export interface TransferProgress {
   file_name: string;
   transferred: number;
   total: number;
+  /**
+   * The byte this file's copy started at, which is not zero when an
+   * unfinished file was continued. Needed for the rate: without it an earlier
+   * attempt's bytes are counted against this attempt's few seconds.
+   */
+  resumed_from: number;
   /** 1-based position within a batch; 1/1 for a single file. */
   file_index: number;
   file_count: number;
@@ -96,6 +104,17 @@ export interface TransferSummary {
   renamed: number;
   /** True when the user stopped it; `files` then counts what arrived. */
   cancelled: boolean;
+  /** Files continued from an unfinished copy rather than started over. */
+  resumed: number;
+  /**
+   * Of those, the ones whose finished copy did not match the source, by path
+   * relative to the transfer root; a single file is the empty string.
+   */
+  mismatched: string[];
+  /** Unfinished files left at the destination, ready to be continued. */
+  resumable: number;
+  /** What ended the batch early, where something did. */
+  failed: string | null;
   /** Where it wrote, directory and name together; null when nothing was. */
   landed: string | null;
   /** Files read back and compared with the source; 0 when that was off. */
@@ -118,7 +137,7 @@ export interface TreeDiff {
 }
 
 /** What a transfer does with a file that is already at the destination. */
-export type Conflict = 'overwrite' | 'skip' | 'keep_both';
+export type Conflict = 'overwrite' | 'skip' | 'keep_both' | 'resume';
 
 /** Which pairing a conflict check is for; decides which session ids matter. */
 export type TransferKind = 'upload' | 'download' | 'copy';

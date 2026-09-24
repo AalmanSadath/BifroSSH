@@ -8,10 +8,14 @@ import { useIdleLock } from './hooks/useIdleLock';
 import type { AuthPromptEvent, Codeprint, HostKeyPromptEvent, SessionTab, SystemAppearance, TunnelClosed, VaultStatus } from './types';
 import { fill } from './snippets';
 import { zoomPercent } from './zoom';
+import { activityChip, anyBusy } from './activity';
+import { terminalFor } from './terminalRegistry';
+import { transcriptLines, transcriptName, transcriptText } from './transcript';
 import { evenAt, evenWidths, resizeAt, widthAt } from './paneSizes';
 import { WINDOW_ACTIONS, actionFor, resolve as resolveShortcuts, tabIndexFor } from './shortcuts';
 import CommandPalette from './components/CommandPalette';
 import SnippetPromptModal from './components/SnippetPromptModal';
+import FilePickerModal from './components/FilePickerModal';
 import HostKeyPrompt from './components/HostKeyPrompt';
 import AuthPromptModal from './components/AuthPromptModal';
 import Sidebar from './components/Sidebar';
@@ -88,7 +92,7 @@ export default function App() {
   const {
     loadAll, loadError, actionError, setActionError, sessions, activeTabId, setActiveTab, removeSession,
     renameSession, toggleBroadcast, openInSftp, sendInput, toggleLogging, splitGroup, splitWith, unsplit, openSession, quickConnect, servers, settings, keys,
-    zoomSession, resetZoom, sessionZoom, splitWidths, setSplitWidths,
+    zoomSession, resetZoom, sessionZoom, splitWidths, setSplitWidths, sessionActivity,
     systemAppearance, setSystemAppearance, clearForLock,
   } = useAppStore();
 
@@ -109,7 +113,96 @@ export default function App() {
   const [termSidebarOpen, setTermSidebarOpen] = useState(false);
   const [tabCtx, setTabCtx] = useState<{ x: number; y: number; session: SessionTab; mode: TabCtxMode } | null>(null);
   const [tabDragOver, setTabDragOver] = useState(false);
+  // A transcript waiting for a path: the text is taken when the menu entry is
+  // pressed, so what lands is what was on screen then rather than whatever
+  // has arrived by the time the picker is answered.
+  const [saving, setSaving] = useState<{ text: string; startDir: string; name: string } | null>(null);
   const activeIsSession = sessions.some((s) => s.tab_id === activeTabId);
+
+  // A running command's chip counts up, so the strip re-renders while
+  // anything is running and stops the moment nothing is. Nothing ticks on an
+  // idle window, which is most of them.
+  const [, setTick] = useState(0);
+  const busy = anyBusy(sessionActivity, Date.now());
+  useEffect(() => {
+    if (!busy) return;
+    const timer = setInterval(() => setTick((n) => n + 1), 1000);
+    return () => clearInterval(timer);
+  }, [busy]);
+
+  /**
+   * A tab's scrollback as plain text, on the clipboard.
+   *
+   * Session logging writes from connect time onward and has to be turned on
+   * beforehand; this is whatever is there now, which is the case where
+   * something has already happened and is worth keeping.
+   */
+  function transcriptOf(session: SessionTab): string | null {
+    const term = terminalFor(session.tab_id);
+    if (!term) return null;
+    const text = transcriptText(transcriptLines(term.buffer.active));
+    if (text === '') {
+      setActionError(`Nothing has been printed in "${session.server_name}" yet`);
+      return null;
+    }
+    return text;
+  }
+
+  async function copyTranscript(session: SessionTab) {
+    const text = transcriptOf(session);
+    if (text === null) return;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (e) {
+      setActionError(`Could not copy the transcript: ${e}`);
+    }
+  }
+
+  /**
+   * The same text, to a file the user picks. The picker opens where an export
+   * would, with a name made from the host and the time.
+   */
+  async function saveTranscript(session: SessionTab) {
+    const text = transcriptOf(session);
+    if (text === null) return;
+    let startDir = '';
+    try {
+      startDir = await ipc.defaultExportDir();
+    } catch {
+      // No Downloads to find: the picker falls back to the home directory.
+    }
+    setSaving({ text, startDir, name: transcriptName(session.server_name, new Date()) });
+  }
+
+  /**
+   * Writes it, and asks before replacing a file that is already there. The
+   * refusal comes from the open rather than from a check of our own, so
+   * nothing can appear at that path in between.
+   */
+  async function writeTranscript(path: string, text: string, overwrite = false) {
+    try {
+      await ipc.writeTextFile(path, text, overwrite);
+      setSaving(null);
+    } catch (e) {
+      const message = String(e);
+      if (!overwrite && message.includes('already exists')) {
+        if (window.confirm(`${path} already exists. Save anyway?`)) {
+          await writeTranscript(path, text, true);
+          return;
+        }
+        return;
+      }
+      setSaving(null);
+      setActionError(message);
+    }
+  }
+
+  /** The tab's or pane's "still running" chip, where there is one to show. */
+  function activityFor(tabId: string) {
+    const chip = activityChip(sessionActivity[tabId], Date.now());
+    if (!chip) return null;
+    return <span className={`tab-activity tab-activity-${chip.kind}`} title={chip.title}>{chip.text}</span>;
+  }
   const splitShown = activeTabId !== null && splitGroup.includes(activeTabId);
 
   /**
@@ -187,6 +280,7 @@ export default function App() {
     return (
       <div className={`pane-header${focused ? ' pane-header-focused' : ''}`}>
         <span className="pane-header-title">{s.server_name}</span>
+        {activityFor(s.tab_id)}
         <button
           className="pane-header-close"
           title="Remove from split"
@@ -637,6 +731,7 @@ export default function App() {
                   <span className="tab-broadcast" title="Broadcasting: input also goes to every other tab marked the same way">⇶</span>
                 )}
                 <span className="tab-title">{s.server_name}</span>
+                {activityFor(s.tab_id)}
                 {/* A tab whose text is a different size than the rest says
                     why, and clicking it puts the tab back on the setting. */}
                 {zoomPercent(sessionZoom[s.tab_id], settings.font_size) !== null && (
@@ -700,7 +795,7 @@ export default function App() {
                 host: s.quick_info.host, port: s.quick_info.port,
                 identity_id: null, theme: null, connection_timeout: null, os: '',
                 username: s.quick_info.username, encrypted_password: null, key_id: null,
-                auth_kind: null, proxy_jump: null, forward_agent: false, log_sessions: false, group: null, run_on_connect: null, notes: null,
+                auth_kind: null, proxy_jump: null, forward_agent: false, log_sessions: false, group: null, run_on_connect: null, hide_run_on_connect: true, notes: null,
               } : undefined);
 
             if (s.status === 'connecting' || s.status === 'error') {
@@ -764,6 +859,24 @@ export default function App() {
           onCodeprint={setSnippet}
           onAddHost={() => { setActiveTab('hosts'); setEditServerId('new'); }}
           onLock={() => { void lockNow(); }}
+          onTranscript={(tabId, to) => {
+            const session = sessions.find((t) => t.tab_id === tabId);
+            if (!session) return;
+            if (to === 'clipboard') void copyTranscript(session);
+            else void saveTranscript(session);
+          }}
+        />
+      )}
+
+      {saving && (
+        <FilePickerModal
+          mode="save"
+          title="Save transcript"
+          startDir={saving.startDir}
+          defaultName={saving.name}
+          extensions={['.txt']}
+          onCancel={() => setSaving(null)}
+          onChoose={(path) => { void writeTranscript(path, saving.text); }}
         />
       )}
 
@@ -876,6 +989,14 @@ export default function App() {
                 onClick={() => { toggleLogging(tabCtx.session.tab_id); setTabCtx(null); }}
               >
                 {tabCtx.session.logging ? '✓ ' : ''}Log to file
+              </button>
+              {/* Logging starts at connect; this is what is already on
+                  screen, scrollback included. */}
+              <button className="menu-item" onClick={() => { copyTranscript(tabCtx.session); setTabCtx(null); }}>
+                Copy transcript
+              </button>
+              <button className="menu-item" onClick={() => { void saveTranscript(tabCtx.session); setTabCtx(null); }}>
+                Save transcript…
               </button>
               {splitGroup.includes(tabCtx.session.tab_id) && (
                 <button className="menu-item" onClick={() => { unsplit(tabCtx.session.tab_id); setTabCtx(null); }}>

@@ -34,7 +34,10 @@ pub use ops::{
 };
 pub use session::{connect_sftp, disconnect_sftp, probe_remote};
 pub use verify::{comparable, compare_trees, verify_landing, Side, TreeDiff};
-pub use transfer::{conflicts_for, copy_remote_path, download_path, upload_path, Conflict, Pairing, Tagged};
+pub use transfer::{
+    conflicts_for, copy_remote_path, download_path, recopy_paths, upload_path, Conflict, Pairing,
+    Tagged,
+};
 
 /// Chunk size for a streamed copy.
 const CHUNK: usize = 128 * 1024; // 128 KB
@@ -47,6 +50,11 @@ pub struct TransferProgress {
     pub file_name: String,
     pub transferred: u64,
     pub total: u64,
+    /// Where this file's copy started, which is not zero when an unfinished
+    /// file was continued. The window needs it to work out a rate: without it
+    /// the bytes an earlier attempt carried are counted against this attempt's
+    /// few seconds, and the speed and the estimate are both fiction.
+    pub resumed_from: u64,
     /// 1-based position of this file within the batch. Always 1/1 for a single
     /// file, so the UI can show "3 of 12" only when it means something.
     pub file_index: u32,
@@ -70,22 +78,40 @@ pub struct TransferSummary {
     /// under a name of their own.
     pub renamed: u32,
     /// True when the user stopped it. The files already copied are left where
-    /// they are; only the one in flight is removed. `files` counts what
+    /// they are; the one in flight is kept as a part file. `files` counts what
     /// actually arrived, so a cancelled batch reports fewer than were asked for.
     pub cancelled: bool,
+    /// Files continued from an unfinished copy rather than started over.
+    pub resumed: u32,
+    /// Of those, the ones whose finished copy did not match the source, by
+    /// path relative to the transfer root; a single file is the empty string.
+    /// Empty is the normal answer, and the only one that means the resume can
+    /// be trusted.
+    pub mismatched: Vec<String>,
+    /// Unfinished files left at the destination under `transfer::PART`, ready
+    /// to be continued. Counted only where the part sits beside the name the
+    /// transfer was aiming at, since a keep-both copy would never be found
+    /// again by a later attempt.
+    pub resumable: u32,
     /// Where the transfer actually wrote, destination directory and name
     /// together. None when nothing was written.
     pub landed: Option<String>,
     /// Files whose checksum was compared with the source and matched; 0 when
     /// verification was off or was not possible. See `sftp::verify`.
     pub verified: u32,
+    /// What ended the batch early, where something did. Reported rather than
+    /// returned as an error: a connection that dies half way through three
+    /// hundred files is exactly when the caller needs to know which of them
+    /// arrived and which one is waiting to be continued.
+    pub failed: Option<String>,
 }
 
-/// Whether a file ran to the end or was stopped part way.
-#[derive(PartialEq)]
+/// Whether a file ran to the end, was stopped part way, or broke.
+#[derive(Clone, Copy, PartialEq)]
 enum Step {
     Finished,
     Cancelled,
+    Failed,
 }
 
 /// One entry in a directory walk, relative to the transfer root.

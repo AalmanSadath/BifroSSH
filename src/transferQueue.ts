@@ -26,6 +26,8 @@ export interface QueueItem {
   endedAt: number | null;
   /** The user has asked the running one to stop and it has not yet. */
   cancelling: boolean;
+  /** Run again to continue what an earlier attempt left unfinished. */
+  resume: boolean;
 }
 
 /** How long a done or cancelled row stays before it leaves on its own. */
@@ -43,6 +45,7 @@ export function enqueue(
     summary: null,
     endedAt: null,
     cancelling: false,
+    resume: false,
   }];
 }
 
@@ -63,7 +66,11 @@ export function progressed(queue: QueueItem[], p: TransferProgress, now: number)
   });
 }
 
-/** The running item's outcome. A summary marked cancelled is a cancel. */
+/**
+ * The running item's outcome. A summary marked cancelled is a cancel, and one
+ * carrying `failed` is a failure that still copied something: the summary is
+ * kept either way, since it is what says an unfinished file is waiting.
+ */
 export function finished(
   queue: QueueItem[],
   id: string,
@@ -73,13 +80,34 @@ export function finished(
   return queue.map((q) => {
     if (q.id !== id) return q;
     if ('error' in outcome) return { ...q, status: 'failed', error: outcome.error, endedAt: now };
+    const { summary } = outcome;
+    const status: QueueStatus = summary.failed ? 'failed' : summary.cancelled ? 'cancelled' : 'done';
     return {
       ...q,
-      status: outcome.summary.cancelled ? 'cancelled' : 'done',
-      summary: outcome.summary,
+      status,
+      summary,
+      error: summary.failed ?? q.error,
       endedAt: now,
     };
   });
+}
+
+/** Whether this row left something behind that a second run could continue. */
+export function resumable(item: QueueItem): boolean {
+  const settled = item.status === 'done' || item.status === 'failed' || item.status === 'cancelled';
+  return settled && (item.summary?.resumable ?? 0) > 0;
+}
+
+/**
+ * A settled row back to the front of the queue, to continue what it left.
+ *
+ * The id is kept: the transfer it names is over, so the backend has nothing
+ * under it, and the row stays the row the user was looking at.
+ */
+export function requeue(queue: QueueItem[], id: string): QueueItem[] {
+  return queue.map((q) => (q.id === id
+    ? { ...q, status: 'queued', resume: true, progress: null, error: null, summary: null, endedAt: null, cancelling: false }
+    : q));
 }
 
 /**
@@ -94,10 +122,15 @@ export function cancel(queue: QueueItem[], id: string): QueueItem[] {
   });
 }
 
-/** Done and cancelled rows that have lingered long enough leave. Failed rows stay. */
+/**
+ * Done and cancelled rows that have lingered long enough leave. Failed rows
+ * stay, and so does anything holding an unfinished file: the row is the only
+ * offer of a resume there is, and it leaving takes the offer with it.
+ */
 export function prune(queue: QueueItem[], now: number): QueueItem[] {
   return queue.filter((q) => {
     if (q.status !== 'done' && q.status !== 'cancelled') return true;
+    if (resumable(q)) return true;
     return q.endedAt === null || now - q.endedAt < LINGER_MS;
   });
 }
