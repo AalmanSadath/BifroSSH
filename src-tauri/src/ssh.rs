@@ -640,16 +640,13 @@ pub async fn connect_ssh(
 
     emit_log(&app, &connect_id, "auth", "Shell ready — connected");
 
-    // Written to the PTY now, before the shell has necessarily read its
-    // first byte; the line queues in the tty and lands after the motd, the
-    // way a fast typist's would.
-    if let Some(cmd) = params.run_on_connect.as_deref() {
-        emit_log(&app, &connect_id, "auth", "Sending the startup command");
-        channel
-            .data(format!("{cmd}\n").as_bytes())
-            .await
-            .map_err(|_| anyhow!("Startup command failed to send"))?;
-    }
+    // The startup command is not written here. Sent the moment the shell was
+    // requested, it queued in the tty and was echoed once in the middle of
+    // the login banner and again by readline when the prompt was finally
+    // drawn, which reads as the app having typed it twice. It goes below
+    // instead, once the shell has finished saying hello.
+    let mut startup = params.run_on_connect.clone();
+    let startup_log = startup.is_some().then(|| (app.clone(), connect_id.clone()));
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<SshCommand>(256);
     let attach = Arc::new(Mutex::new(Attach::default()));
@@ -666,6 +663,16 @@ pub async fn connect_ssh(
     let sid = session_id;
 
     tokio::spawn(async move {
+        // When output last arrived, and when the shell came up: the startup
+        // command waits for a gap in the greeting, and goes anyway if a
+        // server says nothing at all.
+        let mut quiet_since: Option<tokio::time::Instant> = None;
+        let shell_at = tokio::time::Instant::now();
+        /// A pause this long in the output is the greeting being over.
+        const SETTLE: Duration = Duration::from_millis(250);
+        /// Past this, the command goes whether it looks settled or not.
+        const STARTUP_BY: Duration = Duration::from_secs(3);
+
         let mut flush_tick = interval(Duration::from_millis(8));
         flush_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut outbuf: Vec<u8> = Vec::with_capacity(8192);
@@ -729,6 +736,7 @@ pub async fn connect_ssh(
                         ChannelMsg::Data { ref data }
                         | ChannelMsg::ExtendedData { ref data, .. } => {
                             let was_empty = outbuf.is_empty();
+                            quiet_since = Some(tokio::time::Instant::now());
                             outbuf.extend_from_slice(data.as_ref());
                             if was_empty || outbuf.len() >= 8192 {
                                 flush_outbuf!();
@@ -755,6 +763,18 @@ pub async fn connect_ssh(
                 }
                 _ = flush_tick.tick() => {
                     flush_outbuf!();
+                    if startup.is_some()
+                        && (quiet_since.is_some_and(|t| t.elapsed() >= SETTLE)
+                            || shell_at.elapsed() >= STARTUP_BY)
+                    {
+                        let cmd = startup.take().unwrap_or_default();
+                        if let Some((app, connect_id)) = &startup_log {
+                            emit_log(app, connect_id, "auth", "Sending the startup command");
+                        }
+                        if channel.data(format!("{cmd}\n").as_bytes()).await.is_err() {
+                            break;
+                        }
+                    }
                     if eof_at.is_some_and(|t| t.elapsed() > AFTER_EOF) {
                         break;
                     }
