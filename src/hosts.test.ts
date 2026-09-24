@@ -20,6 +20,7 @@ function server(over: Partial<Server> & { id: string }): Server {
     log_sessions: false,
     group: null,
     run_on_connect: null,
+    hide_run_on_connect: true,
     notes: null,
     ...over,
   };

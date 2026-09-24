@@ -144,9 +144,17 @@ pub struct Server {
     /// `None` and the empty string both mean no group.
     #[serde(default)]
     pub group: Option<String>,
-    /// One line sent to the shell as if typed, the moment the shell is up.
+    /// One line sent to the shell as if typed, once the shell has finished
+    /// saying hello.
     #[serde(default)]
     pub run_on_connect: Option<String>,
+    /// Keep that line out of the terminal, by taking its echo back out of
+    /// the output. On by default: the line is the app's typing rather than
+    /// the user's, and a long one, like the shell integration snippet, is
+    /// nothing but noise above the first prompt. Turned off for a command
+    /// whose being typed is the point.
+    #[serde(default = "Server::default_hide_run_on_connect")]
+    pub hide_run_on_connect: bool,
     /// Whatever the user wants to remember about this host. Free text,
     /// searched with the rest of the record.
     #[serde(default)]
@@ -155,6 +163,7 @@ pub struct Server {
 
 impl Server {
     fn default_os() -> String { UNDETECTED_OS.to_string() }
+    fn default_hide_run_on_connect() -> bool { true }
 }
 
 /// [`Server::os`] for a host nobody has asked yet.
@@ -472,6 +481,9 @@ mod tests {
         assert!(data.settings.shortcuts.is_empty());
         assert!(!data.settings.verify_transfers);
         assert!(data.open_tabs.is_empty());
+        // A host saved before the startup command could be hidden keeps the
+        // behaviour the app shipped with, which is to hide it.
+        assert!(data.servers[0].hide_run_on_connect);
     }
 
     /// Commands are the other direction: nothing has been saved yet, so a

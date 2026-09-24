@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import * as ipc from '../ipc';
 import { SHELLS, withIntegration } from '../shellIntegration';
-import { hasClear, withClear } from '../runOnConnect';
 import { useAppStore } from '../store/appStore';
 import ThemePicker, { ThumbNail } from './ThemePicker';
 import { THEMES } from '../styles/themes';
@@ -58,6 +57,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
   const [logSessions, setLogSessions] = useState(server?.log_sessions ?? false);
   const [group, setGroup] = useState(server?.group ?? '');
   const [runOnConnect, setRunOnConnect] = useState(server?.run_on_connect ?? '');
+  const [hideRunOnConnect, setHideRunOnConnect] = useState(server?.hide_run_on_connect ?? true);
   const [notes, setNotes] = useState(server?.notes ?? '');
   const [showGroups, setShowGroups] = useState(false);
   const [groupRect, setGroupRect] = useState<AnchorRect | null>(null);
@@ -124,6 +124,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
           log_sessions: logSessions,
           group: group.trim() || null,
           run_on_connect: runOnConnect.trim() || null,
+          hide_run_on_connect: hideRunOnConnect,
           notes: notes.trim() || null,
         },
         (!identityId && !keyId && password.trim()) ? password.trim() : undefined,
@@ -355,17 +356,18 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
               title="Sent to the shell as if typed, followed by Enter, once the shell is up."
             />
             {/* The line is typed at the shell, so the shell echoes it above
-                the first prompt. Clearing afterwards leaves the screen as if
-                nothing had been typed, which a long line like the shell
-                integration snippet is worth. */}
+                the first prompt. The app knows the bytes it sent and takes
+                them back out of the output, which leaves the banner and the
+                prompt exactly as they were. Off for a command whose being
+                typed is the point. */}
             <label className="checkbox-row">
               <input
                 type="checkbox"
-                checked={hasClear(runOnConnect)}
+                checked={hideRunOnConnect}
                 disabled={runOnConnect.trim() === ''}
-                onChange={(e) => setRunOnConnect((v) => withClear(v, e.target.checked))}
+                onChange={(e) => setHideRunOnConnect(e.target.checked)}
               />
-              <span>Clear the screen afterwards</span>
+              <span>Keep it out of the terminal</span>
             </label>
 
             {/* What the tab's activity chip needs from the far end. Added
@@ -378,12 +380,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
                   key={id}
                   type="button"
                   className="sftp-action-btn"
-                  onClick={() => setRunOnConnect((v) => {
-                    // Added before the clear, which has to stay last to mean
-                    // anything.
-                    const clearing = hasClear(v);
-                    return withClear(withIntegration(withClear(v, false), id), clearing);
-                  })}
+                  onClick={() => setRunOnConnect((v) => withIntegration(v, id))}
                   title={`Add the ${label} marks to what this host runs on connect`}
                 >
                   Add for {label}

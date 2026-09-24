@@ -590,6 +590,8 @@ pub struct SshConnectParams {
     pub log: Option<std::fs::File>,
     /// One line typed into the shell for the user as soon as it is up.
     pub run_on_connect: Option<String>,
+    /// Whether that line's echo is taken back out of the terminal.
+    pub hide_run_on_connect: bool,
 }
 
 /// russh sends a keepalive every interval and gives up after `keepalive_max`
@@ -772,6 +774,7 @@ pub async fn connect_ssh(
     // drawn, which reads as the app having typed it twice. It goes below
     // instead, once the shell has finished saying hello.
     let mut startup = params.run_on_connect.clone();
+    let hide_startup = params.hide_run_on_connect;
     let startup_log = startup.is_some().then(|| (app.clone(), connect_id.clone()));
 
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<SshCommand>(256);
@@ -906,7 +909,9 @@ pub async fn connect_ssh(
                         if let Some((app, connect_id)) = &startup_log {
                             emit_log(app, connect_id, "auth", "Sending the startup command");
                         }
-                        echo = Some((EchoFilter::new(&cmd), tokio::time::Instant::now() + ECHO_WINDOW));
+                        if hide_startup {
+                            echo = Some((EchoFilter::new(&cmd), tokio::time::Instant::now() + ECHO_WINDOW));
+                        }
                         if channel.data(format!("{cmd}\n").as_bytes()).await.is_err() {
                             break;
                         }

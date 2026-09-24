@@ -57,8 +57,10 @@ export interface Server {
   log_sessions: boolean;
   /** Hosts are sectioned by this on the hosts page. Null or empty: no group. */
   group: string | null;
-  /** One line sent to the shell as if typed, the moment the shell is up. */
+  /** One line sent to the shell as if typed, once it has finished saying hello. */
   run_on_connect: string | null;
+  /** Keep that line out of the terminal, by removing its echo. On by default. */
+  hide_run_on_connect: boolean;
   /** Free text the user keeps about this host; searched with the rest. */
   notes: string | null;
 }
