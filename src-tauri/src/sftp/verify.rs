@@ -398,36 +398,9 @@ pub(super) fn digest_command(remote_path: &str) -> String {
 }
 
 async fn remote_digests(opener: &dyn ChannelOpener, remote_path: &str) -> Result<Digests> {
-    let mut channel = opener
-        .open_session()
-        .await
-        .context("Could not open a channel for sha256sum")?;
-    channel
-        .exec(true, digest_command(remote_path))
-        .await
-        .context("The server refused to run sha256sum")?;
-
-    let mut stdout = Vec::new();
-    let mut stderr = String::new();
-    let mut status = None;
-    while let Some(msg) = channel.wait().await {
-        match msg {
-            ChannelMsg::Data { ref data } => stdout.extend_from_slice(data),
-            ChannelMsg::ExtendedData { ref data, .. } => stderr.push_str(&String::from_utf8_lossy(data)),
-            ChannelMsg::ExitStatus { exit_status } => status = Some(exit_status),
-            // Not Eof: the exit status arrives after it, so breaking there
-            // loses the reason the command failed.
-            ChannelMsg::Close => break,
-            _ => {}
-        }
-    }
-    let _ = channel.close().await;
-    if let Some(e) = exec_failure("sha256sum on the server", "sha256sum", status, &stderr) {
-        return Err(e);
-    }
-
+    let out = run_capture(opener, &digest_command(remote_path)).await?;
     let name = remote_path.trim_end_matches('/').rsplit('/').next().unwrap_or(remote_path);
-    parse_digests(&String::from_utf8_lossy(&stdout), name)
+    parse_digests(&out, name)
 }
 
 /// Reads `sha256sum` output into digests relative to `name`.
