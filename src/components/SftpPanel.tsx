@@ -23,6 +23,7 @@ import CompareDialog from './CompareDialog';
 import { diffSummary, isIdentical } from '../compare';
 import { useDismissOnOutside } from './shared/useDismissOnOutside';
 import { useHint } from './shared/useHint';
+import { useDragResize } from './shared/useDragResize';
 import { freeName, localStyle, remoteStyle, resolveTyped, styleFor, type PathStyle } from '../paths';
 import { HEADERS, formatDate, formatSize, visibleEntries, type SortCol } from '../fileList';
 import { fileDragPayload, readDragPayload } from '../dragPayload';
@@ -123,6 +124,7 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
   pathStyle,
 }: FileBrowserProps) {
   const hint = useHint();
+  const startDrag = useDragResize();
   const segments = pathStyle.segments(path);
   /** The bar as a text field: the text being typed, or null for crumbs. */
   const [typedPath, setTypedPath] = useState<string | null>(null);
@@ -229,34 +231,18 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
   }
 
   function startResize(colIdx: number, e: React.MouseEvent<HTMLDivElement>) {
-    e.preventDefault();
-    const tableWidth = tableRef.current?.getBoundingClientRect().width ?? 800;
-    const startX = e.clientX;
     const startW = colWidths[colIdx];
     const startNextW = colWidths[colIdx + 1] ?? 0;
-
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-
-    function onMove(ev: MouseEvent) {
-      const dPct = ((ev.clientX - startX) / tableWidth) * 100;
-      setColWidths(prev => {
+    startDrag(e, tableRef.current?.getBoundingClientRect().width ?? 800, (delta) => {
+      setColWidths((prev) => {
         const next = [...prev];
-        next[colIdx] = Math.max(6, startW + dPct);
-        if (colIdx + 1 < next.length) next[colIdx + 1] = Math.max(6, startNextW - dPct);
+        // Zero-sum against the neighbour, and neither of the pair narrower
+        // than its header.
+        next[colIdx] = Math.max(6, startW + delta);
+        if (colIdx + 1 < next.length) next[colIdx + 1] = Math.max(6, startNextW - delta);
         return next;
       });
-    }
-
-    function onUp() {
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    }
-
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    });
   }
 
   /**

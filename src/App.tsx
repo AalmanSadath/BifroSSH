@@ -13,6 +13,7 @@ import { parseSSHInput } from './sshInput';
 import { readTabDrag, tabDragPayload } from './dragPayload';
 import { usePromptQueue } from './usePromptQueue';
 import { useTranscript } from './useTranscript';
+import { useDragResize } from './components/shared/useDragResize';
 import { evenAt, evenWidths, resizeAt, widthAt } from './paneSizes';
 import { WINDOW_ACTIONS, actionFor, resolve as resolveShortcuts, tabIndexFor } from './shortcuts';
 import CommandPalette from './components/CommandPalette';
@@ -65,6 +66,7 @@ export default function App() {
   const [tabCtx, setTabCtx] = useState<{ x: number; y: number; session: SessionTab; mode: TabCtxMode } | null>(null);
   const [tabDragOver, setTabDragOver] = useState(false);
   const transcript = useTranscript(setActionError);
+  const startDrag = useDragResize();
   const activeIsSession = sessions.some((s) => s.tab_id === activeTabId);
 
   // A running command's chip counts up, so the strip re-renders while
@@ -96,38 +98,13 @@ export default function App() {
    * per mouse event; xterm refits itself from its own ResizeObserver.
    */
   function startPaneResize(index: number, e: React.MouseEvent) {
-    e.preventDefault();
-    e.stopPropagation();
     const row = (e.currentTarget as HTMLElement).closest('.term-area');
-    const rowWidth = row?.getBoundingClientRect().width ?? 1;
-    const startX = e.clientX;
     const startWidths = splitWidths.length === splitGroup.length
       ? splitWidths
       : evenWidths(splitGroup.length);
-
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    let frame = 0;
-
-    function onMove(ev: MouseEvent) {
-      if (frame !== 0) return;
-      frame = requestAnimationFrame(() => {
-        frame = 0;
-        const delta = ((ev.clientX - startX) / rowWidth) * 100;
-        setSplitWidths(resizeAt(startWidths, index, delta));
-      });
-    }
-
-    function onUp() {
-      if (frame !== 0) cancelAnimationFrame(frame);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    }
-
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    startDrag(e, row?.getBoundingClientRect().width ?? 1, (delta) => {
+      setSplitWidths(resizeAt(startWidths, index, delta));
+    });
   }
 
   /**
