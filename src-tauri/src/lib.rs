@@ -26,6 +26,7 @@ mod ssh_auth_tests;
 mod store;
 mod suspend;
 mod backup;
+mod osdetect;
 mod tunnel;
 mod wordlist;
 
