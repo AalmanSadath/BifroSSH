@@ -97,7 +97,7 @@ interface FileBrowserProps {
   isDropTarget?: boolean;
   onDragEnter?: () => void;
   onDragLeave?: () => void;
-  onFileDrop?: (entries: FileEntry[], fromSide: 'left' | 'right') => void;
+  onFileDrop?: (entries: FileEntry[]) => void;
   onReconnect?: () => void;
   /** This pane's saved directories, already narrowed to it. */
   bookmarks?: SftpBookmark[];
@@ -427,7 +427,9 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
     onDragLeaveCb?.();
     if (!onFileDrop) return;
     const payload = readDragPayload(e.dataTransfer.getData('text/plain'));
-    if (payload && payload.fromSide !== side) onFileDrop(payload.dropped, payload.fromSide);
+    // A drop from this pane onto itself is not a transfer; the row handler
+    // above deals with those as moves.
+    if (payload && payload.fromSide !== side) onFileDrop(payload.dropped);
   }
 
   /** A drop on a directory row: a move when it came from this pane. */
