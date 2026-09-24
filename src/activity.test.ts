@@ -73,8 +73,9 @@ describe('activityChip', () => {
   it('waits a moment before calling a command long enough to mention', () => {
     const running = nextActivity(IDLE, mark('C'), 0, true);
     expect(activityChip(running, BUSY_AFTER_MS - 1)).toBeNull();
-    expect(activityChip(running, 12_000)).toEqual({ kind: 'busy', text: '12s', title: 'Running for 12s' });
-    expect(activityChip(running, 90_000)?.text).toBe('1m 30s');
+    expect(activityChip(running, 12_000)).toEqual({ kind: 'busy', text: '●', title: 'Running for 12s' });
+    // How long it has been going is on the chip's tooltip, not on the tab.
+    expect(activityChip(running, 90_000)?.title).toBe('Running for 1m 30s');
   });
 
   it('shows how a command ended, for a while', () => {

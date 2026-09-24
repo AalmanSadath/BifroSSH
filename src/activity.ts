@@ -118,17 +118,17 @@ export interface Chip {
 /**
  * What the tab shows, or nothing.
  *
- * A command that is over in half a second is not news, and neither is one
- * whose tick was read minutes ago, so both have a window. A failure keeps its
- * exit code: "it went wrong" and "it went wrong with 127" are different
- * amounts of help.
+ * A command that is over in half a second is not news, and neither is a
+ * result read minutes ago, so both have a window. A failure keeps its exit
+ * code: "it went wrong" and "it went wrong with 127" are different amounts of
+ * help.
  */
 export function activityChip(state: Activity | undefined, now: number): Chip | null {
   if (!state) return null;
   if (state.busy) {
     const ms = now - state.since;
     if (ms < BUSY_AFTER_MS) return null;
-    return { kind: 'busy', text: elapsed(ms), title: `Running for ${elapsed(ms)}` };
+    return { kind: 'busy', text: DOT, title: `Running for ${elapsed(ms)}` };
   }
   if (state.endedAt === null) return null;
   // A result the user was not there for keeps until the tab is opened; one
@@ -145,7 +145,12 @@ export function activityChip(state: Activity | undefined, now: number): Chip | n
   };
 }
 
-/** Green or red; a glyph either colour reads the same way. */
+/**
+ * One glyph for every state, told apart by colour: amber while a command
+ * runs, then green or red for how it ended. A counter climbing on the tab
+ * drew the eye to a number nobody needs to read; how long it has been running
+ * is still there on hover.
+ */
 const DOT = '●';
 
 /**

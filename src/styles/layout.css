@@ -428,9 +428,9 @@
   color: var(--text-primary);
 }
 
-/* What the tab's shell is doing, when it says: elapsed time while a command
-   runs, then how it ended, briefly. Monospace digits so a counter climbing
-   through 9s does not shift the tab's width. */
+/* What the tab's shell is doing, when it says: amber while a command runs,
+   then green or red for how it ended. Monospace digits so an exit code beside
+   the dot does not shift the tab's width. */
 .tab-activity {
   flex-shrink: 0;
   padding: 1px 5px;
@@ -442,7 +442,7 @@
 }
 
 .tab-activity-busy {
-  color: var(--accent);
+  color: var(--warning);
 }
 
 .tab-activity-done {
