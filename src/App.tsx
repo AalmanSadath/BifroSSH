@@ -11,6 +11,7 @@ import { zoomPercent } from './zoom';
 import { activityChip, anyBusy } from './activity';
 import { terminalFor } from './terminalRegistry';
 import { transcriptLines, transcriptName, transcriptText } from './transcript';
+import { parseSSHInput } from './sshInput';
 import { evenAt, evenWidths, resizeAt, widthAt } from './paneSizes';
 import { WINDOW_ACTIONS, actionFor, resolve as resolveShortcuts, tabIndexFor } from './shortcuts';
 import CommandPalette from './components/CommandPalette';
@@ -52,40 +53,6 @@ function readTabDrag(e: React.DragEvent): string | null {
   } catch {
     return null;
   }
-}
-
-function parseSSHInput(input: string): { user: string; host: string; port: number; password?: string } | null {
-  let s = input.trim();
-  if (s.toLowerCase().startsWith('ssh ')) s = s.slice(4).trim();
-  if (!s) return null;
-
-  let port = 22;
-  let password: string | undefined;
-  const tokens = s.split(/\s+/);
-  const remaining: string[] = [];
-
-  for (let i = 0; i < tokens.length; i++) {
-    const t = tokens[i];
-    if ((t === '-p' || t === '--port') && tokens[i + 1]) {
-      port = parseInt(tokens[++i], 10) || 22;
-    } else if (/^-p\d+$/.test(t)) {
-      port = parseInt(t.slice(2), 10) || 22;
-    } else if ((t === '-pw' || t === '--password') && tokens[i + 1]) {
-      password = tokens[++i];
-    } else if (t.startsWith('-pw') && t.length > 3) {
-      password = t.slice(3);
-    } else {
-      remaining.push(t);
-    }
-  }
-
-  const dest = remaining.find((t) => t.includes('@'));
-  if (!dest) return null;
-  const atIdx = dest.indexOf('@');
-  const user = dest.slice(0, atIdx);
-  const host = dest.slice(atIdx + 1);
-  if (!user || !host) return null;
-  return { user, host, port, password };
 }
 
 export default function App() {
