@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useCopy } from './shared/useCopy';
+import { useHint } from './shared/useHint';
 import * as ipc from '../ipc';
 import { useAppStore, reportFailure } from '../store/appStore';
 import type { HostKeyPolicy, KnownHostEntry } from '../types';
@@ -17,6 +18,7 @@ function label(entry: KnownHostEntry) {
 
 export default function KnownHostsPanel() {
   const { settings, saveSettings } = useAppStore();
+  const hint = useHint();
   const [hosts, setHosts] = useState<KnownHostEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -146,7 +148,7 @@ export default function KnownHostsPanel() {
                   <button
                     type="button"
                     className="hostkey-fp kh-fp"
-                    title="Copy fingerprint"
+                    title={hint('Copy fingerprint')}
                     onClick={() => void copy(h.fingerprint, h.fingerprint)}
                   >
                     {copied === h.fingerprint ? 'Copied' : h.fingerprint}
@@ -164,7 +166,7 @@ export default function KnownHostsPanel() {
                 ) : (
                   // ~/.ssh/known_hosts belongs to OpenSSH and is mounted
                   // read-only under Flatpak — never written by this app.
-                  <span className="kh-readonly" title="Managed by OpenSSH, not editable here">
+                  <span className="kh-readonly" title={hint('Managed by OpenSSH, not editable here')}>
                     read-only
                   </span>
                 )}

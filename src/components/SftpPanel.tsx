@@ -612,7 +612,7 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
           <span className="sftp-filter-count">
             {visible.filter((en) => en.name !== '..').length} of {entries.filter((en) => en.name !== '..' && (showHidden || !en.hidden)).length}
           </span>
-          <button className="sftp-filter-close" onClick={closeFilter} title="Clear filter" aria-label="Clear filter">✕</button>
+          <button className="sftp-filter-close" onClick={closeFilter} title={hint('Clear filter')} aria-label="Clear filter">✕</button>
         </div>
       )}
 
@@ -702,7 +702,7 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
                       <span className="sftp-name-text">{entry.name}</span>
                     )}
                     {!renamingEntry && entry.symlink && (
-                      <span className="sftp-link-tag" title="A symbolic link. Size and type are its target's.">
+                      <span className="sftp-link-tag" title={hint("A symbolic link. Size and type are its target's.")}>
                         link
                       </span>
                     )}
@@ -746,7 +746,7 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
               {contextMenu.entry.is_dir && contextMenu.entry.name !== '..' && onCompressedCopy && (
                 <button
                   className="menu-item"
-                  title="Runs tar on the server and unpacks the stream here. Much quicker for a folder of many small files."
+                  title={hint('Runs tar on the server and unpacks the stream here. Much quicker for a folder of many small files.')}
                   onClick={() => { onCompressedCopy(contextMenu.entry!); setContextMenu(null); }}
                 >
                   Copy to Target compressed
@@ -755,7 +755,7 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
               {contextMenu.entry.is_dir && contextMenu.entry.name !== '..' && onCompare && (
                 <button
                   className="menu-item"
-                  title="Reads both folders and reports what differs. Nothing is copied."
+                  title={hint('Reads both folders and reports what differs. Nothing is copied.')}
                   onClick={() => { onCompare(contextMenu.entry!); setContextMenu(null); }}
                 >
                   Compare with the other pane
@@ -805,7 +805,7 @@ function FileBrowser({ title, icon, path, home, entries, loading, error, notice,
             className="sftp-notice-close"
             onClick={onDismissNotice}
             aria-label="Dismiss"
-            title="Dismiss"
+            title={hint('Dismiss')}
           >
             ✕
           </button>
@@ -1361,6 +1361,7 @@ interface TransferJob {
 
 /** One transfer in the queue: its name, where it is going, how it is doing. */
 function QueueRow({ row, onCancel, onResume }: { row: QueueItem; onCancel: () => void; onResume: () => void }) {
+  const hint = useHint();
   const p = row.progress;
   const { text: status, pct } = statusLine(row, Date.now());
   const running = row.status === 'running';
@@ -1379,7 +1380,7 @@ function QueueRow({ row, onCancel, onResume }: { row: QueueItem; onCancel: () =>
             type="button"
             className="sftp-resume-btn"
             onClick={onResume}
-            title="Continue from where it stopped"
+            title={hint('Continue from where it stopped')}
           >
             Resume
           </button>

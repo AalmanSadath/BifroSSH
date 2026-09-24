@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { FileEntry } from '../types';
 import SftpDialog from './shared/SftpDialog';
+import { useHint } from './shared/useHint';
 
 /** An octal string typed by hand, or null when it names no valid mode. */
 export function parseOctal(s: string): number | null {
@@ -64,6 +65,7 @@ interface Props {
  * started alike.
  */
 export default function PermissionsDialog({ entries, onApply, onCancel }: Props) {
+  const hint = useHint();
   const [mode, setMode] = useState(entries[0]?.mode ?? 0o644);
   const [octalText, setOctalText] = useState(toOctal(entries[0]?.mode ?? 0o644));
   const [octalError, setOctalError] = useState(false);
@@ -139,7 +141,7 @@ export default function PermissionsDialog({ entries, onApply, onCancel }: Props)
         </div>
 
         {canChown && (
-          <div className="sftp-perms-owner" title="Giving a file away usually needs root; changing its group to one you belong to does not.">
+          <div className="sftp-perms-owner" title={hint('Giving a file away usually needs root; changing its group to one you belong to does not.')}>
             <label htmlFor="sftp-perms-user-input">Owner</label>
             <input
               id="sftp-perms-user-input"

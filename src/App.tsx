@@ -14,6 +14,7 @@ import { readTabDrag, tabDragPayload } from './dragPayload';
 import { usePromptQueue } from './usePromptQueue';
 import { useTranscript } from './useTranscript';
 import { useDragResize } from './components/shared/useDragResize';
+import { useHint } from './components/shared/useHint';
 import { evenAt, evenWidths, resizeAt, widthAt } from './paneSizes';
 import { WINDOW_ACTIONS, actionFor, resolve as resolveShortcuts, tabIndexFor } from './shortcuts';
 import CommandPalette from './components/CommandPalette';
@@ -67,6 +68,7 @@ export default function App() {
   const [tabDragOver, setTabDragOver] = useState(false);
   const transcript = useTranscript(setActionError);
   const startDrag = useDragResize();
+  const hint = useHint();
   const activeIsSession = sessions.some((s) => s.tab_id === activeTabId);
 
   // A running command's chip counts up, so the strip re-renders while
@@ -84,7 +86,7 @@ export default function App() {
   function activityFor(tabId: string) {
     const chip = activityChip(sessionActivity[tabId], Date.now());
     if (!chip) return null;
-    return <span className={`tab-activity tab-activity-${chip.kind}`} title={chip.title}>{chip.text}</span>;
+    return <span className={`tab-activity tab-activity-${chip.kind}`} title={hint(chip.title)}>{chip.text}</span>;
   }
   const splitShown = activeTabId !== null && splitGroup.includes(activeTabId);
 
@@ -119,7 +121,7 @@ export default function App() {
     return (
       <div
         className="pane-resizer"
-        title="Drag to resize. Double-click to share these two evenly."
+        title={hint('Drag to resize. Double-click to share these two evenly.')}
         onMouseDown={(e) => startPaneResize(index, e)}
         onDoubleClick={(e) => {
           e.stopPropagation();
@@ -141,7 +143,7 @@ export default function App() {
         {activityFor(s.tab_id)}
         <button
           className="pane-header-close"
-          title="Remove from split"
+          title={hint('Remove from split')}
           onMouseDown={(e) => e.stopPropagation()}
           onClick={() => unsplit(s.tab_id)}
         >
@@ -544,10 +546,10 @@ export default function App() {
                   e.dataTransfer.effectAllowed = 'move';
                 }}
               >
-                {splitGroup.includes(s.tab_id) && <span className="tab-split" title="Shown in a split">⊟</span>}
-                {s.logging === 'tab' && <span className="tab-logging" title="Output is being logged to a file">●</span>}
+                {splitGroup.includes(s.tab_id) && <span className="tab-split" title={hint('Shown in a split')}>⊟</span>}
+                {s.logging === 'tab' && <span className="tab-logging" title={hint('Output is being logged to a file')}>●</span>}
                 {s.broadcast && (
-                  <span className="tab-broadcast" title="Broadcasting: input also goes to every other tab marked the same way">⇶</span>
+                  <span className="tab-broadcast" title={hint('Broadcasting: input also goes to every other tab marked the same way')}>⇶</span>
                 )}
                 <span className="tab-title">{s.server_name}</span>
                 {activityFor(s.tab_id)}
@@ -556,7 +558,7 @@ export default function App() {
                 {zoomPercent(sessionZoom[s.tab_id], settings.font_size) !== null && (
                   <button
                     className="tab-zoom"
-                    title="Zoom for this tab. Click to reset."
+                    title={hint('Zoom for this tab. Click to reset.')}
                     onClick={(e) => { e.stopPropagation(); resetZoom(s.tab_id); }}
                   >
                     {zoomPercent(sessionZoom[s.tab_id], settings.font_size)}%
@@ -569,7 +571,7 @@ export default function App() {
               <button
                 className={`tab-sidebar-toggle${termSidebarOpen ? ' active' : ''}`}
                 onClick={() => setTermSidebarOpen((v) => !v)}
-                title="Toggle terminal sidebar"
+                title={hint('Toggle terminal sidebar')}
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3" y="3" width="18" height="18" rx="2"/>

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import * as ipc from '../ipc';
 import { SHELLS, withIntegration } from '../shellIntegration';
 import { useAppStore } from '../store/appStore';
+import { useHint } from './shared/useHint';
 import ThemePicker, { ThumbNail } from './ThemePicker';
 import { THEMES } from '../styles/themes';
 import { STORED } from '../types';
@@ -18,6 +19,7 @@ interface Props {
 
 export default function ServerForm({ server, onClose, onDelete }: Props) {
   const { servers, identities, keys, saveServer, customThemes, settings, setActiveTab } = useAppStore();
+  const hint = useHint();
 
   const [name, setName] = useState(server?.name ?? '');
   const [host, setHost] = useState(server?.host ?? '');
@@ -324,7 +326,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
               and the README rather than under the box. */}
           <label
             className="checkbox-row"
-            title="The same as ssh -A. Anyone with root on this host can use your agent's keys while the session is open."
+            title={hint("The same as ssh -A. Anyone with root on this host can use your agent's keys while the session is open.")}
           >
             <input
               type="checkbox"
@@ -335,7 +337,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
           </label>
           <label
             className="checkbox-row"
-            title="Everything the session prints is written to a file in the session logs folder, set in Settings."
+            title={hint('Everything the session prints is written to a file in the session logs folder, set in Settings.')}
           >
             <input
               type="checkbox"
@@ -353,7 +355,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
               placeholder="tmux attach || tmux new"
               autoComplete="off"
               spellCheck={false}
-              title="Sent to the shell as if typed, followed by Enter, once the shell is up."
+              title={hint('Sent to the shell as if typed, followed by Enter, once the shell is up.')}
             />
             {/* The line is typed at the shell, so the shell echoes it above
                 the first prompt. The app knows the bytes it sent and takes
