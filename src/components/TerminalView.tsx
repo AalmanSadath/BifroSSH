@@ -10,6 +10,7 @@ import * as ipc from '../ipc';
 import { listen } from '@tauri-apps/api/event';
 import { useAppStore } from '../store/appStore';
 import { parseMark } from '../activity';
+import { registerTerminal, unregisterTerminal } from '../terminalRegistry';
 import type { SessionTab, SshClosed } from '../types';
 import { THEMES } from '../styles/themes';
 import '@xterm/xterm/css/xterm.css';
@@ -413,7 +414,11 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
       if (pos.end.y > cursorAbsRow) term.clearSelection();
     });
 
+    // What the tab menu reaches for when it is asked for a transcript.
+    registerTerminal(tabId, term);
+
     return () => {
+      unregisterTerminal(tabId);
       container.removeEventListener('contextmenu', onContextMenu, true);
       container.removeEventListener('mouseup', onMouseUp);
       term.dispose();

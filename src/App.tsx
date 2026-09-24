@@ -9,6 +9,8 @@ import type { AuthPromptEvent, Codeprint, HostKeyPromptEvent, SessionTab, System
 import { fill } from './snippets';
 import { zoomPercent } from './zoom';
 import { activityChip, anyBusy } from './activity';
+import { terminalFor } from './terminalRegistry';
+import { transcriptLines, transcriptText } from './transcript';
 import { evenAt, evenWidths, resizeAt, widthAt } from './paneSizes';
 import { WINDOW_ACTIONS, actionFor, resolve as resolveShortcuts, tabIndexFor } from './shortcuts';
 import CommandPalette from './components/CommandPalette';
@@ -122,6 +124,28 @@ export default function App() {
     const timer = setInterval(() => setTick((n) => n + 1), 1000);
     return () => clearInterval(timer);
   }, [busy]);
+
+  /**
+   * A tab's scrollback as plain text, on the clipboard.
+   *
+   * Session logging writes from connect time onward and has to be turned on
+   * beforehand; this is whatever is there now, which is the case where
+   * something has already happened and is worth keeping.
+   */
+  async function copyTranscript(session: SessionTab) {
+    const term = terminalFor(session.tab_id);
+    if (!term) return;
+    const text = transcriptText(transcriptLines(term.buffer.active));
+    if (text === '') {
+      setActionError(`Nothing has been printed in "${session.server_name}" yet`);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (e) {
+      setActionError(`Could not copy the transcript: ${e}`);
+    }
+  }
 
   /** The tab's or pane's "still running" chip, where there is one to show. */
   function activityFor(tabId: string) {
@@ -897,6 +921,11 @@ export default function App() {
                 onClick={() => { toggleLogging(tabCtx.session.tab_id); setTabCtx(null); }}
               >
                 {tabCtx.session.logging ? '✓ ' : ''}Log to file
+              </button>
+              {/* Logging starts at connect; this is what is already on
+                  screen, scrollback included. */}
+              <button className="menu-item" onClick={() => { copyTranscript(tabCtx.session); setTabCtx(null); }}>
+                Copy transcript
               </button>
               {splitGroup.includes(tabCtx.session.tab_id) && (
                 <button className="menu-item" onClick={() => { unsplit(tabCtx.session.tab_id); setTabCtx(null); }}>
