@@ -166,3 +166,17 @@
   display: flex;
   gap: 6px;
 }
+
+/* The Copy buttons under Shell integration, and the same row inside the host
+   form's Run on Connect group. */
+.shell-integration-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.shell-integration-row .form-hint {
+  margin: 0;
+}

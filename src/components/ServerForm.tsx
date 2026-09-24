@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import * as ipc from '../ipc';
+import { SHELLS, withIntegration } from '../shellIntegration';
 import { useAppStore } from '../store/appStore';
 import ThemePicker, { ThumbNail } from './ThemePicker';
 import { THEMES } from '../styles/themes';
@@ -352,6 +353,23 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
               spellCheck={false}
               title="Sent to the shell as if typed, followed by Enter, once the shell is up."
             />
+            {/* What the tab's activity chip needs from the far end. Added
+                rather than sent on its own: this host's shell is something
+                only the person who set it up knows. */}
+            <div className="shell-integration-row">
+              <span className="form-hint">Shell integration, for the tab's activity chip:</span>
+              {SHELLS.map(({ id, label }) => (
+                <button
+                  key={id}
+                  type="button"
+                  className="sftp-action-btn"
+                  onClick={() => setRunOnConnect((v) => withIntegration(v, id))}
+                  title={`Add the ${label} marks to what this host runs on connect`}
+                >
+                  Add for {label}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="form-group">

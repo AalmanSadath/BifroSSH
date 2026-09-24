@@ -5,6 +5,7 @@ import NumberSetting from '../shared/NumberSetting';
 import ThemePicker, { ThumbNail } from '../ThemePicker';
 import { THEMES } from '../../styles/themes';
 import { Picker, usePatch, type PickerOption } from './Picker';
+import { SHELLS, snippetFor, type ShellKind } from '../../shellIntegration';
 import type { CursorStyle } from '../../types';
 
 const CURSOR_STYLES: PickerOption<CursorStyle>[] = [
@@ -19,6 +20,14 @@ export default function TerminalSection() {
   const patch = usePatch();
   const [themeExpanded, setThemeExpanded] = useState(false);
   const [fonts, setFonts] = useState<string[]>([]);
+  const [copied, setCopied] = useState<ShellKind | null>(null);
+
+  function copy(shell: ShellKind) {
+    void navigator.clipboard.writeText(snippetFor(shell)).then(() => {
+      setCopied(shell);
+      setTimeout(() => setCopied(null), 2000);
+    });
+  }
 
   useEffect(() => {
     ipc.listFonts().then(setFonts).catch(() => setFonts([]));
@@ -108,6 +117,27 @@ export default function TerminalSection() {
           How much output a terminal keeps above the screen. Applies to open tabs as well;
           lowering it drops what is beyond the new limit.
         </p>
+      </section>
+
+      <section className="panel-section">
+        <h3>Shell integration</h3>
+        <p className="form-hint">
+          A tab can show what its shell is running, and how the last command ended, once the
+          shell marks the start and end of each command. Stock servers send nothing, so the
+          line below has to be added to the shell first: paste it into a session to try it,
+          or put it in a host's Run on Connect to have it every time.
+        </p>
+        <div className="shell-integration-row">
+          {SHELLS.map(({ id, label }) => (
+            <button
+              key={id}
+              className="sftp-action-btn"
+              onClick={() => copy(id)}
+            >
+              {copied === id ? 'Copied' : `Copy for ${label}`}
+            </button>
+          ))}
+        </div>
       </section>
 
       <section className="panel-section">
