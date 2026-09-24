@@ -28,6 +28,14 @@ export interface Activity {
   exit: number | null;
   /** When the last command finished, which is how long its mark is shown. */
   endedAt: number | null;
+  /**
+   * Whether the tab was being looked at when the command finished.
+   *
+   * A result nobody was there for is the one worth keeping: it waits on the
+   * tab until the tab is opened, rather than expiring against a window the
+   * user never saw.
+   */
+  seen: boolean;
 }
 
 /** How long a finished command's tick or cross stays on the tab. */
@@ -57,7 +65,7 @@ export function parseMark(data: string): Mark | null {
   }
 }
 
-export const IDLE: Activity = { busy: false, since: 0, exit: null, endedAt: null };
+export const IDLE: Activity = { busy: false, since: 0, exit: null, endedAt: null, seen: true };
 
 /**
  * The state a mark moves a tab into.
@@ -70,18 +78,35 @@ export const IDLE: Activity = { busy: false, since: 0, exit: null, endedAt: null
  * same as idle and is left alone deliberately: some shells emit B without
  * ever emitting A.
  */
-export function nextActivity(state: Activity | undefined, mark: Mark, now: number): Activity {
+export function nextActivity(
+  state: Activity | undefined,
+  mark: Mark,
+  now: number,
+  watched: boolean,
+): Activity {
   const at = state ?? IDLE;
   switch (mark.kind) {
     case 'output':
-      return { busy: true, since: now, exit: null, endedAt: null };
+      return { busy: true, since: now, exit: null, endedAt: null, seen: true };
     case 'done':
-      return { busy: false, since: at.since, exit: mark.exit, endedAt: now };
+      return { busy: false, since: at.since, exit: mark.exit, endedAt: now, seen: watched };
     case 'prompt':
-      return at.busy ? { busy: false, since: at.since, exit: at.exit, endedAt: now } : at;
+      return at.busy
+        ? { busy: false, since: at.since, exit: at.exit, endedAt: now, seen: watched }
+        : at;
     case 'input':
       return at;
   }
+}
+
+/**
+ * The tab has been opened, so whatever it was holding has now been seen. The
+ * window starts here rather than ending: the mark stays a moment so the
+ * person looking at the tab reads it, and then goes.
+ */
+export function watched(state: Activity | undefined, now: number): Activity | undefined {
+  if (!state || state.seen) return state;
+  return { ...state, seen: true, endedAt: now };
 }
 
 export interface Chip {
@@ -105,22 +130,34 @@ export function activityChip(state: Activity | undefined, now: number): Chip | n
     if (ms < BUSY_AFTER_MS) return null;
     return { kind: 'busy', text: elapsed(ms), title: `Running for ${elapsed(ms)}` };
   }
-  if (state.endedAt === null || now - state.endedAt >= DONE_SHOWN_MS) return null;
+  if (state.endedAt === null) return null;
+  // A result the user was not there for keeps until the tab is opened; one
+  // they were watching has been read already and goes on its own.
+  if (state.seen && now - state.endedAt >= DONE_SHOWN_MS) return null;
+  const waiting = state.seen ? '' : ', still waiting to be looked at';
   if (state.exit === null || state.exit === 0) {
-    return { kind: 'done', text: '✓', title: 'The last command finished' };
+    return { kind: 'done', text: DOT, title: `The last command finished${waiting}` };
   }
-  return { kind: 'failed', text: `✗ ${state.exit}`, title: `The last command exited ${state.exit}` };
+  return {
+    kind: 'failed',
+    text: `${DOT} ${state.exit}`,
+    title: `The last command exited ${state.exit}${waiting}`,
+  };
 }
+
+/** Green or red; a glyph either colour reads the same way. */
+const DOT = '●';
 
 /**
  * Whether anything has a chip that will change, which is what the tab strip
- * ticks for. A finished command counts only while its mark is still shown:
- * `endedAt` is never cleared, so asking about it alone would leave a timer
- * running on an idle window for the rest of the session.
+ * ticks for. A finished command counts only while its mark is still counting
+ * down: `endedAt` is never cleared, so asking about it alone would leave a
+ * timer running on an idle window for the rest of the session, and a mark
+ * waiting to be looked at does not change until it is.
  */
 export function anyBusy(states: Record<string, Activity>, now: number): boolean {
   return Object.values(states).some(
-    (a) => a.busy || (a.endedAt !== null && now - a.endedAt < DONE_SHOWN_MS),
+    (a) => a.busy || (a.seen && a.endedAt !== null && now - a.endedAt < DONE_SHOWN_MS),
   );
 }
 

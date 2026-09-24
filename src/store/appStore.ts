@@ -6,7 +6,7 @@ import { CHECK_INTERVAL_SECS, fetchLatestRelease, newerVersion, type Release } f
 import { STORED, UNDETECTED_OS, UNKNOWN_OS } from '../types';
 import { restoreOrder, tabsToSave } from '../sessionRestore';
 import { clampZoom } from '../zoom';
-import { nextActivity, type Activity, type Mark } from '../activity';
+import { nextActivity, watched, type Activity, type Mark } from '../activity';
 import { isStale, type Probed } from '../probe';
 import type { AuthType, Codeprint, ProbeState, SftpBookmark, GeneratedKey, Identity, IdentityInput, JumpHopParams, KeyContent, KeyEntry, LogEntry, PortForwarding, ResolvedTheme, Server, ServerInput, SessionTab, Settings, SettingsSection, SystemAppearance } from '../types';
 import type { NamedTheme } from '../styles/themes';
@@ -954,7 +954,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set((s) => ({
       sessionActivity: {
         ...s.sessionActivity,
-        [tabId]: nextActivity(s.sessionActivity[tabId], mark, Date.now()),
+        // Whether anyone was there for it decides how long its mark stays.
+        [tabId]: nextActivity(s.sessionActivity[tabId], mark, Date.now(), s.activeTabId === tabId),
       },
     })),
 
@@ -1287,7 +1288,16 @@ export const useAppStore = create<AppStore>((set, get) => ({
     );
   },
 
-  setActiveTab: (id) => set({ activeTabId: id }),
+  setActiveTab: (id) =>
+    set((s) => {
+      // Opening a tab is what reads whatever it was holding, so a result that
+      // arrived while it was elsewhere starts its short goodbye here.
+      const at = id === null ? undefined : watched(s.sessionActivity[id], Date.now());
+      return {
+        activeTabId: id,
+        sessionActivity: at && id !== null ? { ...s.sessionActivity, [id]: at } : s.sessionActivity,
+      };
+    }),
 
   hostProbes: {},
 
