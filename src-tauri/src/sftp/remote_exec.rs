@@ -94,3 +94,36 @@ pub(super) async fn drain_exec(channel: &mut russh::Channel<russh::client::Msg>)
     }
     (status, stderr)
 }
+
+/// The command that hashes the given paths, each one quoted, with `--` so a
+/// path that starts with a dash is still a path.
+pub(super) fn sha256sum_command<'a>(paths: impl IntoIterator<Item = &'a str>) -> String {
+    let mut command = String::from("sha256sum --");
+    for path in paths {
+        command.push(' ');
+        command.push_str(&quote(path));
+    }
+    command
+}
+
+/// What `sha256sum` said, one line at a time: the path it was given, and the
+/// digest of it.
+///
+/// The coreutils format is the digest, two spaces, then the path exactly as
+/// it was asked about, so what a path means is the caller's business: one
+/// caller wants it relative to a transfer root, one relative to a directory
+/// it cd'd into, and one wants it as given. Blank lines are skipped; a line
+/// in any other shape is the error, because a server that answers something
+/// else has not run the command that was asked for.
+pub(super) fn digest_lines(out: &str) -> impl Iterator<Item = Result<(&str, &str)>> {
+    out.lines().filter_map(|line| {
+        let line = line.trim_end_matches('\r');
+        if line.is_empty() {
+            return None;
+        }
+        Some(match line.split_once("  ") {
+            Some((digest, path)) => Ok((path, digest)),
+            None => Err(anyhow!("Could not read what sha256sum said: {line}")),
+        })
+    })
+}

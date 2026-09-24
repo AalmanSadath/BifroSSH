@@ -20,7 +20,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-use super::remote_exec::{quote, run_capture};
+use super::remote_exec::{digest_lines, quote, run_capture, sha256sum_command};
 use super::listing::{collect_local_tree, collect_remote_tree, parent_remote};
 use super::session::{get_opener, get_session};
 use super::{ChannelOpener, SftpClientState, TransferSummary};
@@ -223,23 +223,19 @@ async fn remote_digests_of(
     root: &str,
     rels: &[String],
 ) -> Result<HashMap<String, String>> {
-    let mut args = String::new();
-    for rel in rels {
-        args.push(' ');
-        args.push_str(&quote(&join_rel(root, rel)));
-    }
-    let command = format!("sha256sum --{args}");
+    let joined: Vec<String> = rels.iter().map(|rel| join_rel(root, rel)).collect();
+    let command = sha256sum_command(joined.iter().map(String::as_str));
     let out = run_capture(opener, "sha256sum", &command).await?;
 
     let mut digests = HashMap::new();
-    for line in out.lines() {
-        let line = line.trim_end_matches('\r');
-        if line.is_empty() { continue; }
-        let Some((digest, path)) = line.split_once("  ") else {
-            bail!("Could not read what sha256sum said: {line}");
+    for line in digest_lines(&out) {
+        let (path, digest) = line?;
+        // Keyed the way the caller asked: relative to the root it named.
+        let rel = if path == root {
+            String::new()
+        } else {
+            path.strip_prefix(&format!("{root}/")).unwrap_or("").to_string()
         };
-        let rel = path.strip_prefix(&format!("{root}/")).unwrap_or("").to_string();
-        let rel = if path == root { String::new() } else { rel };
         digests.insert(rel, digest.to_string());
     }
     Ok(digests)
@@ -376,12 +372,8 @@ async fn remote_digests(opener: &dyn ChannelOpener, remote_path: &str) -> Result
 /// given, which here is `name` or something under it.
 pub(super) fn parse_digests(out: &str, name: &str) -> Result<Digests> {
     let mut digests = Digests::new();
-    for line in out.lines() {
-        let line = line.trim_end_matches('\r');
-        if line.is_empty() { continue; }
-        let Some((digest, path)) = line.split_once("  ") else {
-            bail!("Could not read what sha256sum said: {line}");
-        };
+    for line in digest_lines(out) {
+        let (path, digest) = line?;
         let path = path.strip_prefix("./").unwrap_or(path);
         if crate::sftp::transfer::is_part(path) {
             continue;

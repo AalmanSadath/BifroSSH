@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use russh_sftp::client::SftpSession;
 use tauri::Emitter;
@@ -371,19 +371,11 @@ impl FileSide for Remote {
     async fn digests(&self, paths: &[String]) -> Result<HashMap<String, String>> {
         let mut out = HashMap::new();
         for batch in paths.chunks(DIGEST_BATCH) {
-            let mut args = String::new();
-            for path in batch {
-                args.push(' ');
-                args.push_str(&super::remote_exec::quote(path));
-            }
-            let command = format!("sha256sum --{args}");
+            let command = super::remote_exec::sha256sum_command(batch.iter().map(String::as_str));
             let said = super::remote_exec::run_capture(self.opener.as_ref(), "sha256sum", &command).await?;
-            for line in said.lines() {
-                let line = line.trim_end_matches('\r');
-                if line.is_empty() { continue; }
-                let Some((digest, path)) = line.split_once("  ") else {
-                    bail!("Could not read what sha256sum said: {line}");
-                };
+            for line in super::remote_exec::digest_lines(&said) {
+                // Keyed by the path as given, which is what the caller holds.
+                let (path, digest) = line?;
                 out.insert(path.to_string(), digest.to_string());
             }
         }
