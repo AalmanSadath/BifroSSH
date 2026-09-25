@@ -159,15 +159,51 @@ pub async fn import_client_hosts(
 }
 
 fn read_and_parse(path: &str) -> CmdResult<ForeignScan> {
-    let meta = std::fs::metadata(path).map_err(|e| CmdError::from(format!("{path}: {e}")))?;
+    let bytes = read_capped(std::path::Path::new(path))?;
+    // PuTTY on Unix keeps one file per session, and a session's name is its
+    // file's name, so one file on its own can only be named after the address
+    // it holds. Picking any one of them imports the lot, which is what the
+    // user meant by pointing at the directory they were in.
+    if importers::is_one_putty_session(&bytes) {
+        if let Some(files) = sibling_sessions(std::path::Path::new(path)) {
+            return Ok(importers::parse_putty_dir(&files));
+        }
+    }
+    importers::parse(&bytes).map_err(CmdError::from)
+}
+
+/// Every other file beside this one, name and contents, when this file is in a
+/// directory PuTTY would have written. `None` when it is somewhere else, so the
+/// file is read on its own instead.
+fn sibling_sessions(path: &std::path::Path) -> Option<Vec<(String, Vec<u8>)>> {
+    let dir = path.parent()?;
+    if dir.file_name()? != "sessions" {
+        return None;
+    }
+    let mut files: Vec<(String, Vec<u8>)> = std::fs::read_dir(dir)
+        .ok()?
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            entry.file_type().ok()?.is_file().then_some(())?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            Some((name, read_capped(&entry.path()).ok()?))
+        })
+        .collect();
+    // Read order is the filesystem's; the list the user sees should not be.
+    files.sort_by(|(a, _), (b, _)| a.cmp(b));
+    (!files.is_empty()).then_some(files)
+}
+
+fn read_capped(path: &std::path::Path) -> CmdResult<Vec<u8>> {
+    let shown = path.display();
+    let meta = std::fs::metadata(path).map_err(|e| CmdError::from(format!("{shown}: {e}")))?;
     if meta.len() > MAX_FILE_BYTES {
         return Err(CmdError::from(format!(
-            "{path} is {} MB, far larger than any list of hosts. Is that the right file?",
+            "{shown} is {} MB, far larger than any list of hosts. Is that the right file?",
             meta.len() / (1024 * 1024)
         )));
     }
-    let bytes = std::fs::read(path).map_err(|e| CmdError::from(format!("{path}: {e}")))?;
-    importers::parse(&bytes).map_err(CmdError::from)
+    std::fs::read(path).map_err(|e| CmdError::from(format!("{shown}: {e}")))
 }
 
 /// The same test the ssh_config import and the backup merge use: a host is

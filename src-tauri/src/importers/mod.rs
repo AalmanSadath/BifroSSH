@@ -11,6 +11,7 @@
 //! somewhere nobody asked for.
 
 mod csvfile;
+mod putty;
 mod termius;
 
 use anyhow::{anyhow, Result};
@@ -20,6 +21,7 @@ use anyhow::{anyhow, Result};
 #[serde(rename_all = "snake_case")]
 pub enum Source {
     Termius,
+    Putty,
 }
 
 /// One host as the other client had it.
@@ -54,17 +56,50 @@ pub struct ForeignScan {
 
 /// Which client wrote this, or None if nothing here looks like an export.
 pub fn sniff(bytes: &[u8]) -> Option<Source> {
+    if putty::looks_like(bytes) {
+        return Some(Source::Putty);
+    }
     termius::looks_like(&decode(bytes)).then_some(Source::Termius)
 }
 
 /// The hosts in an export, or an error naming what the file is not.
 pub fn parse(bytes: &[u8]) -> Result<ForeignScan> {
     match sniff(bytes) {
+        Some(Source::Putty) => putty::parse(bytes),
         Some(Source::Termius) => termius::parse(&decode(bytes)),
         None => Err(anyhow!(
-            "This is not an export this app can read. Termius writes a .csv."
+            "This is not an export this app can read. Termius writes a .csv, \
+             PuTTY a .reg."
         )),
     }
+}
+
+/// Whether a file is one session out of a PuTTY sessions directory, as
+/// opposed to an export holding all of them.
+///
+/// The caller asks because the answer decides whether it reads the file or the
+/// directory around it: on Unix, PuTTY writes one file per session and the
+/// session's name is the file's name, so a single file read on its own can
+/// only be named after the address it points at.
+pub fn is_one_putty_session(bytes: &[u8]) -> bool {
+    putty::is_lone_session(bytes)
+}
+
+/// A whole PuTTY sessions directory, each entry a file name and its contents.
+///
+/// Takes what the caller has already read rather than a path, so the reading
+/// of a directory stays in the command layer and this stays testable from a
+/// list.
+pub fn parse_putty_dir(files: &[(String, Vec<u8>)]) -> ForeignScan {
+    let mut hosts = Vec::new();
+    let mut skipped = Vec::new();
+    for (name, bytes) in files {
+        match putty::parse_session(&decode(bytes), Some(name)) {
+            Ok(host) => hosts.push(host),
+            Err(why) => skipped.push(why),
+        }
+    }
+    ForeignScan { source: Source::Putty, hosts, skipped }
 }
 
 /// The file as text, whatever its encoding.
@@ -113,10 +148,16 @@ mod tests {
     }
 
     #[test]
-    fn a_format_is_recognised_from_its_own_contents() {
+    fn each_format_is_recognised_from_its_own_contents() {
         assert_eq!(
             sniff(b"Groups,Label,Address,Port,Username\nProd,web,10.0.0.1,22,root\n"),
             Some(Source::Termius)
+        );
+        assert_eq!(
+            sniff(br#"[HKEY_CURRENT_USER\Software\SimonTatham\PuTTY\Sessions\web]
+"HostName"="10.0.0.1"
+"#),
+            Some(Source::Putty)
         );
         assert_eq!(sniff(b""), None);
     }
