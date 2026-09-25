@@ -3,7 +3,7 @@
  * tested without a store.
  */
 
-import type { Server } from './types';
+import type { Server, SessionTab } from './types';
 
 /** The chip that shows hosts with no group. Also the key used for it. */
 export const UNGROUPED = 'Ungrouped';
@@ -68,4 +68,26 @@ export function hostSections(
     if (loose.length > 0) sections.push({ group: null, servers: loose });
   }
   return sections;
+}
+
+/** What a host card's dot says. */
+export type HostStatus = 'connected' | 'connecting' | 'error' | 'off';
+
+/**
+ * The state of a host across every tab open on it.
+ *
+ * An open tab is not a connection: a tab stays in the strip after it failed,
+ * and after its connection dropped, so that its scrollback and its reason are
+ * still there. Green therefore needs a tab that is actually connected. With
+ * several tabs, the best one wins: one working session means the host is up,
+ * whatever a second tab is still trying to do, and a tab mid-connect or
+ * mid-reconnect outranks one that has given up.
+ */
+export function hostStatus(tabs: Pick<SessionTab, 'status' | 'reconnecting'>[]): HostStatus {
+  if (tabs.some((t) => t.status === 'connected')) return 'connected';
+  if (tabs.some((t) => t.status === 'connecting' || (t.status === 'dropped' && t.reconnecting))) {
+    return 'connecting';
+  }
+  if (tabs.some((t) => t.status === 'error' || t.status === 'dropped')) return 'error';
+  return 'off';
 }

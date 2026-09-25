@@ -273,6 +273,7 @@
 
 .dot-on  { background: var(--success); }
 .dot-off { background: var(--text-dim); }
+.dot-error { background: var(--danger); }
 
 /* Mid-connect. Pulsing rather than labelled, so a card that is connecting is
    the same height as one that is not. */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Server } from './types';
-import { UNGROUPED, groupNames, hostSections, matchesHost } from './hosts';
+import { UNGROUPED, groupNames, hostSections, hostStatus, matchesHost } from './hosts';
 
 function server(over: Partial<Server> & { id: string }): Server {
   return {
@@ -89,5 +89,28 @@ describe('hostSections', () => {
   it('is one nameless section when no host has a group', () => {
     const plain = [server({ id: 'b' }), server({ id: 'a' })];
     expect(names(hostSections(plain, '', null))).toEqual([[null, ['a', 'b']]]);
+  });
+});
+
+describe('hostStatus', () => {
+  it('is off with no tab open', () => {
+    expect(hostStatus([])).toBe('off');
+  });
+
+  it('is green only for a tab that actually connected', () => {
+    expect(hostStatus([{ status: 'connected' }])).toBe('connected');
+    expect(hostStatus([{ status: 'connecting' }])).toBe('connecting');
+    expect(hostStatus([{ status: 'error' }])).toBe('error');
+  });
+
+  it('reads a dropped tab as failed, unless it is on its way back', () => {
+    expect(hostStatus([{ status: 'dropped' }])).toBe('error');
+    expect(hostStatus([{ status: 'dropped', reconnecting: true }])).toBe('connecting');
+  });
+
+  it('takes the best of several tabs on one host', () => {
+    expect(hostStatus([{ status: 'error' }, { status: 'connected' }])).toBe('connected');
+    expect(hostStatus([{ status: 'error' }, { status: 'connecting' }])).toBe('connecting');
+    expect(hostStatus([{ status: 'connecting' }, { status: 'connected' }])).toBe('connected');
   });
 });
