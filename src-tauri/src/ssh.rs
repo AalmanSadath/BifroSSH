@@ -151,6 +151,10 @@ pub struct SshConnectParams {
     pub run_on_connect: Option<String>,
     /// Whether that line's echo is taken back out of the terminal.
     pub hide_run_on_connect: bool,
+    /// The terminal type the PTY is asked for.
+    pub term: String,
+    /// Variables to ask the server to set before the shell starts.
+    pub env: Vec<(String, String)>,
 }
 
 /// russh sends a keepalive every interval and gives up after `keepalive_max`
@@ -295,7 +299,7 @@ pub async fn connect_ssh(
     channel
         .request_pty(
             false,
-            "xterm-256color",
+            &params.term,
             params.initial_cols,
             params.initial_rows,
             0,
@@ -317,6 +321,20 @@ pub async fn connect_ssh(
         if let Err(e) = channel.agent_forward(true).await {
             emit_log(&app, &connect_id, "error", &format!("Agent forwarding request failed: {e}"));
         }
+    }
+
+    // Between the PTY and the shell, which is where ssh itself sends them.
+    // No reply is asked for: a server sets AcceptEnv to say which names it
+    // will take and drops the rest without a word, and a variable it will not
+    // set is no reason to fail the connection.
+    for (name, value) in &params.env {
+        if let Err(e) = channel.set_env(false, name.as_str(), value.as_str()).await {
+            emit_log(&app, &connect_id, "error", &format!("Could not ask for {name}: {e}"));
+        }
+    }
+    if !params.env.is_empty() {
+        let names: Vec<&str> = params.env.iter().map(|(n, _)| n.as_str()).collect();
+        emit_log(&app, &connect_id, "network", &format!("Asked the server to set {}", names.join(", ")));
     }
 
     emit_log(&app, &connect_id, "network", "Starting shell...");
