@@ -11,6 +11,7 @@
 //! somewhere nobody asked for.
 
 mod csvfile;
+mod mobaxterm;
 mod putty;
 mod termius;
 
@@ -22,6 +23,7 @@ use anyhow::{anyhow, Result};
 pub enum Source {
     Termius,
     Putty,
+    MobaXterm,
 }
 
 /// One host as the other client had it.
@@ -59,17 +61,22 @@ pub fn sniff(bytes: &[u8]) -> Option<Source> {
     if putty::looks_like(bytes) {
         return Some(Source::Putty);
     }
-    termius::looks_like(&decode(bytes)).then_some(Source::Termius)
+    let text = decode(bytes);
+    if mobaxterm::looks_like(&text) {
+        return Some(Source::MobaXterm);
+    }
+    termius::looks_like(&text).then_some(Source::Termius)
 }
 
 /// The hosts in an export, or an error naming what the file is not.
 pub fn parse(bytes: &[u8]) -> Result<ForeignScan> {
     match sniff(bytes) {
         Some(Source::Putty) => putty::parse(bytes),
+        Some(Source::MobaXterm) => Ok(mobaxterm::parse(&decode(bytes))),
         Some(Source::Termius) => termius::parse(&decode(bytes)),
         None => Err(anyhow!(
-            "This is not an export this app can read. Termius writes a .csv, \
-             PuTTY a .reg."
+            "This is not an export from Termius, PuTTY or MobaXterm. Termius \
+             writes a .csv, PuTTY a .reg, MobaXterm a .mxtsessions."
         )),
     }
 }
@@ -145,6 +152,7 @@ mod tests {
     fn a_file_from_no_known_client_is_refused_by_name() {
         let e = parse(b"just some text\nwith lines\n").unwrap_err().to_string();
         assert!(e.contains("Termius"), "{e}");
+        assert!(e.contains(".mxtsessions"), "{e}");
     }
 
     #[test]
@@ -158,6 +166,10 @@ mod tests {
 "HostName"="10.0.0.1"
 "#),
             Some(Source::Putty)
+        );
+        assert_eq!(
+            sniff(b"[Bookmarks]\nSubRep=\nImgNum=42\nweb=#109#0%10.0.0.1%22%root%%"),
+            Some(Source::MobaXterm)
         );
         assert_eq!(sniff(b""), None);
     }
