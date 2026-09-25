@@ -5,6 +5,7 @@ import { getVersion } from '@tauri-apps/api/app';
 import { CHECK_INTERVAL_SECS, fetchLatestRelease, newerVersion, type Release } from '../updates';
 import { STORED, UNDETECTED_OS, UNKNOWN_OS } from '../types';
 import { restoreOrder, tabsToSave } from '../sessionRestore';
+import { cleanTitle } from '../tabName';
 import { clampZoom } from '../zoom';
 import { nextActivity, watched, type Activity, type Mark } from '../activity';
 import { isStale, type Probed } from '../probe';
@@ -1006,7 +1007,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   renameSession: (tabId, name) =>
     set((s) => ({
       sessions: s.sessions.map((t) =>
-        t.tab_id === tabId ? { ...t, server_name: name } : t
+        t.tab_id === tabId ? { ...t, title: cleanTitle(name, t.server_name) } : t
       ),
     })),
 

@@ -3,6 +3,7 @@ import * as ipc from '../ipc';
 import { useAppStore } from '../store/appStore';
 import { bySection, rankCommands, type Command } from '../palette';
 import type { Codeprint, SettingsSection } from '../types';
+import { tabLabel } from '../tabName';
 
 interface Props {
   onClose: () => void;
@@ -63,7 +64,7 @@ export default function CommandPalette({ onClose, onCodeprint, onAddHost, onLock
       if (s.tab_id === activeTabId) continue;
       items.push({
         id: `tab:${s.tab_id}`,
-        title: s.server_name,
+        title: tabLabel(s),
         subtitle: `Open tab · ${s.status}`,
         group: 'Tabs',
         run: done(() => setActiveTab(s.tab_id)),
@@ -134,7 +135,7 @@ export default function CommandPalette({ onClose, onCodeprint, onAddHost, onLock
       items.push({
         id: 'action:duplicate',
         title: 'New tab to this host',
-        subtitle: active.server_name,
+        subtitle: tabLabel(active),
         group: 'Actions',
         run: done(() => { void openSession(active.server_id); }),
       });
@@ -155,21 +156,21 @@ export default function CommandPalette({ onClose, onCodeprint, onAddHost, onLock
       items.push({
         id: 'action:transcript-copy',
         title: 'Copy this tab as text',
-        subtitle: active.server_name,
+        subtitle: tabLabel(active),
         group: 'Actions',
         run: done(() => onTranscript(active.tab_id, 'clipboard')),
       });
       items.push({
         id: 'action:transcript-save',
         title: 'Save this tab as a text file',
-        subtitle: active.server_name,
+        subtitle: tabLabel(active),
         group: 'Actions',
         run: done(() => onTranscript(active.tab_id, 'file')),
       });
       items.push({
         id: 'action:close',
         title: 'Close this tab',
-        subtitle: active.server_name,
+        subtitle: tabLabel(active),
         group: 'Actions',
         run: done(() => {
           if (active.session_id) ipc.sshDisconnect(active.session_id).catch(() => {});

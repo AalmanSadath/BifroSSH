@@ -445,6 +445,13 @@ export interface SessionTab {
   /** The live backend session, or null while connecting or after a drop. */
   session_id: string | null;
   server_name: string;
+  /**
+   * The name the user gave this tab, absent until they give it one. Kept
+   * apart from `server_name`, which names the host and the files this
+   * session writes: two tabs on one host are told apart by what they are
+   * for, not by the counter on the second one's name.
+   */
+  title?: string;
   server_id: string;
   /**
    * `dropped` is a connection that went away under a tab that is kept: the

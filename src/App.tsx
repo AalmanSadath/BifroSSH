@@ -39,6 +39,7 @@ import PortForwardingPanel from './components/PortForwardingPanel';
 import ContextMenu from './components/shared/ContextMenu';
 import Modal from './components/shared/Modal';
 import PassphraseInput from './components/shared/PassphraseInput';
+import { tabLabel } from './tabName';
 import PortalDropdown from './components/shared/PortalDropdown';
 
 export default function App() {
@@ -139,7 +140,7 @@ export default function App() {
   function paneHeader(s: SessionTab, focused: boolean) {
     return (
       <div className={`pane-header${focused ? ' pane-header-focused' : ''}`}>
-        <span className="pane-header-title">{s.server_name}</span>
+        <span className="pane-header-title">{tabLabel(s)}</span>
         {activityFor(s.tab_id)}
         <button
           className="pane-header-close"
@@ -154,6 +155,9 @@ export default function App() {
   }
   const [renameValue, setRenameValue] = useState('');
   const renameInputRef = useRef<HTMLInputElement>(null);
+  /** The tab whose name is being edited in the strip, as opposed to in the menu. */
+  const [editingTabId, setEditingTabId] = useState<string | null>(null);
+  const stripRenameRef = useRef<HTMLInputElement>(null);
 
   // Emitted globally rather than per connect, so one modal of each kind
   // serves terminal sessions, SFTP, tunnels and OS detection alike.
@@ -409,7 +413,7 @@ export default function App() {
   function handleTabContextMenu(e: React.MouseEvent, session: SessionTab) {
     e.preventDefault();
     e.stopPropagation();
-    setRenameValue(session.server_name);
+    setRenameValue(tabLabel(session));
     setTabCtx({ x: e.clientX, y: e.clientY, session, mode: 'menu' });
   }
 
@@ -445,9 +449,28 @@ export default function App() {
 
   function commitRename() {
     if (!tabCtx) return;
-    const name = renameValue.trim();
-    if (name) renameSession(tabCtx.session.tab_id, name);
+    // An empty name is not a refusal to rename: it puts the tab back on the
+    // host's own name, which is the only way to undo one.
+    renameSession(tabCtx.session.tab_id, renameValue);
     setTabCtx(null);
+  }
+
+  /**
+   * Double-click on a tab's name edits it there, the way the file list
+   * renames. The menu keeps its own entry: a tab too narrow to show its name
+   * is also too narrow to aim at.
+   */
+  function startStripRename(e: React.MouseEvent, session: SessionTab) {
+    e.stopPropagation();
+    setRenameValue(tabLabel(session));
+    setEditingTabId(session.tab_id);
+    // After the input exists. The file list does the same, for the same reason.
+    setTimeout(() => stripRenameRef.current?.select(), 30);
+  }
+
+  function commitStripRename() {
+    if (editingTabId) renameSession(editingTabId, renameValue);
+    setEditingTabId(null);
   }
 
   // Held back until vault_status answers, which is one synchronous read on the
@@ -551,7 +574,24 @@ export default function App() {
                 {s.broadcast && (
                   <span className="tab-broadcast" title={hint('Broadcasting: input also goes to every other tab marked the same way')}>⇶</span>
                 )}
-                <span className="tab-title">{s.server_name}</span>
+                {editingTabId === s.tab_id ? (
+                  <input
+                    ref={stripRenameRef}
+                    className="tab-rename-input tab-rename-inline"
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    onBlur={commitStripRename}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') commitStripRename();
+                      if (e.key === 'Escape') setEditingTabId(null);
+                    }}
+                  />
+                ) : (
+                  <span className="tab-title" onDoubleClick={(e) => startStripRename(e, s)}>
+                    {tabLabel(s)}
+                  </span>
+                )}
                 {activityFor(s.tab_id)}
                 {/* A tab whose text is a different size than the rest says
                     why, and clicking it puts the tab back on the setting. */}

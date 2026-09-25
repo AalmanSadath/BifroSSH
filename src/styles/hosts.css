@@ -291,6 +291,15 @@
   border-color: var(--accent);
 }
 
+/* The same input, inside a tab rather than under the menu, so it has the
+   width the name had rather than the menu's. */
+.tab-rename-inline {
+  width: 120px;
+  padding: 1px 4px;
+  font-size: inherit;
+  border-color: var(--accent);
+}
+
 .hosts-empty {
   display: flex;
   flex-direction: column;

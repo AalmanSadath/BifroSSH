@@ -12,6 +12,7 @@ import ContextMenu from './shared/ContextMenu';
 import { cardKeys } from './shared/cardKeys';
 import { EditIcon, NoteIcon } from './shared/icons';
 import { probeClass, probeLabel, probeTitle } from '../probe';
+import { tabLabel } from '../tabName';
 
 export default function HostsPanel() {
   const { servers, sessions, setActiveTab, removeSession, deleteServer, openSession, hostProbes, probeHosts } = useAppStore();
@@ -200,7 +201,7 @@ export default function HostsPanel() {
                           removeSession(s.tab_id);
                           setContextMenu(null);
                         }}>
-                          End {s.server_name}
+                          End {tabLabel(s)}
                         </button>
                       ))}
                       <div className="menu-divider" />
