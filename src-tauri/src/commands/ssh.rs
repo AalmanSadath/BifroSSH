@@ -4,7 +4,7 @@ use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
 use crate::connect::ConnectLogEvent;
-use crate::models::AuthMethod;
+use crate::models::{env_pairs, AuthMethod, DEFAULT_TERM};
 use crate::ssh::{connect_ssh, SshCommand, SshConnectParams};
 
 use super::{CmdError, CmdResult, connect_security, timeout_pausable, AppState};
@@ -108,6 +108,24 @@ pub struct ConnectRequest {
     pub jumps: Vec<JumpHopRequest>,
 }
 
+/// What the saved record contributes to a connection, read under one lock.
+///
+/// A struct rather than a tuple of ten: every field but two is a `String` or
+/// a `bool`, and a tuple that wide is one reordering away from a connection
+/// to the right host with the wrong name.
+struct Saved {
+    host: String,
+    port: u16,
+    prep: Prepared,
+    forward_agent: bool,
+    log_to: Option<Option<String>>,
+    label: String,
+    run_on_connect: Option<String>,
+    hide_run_on_connect: bool,
+    term: String,
+    env: Vec<(String, String)>,
+}
+
 #[tauri::command]
 pub async fn ssh_connect(
     state: State<'_, AppState>,
@@ -115,12 +133,11 @@ pub async fn ssh_connect(
     request: ConnectRequest,
 ) -> CmdResult<String> {
     // One lock: the server, and everything the request names, come out together.
-    let (host, port, prep, forward_agent, log_to, label, run_on_connect, hide_run_on_connect) = {
+    let Saved { host, port, prep, forward_agent, log_to, label, run_on_connect, hide_run_on_connect, term, env } = {
         let data = state.data.lock().await;
         let server = super::records::find_by_id(&data.servers, &request.server_id)
             .ok_or("Server not found")?;
-        let (host, port, host_timeout, forward_agent) =
-            (server.host.clone(), server.port, server.connection_timeout, server.forward_agent);
+        let host_timeout = server.connection_timeout;
         let log_to = server.log_sessions.then(|| data.settings.session_log_dir.clone());
         let prep = prepare(
             &data,
@@ -130,8 +147,19 @@ pub async fn ssh_connect(
             &request.jumps,
             host_timeout,
         )?;
-        let run_on_connect = server.run_on_connect.clone().filter(|c| !c.trim().is_empty());
-        (host, port, prep, forward_agent, log_to, server.name.clone(), run_on_connect, server.hide_run_on_connect)
+        Saved {
+            host: server.host.clone(),
+            port: server.port,
+            prep,
+            forward_agent: server.forward_agent,
+            log_to,
+            label: server.name.clone(),
+            run_on_connect: server.run_on_connect.clone().filter(|c| !c.trim().is_empty()),
+            hide_run_on_connect: server.hide_run_on_connect,
+            term: server.term.clone().filter(|t| !t.trim().is_empty())
+                .unwrap_or_else(|| DEFAULT_TERM.to_string()),
+            env: server.env.as_deref().map(env_pairs).unwrap_or_default(),
+        }
     };
 
     // The host asks for a log: opened here, before the connect, so the
@@ -158,6 +186,8 @@ pub async fn ssh_connect(
         log,
         run_on_connect,
         hide_run_on_connect,
+        term,
+        env,
     };
 
     start_session(&state, &app, request.connect_id, params, prep.timeout_secs).await
@@ -210,6 +240,8 @@ pub async fn ssh_connect_quick(
         log: None,
         run_on_connect: None,
         hide_run_on_connect: true,
+        term: DEFAULT_TERM.to_string(),
+        env: Vec::new(),
     };
 
     start_session(&state, &app, request.connect_id, params, prep.timeout_secs).await

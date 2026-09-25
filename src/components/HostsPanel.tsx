@@ -2,21 +2,31 @@ import { useState } from 'react';
 import * as ipc from '../ipc';
 import { useAppStore, reportFailure } from '../store/appStore';
 import { useHint } from './shared/useHint';
-import { UNGROUPED, groupNames, groupOf, hostSections } from '../hosts';
+import { UNGROUPED, groupNames, groupOf, hostSections, hostStatus, type HostStatus } from '../hosts';
 import type { Server } from '../types';
 import ServerForm from './ServerForm';
 import SshConfigImport from './SshConfigImport';
+import ClientImport from './ClientImport';
 import OsIcon from './OsIcon';
 import ConfirmModal from './shared/ConfirmModal';
 import ContextMenu from './shared/ContextMenu';
 import { cardKeys } from './shared/cardKeys';
 import { EditIcon, NoteIcon } from './shared/icons';
 import { probeClass, probeLabel, probeTitle } from '../probe';
+import { tabLabel } from '../tabName';
+
+const STATUS_DOT: Record<HostStatus, { className: string; title: string }> = {
+  connected: { className: 'dot-on', title: 'Connected' },
+  connecting: { className: 'dot-connecting', title: 'Connecting…' },
+  error: { className: 'dot-error', title: 'Could not connect, or the connection dropped' },
+  off: { className: 'dot-off', title: 'Not connected' },
+};
 
 export default function HostsPanel() {
   const { servers, sessions, setActiveTab, removeSession, deleteServer, openSession, hostProbes, probeHosts } = useAppStore();
   const [showServerForm, setShowServerForm] = useState(false);
   const [showSshImport, setShowSshImport] = useState(false);
+  const [showClientImport, setShowClientImport] = useState(false);
   const [editServer, setEditServer] = useState<Server | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ kind: 'server'; x: number; y: number; server: Server } | { kind: 'panel'; x: number; y: number } | null>(null);
@@ -24,7 +34,6 @@ export default function HostsPanel() {
   const hint = useHint();
   const [groupFilter, setGroupFilter] = useState<string | null>(null);
 
-  const connectedIds = new Set(sessions.map((s) => s.server_id));
   const groups = groupNames(servers);
   const anyUngrouped = servers.some((s) => groupOf(s) === null);
   // A chip for a group that was renamed or emptied would keep the page
@@ -61,6 +70,13 @@ export default function HostsPanel() {
           </button>
           <button className="btn-secondary btn-sm" onClick={() => setShowSshImport(true)}>
             Import from ssh config
+          </button>
+          <button
+            className="btn-secondary btn-sm"
+            onClick={() => setShowClientImport(true)}
+            title={hint('Hosts exported from Termius, PuTTY or MobaXterm')}
+          >
+            Import from another client
           </button>
           {servers.length > 0 && (
             <button
@@ -118,8 +134,7 @@ export default function HostsPanel() {
             )}
             <div className="hosts-grid">
               {section.servers.map((server) => {
-                const connected = connectedIds.has(server.id);
-                const isConnecting = sessions.some((s) => s.server_id === server.id && s.status === 'connecting');
+                const status = hostStatus(sessions.filter((s) => s.server_id === server.id));
                 return (
                   <div
                     key={server.id}
@@ -137,10 +152,7 @@ export default function HostsPanel() {
                         {/* The dot is the whole status. Spelling it out underneath
                             gave the connected card a third line and made it taller
                             than the others in its row. */}
-                        <span
-                          className={`dot ${isConnecting ? 'dot-connecting' : connected ? 'dot-on' : 'dot-off'}`}
-                          title={isConnecting ? 'Connecting…' : connected ? 'Connected' : 'Not connected'}
-                        />
+                        <span className={`dot ${STATUS_DOT[status].className}`} title={STATUS_DOT[status].title} />
                         <span className="card-title">{server.name}</span>
                         {/* A glyph in the name row rather than a third line:
                             the card's two-line height is what keeps every card
@@ -200,7 +212,7 @@ export default function HostsPanel() {
                           removeSession(s.tab_id);
                           setContextMenu(null);
                         }}>
-                          End {s.server_name}
+                          End {tabLabel(s)}
                         </button>
                       ))}
                       <div className="menu-divider" />
@@ -227,6 +239,8 @@ export default function HostsPanel() {
       )}
 
       {showSshImport && <SshConfigImport onClose={() => setShowSshImport(false)} />}
+
+      {showClientImport && <ClientImport onClose={() => setShowClientImport(false)} />}
 
       {showServerForm && (
         <ServerForm

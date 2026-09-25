@@ -19,6 +19,8 @@ import { invoke } from '@tauri-apps/api/core';
 import type {
   AgentKeyInfo,
   AuthType,
+  ClientImportResult,
+  ClientScan,
   Codeprint,
   Conflict,
   ConnectRequest,
@@ -37,6 +39,7 @@ import type {
   KeystoreStatus,
   KnownHostEntry,
   MergePlan,
+  OpenTab,
   PortForwarding,
   QuickConnectRequest,
   Server,
@@ -144,6 +147,29 @@ export const clipboardReadText = () => invoke<string>('clipboard_read_text');
 
 export const scanSshConfig = () => invoke<SshConfigScan>('scan_ssh_config');
 
+export const scanClientExport = (path: string) =>
+  invoke<ClientScan>('scan_client_export', { path });
+
+/**
+ * Imports the rows at these positions in the file at `path`.
+ *
+ * `total` is how many hosts the scan found, sent back so the backend can
+ * refuse a file that changed under the dialog rather than importing whichever
+ * lines now sit at those positions.
+ */
+export const importClientHosts = (
+  path: string,
+  picked: number[],
+  total: number,
+  withPasswords: boolean,
+) =>
+  invoke<ClientImportResult>('import_client_hosts', {
+    path,
+    picked,
+    total,
+    withPasswords,
+  });
+
 export const importSshConfigHosts = (aliases: string[]) =>
   invoke<SshConfigImportResult>('import_ssh_config_hosts', { aliases });
 
@@ -200,9 +226,9 @@ export const sftpCompareTrees = (
 export const writeTextFile = (path: string, contents: string, overwrite: boolean) =>
   invoke<void>('write_text_file', { path, contents, overwrite });
 
-export const getOpenTabs = () => invoke<string[]>('get_open_tabs');
+export const getOpenTabs = () => invoke<OpenTab[]>('get_open_tabs');
 
-export const saveOpenTabs = (items: string[]) => invoke<void>('save_open_tabs', { items });
+export const saveOpenTabs = (items: OpenTab[]) => invoke<void>('save_open_tabs', { items });
 
 export const getCustomThemes = () =>
   invoke<Record<string, NamedTheme>>('get_custom_themes');

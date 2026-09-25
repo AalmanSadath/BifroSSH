@@ -3,6 +3,7 @@ import * as ipc from './ipc';
 import { terminalFor } from './terminalRegistry';
 import { transcriptLines, transcriptName, transcriptText } from './transcript';
 import type { SessionTab } from './types';
+import { tabLabel } from './tabName';
 
 /** A transcript waiting for a path to be written to. */
 export interface PendingSave {
@@ -34,7 +35,7 @@ export function useTranscript(onError: (message: string) => void) {
     if (!term) return null;
     const text = transcriptText(transcriptLines(term.buffer.active));
     if (text === '') {
-      onError(`Nothing has been printed in "${session.server_name}" yet`);
+      onError(`Nothing has been printed in "${tabLabel(session)}" yet`);
       return null;
     }
     return text;

@@ -63,6 +63,10 @@ export interface Server {
   hide_run_on_connect: boolean;
   /** Free text the user keeps about this host; searched with the rest. */
   notes: string | null;
+  /** The terminal type the PTY asks for; null is xterm-256color. */
+  term: string | null;
+  /** Variables to ask the server to set, one NAME=value per line, as typed. */
+  env: string | null;
 }
 
 /** A directory saved for one click in the SFTP panel. */
@@ -394,6 +398,36 @@ export interface SshConfigImportResult {
   jumps_linked: number;
 }
 
+/** Which client an export came from. */
+export type ImportSource = 'termius' | 'putty' | 'moba_xterm';
+
+/** One host in another client's export, as the import dialog shows it. */
+export interface ScannedHost {
+  name: string;
+  host: string;
+  port: number;
+  username: string | null;
+  group: string | null;
+  /** A saved host already has this address, port and user. */
+  already_here: boolean;
+  /** The file carries a password for it; the password itself stays in the backend. */
+  has_password: boolean;
+}
+
+export interface ClientScan {
+  source: ImportSource;
+  hosts: ScannedHost[];
+  /** Entries in the file that are not ssh hosts, one sentence each. */
+  skipped: string[];
+}
+
+export interface ClientImportResult {
+  imported: number;
+  skipped_existing: number;
+  passwords_saved: number;
+  groups_created: number;
+}
+
 export interface AgentKeyInfo {
   algorithm: string;
   /** No comment field: russh-keys discards it while parsing agent identities. */
@@ -430,6 +464,13 @@ export interface LogEntry {
   kind: string;
 }
 
+/** A tab written down at close, so the next launch can put it back. */
+export interface OpenTab {
+  server_id: string;
+  /** The name the user gave it, absent when they never did. */
+  title?: string | null;
+}
+
 export interface SessionTab {
   /**
    * The tab's identity: the connect id it was born with, never changed.
@@ -441,6 +482,13 @@ export interface SessionTab {
   /** The live backend session, or null while connecting or after a drop. */
   session_id: string | null;
   server_name: string;
+  /**
+   * The name the user gave this tab, absent until they give it one. Kept
+   * apart from `server_name`, which names the host and the files this
+   * session writes: two tabs on one host are told apart by what they are
+   * for, not by the counter on the second one's name.
+   */
+  title?: string;
   server_id: string;
   /**
    * `dropped` is a connection that went away under a tab that is kept: the

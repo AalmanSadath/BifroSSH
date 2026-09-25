@@ -59,12 +59,15 @@ pub async fn save_sftp_bookmarks(
 
 /// The hosts whose tabs were open last time, in strip order.
 #[tauri::command]
-pub async fn get_open_tabs(state: State<'_, AppState>) -> CmdResult<Vec<String>> {
+pub async fn get_open_tabs(state: State<'_, AppState>) -> CmdResult<Vec<crate::models::OpenTab>> {
     Ok(state.data.lock().await.open_tabs.clone())
 }
 
 #[tauri::command]
-pub async fn save_open_tabs(state: State<'_, AppState>, items: Vec<String>) -> CmdResult<()> {
+pub async fn save_open_tabs(
+    state: State<'_, AppState>,
+    items: Vec<crate::models::OpenTab>,
+) -> CmdResult<()> {
     let mut data = state.data.lock().await;
     data.open_tabs = items;
     state.save(&data)

@@ -159,7 +159,50 @@ pub struct Server {
     /// searched with the rest of the record.
     #[serde(default)]
     pub notes: Option<String>,
+    /// The terminal type asked for when the PTY is requested; None is
+    /// `xterm-256color`. A host whose curses build predates that name needs
+    /// `xterm`, and there is no way to tell it one from the far side.
+    #[serde(default)]
+    pub term: Option<String>,
+    /// Variables to ask the server to set, one `NAME=value` per line, held as
+    /// the text the user typed rather than as pairs: a round trip through the
+    /// form then keeps their order, their spacing and their comments.
+    #[serde(default)]
+    pub env: Option<String>,
 }
+
+/// The variables in an [`Server::env`] block, in the order they were written.
+///
+/// Blank lines and `#` comments are skipped. A name is what a shell would
+/// accept, letters, digits and underscore, not starting with a digit; a line
+/// that is not one is dropped rather than sent, since the server would refuse
+/// the request and the user would be told nothing. The value is kept exactly
+/// as typed, trailing spaces included, because a value is data.
+pub fn env_pairs(text: &str) -> Vec<(String, String)> {
+    text.lines()
+        .filter_map(|line| {
+            let line = line.trim_start().trim_end_matches('\r');
+            if line.is_empty() || line.starts_with('#') {
+                return None;
+            }
+            let (name, value) = line.split_once('=')?;
+            let name = name.trim_end();
+            if !is_env_name(name) {
+                return None;
+            }
+            Some((name.to_string(), value.to_string()))
+        })
+        .collect()
+}
+
+fn is_env_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.starts_with(|c: char| c.is_ascii_digit())
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// [`Server::term`] for a host that has not asked for another one.
+pub const DEFAULT_TERM: &str = "xterm-256color";
 
 impl Server {
     // Not a container-level default: `name`, `host` and `port` are required
@@ -337,6 +380,38 @@ pub struct PortForwarding {
     pub autostart_on_connect: bool,
 }
 
+/// A tab that was open when the app last closed.
+///
+/// Written as an object, and read from either an object or the bare server id
+/// that versions up to 0.14.5 wrote, so an existing `data.json` restores its
+/// tabs unnamed instead of failing the whole document and falling into backup
+/// recovery.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct OpenTab {
+    pub server_id: String,
+    /// The name the user gave that tab, if they gave it one.
+    pub title: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for OpenTab {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Written {
+            Id(String),
+            Tab {
+                server_id: String,
+                #[serde(default)]
+                title: Option<String>,
+            },
+        }
+        Ok(match Written::deserialize(d)? {
+            Written::Id(server_id) => OpenTab { server_id, title: None },
+            Written::Tab { server_id, title } => OpenTab { server_id, title },
+        })
+    }
+}
+
 /// A named shell command the user can paste or run in any session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Codeprint {
@@ -373,11 +448,11 @@ pub struct AppData {
     pub codeprints: Vec<Codeprint>,
     #[serde(default)]
     pub sftp_bookmarks: Vec<SftpBookmark>,
-    /// The `server_id` of every saved-host tab that was open, in strip
-    /// order, so a restart can put them back. Duplicates are meaningful:
-    /// two tabs on one host is a normal thing to have open.
+    /// Every saved-host tab that was open, in strip order, so a restart can
+    /// put them back. Duplicates are meaningful: two tabs on one host is a
+    /// normal thing to have open.
     #[serde(default)]
-    pub open_tabs: Vec<String>,
+    pub open_tabs: Vec<OpenTab>,
     /// Kept opaque: these are xterm themes with many optional colour fields,
     /// and nothing in the backend needs to interpret them.
     #[serde(default)]
@@ -527,6 +602,89 @@ mod tests {
             }"#,
         );
         assert!(parsed.is_err(), "a host with no hostname is not a host");
+    }
+
+    #[test]
+    fn a_variable_block_reads_in_the_order_it_was_written() {
+        assert_eq!(
+            env_pairs("LANG=en_GB.UTF-8\nEDITOR=vim"),
+            vec![
+                ("LANG".to_string(), "en_GB.UTF-8".to_string()),
+                ("EDITOR".to_string(), "vim".to_string()),
+            ]
+        );
+    }
+
+    /// Only the first `=` separates; everything after it is the value, which
+    /// is how a value holding one of its own survives.
+    #[test]
+    fn a_value_may_hold_an_equals_sign() {
+        assert_eq!(
+            env_pairs("OPTS=--flag=1 --other=2"),
+            vec![("OPTS".to_string(), "--flag=1 --other=2".to_string())]
+        );
+    }
+
+    #[test]
+    fn blank_lines_comments_and_carriage_returns_are_not_variables() {
+        assert_eq!(
+            env_pairs("\n  # a note\r\nLANG=C\r\n\n"),
+            vec![("LANG".to_string(), "C".to_string())]
+        );
+    }
+
+    /// A line the server would refuse is dropped here, where the user can be
+    /// told, rather than sent and silently discarded on the far side.
+    #[test]
+    fn a_line_that_is_not_a_variable_is_dropped() {
+        assert!(env_pairs("just a sentence").is_empty());
+        assert!(env_pairs("2FAST=no").is_empty());
+        assert!(env_pairs("has space=no").is_empty());
+        assert!(env_pairs("=novalue").is_empty());
+    }
+
+    /// Spaces around the name are the user's formatting; spaces in the value
+    /// are the value.
+    #[test]
+    fn spacing_is_trimmed_from_the_name_and_kept_in_the_value() {
+        assert_eq!(
+            env_pairs("  PAGER = less "),
+            vec![("PAGER".to_string(), " less ".to_string())]
+        );
+    }
+
+    /// The shape 0.14.5 and everything before it wrote: a bare server id per
+    /// tab. Reading it as a tab with no name of its own is what keeps an
+    /// existing document loading instead of recovering from a backup.
+    #[test]
+    fn a_tab_list_of_bare_ids_still_reads() {
+        let tabs: Vec<OpenTab> = serde_json::from_str(r#"["s1", "s2", "s1"]"#).unwrap();
+        assert_eq!(
+            tabs,
+            vec![
+                OpenTab { server_id: "s1".into(), title: None },
+                OpenTab { server_id: "s2".into(), title: None },
+                OpenTab { server_id: "s1".into(), title: None },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_named_tab_round_trips_and_an_unnamed_one_beside_it_reads_too() {
+        let written = serde_json::to_string(&vec![
+            OpenTab { server_id: "s1".into(), title: Some("logs".into()) },
+            OpenTab { server_id: "s2".into(), title: None },
+        ])
+        .unwrap();
+        let read: Vec<OpenTab> = serde_json::from_str(&written).unwrap();
+        assert_eq!(read[0].title.as_deref(), Some("logs"));
+        assert_eq!(read[1].title, None);
+        // And the two shapes can sit in one list, which is what the first
+        // save after an upgrade would produce if it wrote only what changed.
+        let mixed: Vec<OpenTab> =
+            serde_json::from_str(r#"["s1", { "server_id": "s2", "title": "logs" }]"#).unwrap();
+        assert_eq!(mixed[0].title, None);
+        assert_eq!(mixed[1].title.as_deref(), Some("logs"));
     }
 
     /// Commands are the other direction: nothing has been saved yet, so a

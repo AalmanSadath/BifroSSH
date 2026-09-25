@@ -1,4 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { useAppStore } from '../store/appStore';
+import { useCopy } from './shared/useCopy';
 
 interface Props {
   children: ReactNode;
@@ -27,6 +29,9 @@ export default class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('BifroSSH hit an unhandled error', error, info.componentStack);
+    // Through getState rather than a hook: this is a class, and the one
+    // component that has to keep working when the rest have stopped.
+    useAppStore.getState().recordError('crash screen', String(error));
     this.setState({ stack: info.componentStack ?? null });
   }
 
@@ -47,12 +52,7 @@ export default class ErrorBoundary extends Component<Props, State> {
           <p className="crash-message">{String(error)}</p>
           <textarea className="crash-stack" readOnly value={report} spellCheck={false} />
           <div className="crash-actions">
-            <button
-              className="btn-secondary"
-              onClick={() => navigator.clipboard.writeText(report).catch(() => {})}
-            >
-              Copy details
-            </button>
+            <CopyDetails report={report} />
             <button className="btn-primary" onClick={() => window.location.reload()}>
               Reload
             </button>
@@ -61,4 +61,18 @@ export default class ErrorBoundary extends Component<Props, State> {
       </div>
     );
   }
+}
+
+/**
+ * The crash screen's copy button, a function so it can use the hook every
+ * other copy button does, and say whether the copy happened: a crash report
+ * the user believes they copied and did not is worse than none.
+ */
+function CopyDetails({ report }: { report: string }) {
+  const { copied, failed, copy } = useCopy();
+  return (
+    <button className="btn-secondary" onClick={() => void copy(report)}>
+      {copied ? 'Copied' : failed ? 'Copy failed' : 'Copy details'}
+    </button>
+  );
 }
