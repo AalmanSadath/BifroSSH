@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import * as ipc from '../ipc';
+import { envSummary } from '../envLines';
 import { SHELLS, withIntegration } from '../shellIntegration';
 import { useAppStore } from '../store/appStore';
 import { useHint } from './shared/useHint';
@@ -61,6 +62,8 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
   const [runOnConnect, setRunOnConnect] = useState(server?.run_on_connect ?? '');
   const [hideRunOnConnect, setHideRunOnConnect] = useState(server?.hide_run_on_connect ?? true);
   const [notes, setNotes] = useState(server?.notes ?? '');
+  const [term, setTerm] = useState(server?.term ?? '');
+  const [env, setEnv] = useState(server?.env ?? '');
   const [showGroups, setShowGroups] = useState(false);
   const [groupRect, setGroupRect] = useState<AnchorRect | null>(null);
   const groupRef = useRef<HTMLDivElement>(null);
@@ -128,6 +131,8 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
           run_on_connect: runOnConnect.trim() || null,
           hide_run_on_connect: hideRunOnConnect,
           notes: notes.trim() || null,
+          term: term.trim() || null,
+          env: env.trim() === '' ? null : env,
         },
         (!identityId && !keyId && password.trim()) ? password.trim() : undefined,
       );
@@ -389,6 +394,36 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
                 </button>
               ))}
             </div>
+          </div>
+
+          <div className="form-group">
+            <label>Terminal Type</label>
+            <input
+              value={term}
+              onChange={(e) => setTerm(e.target.value)}
+              placeholder="xterm-256color"
+              autoComplete="off"
+              spellCheck={false}
+              title={hint('What TERM is set to on this host. Try xterm for a server whose curses library does not know the default.')}
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Environment</label>
+            <textarea
+              className="notes-area"
+              value={env}
+              onChange={(e) => setEnv(e.target.value)}
+              rows={3}
+              placeholder={'LANG=en_GB.UTF-8\nEDITOR=vim'}
+              spellCheck={false}
+              title={hint('One NAME=value per line, asked for before the shell starts.')}
+            />
+            <p className="form-hint">
+              A server chooses which of these it will accept, usually LANG and LC_* only, and
+              drops the rest without saying so. The terminal type above always applies.
+              {envSummary(env) && <> {envSummary(env)}</>}
+            </p>
           </div>
 
           <div className="form-group">

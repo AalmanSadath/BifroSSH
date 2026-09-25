@@ -63,6 +63,10 @@ export interface Server {
   hide_run_on_connect: boolean;
   /** Free text the user keeps about this host; searched with the rest. */
   notes: string | null;
+  /** The terminal type the PTY asks for; null is xterm-256color. */
+  term: string | null;
+  /** Variables to ask the server to set, one NAME=value per line, as typed. */
+  env: string | null;
 }
 
 /** A directory saved for one click in the SFTP panel. */

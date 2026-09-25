@@ -22,6 +22,8 @@ function server(over: Partial<Server> & { id: string }): Server {
     run_on_connect: null,
     hide_run_on_connect: true,
     notes: null,
+    term: null,
+    env: null,
     ...over,
   };
 }
