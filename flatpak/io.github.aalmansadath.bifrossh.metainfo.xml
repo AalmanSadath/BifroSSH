@@ -85,6 +85,38 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.14.6" date="2026-09-26">
+      <description>
+        <p>
+          Hosts can be imported from Termius, PuTTY and MobaXterm. Termius
+          CSV exports, PuTTY registry exports and session folders, and
+          MobaXterm session files are all read, folders become groups, and
+          a host already saved is skipped. Passwords in a Termius export are
+          saved encrypted, and the dialog says the file itself holds them in
+          plain text.
+        </p>
+        <p>
+          A host can be given its own terminal type and environment
+          variables. The server decides which variables it accepts; the
+          terminal type always applies.
+        </p>
+        <p>
+          A tab can be renamed by double-clicking its name, and the name
+          comes back when the tabs are restored at the next launch.
+        </p>
+        <p>
+          About has a Copy diagnostics button for bug reports: the version,
+          the platform, the WebKit build and the errors this session has
+          shown, with no host or user names beyond what an error message
+          itself says.
+        </p>
+        <p>
+          The dot on a host card now shows whether its tab actually
+          connected: green when connected, yellow while connecting, red when
+          it failed or dropped.
+        </p>
+      </description>
+    </release>
     <release version="0.14.5" date="2026-09-25">
       <description>
         <p>
