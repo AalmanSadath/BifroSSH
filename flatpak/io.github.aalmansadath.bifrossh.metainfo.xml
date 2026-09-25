@@ -85,6 +85,48 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.14.5" date="2026-09-25">
+      <description>
+        <p>
+          A transfer that stopped partway can be resumed. An interrupted
+          file is kept under a .bifrossh-part name rather than deleted, so
+          a half-written file is never mistaken for a whole one, and a
+          resume first hashes the bytes already there against the same
+          bytes of the original: a source that changed in the meantime is
+          refused instead of being spliced. Every resumed file is then read
+          back whole and checked, whatever the verification setting says,
+          because a resume joins two attempts at a byte nobody watched.
+          Files that do not match are listed in one dialog and can be sent
+          again.
+        </p>
+        <p>
+          A batch that stops on an error now reports what it managed to
+          copy rather than throwing the count away.
+        </p>
+        <p>
+          A tab can say what its shell is running: a pulsing dot while a
+          command runs, green or red when it finishes, and a result on a
+          tab nobody was watching stays until that tab is looked at. This
+          reads the marks a shell can be asked to send, and the Run on
+          connect field can be offered the snippet that sends them. The
+          startup command is sent once the shell has said hello, and its
+          echo is taken back out of the terminal, so the login banner is
+          still there and the command that set all this up is not.
+        </p>
+        <p>
+          A tab's scrollback can be copied as plain text or saved to a
+          file.
+        </p>
+        <p>
+          A settings file written by an older version and missing a field
+          now loads with the default for that field instead of failing as a
+          whole and recovering from a backup. Escape closes every file
+          browser dialog, the hover hints setting reaches the tooltips it
+          never governed, and a colour typed halfway into the picker no
+          longer reads as black.
+        </p>
+      </description>
+    </release>
     <release version="0.14.4" date="2026-09-24">
       <description>
         <p>
