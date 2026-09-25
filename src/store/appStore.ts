@@ -6,6 +6,7 @@ import { CHECK_INTERVAL_SECS, fetchLatestRelease, newerVersion, type Release } f
 import { STORED, UNDETECTED_OS, UNKNOWN_OS } from '../types';
 import { restoreOrder, tabsToSave } from '../sessionRestore';
 import { cleanTitle } from '../tabName';
+import { withError, type DiagError } from '../diagnostics';
 import { clampZoom } from '../zoom';
 import { nextActivity, watched, type Activity, type Mark } from '../activity';
 import { isStale, type Probed } from '../probe';
@@ -319,6 +320,13 @@ interface AppStore {
   /** The last action that failed with nobody to tell; see `reportFailure`. */
   actionError: string | null;
   setActionError: (message: string | null) => void;
+  /**
+   * The last errors this session showed, oldest first, for the diagnostics
+   * that About can copy. Banners, tab failures, the crash screen and
+   * anything thrown that nothing caught all land here.
+   */
+  recentErrors: DiagError[];
+  recordError: (where: string, message: string) => void;
 
   saveServer: (server: ServerInput, password?: string) => Promise<void>;
   deleteServer: (id: string) => Promise<void>;
@@ -582,7 +590,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
     // attempt limit.
     set({ servers: [], identities: [], keys: [], portForwardings: [], codeprints: [], retryingTabIds: new Set(), hostProbes: {} }),
   actionError: null,
-  setActionError: (message) => set({ actionError: message }),
+  setActionError: (message) => {
+    set({ actionError: message });
+    if (message) get().recordError('banner', message);
+  },
+  recentErrors: [],
+  recordError: (where, message) =>
+    set((s) => ({ recentErrors: withError(s.recentErrors, { at: Date.now(), where, message }) })),
 
   // Seven reads, and every way they could fail used to escape as an unhandled
   // rejection: Promise.all rejects on the first one, so a single command
@@ -626,6 +640,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     } catch (e) {
       console.error('Could not load saved data', e);
       set({ loadError: String(e) });
+      get().recordError('loading saved data', String(e));
     }
   },
 
@@ -1023,7 +1038,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       ),
     })),
 
-  updateSessionError: (tabId, error) =>
+  updateSessionError: (tabId, error) => {
     set((s) => {
       const sessions = s.sessions.map((t) =>
         t.tab_id === tabId ? { ...t, status: 'error' as const, error } : t
@@ -1032,7 +1047,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
       // host that fails every time is not reopened failing every launch.
       saveOpenTabs(sessions);
       return { sessions };
-    }),
+    });
+    get().recordError('connecting a tab', error);
+  },
 
   appendSessionLog: (tabId, entry) =>
     set((s) => ({
@@ -1225,6 +1242,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         }],
         activeTabId: connectId,
       }));
+      get().recordError('connecting a tab', reason);
       return;
     }
     const { username, authType, authValue } = resolved;
