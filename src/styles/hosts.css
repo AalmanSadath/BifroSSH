@@ -268,36 +268,18 @@
   color: var(--text-primary);
 }
 
-.tab-ctx-rename {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 4px 2px;
-}
-
+/* Renaming happens in the tab, whether it was asked for by a double-click or
+   from the menu, so this is sized like the name it stands in for. */
 .tab-rename-input {
-  width: 100%;
-  padding: 5px 8px;
-  background: var(--bg-mid);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-size: 13px;
-  box-sizing: border-box;
-  outline: none;
-}
-
-.tab-rename-input:focus {
-  border-color: var(--accent);
-}
-
-/* The same input, inside a tab rather than under the menu, so it has the
-   width the name had rather than the menu's. */
-.tab-rename-inline {
   width: 120px;
   padding: 1px 4px;
+  background: var(--bg-mid);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--text-primary);
   font-size: inherit;
-  border-color: var(--accent);
+  box-sizing: border-box;
+  outline: none;
 }
 
 .hosts-empty {

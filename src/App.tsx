@@ -63,9 +63,8 @@ export default function App() {
   const [quickPassword, setQuickPassword] = useState('');
   const [quickKeyId, setQuickKeyId] = useState('');
   const quickPasswordRef = useRef<HTMLInputElement>(null);
-  type TabCtxMode = 'menu' | 'rename';
   const [termSidebarOpen, setTermSidebarOpen] = useState(false);
-  const [tabCtx, setTabCtx] = useState<{ x: number; y: number; session: SessionTab; mode: TabCtxMode } | null>(null);
+  const [tabCtx, setTabCtx] = useState<{ x: number; y: number; session: SessionTab } | null>(null);
   const [tabDragOver, setTabDragOver] = useState(false);
   const transcript = useTranscript(setActionError);
   const startDrag = useDragResize();
@@ -154,10 +153,9 @@ export default function App() {
     );
   }
   const [renameValue, setRenameValue] = useState('');
-  const renameInputRef = useRef<HTMLInputElement>(null);
-  /** The tab whose name is being edited in the strip, as opposed to in the menu. */
+  /** The tab whose name is being edited, which happens in the strip itself. */
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
-  const stripRenameRef = useRef<HTMLInputElement>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
 
   // Emitted globally rather than per connect, so one modal of each kind
   // serves terminal sessions, SFTP, tunnels and OS detection alike.
@@ -288,10 +286,6 @@ export default function App() {
     }
   }, [accentVars]);
 
-  useEffect(() => {
-    if (tabCtx?.mode === 'rename') renameInputRef.current?.select();
-  }, [tabCtx?.mode]);
-
   function handleCloseTab(tabId: string, e: React.MouseEvent) {
     e.stopPropagation();
     const session = sessions.find((s) => s.tab_id === tabId);
@@ -413,8 +407,7 @@ export default function App() {
   function handleTabContextMenu(e: React.MouseEvent, session: SessionTab) {
     e.preventDefault();
     e.stopPropagation();
-    setRenameValue(tabLabel(session));
-    setTabCtx({ x: e.clientX, y: e.clientY, session, mode: 'menu' });
+    setTabCtx({ x: e.clientX, y: e.clientY, session });
   }
 
   function handleDuplicate(session: SessionTab) {
@@ -447,28 +440,22 @@ export default function App() {
     quickConnect(quickParsed.host, quickParsed.port, quickParsed.user, authType, authValue);
   }
 
-  function commitRename() {
-    if (!tabCtx) return;
-    // An empty name is not a refusal to rename: it puts the tab back on the
-    // host's own name, which is the only way to undo one.
-    renameSession(tabCtx.session.tab_id, renameValue);
-    setTabCtx(null);
-  }
-
   /**
-   * Double-click on a tab's name edits it there, the way the file list
-   * renames. The menu keeps its own entry: a tab too narrow to show its name
-   * is also too narrow to aim at.
+   * Renaming happens in the tab itself, whether it was asked for by a
+   * double-click or from the menu: one place the name is edited means one
+   * shape to learn, and the name is edited where it is read.
    */
-  function startStripRename(e: React.MouseEvent, session: SessionTab) {
-    e.stopPropagation();
+  function startRename(session: SessionTab, e?: React.MouseEvent) {
+    e?.stopPropagation();
     setRenameValue(tabLabel(session));
     setEditingTabId(session.tab_id);
     // After the input exists. The file list does the same, for the same reason.
-    setTimeout(() => stripRenameRef.current?.select(), 30);
+    setTimeout(() => renameInputRef.current?.select(), 30);
   }
 
-  function commitStripRename() {
+  function commitRename() {
+    // An empty name is not a refusal to rename: it puts the tab back on the
+    // host's own name, which is the only way to undo one.
     if (editingTabId) renameSession(editingTabId, renameValue);
     setEditingTabId(null);
   }
@@ -576,19 +563,19 @@ export default function App() {
                 )}
                 {editingTabId === s.tab_id ? (
                   <input
-                    ref={stripRenameRef}
-                    className="tab-rename-input tab-rename-inline"
+                    ref={renameInputRef}
+                    className="tab-rename-input"
                     value={renameValue}
                     onChange={(e) => setRenameValue(e.target.value)}
                     onClick={(e) => e.stopPropagation()}
-                    onBlur={commitStripRename}
+                    onBlur={commitRename}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') commitStripRename();
+                      if (e.key === 'Enter') commitRename();
                       if (e.key === 'Escape') setEditingTabId(null);
                     }}
                   />
                 ) : (
-                  <span className="tab-title" onDoubleClick={(e) => startStripRename(e, s)}>
+                  <span className="tab-title" onDoubleClick={(e) => startRename(s, e)}>
                     {tabLabel(s)}
                   </span>
                 )}
@@ -825,12 +812,11 @@ export default function App() {
 
       {tabCtx && (
         <ContextMenu x={tabCtx.x} y={tabCtx.y} onClose={() => setTabCtx(null)}>
-          {tabCtx.mode === 'menu' ? (
-            <>
+          <>
               <button className="menu-item" onClick={() => handleDuplicate(tabCtx.session)}>
                 Duplicate
               </button>
-              <button className="menu-item" onClick={() => setTabCtx({ ...tabCtx, mode: 'rename' })}>
+              <button className="menu-item" onClick={() => { startRename(tabCtx.session); setTabCtx(null); }}>
                 Rename
               </button>
               {/* A quick connection has no saved host for the SFTP panel to open. */}
@@ -867,19 +853,6 @@ export default function App() {
                 Close Connection
               </button>
             </>
-          ) : (
-            <div className="tab-ctx-rename">
-              <input
-                ref={renameInputRef}
-                className="tab-rename-input"
-                value={renameValue}
-                onChange={(e) => setRenameValue(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setTabCtx(null); }}
-                autoFocus
-              />
-              <button className="menu-item" onClick={commitRename}>OK</button>
-            </div>
-          )}
         </ContextMenu>
       )}
       </div>
