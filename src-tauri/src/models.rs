@@ -380,6 +380,38 @@ pub struct PortForwarding {
     pub autostart_on_connect: bool,
 }
 
+/// A tab that was open when the app last closed.
+///
+/// Written as an object, and read from either an object or the bare server id
+/// that versions up to 0.14.5 wrote, so an existing `data.json` restores its
+/// tabs unnamed instead of failing the whole document and falling into backup
+/// recovery.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct OpenTab {
+    pub server_id: String,
+    /// The name the user gave that tab, if they gave it one.
+    pub title: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for OpenTab {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Written {
+            Id(String),
+            Tab {
+                server_id: String,
+                #[serde(default)]
+                title: Option<String>,
+            },
+        }
+        Ok(match Written::deserialize(d)? {
+            Written::Id(server_id) => OpenTab { server_id, title: None },
+            Written::Tab { server_id, title } => OpenTab { server_id, title },
+        })
+    }
+}
+
 /// A named shell command the user can paste or run in any session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Codeprint {
@@ -416,11 +448,11 @@ pub struct AppData {
     pub codeprints: Vec<Codeprint>,
     #[serde(default)]
     pub sftp_bookmarks: Vec<SftpBookmark>,
-    /// The `server_id` of every saved-host tab that was open, in strip
-    /// order, so a restart can put them back. Duplicates are meaningful:
-    /// two tabs on one host is a normal thing to have open.
+    /// Every saved-host tab that was open, in strip order, so a restart can
+    /// put them back. Duplicates are meaningful: two tabs on one host is a
+    /// normal thing to have open.
     #[serde(default)]
-    pub open_tabs: Vec<String>,
+    pub open_tabs: Vec<OpenTab>,
     /// Kept opaque: these are xterm themes with many optional colour fields,
     /// and nothing in the backend needs to interpret them.
     #[serde(default)]
@@ -619,6 +651,40 @@ mod tests {
             env_pairs("  PAGER = less "),
             vec![("PAGER".to_string(), " less ".to_string())]
         );
+    }
+
+    /// The shape 0.14.5 and everything before it wrote: a bare server id per
+    /// tab. Reading it as a tab with no name of its own is what keeps an
+    /// existing document loading instead of recovering from a backup.
+    #[test]
+    fn a_tab_list_of_bare_ids_still_reads() {
+        let tabs: Vec<OpenTab> = serde_json::from_str(r#"["s1", "s2", "s1"]"#).unwrap();
+        assert_eq!(
+            tabs,
+            vec![
+                OpenTab { server_id: "s1".into(), title: None },
+                OpenTab { server_id: "s2".into(), title: None },
+                OpenTab { server_id: "s1".into(), title: None },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_named_tab_round_trips_and_an_unnamed_one_beside_it_reads_too() {
+        let written = serde_json::to_string(&vec![
+            OpenTab { server_id: "s1".into(), title: Some("logs".into()) },
+            OpenTab { server_id: "s2".into(), title: None },
+        ])
+        .unwrap();
+        let read: Vec<OpenTab> = serde_json::from_str(&written).unwrap();
+        assert_eq!(read[0].title.as_deref(), Some("logs"));
+        assert_eq!(read[1].title, None);
+        // And the two shapes can sit in one list, which is what the first
+        // save after an upgrade would produce if it wrote only what changed.
+        let mixed: Vec<OpenTab> =
+            serde_json::from_str(r#"["s1", { "server_id": "s2", "title": "logs" }]"#).unwrap();
+        assert_eq!(mixed[0].title, None);
+        assert_eq!(mixed[1].title.as_deref(), Some("logs"));
     }
 
     /// Commands are the other direction: nothing has been saved yet, so a

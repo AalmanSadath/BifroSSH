@@ -45,7 +45,11 @@ describe('tabsToSave', () => {
       tab({ tab_id: 'b', server_id: 's2' }),
       tab({ tab_id: 'c', server_id: 's1' }),
     ];
-    expect(tabsToSave(sessions)).toEqual(['s1', 's2', 's1']);
+    expect(tabsToSave(sessions)).toEqual([
+      { server_id: 's1' },
+      { server_id: 's2' },
+      { server_id: 's1' },
+    ]);
   });
 
   it('drops quick connections, which have nothing saved to connect with', () => {
@@ -53,7 +57,7 @@ describe('tabsToSave', () => {
       tab({ tab_id: 'a', server_id: 's1' }),
       tab({ tab_id: 'q', server_id: '', quick_info: { host: 'h', port: 22, username: 'root' } }),
     ];
-    expect(tabsToSave(sessions)).toEqual(['s1']);
+    expect(tabsToSave(sessions)).toEqual([{ server_id: 's1' }]);
   });
 
   it('drops a tab that failed, so the failure is not restored with it', () => {
@@ -61,17 +65,38 @@ describe('tabsToSave', () => {
       tab({ tab_id: 'a', server_id: 's1', status: 'error', error: 'no auth' }),
       tab({ tab_id: 'b', server_id: 's2', status: 'dropped' }),
     ];
-    expect(tabsToSave(sessions)).toEqual(['s2']);
+    expect(tabsToSave(sessions)).toEqual([{ server_id: 's2' }]);
+  });
+
+  it('carries the name the user gave a tab, and nothing for one they did not', () => {
+    const sessions = [
+      tab({ tab_id: 'a', server_id: 's1', title: 'logs' }),
+      tab({ tab_id: 'b', server_id: 's1' }),
+    ];
+    expect(tabsToSave(sessions)).toEqual([
+      { server_id: 's1', title: 'logs' },
+      { server_id: 's1' },
+    ]);
   });
 });
 
 describe('restoreOrder', () => {
   it('keeps the recorded order and drops hosts that no longer exist', () => {
     const servers = [host('s1'), host('s2')];
-    expect(restoreOrder(['s2', 'gone', 's1', 's2'], servers)).toEqual(['s2', 's1', 's2']);
+    const saved = [
+      { server_id: 's2', title: 'logs' },
+      { server_id: 'gone' },
+      { server_id: 's1' },
+      { server_id: 's2' },
+    ];
+    expect(restoreOrder(saved, servers)).toEqual([
+      { server_id: 's2', title: 'logs' },
+      { server_id: 's1' },
+      { server_id: 's2' },
+    ]);
   });
 
   it('restores nothing when every recorded host has been deleted', () => {
-    expect(restoreOrder(['gone'], [host('s1')])).toEqual([]);
+    expect(restoreOrder([{ server_id: 'gone' }], [host('s1')])).toEqual([]);
   });
 });

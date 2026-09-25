@@ -9,7 +9,7 @@ import { cleanTitle } from '../tabName';
 import { clampZoom } from '../zoom';
 import { nextActivity, watched, type Activity, type Mark } from '../activity';
 import { isStale, type Probed } from '../probe';
-import type { AuthType, Codeprint, ProbeState, SftpBookmark, GeneratedKey, Identity, IdentityInput, JumpHopParams, KeyContent, KeyEntry, LogEntry, PortForwarding, ResolvedTheme, Server, ServerInput, SessionTab, Settings, SettingsSection, SystemAppearance } from '../types';
+import type { AuthType, Codeprint, ProbeState, SftpBookmark, GeneratedKey, Identity, IdentityInput, JumpHopParams, KeyContent, KeyEntry, LogEntry, OpenTab, PortForwarding, ResolvedTheme, Server, ServerInput, SessionTab, Settings, SettingsSection, SystemAppearance } from '../types';
 import type { NamedTheme } from '../styles/themes';
 
 /**
@@ -424,7 +424,8 @@ interface AppStore {
    * starts it.
    */
   retryLoop: (tabId: string, delayMs: number, attempt: number) => Promise<void>;
-  openSession: (serverId: string) => Promise<void>;
+  /** `title` is a name recorded for a restored tab; new tabs have none. */
+  openSession: (serverId: string, title?: string) => Promise<void>;
   quickConnect: (host: string, port: number, username: string, authType: AuthType, authValue: string) => Promise<void>;
   setActiveTab: (id: string | null) => void;
 }
@@ -633,17 +634,17 @@ export const useAppStore = create<AppStore>((set, get) => ({
     // Nothing to restore onto: an unlock that follows a lock still has the
     // strip it had, and reopening over it would duplicate every tab.
     if (!settings.restore_tabs || sessions.length > 0) return;
-    let ids: string[];
+    let saved: OpenTab[];
     try {
-      ids = await ipc.getOpenTabs();
+      saved = await ipc.getOpenTabs();
     } catch {
       return;
     }
     // One at a time: a tab's name counts the tabs the host already has, and
     // a host that asks for a passphrase should ask on its own rather than
     // alongside three others.
-    for (const id of restoreOrder(ids, servers)) {
-      await openSession(id);
+    for (const tab of restoreOrder(saved, servers)) {
+      await openSession(tab.server_id, tab.title ?? undefined);
     }
   },
 
@@ -1187,7 +1188,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
   },
 
-  openSession: async (serverId) => {
+  openSession: async (serverId, title) => {
     const { servers, identities, sessions, detectServerOs } = get();
     const server = servers.find((s) => s.id === serverId);
     if (!server) return;
@@ -1216,6 +1217,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
           tab_id: connectId,
           session_id: null,
           server_name: tabName,
+          title,
           server_id: serverId,
           status: 'error',
           error: reason,
@@ -1236,6 +1238,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         tab_id: connectId,
         session_id: null,
         server_name: tabName,
+        title,
         server_id: serverId,
         status: 'connecting',
         connect_id: connectId,

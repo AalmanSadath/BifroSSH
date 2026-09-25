@@ -434,6 +434,13 @@ export interface LogEntry {
   kind: string;
 }
 
+/** A tab written down at close, so the next launch can put it back. */
+export interface OpenTab {
+  server_id: string;
+  /** The name the user gave it, absent when they never did. */
+  title?: string | null;
+}
+
 export interface SessionTab {
   /**
    * The tab's identity: the connect id it was born with, never changed.

@@ -37,6 +37,7 @@ import type {
   KeystoreStatus,
   KnownHostEntry,
   MergePlan,
+  OpenTab,
   PortForwarding,
   QuickConnectRequest,
   Server,
@@ -200,9 +201,9 @@ export const sftpCompareTrees = (
 export const writeTextFile = (path: string, contents: string, overwrite: boolean) =>
   invoke<void>('write_text_file', { path, contents, overwrite });
 
-export const getOpenTabs = () => invoke<string[]>('get_open_tabs');
+export const getOpenTabs = () => invoke<OpenTab[]>('get_open_tabs');
 
-export const saveOpenTabs = (items: string[]) => invoke<void>('save_open_tabs', { items });
+export const saveOpenTabs = (items: OpenTab[]) => invoke<void>('save_open_tabs', { items });
 
 export const getCustomThemes = () =>
   invoke<Record<string, NamedTheme>>('get_custom_themes');
