@@ -398,6 +398,36 @@ export interface SshConfigImportResult {
   jumps_linked: number;
 }
 
+/** Which client an export came from. */
+export type ImportSource = 'termius' | 'putty' | 'moba_xterm';
+
+/** One host in another client's export, as the import dialog shows it. */
+export interface ScannedHost {
+  name: string;
+  host: string;
+  port: number;
+  username: string | null;
+  group: string | null;
+  /** A saved host already has this address, port and user. */
+  already_here: boolean;
+  /** The file carries a password for it; the password itself stays in the backend. */
+  has_password: boolean;
+}
+
+export interface ClientScan {
+  source: ImportSource;
+  hosts: ScannedHost[];
+  /** Entries in the file that are not ssh hosts, one sentence each. */
+  skipped: string[];
+}
+
+export interface ClientImportResult {
+  imported: number;
+  skipped_existing: number;
+  passwords_saved: number;
+  groups_created: number;
+}
+
 export interface AgentKeyInfo {
   algorithm: string;
   /** No comment field: russh-keys discards it while parsing agent identities. */

@@ -6,6 +6,7 @@ import { UNGROUPED, groupNames, groupOf, hostSections } from '../hosts';
 import type { Server } from '../types';
 import ServerForm from './ServerForm';
 import SshConfigImport from './SshConfigImport';
+import ClientImport from './ClientImport';
 import OsIcon from './OsIcon';
 import ConfirmModal from './shared/ConfirmModal';
 import ContextMenu from './shared/ContextMenu';
@@ -18,6 +19,7 @@ export default function HostsPanel() {
   const { servers, sessions, setActiveTab, removeSession, deleteServer, openSession, hostProbes, probeHosts } = useAppStore();
   const [showServerForm, setShowServerForm] = useState(false);
   const [showSshImport, setShowSshImport] = useState(false);
+  const [showClientImport, setShowClientImport] = useState(false);
   const [editServer, setEditServer] = useState<Server | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ kind: 'server'; x: number; y: number; server: Server } | { kind: 'panel'; x: number; y: number } | null>(null);
@@ -62,6 +64,13 @@ export default function HostsPanel() {
           </button>
           <button className="btn-secondary btn-sm" onClick={() => setShowSshImport(true)}>
             Import from ssh config
+          </button>
+          <button
+            className="btn-secondary btn-sm"
+            onClick={() => setShowClientImport(true)}
+            title={hint('Hosts exported from Termius, PuTTY or MobaXterm')}
+          >
+            Import from another client
           </button>
           {servers.length > 0 && (
             <button
@@ -228,6 +237,8 @@ export default function HostsPanel() {
       )}
 
       {showSshImport && <SshConfigImport onClose={() => setShowSshImport(false)} />}
+
+      {showClientImport && <ClientImport onClose={() => setShowClientImport(false)} />}
 
       {showServerForm && (
         <ServerForm

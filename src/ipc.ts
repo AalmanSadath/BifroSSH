@@ -19,6 +19,8 @@ import { invoke } from '@tauri-apps/api/core';
 import type {
   AgentKeyInfo,
   AuthType,
+  ClientImportResult,
+  ClientScan,
   Codeprint,
   Conflict,
   ConnectRequest,
@@ -144,6 +146,29 @@ export const clipboardReadText = () => invoke<string>('clipboard_read_text');
 // ── ssh_config import ────────────────────────────────────────────────────
 
 export const scanSshConfig = () => invoke<SshConfigScan>('scan_ssh_config');
+
+export const scanClientExport = (path: string) =>
+  invoke<ClientScan>('scan_client_export', { path });
+
+/**
+ * Imports the rows at these positions in the file at `path`.
+ *
+ * `total` is how many hosts the scan found, sent back so the backend can
+ * refuse a file that changed under the dialog rather than importing whichever
+ * lines now sit at those positions.
+ */
+export const importClientHosts = (
+  path: string,
+  picked: number[],
+  total: number,
+  withPasswords: boolean,
+) =>
+  invoke<ClientImportResult>('import_client_hosts', {
+    path,
+    picked,
+    total,
+    withPasswords,
+  });
 
 export const importSshConfigHosts = (aliases: string[]) =>
   invoke<SshConfigImportResult>('import_ssh_config_hosts', { aliases });
