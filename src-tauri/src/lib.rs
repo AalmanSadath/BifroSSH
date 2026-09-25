@@ -6,6 +6,7 @@ mod connect;
 mod crypto;
 mod hostkeys;
 mod hostverify;
+mod importers;
 mod jump;
 mod keyring;
 mod keystore;
@@ -184,6 +185,8 @@ fn start(
             commands::list_fonts,
             commands::scan_ssh_config,
             commands::import_ssh_config_hosts,
+            commands::scan_client_export,
+            commands::import_client_hosts,
             commands::default_export_dir,
             commands::export_data,
             commands::write_text_file,
