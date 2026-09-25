@@ -34,3 +34,51 @@ export function withError(list: DiagError[], entry: DiagError, cap = KEPT_ERRORS
   const next = [...list, entry];
   return next.length > cap ? next.slice(next.length - cap) : next;
 }
+
+/**
+ * Facts about this install worth having in a bug report, gathered by the
+ * caller since half of them come from the backend.
+ *
+ * Nothing here names a host, a user or a key, and the data folder has the home
+ * directory replaced with `~`, so the only thing that can identify anyone is
+ * the error text itself. That is the point of the report, so the button says
+ * to read it before pasting it anywhere.
+ */
+export interface DiagFacts {
+  version: string;
+  platform: string;
+  /** `navigator.userAgent`, which carries the WebKit build the window runs on. */
+  userAgent: string;
+  window: { width: number; height: number; scale: number };
+  dataDir: string;
+  /** The home directory, so it can be taken out of `dataDir`. */
+  home: string;
+  counts: { hosts: number; keys: number; identities: number; tunnels: number; tabs: number };
+  /** Settings that are a choice between values, never free text. */
+  settings: Record<string, string | number | boolean>;
+}
+
+/** The report, as plain text for an issue. */
+export function formatDiagnostics(facts: DiagFacts, errors: DiagError[]): string {
+  const { counts, window: win } = facts;
+  const lines = [
+    `BifroSSH ${facts.version} on ${facts.platform}`,
+    `WebView: ${facts.userAgent}`,
+    `Window: ${win.width}x${win.height} at ${win.scale}x`,
+    `Data: ${withoutHome(facts.dataDir, facts.home)}`,
+    `Hosts ${counts.hosts} · keys ${counts.keys} · identities ${counts.identities} · tunnels ${counts.tunnels} · open tabs ${counts.tabs}`,
+    `Settings: ${Object.entries(facts.settings).map(([k, v]) => `${k}=${v}`).join(' ')}`,
+    '',
+    errors.length === 0 ? 'No errors this session.' : `Errors this session, oldest first (${errors.length}):`,
+    ...errors.map((e) => `${new Date(e.at).toISOString()} [${e.where}] ${e.message}`),
+  ];
+  return lines.join('\n');
+}
+
+/** A path with the home directory written as `~`, which says the same thing without the name. */
+export function withoutHome(path: string, home: string): string {
+  const trimmed = home.replace(/[\\/]+$/, '');
+  if (trimmed === '' || !path.startsWith(trimmed)) return path;
+  const rest = path.slice(trimmed.length);
+  return rest === '' || rest[0] === '/' || rest[0] === '\\' ? `~${rest}` : path;
+}
