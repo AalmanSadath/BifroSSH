@@ -149,6 +149,7 @@ export default function ClientImport({ onClose }: Props) {
                 <span className="sshconfig-alias">{h.name}</span>
                 <span className="sshconfig-target">{describe(h)}</span>
                 {h.group && <span className="checklist-tag">{h.group}</span>}
+                {h.tags.map((t) => <span key={t} className="checklist-tag">#{t}</span>)}
                 {h.has_password && <span className="checklist-tag">password</span>}
                 {h.already_here && (
                   <span
@@ -188,7 +189,7 @@ export default function ClientImport({ onClose }: Props) {
 
           <p className="form-hint">
             A host already saved under the same address, port and user is skipped, so the same
-            file can be imported twice. Folders become groups. Keys are not imported: point each
+            file can be imported twice. Folders become groups, and Termius tags stay tags. Keys are not imported: point each
             host at one in its settings, or import the key file itself in the Keychain.
           </p>
 

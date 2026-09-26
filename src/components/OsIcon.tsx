@@ -136,6 +136,17 @@ function GenericServer() {
   );
 }
 
+/** A terminal window, for a shell on this machine rather than a host. */
+function LocalTerminal() {
+  return (
+    <svg viewBox="0 0 24 24" width="100%" height="100%" fill="none">
+      <rect x="2.5" y="4" width="19" height="16" rx="2.5" stroke="currentColor" strokeWidth="2"/>
+      <path d="M6.5 9.5 L9.5 12 L6.5 14.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M11.5 15 L16.5 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
 const ICON_MAP: Record<string, () => React.ReactElement> = {
   linux:       Linux,
   ubuntu:      Ubuntu,
@@ -147,6 +158,7 @@ const ICON_MAP: Record<string, () => React.ReactElement> = {
   freebsd:     FreeBSD,
   raspberrypi: RaspberryPi,
   server:      GenericServer,
+  local:       LocalTerminal,
 };
 
 interface Props {

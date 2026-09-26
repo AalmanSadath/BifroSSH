@@ -24,6 +24,7 @@ const PANELS: { id: string; label: string }[] = [
   { id: 'portforwarding', label: 'Port Forwarding' },
   { id: 'keychain', label: 'Keychain' },
   { id: 'knownhosts', label: 'Known Hosts' },
+  { id: 'recordings', label: 'Recordings' },
   { id: 'theme-editor', label: 'Theme Editor' },
 ];
 
@@ -48,7 +49,7 @@ const SETTINGS_SECTIONS: { id: SettingsSection; label: string }[] = [
 export default function CommandPalette({ onClose, onCodeprint, onAddHost, onLock, onTranscript }: Props) {
   const {
     servers, sessions, activeTabId, codeprints, setActiveTab, openSession, openInSftp,
-    removeSession, toggleBroadcast, toggleLogging, checkForUpdates, openSettings,
+    removeSession, toggleBroadcast, toggleLogging, toggleRecording, openLocalShell, checkForUpdates, openSettings,
   } = useAppStore();
   const [query, setQuery] = useState('');
   const [cursor, setCursor] = useState(0);
@@ -73,7 +74,8 @@ export default function CommandPalette({ onClose, onCodeprint, onAddHost, onLock
 
     for (const server of servers) {
       const where = `${server.username ? `${server.username}@` : ''}${server.host}:${server.port}`;
-      const sub = server.group ? `${where} · ${server.group}` : where;
+      const tags = server.tags.map((t) => `#${t}`).join(' ');
+      const sub = [where, server.group, tags].filter(Boolean).join(' · ');
       items.push({
         id: `host:${server.id}`,
         title: server.name,
@@ -153,6 +155,14 @@ export default function CommandPalette({ onClose, onCodeprint, onAddHost, onLock
         group: 'Actions',
         run: done(() => { void toggleLogging(active.tab_id); }),
       });
+      if (active.session_id) {
+        items.push({
+          id: 'action:record',
+          title: active.recording ? 'Stop recording this tab' : 'Record this tab',
+          group: 'Actions',
+          run: done(() => { void toggleRecording(active.tab_id); }),
+        });
+      }
       items.push({
         id: 'action:transcript-copy',
         title: 'Copy this tab as text',
@@ -179,6 +189,13 @@ export default function CommandPalette({ onClose, onCodeprint, onAddHost, onLock
       });
     }
     items.push({ id: 'action:lock', title: 'Lock the vault', group: 'Actions', run: done(onLock) });
+    items.push({
+      id: 'action:local-shell',
+      title: 'Open a local shell',
+      subtitle: 'A shell on this computer, in a tab',
+      group: 'Actions',
+      run: done(() => { void openLocalShell(); }),
+    });
     items.push({
       id: 'action:updates',
       title: 'Check for updates',

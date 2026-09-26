@@ -20,6 +20,7 @@ import { WINDOW_ACTIONS, actionFor, resolve as resolveShortcuts, tabIndexFor } f
 import CommandPalette from './components/CommandPalette';
 import SnippetPromptModal from './components/SnippetPromptModal';
 import FilePickerModal from './components/FilePickerModal';
+import RecordingsPanel from './components/RecordingsPanel';
 import HostKeyPrompt from './components/HostKeyPrompt';
 import AuthPromptModal from './components/AuthPromptModal';
 import Sidebar from './components/Sidebar';
@@ -45,7 +46,7 @@ import PortalDropdown from './components/shared/PortalDropdown';
 export default function App() {
   const {
     loadAll, loadError, actionError, setActionError, sessions, activeTabId, setActiveTab, removeSession,
-    renameSession, toggleBroadcast, openInSftp, sendInput, toggleLogging, splitGroup, splitWith, unsplit, openSession, quickConnect, servers, settings, keys,
+    renameSession, toggleBroadcast, openInSftp, sendInput, toggleLogging, toggleRecording, savedRecording, setSavedRecording, playRecording, openLocalShell, splitGroup, splitWith, unsplit, openSession, quickConnect, servers, settings, keys,
     zoomSession, resetZoom, sessionZoom, splitWidths, setSplitWidths, sessionActivity,
     systemAppearance, setSystemAppearance, clearForLock,
   } = useAppStore();
@@ -357,7 +358,11 @@ export default function App() {
           return;
         case 'duplicate-tab':
           // A quick connection has no host record to open again.
-          if (current && current.server_id) openSession(current.server_id);
+          if (current?.kind === 'local') void openLocalShell();
+          else if (current && current.server_id) openSession(current.server_id);
+          return;
+        case 'local-shell':
+          void openLocalShell();
           return;
         case 'toggle-broadcast':
           if (current) toggleBroadcast(current.tab_id);
@@ -412,7 +417,8 @@ export default function App() {
 
   function handleDuplicate(session: SessionTab) {
     setTabCtx(null);
-    openSession(session.server_id);
+    if (session.kind === 'local') void openLocalShell();
+    else openSession(session.server_id);
   }
 
   function handleQuickSubmit(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -511,6 +517,24 @@ export default function App() {
             <button className="btn-secondary btn-sm" onClick={() => loadAll()}>Try again</button>
           </div>
         )}
+        {savedRecording && (
+          <div className="notice-banner">
+            <span>Recording saved to {savedRecording}</span>
+            <button
+              className="btn-secondary btn-sm"
+              onClick={() => { playRecording(savedRecording); setSavedRecording(null); }}
+            >
+              Play
+            </button>
+            <button
+              className="load-error-dismiss"
+              aria-label="Dismiss"
+              onClick={() => setSavedRecording(null)}
+            >
+              ✕
+            </button>
+          </div>
+        )}
         {actionError && (
           <div className="load-error-banner">
             <span>{actionError}</span>
@@ -540,6 +564,13 @@ export default function App() {
           >
             Quick Connect
           </button>
+          <button
+            className="btn-secondary btn-sm quick-local-shell"
+            onClick={() => void openLocalShell()}
+            title={hint('Open a shell on this computer')}
+          >
+            <span className="quick-local-shell-glyph">&gt;_</span> Local Shell
+          </button>
         </div>}
         {/* Always rendered, empty or not. Appearing on the first connect, it
             pushed everything below it down the page. */}
@@ -558,6 +589,7 @@ export default function App() {
               >
                 {splitGroup.includes(s.tab_id) && <span className="tab-split" title={hint('Shown in a split')}>⊟</span>}
                 {s.logging === 'tab' && <span className="tab-logging" title={hint('Output is being logged to a file')}>●</span>}
+                {s.recording && <span className="tab-recording" title={hint('Being recorded')}>REC</span>}
                 {s.broadcast && (
                   <span className="tab-broadcast" title={hint('Broadcasting: input also goes to every other tab marked the same way')}>⇶</span>
                 )}
@@ -638,12 +670,18 @@ export default function App() {
             const paneAt = splitShown && inSplit ? splitGroup.indexOf(s.tab_id) : -1;
             const paneWidth = paneAt >= 0 ? widthAt(splitWidths, paneAt, splitGroup.length) : undefined;
             const server = servers.find((srv) => srv.id === s.server_id)
+              ?? (s.kind === 'local' ? {
+                id: '', name: s.server_name, host: 'this computer', port: 0,
+                identity_id: null, theme: null, connection_timeout: null, os: 'local',
+                username: null, encrypted_password: null, key_id: null,
+                auth_kind: null, proxy_jump: null, forward_agent: false, log_sessions: false, group: null, run_on_connect: null, hide_run_on_connect: true, notes: null, term: null, env: null, monitor: null, tags: [],
+              } : undefined)
               ?? (s.quick_info ? {
                 id: '', name: s.server_name,
                 host: s.quick_info.host, port: s.quick_info.port,
                 identity_id: null, theme: null, connection_timeout: null, os: '',
                 username: s.quick_info.username, encrypted_password: null, key_id: null,
-                auth_kind: null, proxy_jump: null, forward_agent: false, log_sessions: false, group: null, run_on_connect: null, hide_run_on_connect: true, notes: null, term: null, env: null, monitor: null,
+                auth_kind: null, proxy_jump: null, forward_agent: false, log_sessions: false, group: null, run_on_connect: null, hide_run_on_connect: true, notes: null, term: null, env: null, monitor: null, tags: [],
               } : undefined);
 
             if (s.status === 'connecting' || s.status === 'error') {
@@ -664,8 +702,10 @@ export default function App() {
                     logs={s.logs ?? []}
                     error={s.error}
                     onClose={() => removeSession(s.tab_id)}
-                    onRetry={s.quick_info ? undefined : () => { removeSession(s.tab_id); openSession(s.server_id); }}
-                    onEditHost={s.quick_info ? undefined : () => setEditServerId(server.id)}
+                    onRetry={s.quick_info ? undefined
+                      : s.kind === 'local' ? () => { removeSession(s.tab_id); void openLocalShell(); }
+                        : () => { removeSession(s.tab_id); openSession(s.server_id); }}
+                    onEditHost={s.quick_info || s.kind === 'local' ? undefined : () => setEditServerId(server.id)}
                   />
                 </div>
               );
@@ -689,6 +729,7 @@ export default function App() {
           {activeTabId === 'keychain' && <KeychainPanel />}
           <div style={{ display: activeTabId === 'sftp' ? 'contents' : 'none' }}><SftpPanel /></div>
           {activeTabId === 'knownhosts' && <KnownHostsPanel />}
+          {activeTabId === 'recordings' && <RecordingsPanel />}
           {activeTabId === 'portforwarding' && <PortForwardingPanel />}
           {activeTabId === 'settings' && <SettingsPanel />}
           {activeTabId === 'theme-editor' && <ThemeEditorPanel />}
@@ -820,7 +861,7 @@ export default function App() {
                 Rename
               </button>
               {/* A quick connection has no saved host for the SFTP panel to open. */}
-              {!tabCtx.session.quick_info && (
+              {!tabCtx.session.quick_info && tabCtx.session.kind !== 'local' && (
                 <button className="menu-item" onClick={() => { openInSftp(tabCtx.session.server_id, '~'); setTabCtx(null); }}>
                   Open in SFTP
                 </button>
@@ -834,6 +875,13 @@ export default function App() {
                 onClick={() => { toggleLogging(tabCtx.session.tab_id); setTabCtx(null); }}
               >
                 {tabCtx.session.logging ? '✓ ' : ''}Log to file
+              </button>
+              <button
+                className="menu-item"
+                disabled={!tabCtx.session.session_id}
+                onClick={() => { void toggleRecording(tabCtx.session.tab_id); setTabCtx(null); }}
+              >
+                {tabCtx.session.recording ? 'Stop recording' : 'Record session'}
               </button>
               {/* Logging starts at connect; this is what is already on
                   screen, scrollback included. */}
@@ -859,3 +907,4 @@ export default function App() {
     </div>
   );
 }
+

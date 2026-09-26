@@ -65,7 +65,17 @@ pub async fn import_ssh_config_hosts(
                         .file_name()
                         .map(|n| n.to_string_lossy().into_owned())
                         .unwrap_or_else(|| alias.clone());
-                    let algorithm = std::fs::read_to_string(path).ok().and_then(|c| detect_algorithm(&c));
+                    let content = std::fs::read_to_string(path).ok();
+                    let algorithm = content.as_deref().and_then(detect_algorithm);
+                    // CertificateFile when the config names one; a
+                    // certificate beside the key is found at connect anyway.
+                    let certificate = entry
+                        .certificate_file
+                        .as_deref()
+                        .and_then(|c| std::fs::read_to_string(c).ok())
+                        .filter(|c| {
+                            content.as_deref().is_some_and(|k| crate::sshcert::check_for_key(c, k, None).is_ok())
+                        });
                     let key = KeyEntry {
                         id: Uuid::new_v4().to_string(),
                         name,
@@ -73,6 +83,7 @@ pub async fn import_ssh_config_hosts(
                         encrypted_key: None,
                         encrypted_passphrase: None,
                         algorithm,
+                        certificate,
                     };
                     let id = key.id.clone();
                     data.keys.push(key);
@@ -99,7 +110,7 @@ pub async fn import_ssh_config_hosts(
             connection_timeout: None,
             auth_kind: None,
             proxy_jump: None,
-            forward_agent: false, log_sessions: false, group: None, run_on_connect: None, hide_run_on_connect: true, notes: None, term: None, env: None, monitor: None,
+            forward_agent: false, log_sessions: false, group: None, run_on_connect: None, hide_run_on_connect: true, notes: None, term: None, env: None, monitor: None, tags: Vec::new(),
         });
         result.imported += 1;
     }

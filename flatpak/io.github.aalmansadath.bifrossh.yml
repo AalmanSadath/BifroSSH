@@ -27,6 +27,9 @@ finish-args:
   - --filesystem=home
   # Desktop notifications
   - --talk-name=org.freedesktop.Notifications
+  # Local shell tabs run the user's shell on the host through
+  # flatpak-spawn --host; the sandbox's own shell has none of their tools
+  - --talk-name=org.freedesktop.Flatpak
   # logind's PrepareForSleep, so the vault can lock before the machine sleeps
   - --system-talk-name=org.freedesktop.login1
   # WebKitGTK: disable internal sandbox and compositing in Flatpak

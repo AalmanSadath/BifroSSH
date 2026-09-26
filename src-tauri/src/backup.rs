@@ -618,7 +618,7 @@ mod tests {
             connection_timeout: None,
             auth_kind: None,
             proxy_jump: None,
-            forward_agent: false, log_sessions: false, group: None, run_on_connect: None, hide_run_on_connect: true, notes: None, term: None, env: None, monitor: None,
+            forward_agent: false, log_sessions: false, group: None, run_on_connect: None, hide_run_on_connect: true, notes: None, term: None, env: None, monitor: None, tags: Vec::new(),
         }
     }
 
@@ -718,6 +718,7 @@ mod tests {
                 encrypted_key: Some(crypto::encrypt(b"PRIVATE", &source).unwrap()),
                 encrypted_passphrase: Some(crypto::encrypt(b"pw", &source).unwrap()),
                 algorithm: None,
+                certificate: None,
             }],
             ..Default::default()
         };
@@ -1030,6 +1031,7 @@ mod tests {
                 encrypted_key: None,
                 encrypted_passphrase: None,
                 algorithm: None,
+                certificate: None,
             }],
             ..Default::default()
         };

@@ -17,7 +17,8 @@ use crate::prompts::{self, AuthPromptEvent, AuthPromptField};
 
 pub enum SshAuth {
     Password(String),
-    KeyData { key_pem: String, passphrase: Option<String> },
+    /// A private key, and the certificate for it if it has one.
+    KeyData { key_pem: String, passphrase: Option<String>, cert: Option<String> },
     /// PAM-style challenge/response, and the transport for most 2FA setups.
     KeyboardInteractive,
     /// Keys held by a running ssh-agent. The private key never enters this
@@ -282,6 +283,39 @@ pub(crate) async fn keyboard_interactive<H: client::Handler>(
     Err(anyhow!("Server sent too many authentication prompts"))
 }
 
+/// Offers the key with its certificate. False when the server refuses it,
+/// so the key can be offered on its own after, as OpenSSH does: a server
+/// may list the key in authorized_keys without trusting the CA.
+async fn certificate_auth<H: client::Handler>(
+    handle: &mut client::Handle<H>,
+    username: &str,
+    key_pair: &Arc<KeyPair>,
+    text: &str,
+    ctx: &AuthContext,
+) -> Result<bool> {
+    let cert = match crate::sshcert::parse(text) {
+        Ok(cert) => cert,
+        Err(e) => {
+            ctx.log("error", &format!("The key's certificate could not be read: {e:#}"));
+            return Ok(false);
+        }
+    };
+    let expired = crate::sshcert::expired(&cert);
+    ctx.log("network", "Authenticating using publickey method with a certificate");
+    if handle.authenticate_openssh_cert(username, Arc::clone(key_pair), cert).await? {
+        return Ok(true);
+    }
+    ctx.log(
+        "auth",
+        if expired {
+            "The certificate was refused: it has expired. Trying the key on its own"
+        } else {
+            "The certificate was refused. Trying the key on its own"
+        },
+    );
+    Ok(false)
+}
+
 /// The single authentication path for every connect in the app: terminal
 /// sessions, SFTP, tunnels and one-shot commands.
 pub async fn authenticate<H: client::Handler>(
@@ -293,12 +327,18 @@ pub async fn authenticate<H: client::Handler>(
         SshAuth::Password(password) => {
             handle.authenticate_password(&ctx.username, password).await?
         }
-        SshAuth::KeyData { key_pem, passphrase } => {
-            let key_pair: KeyPair = russh_keys::decode_secret_key(key_pem, passphrase.as_deref())?;
+        SshAuth::KeyData { key_pem, passphrase, cert } => {
+            if crate::sshcert::is_security_key(key_pem) {
+                return Err(anyhow!(crate::sshcert::SECURITY_KEY_REFUSED));
+            }
+            let key_pair = Arc::new(russh_keys::decode_secret_key(key_pem, passphrase.as_deref())?);
+            if let Some(text) = cert {
+                if certificate_auth(handle, &ctx.username, &key_pair, text, ctx).await? {
+                    return Ok(());
+                }
+            }
             ctx.log("network", "Authenticating using publickey method");
-            handle
-                .authenticate_publickey(&ctx.username, Arc::new(key_pair))
-                .await?
+            handle.authenticate_publickey(&ctx.username, key_pair).await?
         }
         SshAuth::KeyboardInteractive => {
             ctx.log("network", "Authenticating using keyboard-interactive method");

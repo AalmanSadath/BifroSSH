@@ -17,9 +17,20 @@ use crate::store::get_data_dir;
 /// Where logs go: the folder from Settings when one is set, else
 /// `<data dir>/logs`. Made on the way, private on Unix.
 pub fn session_log_dir(configured: Option<&str>) -> Result<PathBuf> {
+    private_dir(configured, "logs")
+}
+
+/// Where recordings go, in a folder of their own: they are played, not
+/// read, and a folder of them is what the Recordings panel lists. The one
+/// from Settings when set, else `<data dir>/recordings`.
+pub fn recording_dir(configured: Option<&str>) -> Result<PathBuf> {
+    private_dir(configured, "recordings")
+}
+
+fn private_dir(configured: Option<&str>, default: &str) -> Result<PathBuf> {
     let dir = match configured.map(str::trim).filter(|s| !s.is_empty()) {
         Some(path) => PathBuf::from(path),
-        None => get_data_dir()?.join("logs"),
+        None => get_data_dir()?.join(default),
     };
     std::fs::create_dir_all(&dir).with_context(|| dir.display().to_string())?;
     #[cfg(unix)]
@@ -32,10 +43,18 @@ pub fn session_log_dir(configured: Option<&str>) -> Result<PathBuf> {
 
 /// Opens a fresh log for one session and writes its header line.
 pub fn open_session_log(dir: &Path, label: &str, session_id: &str) -> Result<(PathBuf, File)> {
-    let stamp = timestamp(SystemTime::now());
-    let short = session_id.get(..8).unwrap_or(session_id);
-    let path = dir.join(format!("{}_{}_{}.log", safe_label(label), stamp, short));
+    let now = SystemTime::now();
+    let stamp = timestamp(now);
+    let path = dir.join(format!("{}.log", file_stem(label, session_id, now)));
 
+    let mut file = private_file(&path)?;
+    writeln!(file, "=== BifroSSH session {label} {stamp} ===").with_context(|| path.display().to_string())?;
+    Ok((path, file))
+}
+
+/// Opens `path` for appending, made if missing, readable by the user alone
+/// on Unix: what a session writes is whatever the host printed.
+pub(crate) fn private_file(path: &Path) -> Result<File> {
     let mut options = OpenOptions::new();
     options.append(true).create(true);
     #[cfg(unix)]
@@ -43,9 +62,14 @@ pub fn open_session_log(dir: &Path, label: &str, session_id: &str) -> Result<(Pa
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    let mut file = options.open(&path).with_context(|| path.display().to_string())?;
-    writeln!(file, "=== BifroSSH session {label} {stamp} ===").with_context(|| path.display().to_string())?;
-    Ok((path, file))
+    options.open(path).with_context(|| path.display().to_string())
+}
+
+/// The name a session's file gets, before its extension: the label, when
+/// it opened, and the start of its id.
+pub(crate) fn file_stem(label: &str, session_id: &str, at: SystemTime) -> String {
+    let short = session_id.get(..8).unwrap_or(session_id);
+    format!("{}_{}_{}", safe_label(label), timestamp(at), short)
 }
 
 /// The label with anything a filesystem or a shell might mind replaced.

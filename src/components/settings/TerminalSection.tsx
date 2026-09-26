@@ -21,6 +21,8 @@ export default function TerminalSection() {
   const { settings, customThemes, clearCommandHistory } = useAppStore();
   const [historyCleared, setHistoryCleared] = useState(false);
   const patch = usePatch();
+  const [localShellDraft, setLocalShellDraft] = useState(settings.local_shell);
+  useEffect(() => { setLocalShellDraft(settings.local_shell); }, [settings.local_shell]);
   const [themeExpanded, setThemeExpanded] = useState(false);
   const [fonts, setFonts] = useState<string[]>([]);
   // Keyed by shell, so the button that was pressed is the one that says so.
@@ -177,6 +179,28 @@ export default function TerminalSection() {
           Read every 3 seconds while the tab is showing, by a small command run over the same
           connection on a channel of its own, so nothing appears in the shell. Needs a Linux host.
           A host can be set to always or never show it, whatever this says.
+        </p>
+      </section>
+
+      <section className="panel-section">
+        <h3>Local shell</h3>
+        <div className="form-group">
+          <label>Command</label>
+          <input
+            type="text"
+            value={localShellDraft}
+            placeholder="The system's own"
+            onChange={(e) => setLocalShellDraft(e.target.value)}
+            onBlur={() => patch({ local_shell: localShellDraft.trim() })}
+            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+            spellCheck={false}
+          />
+        </div>
+        <p className="form-hint">
+          What a local shell tab runs, opened with the Local Shell button beside Quick Connect. Empty is your
+          login shell, or PowerShell on Windows. Arguments are split the way a shell would split
+          them, as in <code>fish --login</code>. In the Flatpak the shell runs outside the sandbox,
+          so your own tools are there.
         </p>
       </section>
 

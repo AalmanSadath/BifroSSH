@@ -40,7 +40,9 @@ pub struct ForeignHost {
     pub password: Option<String>,
     /// The folder the host was in, which becomes its group here.
     pub group: Option<String>,
-    /// Anything worth keeping that has nowhere else to go, such as tags.
+    /// Labels the other client kept, which stay tags here.
+    pub tags: Vec<String>,
+    /// Anything worth keeping that has nowhere else to go.
     pub notes: Option<String>,
 }
 

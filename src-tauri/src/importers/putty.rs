@@ -160,6 +160,7 @@ impl Settings {
             // people wanted, and splitting on a convention it does not
             // enforce would invent groups nobody asked for.
             group: None,
+            tags: Vec::new(),
             notes: None,
         })
     }

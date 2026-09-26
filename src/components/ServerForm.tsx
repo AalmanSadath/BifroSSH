@@ -20,6 +20,8 @@ const MONITOR_CHOICES: PickerOption<MonitorChoice>[] = [
 ];
 import PortalDropdown, { PortalMenu, anchorBelow, type AnchorRect } from './shared/PortalDropdown';
 import PassphraseInput from './shared/PassphraseInput';
+import TagInput from './TagInput';
+import { tagNames } from '../hosts';
 
 interface Props {
   server: Server | null;
@@ -68,6 +70,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
   const [forwardAgent, setForwardAgent] = useState(server?.forward_agent ?? false);
   const [logSessions, setLogSessions] = useState(server?.log_sessions ?? false);
   const [group, setGroup] = useState(server?.group ?? '');
+  const [tags, setTags] = useState<string[]>(server?.tags ?? []);
   const [runOnConnect, setRunOnConnect] = useState(server?.run_on_connect ?? '');
   const [hideRunOnConnect, setHideRunOnConnect] = useState(server?.hide_run_on_connect ?? true);
   const [notes, setNotes] = useState(server?.notes ?? '');
@@ -146,6 +149,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
           term: term.trim() || null,
           env: env.trim() === '' ? null : env,
           monitor: monitor === 'default' ? null : monitor === 'always',
+          tags,
         },
         (!identityId && !keyId && password.trim()) ? password.trim() : undefined,
       );
@@ -337,6 +341,11 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
               ))}
             </PortalMenu>
           )}
+
+          <div className="form-group">
+            <label>Tags</label>
+            <TagInput tags={tags} onChange={setTags} known={tagNames(servers)} />
+          </div>
 
           {/* Not inside a form-group: the row carries its own bottom margin,
               and the group's on top of it put twice the gap below the box that

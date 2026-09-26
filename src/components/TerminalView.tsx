@@ -45,6 +45,7 @@ interface SearchOptions {
 
 export default function TerminalView({ tab, visible, focused, header, resizer, width }: Props) {
   const { tab_id: tabId, session_id: sessionId, server_id: serverId } = tab;
+  const isLocal = tab.kind === 'local';
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -61,7 +62,8 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
   const boundOnceRef = useRef(false);
   const { settings, servers, removeSession, markDropped, reconnectSession, stopRetrying, retryingTabIds, sendInput, setActiveTab, sessionThemeOverrides, sessionZoom, zoomSession, customThemes, markActivity } = useAppStore();
   const hint = useHint();
-  const monitorShown = tab.status !== 'error'
+  // A local shell has no host to read, and no connection to read it over.
+  const monitorShown = tab.status !== 'error' && tab.kind !== 'local'
     && monitorWanted(settings.monitor_bar, servers.find((s) => s.id === serverId));
 
   // This tab's own size if it has been zoomed, else the one every terminal
@@ -282,6 +284,9 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
         // is history and links like the rest.
         const buf = term.buffer.active;
         if (y - 1 === buf.baseY + buf.cursorY) { callback(undefined); return; }
+        // A path in a local shell is on this machine, not on a host the
+        // SFTP panel could open.
+        if (isLocal) { callback(undefined); return; }
         const line = buf.getLine(y - 1)?.translateToString(true) ?? '';
         callback(findPaths(line).map((p) => ({
           range: { start: { x: p.start + 1, y }, end: { x: p.end, y } },

@@ -327,6 +327,64 @@ pub async fn ssh_set_log(
     Ok(path)
 }
 
+/// Starts or stops recording a session as asciicast, and says where the
+/// file is. The size is the terminal's now, for the recording's header; a
+/// later resize is recorded as it happens. `screen` is what the terminal
+/// shows at the start, written as the first event so a playback does not
+/// open on a blank screen that only fills in as the host redraws it.
+/// Stopping returns None.
+#[tauri::command]
+pub async fn ssh_set_recording(
+    state: State<'_, AppState>,
+    session_id: String,
+    label: String,
+    on: bool,
+    cols: u32,
+    rows: u32,
+    screen: Option<String>,
+) -> CmdResult<Option<String>> {
+    // Looked up first, so a session that has gone leaves no empty file.
+    let cmd_tx = {
+        let sessions = state.ssh_state.sessions.lock().await;
+        sessions.get(&session_id).ok_or("Session not found")?.cmd_tx.clone()
+    };
+    let (recorder, path) = if on {
+        let dir = {
+            let data = state.data.lock().await;
+            crate::sessionlog::recording_dir(data.settings.recording_dir.as_deref())?
+        };
+        let (path, mut recorder) = crate::recording::Recorder::create(&dir, &label, &session_id, cols, rows)?;
+        if let Some(screen) = screen.filter(|s| !s.is_empty()) {
+            recorder.output(screen.as_bytes()).map_err(anyhow::Error::from)?;
+        }
+        (Some(recorder), Some(path.to_string_lossy().into_owned()))
+    } else {
+        (None, None)
+    };
+    cmd_tx.send(SshCommand::SetRecording(recorder)).await.map_err(CmdError::from)?;
+    Ok(path)
+}
+
+/// The folder recordings go to, for the Recordings panel to list and the
+/// settings page to show.
+#[tauri::command]
+pub async fn recording_dir(state: State<'_, AppState>) -> CmdResult<String> {
+    let data = state.data.lock().await;
+    let dir = crate::sessionlog::recording_dir(data.settings.recording_dir.as_deref())?;
+    Ok(dir.to_string_lossy().into_owned())
+}
+
+/// Opens the file manager on the folder holding `path`, with the file
+/// selected, where the platform's file manager can do that.
+#[tauri::command]
+pub async fn reveal_file(path: String) -> CmdResult<()> {
+    // Blocking D-Bus on Linux, so off the async workers.
+    tokio::task::spawn_blocking(move || tauri_plugin_opener::reveal_item_in_dir(&path))
+        .await
+        .map_err(|e| CmdError::from(e.to_string()))?
+        .map_err(|e| CmdError::from(format!("Could not show the file: {e}")))
+}
+
 /// The folder session logs go to, for the settings page to show.
 #[tauri::command]
 pub async fn session_log_dir(state: State<'_, AppState>) -> CmdResult<String> {
@@ -364,7 +422,8 @@ pub async fn ssh_host_stats(
 ) -> CmdResult<crate::hoststats::Sample> {
     let opener = {
         let sessions = state.ssh_state.sessions.lock().await;
-        Arc::clone(&sessions.get(&session_id).ok_or("Session not found")?.opener)
+        let handle = sessions.get(&session_id).ok_or("Session not found")?;
+        Arc::clone(handle.opener.as_ref().ok_or("Not an SSH session")?)
     };
     let out = tokio::time::timeout(
         SAMPLE_TIMEOUT,
@@ -373,4 +432,20 @@ pub async fn ssh_host_stats(
     .await
     .map_err(|_| CmdError::from("The host took too long to answer"))??;
     crate::hoststats::parse_sample(&out).map_err(CmdError::from)
+}
+
+/// Opens a shell on this machine, run as the local shell setting says, and
+/// returns its session id; from there it is driven like any other session.
+#[tauri::command]
+pub async fn local_shell_connect(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    cols: u16,
+    rows: u16,
+) -> CmdResult<String> {
+    let setting = state.data.lock().await.settings.local_shell.clone();
+    let ssh_state = Arc::clone(&state.ssh_state);
+    crate::localshell::start(app, ssh_state, &setting, cols.max(1), rows.max(1))
+        .await
+        .map_err(CmdError::from)
 }

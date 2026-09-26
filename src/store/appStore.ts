@@ -10,6 +10,8 @@ import { DEFAULT_HIGHLIGHT_RULES } from '../highlight';
 import { withError, type DiagError } from '../diagnostics';
 import { remember } from '../commandHistory';
 import { clampZoom } from '../zoom';
+import { terminalFor } from '../terminalRegistry';
+import { screenSnapshot } from '../screenSnapshot';
 import { nextActivity, watched, type Activity, type Mark } from '../activity';
 import { isStale, type Probed } from '../probe';
 import type { AuthType, Codeprint, ProbeState, SftpBookmark, GeneratedKey, Identity, IdentityInput, JumpHopParams, KeyContent, KeyEntry, LogEntry, OpenTab, PortForwarding, ResolvedTheme, Server, ServerInput, SessionTab, Settings, SettingsSection, SystemAppearance } from '../types';
@@ -213,6 +215,7 @@ const DEFAULT_SETTINGS: Settings = {
   lock_on_suspend: true,
   scrollback_lines: 10000,
   session_log_dir: null,
+  recording_dir: null,
   check_for_updates: true,
   last_update_check: 0,
   auto_reconnect: true,
@@ -224,6 +227,7 @@ const DEFAULT_SETTINGS: Settings = {
   highlight_rules: DEFAULT_HIGHLIGHT_RULES,
   autosuggest: true,
   monitor_bar: false,
+  local_shell: '',
   accent_color: null,
 };
 
@@ -377,13 +381,17 @@ interface AppStore {
   deleteServer: (id: string) => Promise<void>;
   deleteServers: (ids: string[]) => Promise<void>;
   setServersGroup: (ids: string[], group: string | null) => Promise<void>;
+  addServersTag: (ids: string[], tag: string) => Promise<void>;
+  removeServersTag: (ids: string[], tag: string) => Promise<void>;
   detectServerOs: (serverId: string, username: string, authType: AuthType, authValue: string, jumps?: JumpHopParams[]) => Promise<void>;
 
   importKey: (name: string, path: string, passphrase: string | null, storeContent: boolean) => Promise<void>;
-  saveKeyFromContent: (name: string, content: string, passphrase: string | null) => Promise<void>;
+  saveKeyFromContent: (name: string, content: string, passphrase: string | null, certificate?: string | null) => Promise<void>;
   generateKey: (algorithm: string, passphrase?: string | null) => Promise<GeneratedKey>;
   getKeyContent: (keyId: string) => Promise<KeyContent>;
   updateKey: (keyId: string, name: string, content: string, passphrase: string | null) => Promise<void>;
+  /** Puts a certificate on a key, or takes it off with null; refused with the reason when it is not this key's. */
+  setKeyCertificate: (keyId: string, certificate: string | null) => Promise<void>;
   deleteKey: (id: string) => Promise<void>;
 
   saveIdentity: (identity: IdentityInput, password?: string) => Promise<void>;
@@ -460,6 +468,17 @@ interface AppStore {
   toggleBroadcast: (tabId: string) => void;
   /** Starts or stops writing the tab's output to a file; the banner says if it could not. */
   toggleLogging: (tabId: string) => Promise<void>;
+  /** Opens a tab with a shell on this machine in it. */
+  openLocalShell: () => Promise<void>;
+  /** Starts or stops recording the tab as asciicast; the banner says if it could not. */
+  toggleRecording: (tabId: string) => Promise<void>;
+  /** A recording just finished, for the notice that offers to play it. */
+  savedRecording: string | null;
+  setSavedRecording: (path: string | null) => void;
+  /** The recording the Recordings panel is playing, if any. */
+  playingRecording: string | null;
+  /** Plays a recording in the Recordings panel, opening the panel; null stops it. */
+  playRecording: (path: string | null) => void;
   /**
    * Input from `tabId` to its own session, and when the tab broadcasts, to
    * every other broadcasting tab that is connected. The one path typed
@@ -609,6 +628,25 @@ export async function buildJumpChain(
   return hops.reverse();
 }
 
+/**
+ * Asks the backend to start or stop recording a session, with the size and
+ * the screen of the tab's terminal as they are now.
+ */
+function startOrStopRecording(sessionId: string, tabId: string, label: string, on: boolean): Promise<string | null> {
+  const term = terminalFor(tabId);
+  const buf = term?.buffer.active;
+  const screen = on && term && buf
+    ? screenSnapshot({
+      rows: term.rows,
+      top: buf.baseY,
+      cursorX: buf.cursorX,
+      cursorY: buf.cursorY,
+      line: (row) => buf.getLine(row)?.translateToString(true),
+    })
+    : null;
+  return ipc.sshSetRecording(sessionId, label, on, term?.cols ?? 80, term?.rows ?? 24, screen || null);
+}
+
 export const useAppStore = create<AppStore>((set, get) => ({
   servers: [],
   identities: [],
@@ -636,6 +674,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
     // reconnect with, and every attempt would fail on the way to the
     // attempt limit.
     set({ servers: [], identities: [], keys: [], portForwardings: [], codeprints: [], retryingTabIds: new Set(), hostProbes: {} }),
+  savedRecording: null,
+  setSavedRecording: (path) => set({ savedRecording: path }),
+  playingRecording: null,
+  playRecording: (path) => set(path ? { playingRecording: path, activeTabId: 'recordings' } : { playingRecording: null }),
   actionError: null,
   setActionError: (message) => {
     set({ actionError: message });
@@ -782,6 +824,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({ servers });
   },
 
+  addServersTag: async (ids, tag) => {
+    set({ servers: await ipc.addServersTag(ids, tag) });
+  },
+
+  removeServersTag: async (ids, tag) => {
+    set({ servers: await ipc.removeServersTag(ids, tag) });
+  },
+
   detectServerOs: async (serverId, username, authType, authValue, jumps) => {
     try {
       const detectedOs = await ipc.detectServerOs(serverId, username, authType, authValue, jumps ?? []);
@@ -807,8 +857,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set((s) => ({ keys: [...s.keys, key] }));
   },
 
-  saveKeyFromContent: async (name, content, passphrase) => {
-    const key = await ipc.saveKeyFromContent(name, content, passphrase);
+  saveKeyFromContent: async (name, content, passphrase, certificate) => {
+    const key = await ipc.saveKeyFromContent(name, content, passphrase, certificate ?? null);
     set((s) => ({ keys: [...s.keys, key] }));
   },
 
@@ -818,6 +868,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   getKeyContent: async (keyId) => {
     return ipc.getKeyContent(keyId);
+  },
+
+  setKeyCertificate: async (keyId, certificate) => {
+    const key = await ipc.setKeyCertificate(keyId, certificate);
+    set((s) => ({ keys: s.keys.map((k) => (k.id === keyId ? key : k)) }));
   },
 
   updateKey: async (keyId, name, content, passphrase) => {
@@ -1169,6 +1224,21 @@ export const useAppStore = create<AppStore>((set, get) => ({
       ),
     })),
 
+  toggleRecording: async (tabId) => {
+    const tab = get().sessions.find((t) => t.tab_id === tabId);
+    if (!tab || !tab.session_id) return;
+    const on = !tab.recording;
+    try {
+      const path = await startOrStopRecording(tab.session_id, tabId, tab.server_name, on);
+      set((s) => ({
+        sessions: s.sessions.map((t) => (t.tab_id === tabId ? { ...t, recording: path ?? undefined } : t)),
+        savedRecording: on ? s.savedRecording : (tab.recording ?? null),
+      }));
+    } catch (e) {
+      get().setActionError(`Could not ${on ? 'start' : 'stop'} the recording: ${String(e)}`);
+    }
+  },
+
   toggleLogging: async (tabId) => {
     const tab = get().sessions.find((t) => t.tab_id === tabId);
     if (!tab || !tab.session_id) return;
@@ -1297,6 +1367,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
         const ok = await ipc.sshSetLog(sessionId, tab.server_name, true).then(() => true, () => false);
         set((s) => ({ sessions: s.sessions.map((t) => (t.tab_id === tabId ? { ...t, logging: ok ? 'tab' : undefined } : t)) }));
       }
+      // Likewise a recording: the old file ended with the old session.
+      if (tab.recording) {
+        const path = await startOrStopRecording(sessionId, tabId, tab.server_name, true).catch(() => null);
+        set((s) => ({ sessions: s.sessions.map((t) => (t.tab_id === tabId ? { ...t, recording: path ?? undefined } : t)) }));
+      }
     } catch (err) {
       // Still dropped, still there. The banner shows why it did not come back.
       set((s) => ({
@@ -1385,6 +1460,24 @@ export const useAppStore = create<AppStore>((set, get) => ({
       set((s) => ({ sessions: s.sessions.map((t) => (t.tab_id === connectId ? { ...t, logging: 'host' } : t)) }));
     }
     if (ok) get().autostartTunnels({ kind: 'connect', serverId });
+  },
+
+  openLocalShell: async () => {
+    const connectId = crypto.randomUUID();
+    await startSession(
+      connectId,
+      {
+        tab_id: connectId,
+        session_id: null,
+        server_name: 'Local',
+        server_id: '',
+        kind: 'local',
+        status: 'connecting',
+        connect_id: connectId,
+        logs: [],
+      },
+      () => ipc.localShellConnect(80, 24),
+    );
   },
 
   quickConnect: async (host, port, username, authType, authValue) => {

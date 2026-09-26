@@ -313,3 +313,75 @@
 }
 
 .notes-area:focus { border-color: var(--accent); }
+
+/* ── A key's certificate ───────────────────────────────────── */
+
+.key-cert {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-mid);
+}
+
+.key-cert-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.key-cert-id {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.key-cert-badge {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+
+.key-cert-badge.bad {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
+}
+
+.key-cert-badge.warn {
+  color: var(--warning, #d29922);
+  background: color-mix(in srgb, var(--warning, #d29922) 15%, transparent);
+}
+
+.key-cert-detail {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.key-cert-ca {
+  font-family: monospace;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+
+/* Grown to its content by AutoTextarea rather than dragged. */
+.key-paste-area.auto-textarea {
+  resize: none;
+  overflow: hidden;
+}
+
+/* A certificate is one long base64 line, with nowhere to wrap but anywhere. */
+.key-cert-area { word-break: break-all; }
+
+.key-cert-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Across from the import, where it reads as undoing it. */
+.key-cert-clear { margin-left: auto; }

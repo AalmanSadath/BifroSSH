@@ -347,6 +347,11 @@
   outline: none;
   transition: border-color 0.15s;
 }
+.quick-local-shell-glyph {
+  font-family: monospace;
+  font-weight: 700;
+}
+
 .quick-connect-input::placeholder { color: var(--text-muted); }
 .quick-connect-input:focus { border-color: var(--accent); }
 
@@ -464,6 +469,24 @@
   flex-shrink: 0;
 }
 
+.tab-recording {
+  color: var(--danger);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin-right: 5px;
+  flex-shrink: 0;
+  animation: tab-recording-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes tab-recording-pulse {
+  50% { opacity: 0.45; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab-recording { animation: none; }
+}
+
 .tab-logging {
   color: var(--danger);
   font-size: 8px;
@@ -531,6 +554,24 @@
 }
 
 .load-error-banner span { flex: 1; }
+
+/* The same strip in the accent colour, for news that is not a failure. */
+.notice-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-bottom: 1px solid var(--accent);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.notice-banner span {
+  flex: 1;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
 
 .load-error-dismiss {
   background: none;

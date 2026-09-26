@@ -30,15 +30,59 @@ export function groupNames(servers: Server[]): string[] {
   return Array.from(names).sort((a, b) => a.localeCompare(b));
 }
 
+/** Every tag in use, in name order, each once whatever its case. */
+export function tagNames(servers: Server[]): string[] {
+  const names = new Map<string, string>();
+  for (const s of servers) {
+    for (const t of s.tags ?? []) {
+      if (!names.has(t.toLowerCase())) names.set(t.toLowerCase(), t);
+    }
+  }
+  return Array.from(names.values()).sort((a, b) => a.localeCompare(b));
+}
+
+/** How many of the hosts carry each tag, keyed by the tag in lower case. */
+export function tagCounts(servers: Server[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const s of servers) {
+    for (const t of new Set((s.tags ?? []).map((x) => x.toLowerCase()))) counts[t] = (counts[t] ?? 0) + 1;
+  }
+  return counts;
+}
+
+/**
+ * Tags as a host keeps them: trimmed, blanks dropped, each once whatever
+ * its case, the first spelling kept. The backend does the same on save;
+ * doing it here too keeps the form from showing a chip that will vanish.
+ */
+export function normalizeTags(tags: string[]): string[] {
+  const out: string[] = [];
+  for (const raw of tags) {
+    const tag = raw.trim().slice(0, MAX_TAG_LEN).trim();
+    if (tag === '' || out.some((t) => t.toLowerCase() === tag.toLowerCase())) continue;
+    if (out.length === MAX_TAGS) break;
+    out.push(tag);
+  }
+  return out;
+}
+
+export const MAX_TAGS = 20;
+export const MAX_TAG_LEN = 32;
+
 /**
  * Whether the host matches a search box. Case-insensitive, across the
- * things a person remembers a host by: its name, address, user, group and
- * whatever was written in its notes.
+ * things a person remembers a host by: its name, address, user, group, tags
+ * and whatever was written in its notes.
+ *
+ * `#name` asks for the hosts tagged exactly that, so a short tag does not
+ * also find every host whose name happens to contain it.
  */
 export function matchesHost(server: Server, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (q === '') return true;
-  return [server.name, server.host, server.username ?? '', groupOf(server) ?? '', server.notes ?? '']
+  const tags = (server.tags ?? []).map((t) => t.toLowerCase());
+  if (q.startsWith('#') && q.length > 1) return tags.includes(q.slice(1));
+  return [server.name, server.host, server.username ?? '', groupOf(server) ?? '', server.notes ?? '', ...tags]
     .some((field) => field.toLowerCase().includes(q));
 }
 

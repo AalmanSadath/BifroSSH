@@ -12,6 +12,10 @@ export default function ConnectionSection() {
   // rather than an empty box.
   const [logDir, setLogDir] = useState<string | null>(null);
   const [logDirDraft, setLogDirDraft] = useState(settings.session_log_dir ?? '');
+  const [recDir, setRecDir] = useState<string | null>(null);
+  const [recDirDraft, setRecDirDraft] = useState(settings.recording_dir ?? '');
+  useEffect(() => { ipc.recordingDir().then(setRecDir).catch(() => {}); }, [settings.recording_dir]);
+  useEffect(() => { setRecDirDraft(settings.recording_dir ?? ''); }, [settings.recording_dir]);
   useEffect(() => { ipc.sessionLogDir().then(setLogDir).catch(() => {}); }, [settings.session_log_dir]);
   useEffect(() => { setLogDirDraft(settings.session_log_dir ?? ''); }, [settings.session_log_dir]);
 
@@ -125,6 +129,27 @@ export default function ConnectionSection() {
         <p className="form-hint">
           Where a session's output goes when a tab is logged, or a host is set to log every
           session. Empty means the app's own data folder.
+        </p>
+
+        <div className="form-group">
+          <label>Recordings folder</label>
+          <div className="settings-inline-row">
+            <input
+              type="text"
+              value={recDirDraft}
+              placeholder={recDir ?? 'Default'}
+              onChange={(e) => setRecDirDraft(e.target.value)}
+              onBlur={() => patch({ recording_dir: recDirDraft.trim() || null })}
+              onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+            />
+            <button className="btn-secondary btn-sm" onClick={() => { if (recDir) ipc.sftpOpenLocal(recDir).catch(reportFailure); }}>
+              Open folder
+            </button>
+          </div>
+        </div>
+        <p className="form-hint">
+          Where a tab's recording goes, and what the Recordings panel lists. Empty means the
+          app's own data folder.
         </p>
       </section>
     </>

@@ -9,12 +9,15 @@ mod hoststats;
 mod hostverify;
 mod importers;
 mod jump;
+mod localshell;
 mod keyring;
 mod keystore;
 mod models;
 mod ppk;
 mod prompts;
+mod recording;
 mod sessionlog;
+mod sshcert;
 mod sftp;
 mod socks5;
 mod sshconfig;
@@ -168,6 +171,8 @@ fn start(
             commands::delete_server,
             commands::delete_servers,
             commands::set_servers_group,
+            commands::add_servers_tag,
+            commands::remove_servers_tag,
             commands::list_keys,
             commands::import_key_from_path,
             commands::save_key_from_content,
@@ -175,6 +180,9 @@ fn start(
             commands::get_key_content,
             commands::update_key,
             commands::delete_key,
+            commands::set_key_certificate,
+            commands::inspect_key_certificate,
+            commands::check_certificate,
             commands::list_identities,
             commands::save_identity,
             commands::delete_identity,
@@ -193,6 +201,7 @@ fn start(
             commands::default_export_dir,
             commands::export_data,
             commands::write_text_file,
+            commands::read_text_file,
             commands::preview_import,
             commands::import_data,
             commands::get_port_forwardings,
@@ -233,6 +242,10 @@ fn start(
             commands::ssh_disconnect,
             commands::ssh_host_stats,
             commands::ssh_set_log,
+            commands::ssh_set_recording,
+            commands::local_shell_connect,
+            commands::recording_dir,
+            commands::reveal_file,
             commands::session_log_dir,
             commands::sftp_local_home,
             commands::sftp_list_local,

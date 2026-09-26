@@ -1,0 +1,188 @@
+/* ── Recordings panel ──────────────────────────────────────── */
+
+/* The list and the player side by side, filling the page rather than the
+   narrow column the settings-like panels keep to. */
+.panel.recordings-panel {
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.recordings-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.recordings-toolbar .recordings-search {
+  flex: 0 1 280px;
+}
+
+.recordings-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 16px;
+}
+
+.recordings-list {
+  flex: 0 0 280px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.recordings-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text-primary);
+}
+
+.recordings-row:hover { background: var(--bg-hover); }
+
+.recordings-row.active {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
+.recordings-row-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.recordings-row-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 5px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.recordings-row-btn:hover { background: var(--bg-mid); color: var(--text-primary); }
+.recordings-row-btn-danger:hover { color: var(--danger); }
+
+.recordings-row-label {
+  font-size: 13px;
+  font-weight: 600;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recordings-row-detail {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.recordings-player {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── The player ────────────────────────────────────────────── */
+
+.cast-player {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  outline: none;
+}
+
+.cast-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.cast-title-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+
+.cast-title-path {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The terminal keeps the recording's size; a big one scrolls here rather
+   than being squeezed, since squeezing would rewrap what was drawn. */
+.cast-screen {
+  overflow: auto;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-width: 100%;
+  align-self: flex-start;
+  border-radius: 6px;
+  background: var(--term-bg, #000);
+}
+
+.cast-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cast-play { min-width: 64px; }
+
+/* The shared input rule strips appearance, which leaves a range with no
+   track at all; this one wants the platform's slider back. */
+.cast-controls input.cast-seek {
+  flex: 1;
+  appearance: auto;
+  -webkit-appearance: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  accent-color: var(--accent);
+}
+
+.cast-time {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.cast-speeds { display: flex; gap: 2px; }
+
+.cast-speed {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.cast-speed.active {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}

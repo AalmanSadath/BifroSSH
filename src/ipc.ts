@@ -17,6 +17,7 @@
  */
 import { invoke } from '@tauri-apps/api/core';
 import type {
+  CertInfo,
   AgentKeyInfo,
   AuthType,
   ClientImportResult,
@@ -80,6 +81,12 @@ export const deleteServers = (serverIds: string[]) =>
 export const setServersGroup = (serverIds: string[], group: string | null) =>
   invoke<Server[]>('set_servers_group', { serverIds, group });
 
+/** A tag onto several hosts, or off them; answers with every host. */
+export const addServersTag = (serverIds: string[], tag: string) =>
+  invoke<Server[]>('add_servers_tag', { serverIds, tag });
+export const removeServersTag = (serverIds: string[], tag: string) =>
+  invoke<Server[]>('remove_servers_tag', { serverIds, tag });
+
 // ── keys ─────────────────────────────────────────────────────────────────
 
 export const listKeys = () => invoke<KeyEntry[]>('list_keys');
@@ -95,7 +102,8 @@ export const saveKeyFromContent = (
   name: string,
   content: string,
   passphrase: string | null,
-) => invoke<KeyEntry>('save_key_from_content', { name, content, passphrase });
+  certificate: string | null = null,
+) => invoke<KeyEntry>('save_key_from_content', { name, content, passphrase, certificate });
 
 export const generateKey = (algorithm: string, passphrase: string | null) =>
   invoke<GeneratedKey>('generate_key', { algorithm, passphrase });
@@ -235,6 +243,21 @@ export const sftpCompareTrees = (
 export const writeTextFile = (path: string, contents: string, overwrite: boolean) =>
   invoke<void>('write_text_file', { path, contents, overwrite });
 
+/** Puts a certificate on a key, or takes it off with null; answers with the key. */
+export const setKeyCertificate = (keyId: string, certificate: string | null) =>
+  invoke<KeyEntry>('set_key_certificate', { keyId, certificate });
+
+/** What a key's certificate says, or null when it has none. */
+export const inspectKeyCertificate = (keyId: string) =>
+  invoke<CertInfo | null>('inspect_key_certificate', { keyId });
+
+/** Whether certificate text is a user certificate for this private key, and what it says. */
+export const checkCertificate = (certificate: string, keyPem: string, passphrase: string | null) =>
+  invoke<CertInfo>('check_certificate', { certificate, keyPem, passphrase });
+
+/** A text file the user picked, up to 64 MB. */
+export const readTextFile = (path: string) => invoke<string>('read_text_file', { path });
+
 export const getOpenTabs = () => invoke<OpenTab[]>('get_open_tabs');
 
 export const saveOpenTabs = (items: OpenTab[]) => invoke<void>('save_open_tabs', { items });
@@ -342,6 +365,26 @@ export const sshHostStats = (sessionId: string) =>
 /** Starts (returning the file's path) or stops logging a session's output. */
 export const sshSetLog = (sessionId: string, label: string, on: boolean) =>
   invoke<string | null>('ssh_set_log', { sessionId, label, on });
+
+/** Opens a shell on this machine; answers with its session id. */
+export const localShellConnect = (cols: number, rows: number) =>
+  invoke<string>('local_shell_connect', { cols, rows });
+
+/** Starts or stops recording a session; answers with the file's path when starting. */
+export const sshSetRecording = (
+  sessionId: string,
+  label: string,
+  on: boolean,
+  cols: number,
+  rows: number,
+  screen: string | null,
+) => invoke<string | null>('ssh_set_recording', { sessionId, label, on, cols, rows, screen });
+
+/** The folder recordings are written to, as configured or by default. */
+export const recordingDir = () => invoke<string>('recording_dir');
+
+/** Opens the file manager on the file's folder with the file selected. */
+export const revealFile = (path: string) => invoke<void>('reveal_file', { path });
 
 /** The folder session logs are written to, as configured or by default. */
 export const sessionLogDir = () => invoke<string>('session_log_dir');

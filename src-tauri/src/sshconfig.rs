@@ -18,6 +18,9 @@ pub struct SshConfigHost {
     pub port: Option<u16>,
     /// `IdentityFile`, expanded but not read.
     pub identity_file: Option<String>,
+    /// `CertificateFile`, expanded but not read: the certificate for the
+    /// identity, when it is not where OpenSSH looks by default.
+    pub certificate_file: Option<String>,
     /// The config's `ProxyJump` value, verbatim. Linked to a saved server on
     /// import when it names another host being imported alongside it.
     pub proxy_jump: Option<String>,
@@ -222,6 +225,7 @@ pub fn parse(content: &str) -> SshConfigScan {
                         user: None,
                         port: None,
                         identity_file: None,
+                        certificate_file: None,
                         proxy_jump: None,
                     });
                 }
@@ -239,6 +243,9 @@ pub fn parse(content: &str) -> SshConfigScan {
                         // ssh allows several; the first is the one it offers first.
                         "identityfile" if host.identity_file.is_none() => {
                             host.identity_file = Some(expand_home(&value))
+                        }
+                        "certificatefile" if host.certificate_file.is_none() => {
+                            host.certificate_file = Some(expand_home(&value))
                         }
                         "proxyjump" => host.proxy_jump = Some(value.clone()),
                         _ => {}
@@ -425,6 +432,12 @@ mod tests {
     fn keeps_the_first_identity_file_only() {
         let scan = parse("Host web\n  IdentityFile /a/first\n  IdentityFile /b/second\n");
         assert_eq!(scan.hosts[0].identity_file.as_deref(), Some("/a/first"));
+    }
+
+    #[test]
+    fn keeps_the_first_certificate_file() {
+        let scan = parse("Host web\n  CertificateFile /a/cert.pub\n  CertificateFile /b/cert.pub\n");
+        assert_eq!(scan.hosts[0].certificate_file.as_deref(), Some("/a/cert.pub"));
     }
 
     /// A directive after Match no longer reliably belongs to the Host above it.

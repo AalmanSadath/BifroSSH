@@ -69,6 +69,8 @@ export interface Server {
   env: string | null;
   /** The monitor bar here: null follows the setting, true always, false never. */
   monitor?: boolean | null;
+  /** Labels the host is found by, besides its group. */
+  tags: string[];
 }
 
 /** A directory saved for one click in the SFTP panel. */
@@ -215,6 +217,21 @@ export interface KeyEntry {
   encrypted_key: string | null;
   encrypted_passphrase: string | null;
   algorithm: string | null;
+  /** The key's OpenSSH certificate, the text of its -cert.pub; public. */
+  certificate?: string | null;
+}
+
+/** What a key's certificate says. Times are seconds since the epoch. */
+export interface CertInfo {
+  key_id: string;
+  /** The user names it is good for; empty means any. */
+  principals: string[];
+  valid_after: number;
+  /** Null for a certificate that never expires. */
+  valid_before: number | null;
+  ca_fingerprint: string;
+  /** Sent under a name OpenSSH 8.8 and later refuse by default. */
+  rsa: boolean;
 }
 
 /** The material behind a saved key, decrypted for the one caller that asked. */
@@ -302,6 +319,8 @@ export interface Settings {
   scrollback_lines: number;
   /** Where session logs go; null is the app's own logs folder. */
   session_log_dir: string | null;
+  /** Where session recordings go; null is the app's own data folder. */
+  recording_dir: string | null;
   /** Ask GitHub once a day whether a newer release exists. */
   check_for_updates: boolean;
   /** When the last check ran, epoch seconds; 0 for never. */
@@ -328,6 +347,8 @@ export interface Settings {
   autosuggest: boolean;
   /** Show the monitor bar under terminals; a host can override it. */
   monitor_bar: boolean;
+  /** The program a local shell tab runs, with its arguments; empty is the system's own. */
+  local_shell: string;
 }
 
 /** How the user chose to keep the master key on the first run screen. */
@@ -404,6 +425,7 @@ export interface SshConfigHost {
   user: string | null;
   port: number | null;
   identity_file: string | null;
+  certificate_file: string | null;
   /**
    * The config's ProxyJump value, verbatim, hops and all. Resolved to saved
    * servers on import, but only when every hop is imported alongside it.
@@ -440,6 +462,7 @@ export interface ScannedHost {
   port: number;
   username: string | null;
   group: string | null;
+  tags: string[];
   /** A saved host already has this address, port and user. */
   already_here: boolean;
   /** The file carries a password for it; the password itself stays in the backend. */
@@ -546,6 +569,10 @@ export interface SessionTab {
    * the tab; a host that always logs is set and forgotten.
    */
   logging?: 'tab' | 'host';
+  /** A shell on this machine rather than a connection to a host. */
+  kind?: 'local';
+  /** The recording this tab's output is going to, while one is. */
+  recording?: string;
   connect_id?: string;
   error?: string;
   logs?: LogEntry[];
