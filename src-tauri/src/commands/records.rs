@@ -105,6 +105,21 @@ pub fn forget_references_to(data: &mut AppData, id: &str) {
     }
 }
 
+/// Removes these hosts and everything that only made sense with them.
+///
+/// References from what stays are cleared by [`forget_references_to`].
+/// Records that belong to a removed host go with it: its SFTP bookmarks,
+/// which used to be left in the data file for ever, pointing at a host that
+/// could never be opened again.
+pub fn remove_servers(data: &mut AppData, ids: &[String]) {
+    data.servers.retain(|s| !ids.contains(&s.id));
+    for id in ids {
+        forget_references_to(data, id);
+    }
+    data.sftp_bookmarks
+        .retain(|b| b.server_id.as_ref().is_none_or(|id| !ids.contains(id)));
+}
+
 /// The private key material a `KeyEntry` names, wherever it is kept.
 ///
 /// An entry holds either the key itself, encrypted with the master key, or a
@@ -201,6 +216,39 @@ mod tests {
         assert_eq!(data.identities[0].key_id, None);
         assert_eq!(data.port_forwardings[0].intermediate_host_id, None);
         assert_eq!(data.port_forwardings[0].remote_host_id, None);
+    }
+
+    #[test]
+    fn removing_hosts_takes_their_bookmarks_and_leaves_the_rest() {
+        let bookmark = |id: &str, server: Option<&str>| crate::models::SftpBookmark {
+            id: id.into(),
+            server_id: server.map(str::to_string),
+            label: id.into(),
+            path: "/".into(),
+        };
+        let mut data = AppData {
+            servers: vec![
+                server("a", None),
+                server("b", None),
+                Server { proxy_jump: Some("a".into()), ..server("c", None) },
+            ],
+            sftp_bookmarks: vec![
+                bookmark("on-a", Some("a")),
+                bookmark("on-b", Some("b")),
+                bookmark("on-c", Some("c")),
+                bookmark("local", None),
+            ],
+            ..Default::default()
+        };
+
+        remove_servers(&mut data, &["a".to_string(), "b".to_string()]);
+
+        let ids: Vec<&str> = data.servers.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, vec!["c"]);
+        // What stays no longer points at what went.
+        assert_eq!(data.servers[0].proxy_jump, None);
+        let kept: Vec<&str> = data.sftp_bookmarks.iter().map(|b| b.id.as_str()).collect();
+        assert_eq!(kept, vec!["on-c", "local"]);
     }
 
     fn key(id: &str, content: Option<&str>, passphrase: Option<&str>) -> KeyEntry {

@@ -165,6 +165,8 @@ fn start(
             commands::save_server,
             commands::get_server_password,
             commands::delete_server,
+            commands::delete_servers,
+            commands::set_servers_group,
             commands::list_keys,
             commands::import_key_from_path,
             commands::save_key_from_content,

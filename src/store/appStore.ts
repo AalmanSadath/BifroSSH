@@ -333,6 +333,8 @@ interface AppStore {
 
   saveServer: (server: ServerInput, password?: string) => Promise<void>;
   deleteServer: (id: string) => Promise<void>;
+  deleteServers: (ids: string[]) => Promise<void>;
+  setServersGroup: (ids: string[], group: string | null) => Promise<void>;
   detectServerOs: (serverId: string, username: string, authType: AuthType, authValue: string, jumps?: JumpHopParams[]) => Promise<void>;
 
   importKey: (name: string, path: string, passphrase: string | null, storeContent: boolean) => Promise<void>;
@@ -678,9 +680,25 @@ export const useAppStore = create<AppStore>((set, get) => ({
     });
   },
 
-  deleteServer: async (id) => {
-    await ipc.deleteServer(id);
-    set((s) => ({ servers: s.servers.filter((x) => x.id !== id) }));
+  deleteServer: (id) => get().deleteServers([id]),
+
+  deleteServers: async (ids) => {
+    if (ids.length === 1) await ipc.deleteServer(ids[0]);
+    else await ipc.deleteServers(ids);
+    // Read back rather than filtered here: the backend also cleared what the
+    // remaining hosts said about these (a jump host, say), and the copy held
+    // here would otherwise keep pointing at hosts that are gone. Bookmarks go
+    // too, or the next bookmark save would write the removed ones back.
+    const servers = await ipc.listServers();
+    set((s) => ({
+      servers,
+      sftpBookmarks: s.sftpBookmarks.filter((b) => !b.server_id || !ids.includes(b.server_id)),
+    }));
+  },
+
+  setServersGroup: async (ids, group) => {
+    const servers = await ipc.setServersGroup(ids, group);
+    set({ servers });
   },
 
   detectServerOs: async (serverId, username, authType, authValue, jumps) => {

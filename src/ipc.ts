@@ -71,6 +71,14 @@ export const getServerPassword = (serverId: string) =>
 export const deleteServer = (serverId: string) =>
   invoke<void>('delete_server', { serverId });
 
+/** Several hosts, one write. */
+export const deleteServers = (serverIds: string[]) =>
+  invoke<void>('delete_servers', { serverIds });
+
+/** Several hosts into one group, or none for null; answers with every host. */
+export const setServersGroup = (serverIds: string[], group: string | null) =>
+  invoke<Server[]>('set_servers_group', { serverIds, group });
+
 // ── keys ─────────────────────────────────────────────────────────────────
 
 export const listKeys = () => invoke<KeyEntry[]>('list_keys');
