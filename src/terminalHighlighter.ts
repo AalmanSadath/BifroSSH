@@ -26,6 +26,11 @@ export interface HighlightState {
 export interface Highlighter {
   /** Forget everything drawn and look again, after the rules or the theme change. */
   refresh(): void;
+  /**
+   * The row under the cursor is being typed on. Called for every key and
+   * paste; such a row is never coloured, however much of it matches.
+   */
+  markInput(): void;
   dispose(): void;
 }
 
@@ -41,6 +46,13 @@ interface Row {
 export function attachHighlighter(term: Terminal, state: () => HighlightState): Highlighter {
   /** Rows that currently carry decorations. Rows with none are not kept. */
   const rows = new Set<Row>();
+  /**
+   * Rows the user typed on. The buffer holds typed text and program output
+   * alike, since the shell echoes what it is sent, and a command line that
+   * mentions an error is not an error. The one reliable difference is that
+   * the cursor was on the row when a key went in, so that is what is kept.
+   */
+  const inputRows = new Set<IMarker>();
   /** The last row the previous pass reached, so the next starts there. */
   let scannedTo = 0;
   let frame = 0;
@@ -74,11 +86,17 @@ export function attachHighlighter(term: Terminal, state: () => HighlightState): 
 
     const byLine = new Map<number, Row>();
     rows.forEach((row) => byLine.set(row.marker.line, row));
+    const typed = new Set<number>();
+    inputRows.forEach((m) => typed.add(m.line));
 
     for (let y = from; y <= to && y < buf.length; y++) {
+      const existing = byLine.get(y);
+      if (typed.has(y)) {
+        if (existing) forget(existing);
+        continue;
+      }
       const read = readRow(term, y);
       if (!read) continue;
-      const existing = byLine.get(y);
       if (existing?.text === read.text) continue;
       if (existing) forget(existing);
 
@@ -121,22 +139,40 @@ export function attachHighlighter(term: Terminal, state: () => HighlightState): 
 
   const subscriptions = [
     term.onWriteParsed(schedule),
+    // Keys only: `onData` also carries the terminal's own replies to a
+    // program's queries, which are not typing and arrive wherever the cursor
+    // happens to be. Pastes are reported by the caller.
+    term.onKey(() => api.markInput()),
     // Scrolled up past what the last busy pass reached.
     term.onScroll(schedule),
   ];
 
-  return {
+  const api: Highlighter = {
     refresh() {
       clear();
       scannedTo = 0;
+      schedule();
+    },
+    markInput() {
+      const buf = term.buffer.active;
+      if (buf.type !== 'normal') return;
+      const line = buf.baseY + buf.cursorY;
+      for (const m of inputRows) if (m.line === line) return;
+      const marker = term.registerMarker(0);
+      if (!marker) return;
+      inputRows.add(marker);
+      marker.onDispose(() => inputRows.delete(marker));
+      // Anything already drawn on it goes on the next pass.
       schedule();
     },
     dispose() {
       if (frame !== 0) cancelAnimationFrame(frame);
       subscriptions.forEach((s) => s.dispose());
       clear();
+      inputRows.forEach((m) => m.dispose());
     },
   };
+  return api;
 }
 
 /**

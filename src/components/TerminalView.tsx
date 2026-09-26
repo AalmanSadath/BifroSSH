@@ -332,7 +332,12 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
     const pasteFromClipboard = () => {
       navigator.clipboard.readText()
         .catch(() => ipc.clipboardReadText())
-        .then((text) => { if (text) term.paste(text); })
+        .then((text) => {
+          if (!text) return;
+          // Pasted text is typing as far as highlighting is concerned.
+          highlighterRef.current?.markInput();
+          term.paste(text);
+        })
         .catch((e) => console.error('Could not read the clipboard', e));
     };
 
