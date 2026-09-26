@@ -85,6 +85,17 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.15.1" date="2026-09-27">
+      <description>
+        <p>
+          In the Flatpak, a local shell tab now has job control, so Ctrl+Z,
+          bg and fg work, and tty and GPG_TTY name the terminal instead of
+          failing with "ttyname error". The Flatpak now asks for access to
+          all devices, which is what lets the shell on the host see the
+          terminal.
+        </p>
+      </description>
+    </release>
     <release version="0.15.0" date="2026-09-27">
       <description>
         <p>
