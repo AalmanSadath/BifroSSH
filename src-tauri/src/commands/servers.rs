@@ -62,7 +62,35 @@ pub async fn get_server_password(
 #[tauri::command]
 pub async fn delete_server(state: State<'_, AppState>, server_id: String) -> CmdResult<()> {
     let mut data = state.data.lock().await;
-    data.servers.retain(|s| s.id != server_id);
-    super::records::forget_references_to(&mut data, &server_id);
+    remove_servers(&mut data, &[server_id]);
     state.save(&data)
+}
+
+/// Deletes several hosts with one write.
+///
+/// Not a loop over `delete_server` from the frontend: every save rewrites and
+/// re-encrypts the whole data file and refreshes its one backup, so N deletes
+/// cost N rewrites and leave the backup holding only the state before the
+/// last, rather than before the batch.
+#[tauri::command]
+pub async fn delete_servers(state: State<'_, AppState>, server_ids: Vec<String>) -> CmdResult<()> {
+    let mut data = state.data.lock().await;
+    remove_servers(&mut data, &server_ids);
+    state.save(&data)
+}
+
+/// Puts several hosts in one group, or in none, with one write.
+#[tauri::command]
+pub async fn set_servers_group(
+    state: State<'_, AppState>,
+    server_ids: Vec<String>,
+    group: Option<String>,
+) -> CmdResult<Vec<Server>> {
+    let group = group.map(|g| g.trim().to_string()).filter(|g| !g.is_empty());
+    let mut data = state.data.lock().await;
+    for server in data.servers.iter_mut().filter(|s| server_ids.contains(&s.id)) {
+        server.group = group.clone();
+    }
+    state.save(&data)?;
+    Ok(data.servers.iter().cloned().map(Redacted::redacted).collect())
 }

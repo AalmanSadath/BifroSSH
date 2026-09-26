@@ -89,3 +89,41 @@ pub async fn save_custom_themes(
     data.custom_themes = items;
     state.save(&data)
 }
+
+// ── Command history ──────────────────────────────────────────────────────────
+
+/// What has been run at a prompt on this host, most recent first.
+#[tauri::command]
+pub async fn get_command_history(state: State<'_, AppState>, server_id: String) -> CmdResult<Vec<String>> {
+    Ok(state.data.lock().await.command_history.get(&server_id).cloned().unwrap_or_default())
+}
+
+/// Adds commands run on a host, oldest first. The frontend batches them,
+/// since every save rewrites the encrypted file.
+#[tauri::command]
+pub async fn record_commands(
+    state: State<'_, AppState>,
+    server_id: String,
+    commands: Vec<String>,
+) -> CmdResult<()> {
+    let mut data = state.data.lock().await;
+    // A host deleted while its commands were waiting to be written.
+    if !data.servers.iter().any(|s| s.id == server_id) {
+        return Ok(());
+    }
+    remember_commands(data.command_history.entry(server_id).or_default(), &commands);
+    state.save(&data)
+}
+
+/// Forgets one host's history, or every host's.
+#[tauri::command]
+pub async fn clear_command_history(state: State<'_, AppState>, server_id: Option<String>) -> CmdResult<()> {
+    let mut data = state.data.lock().await;
+    match server_id {
+        Some(id) => {
+            data.command_history.remove(&id);
+        }
+        None => data.command_history.clear(),
+    }
+    state.save(&data)
+}

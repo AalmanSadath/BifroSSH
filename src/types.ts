@@ -67,6 +67,8 @@ export interface Server {
   term: string | null;
   /** Variables to ask the server to set, one NAME=value per line, as typed. */
   env: string | null;
+  /** The monitor bar here: null follows the setting, true always, false never. */
+  monitor?: boolean | null;
 }
 
 /** A directory saved for one click in the SFTP panel. */
@@ -252,6 +254,28 @@ export type SettingsSection =
   | 'data'
   | 'about';
 
+/** One reading of a host for the monitor bar: raw counters, sizes in bytes. */
+export interface HostSample {
+  cpu_total: number;
+  cpu_idle: number;
+  mem_total: number;
+  mem_available: number;
+  load1: number | null;
+  net_rx: number | null;
+  net_tx: number | null;
+  disk_used: number | null;
+  disk_size: number | null;
+}
+
+/** One keyword highlighting rule. */
+export interface HighlightRule {
+  /** A JavaScript regular expression, as typed. */
+  pattern: string;
+  /** An ANSI colour name, resolved against the tab's theme. */
+  color: string;
+  case_sensitive: boolean;
+}
+
 export interface Settings {
   theme: string;
   font_size: number;
@@ -296,6 +320,14 @@ export interface Settings {
    * `src/shortcuts.ts`.
    */
   shortcuts: Record<string, string>;
+  /** Colour what `highlight_rules` match in terminal output. */
+  highlight_enabled: boolean;
+  /** Applied in order; the first rule to match a stretch of text wins it. */
+  highlight_rules: HighlightRule[];
+  /** Suggest the rest of a command from the host's history at a prompt. */
+  autosuggest: boolean;
+  /** Show the monitor bar under terminals; a host can override it. */
+  monitor_bar: boolean;
 }
 
 /** How the user chose to keep the master key on the first run screen. */

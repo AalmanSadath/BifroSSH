@@ -6,7 +6,9 @@ import { CHECK_INTERVAL_SECS, fetchLatestRelease, newerVersion, type Release } f
 import { STORED, UNDETECTED_OS, UNKNOWN_OS } from '../types';
 import { restoreOrder, tabsToSave } from '../sessionRestore';
 import { cleanTitle } from '../tabName';
+import { DEFAULT_HIGHLIGHT_RULES } from '../highlight';
 import { withError, type DiagError } from '../diagnostics';
+import { remember } from '../commandHistory';
 import { clampZoom } from '../zoom';
 import { nextActivity, watched, type Activity, type Mark } from '../activity';
 import { isStale, type Probed } from '../probe';
@@ -69,6 +71,37 @@ function saveOpenTabs(sessions: SessionTab[]) {
   ipc.saveOpenTabs(tabsToSave(sessions)).catch(() => {
     // Not worth a banner. Worst case a restart opens the previous strip.
   });
+}
+
+/**
+ * Commands waiting to be written, by host, oldest first.
+ *
+ * Batched because every save rewrites and re-encrypts the whole data file,
+ * and a busy session runs a command every few seconds. A crash loses at most
+ * the last few, which only means a suggestion missing.
+ */
+const queuedCommands = new Map<string, string[]>();
+let commandFlush: ReturnType<typeof setTimeout> | null = null;
+const COMMAND_FLUSH_MS = 5_000;
+
+function queueCommand(serverId: string, command: string) {
+  queuedCommands.set(serverId, [...(queuedCommands.get(serverId) ?? []), command]);
+  commandFlush ??= setTimeout(flushCommands, COMMAND_FLUSH_MS);
+}
+
+function flushCommands() {
+  commandFlush = null;
+  for (const [serverId, commands] of queuedCommands) {
+    ipc.recordCommands(serverId, commands).catch(() => {
+      // Not worth a banner: the commands are still suggested this session.
+    });
+  }
+  queuedCommands.clear();
+}
+
+function dropQueuedCommands(serverId: string | null) {
+  if (serverId === null) queuedCommands.clear();
+  else queuedCommands.delete(serverId);
 }
 
 function readLegacy<T>(key: string, fallback: T): T {
@@ -187,6 +220,10 @@ const DEFAULT_SETTINGS: Settings = {
   restore_tabs: true,
   verify_transfers: false,
   shortcuts: {},
+  highlight_enabled: true,
+  highlight_rules: DEFAULT_HIGHLIGHT_RULES,
+  autosuggest: true,
+  monitor_bar: false,
   accent_color: null,
 };
 
@@ -327,9 +364,19 @@ interface AppStore {
    */
   recentErrors: DiagError[];
   recordError: (where: string, message: string) => void;
+  /**
+   * Commands run at a prompt, by server id, most recent first, for the
+   * terminal's suggestions. Loaded per host the first time it is connected.
+   */
+  commandHistory: Record<string, string[]>;
+  loadCommandHistory: (serverId: string) => Promise<void>;
+  learnCommand: (serverId: string, command: string) => void;
+  clearCommandHistory: (serverId: string | null) => Promise<void>;
 
   saveServer: (server: ServerInput, password?: string) => Promise<void>;
   deleteServer: (id: string) => Promise<void>;
+  deleteServers: (ids: string[]) => Promise<void>;
+  setServersGroup: (ids: string[], group: string | null) => Promise<void>;
   detectServerOs: (serverId: string, username: string, authType: AuthType, authValue: string, jumps?: JumpHopParams[]) => Promise<void>;
 
   importKey: (name: string, path: string, passphrase: string | null, storeContent: boolean) => Promise<void>;
@@ -595,6 +642,41 @@ export const useAppStore = create<AppStore>((set, get) => ({
     if (message) get().recordError('banner', message);
   },
   recentErrors: [],
+  commandHistory: {},
+  loadCommandHistory: async (serverId) => {
+    if (!serverId || get().commandHistory[serverId]) return;
+    try {
+      const saved = await ipc.getCommandHistory(serverId);
+      // Anything learned while the read was in flight goes in front of it.
+      set((s) => {
+        const learned = s.commandHistory[serverId] ?? [];
+        const merged = learned.reduceRight((list, c) => remember(list, c), saved);
+        return { commandHistory: { ...s.commandHistory, [serverId]: merged } };
+      });
+    } catch {
+      // No suggestions until the next connect; nothing else depends on it.
+    }
+  },
+  learnCommand: (serverId, command) => {
+    if (!serverId) return;
+    set((s) => ({
+      commandHistory: {
+        ...s.commandHistory,
+        [serverId]: remember(s.commandHistory[serverId] ?? [], command),
+      },
+    }));
+    queueCommand(serverId, command);
+  },
+  clearCommandHistory: async (serverId) => {
+    dropQueuedCommands(serverId);
+    await ipc.clearCommandHistory(serverId);
+    set((s) => {
+      if (serverId === null) return { commandHistory: {} };
+      const next = { ...s.commandHistory };
+      next[serverId] = [];
+      return { commandHistory: next };
+    });
+  },
   recordError: (where, message) =>
     set((s) => ({ recentErrors: withError(s.recentErrors, { at: Date.now(), where, message }) })),
 
@@ -675,9 +757,29 @@ export const useAppStore = create<AppStore>((set, get) => ({
     });
   },
 
-  deleteServer: async (id) => {
-    await ipc.deleteServer(id);
-    set((s) => ({ servers: s.servers.filter((x) => x.id !== id) }));
+  deleteServer: (id) => get().deleteServers([id]),
+
+  deleteServers: async (ids) => {
+    if (ids.length === 1) await ipc.deleteServer(ids[0]);
+    else await ipc.deleteServers(ids);
+    // Read back rather than filtered here: the backend also cleared what the
+    // remaining hosts said about these (a jump host, say), and the copy held
+    // here would otherwise keep pointing at hosts that are gone. Bookmarks go
+    // too, or the next bookmark save would write the removed ones back.
+    const servers = await ipc.listServers();
+    ids.forEach((id) => dropQueuedCommands(id));
+    set((s) => ({
+      servers,
+      sftpBookmarks: s.sftpBookmarks.filter((b) => !b.server_id || !ids.includes(b.server_id)),
+      commandHistory: Object.fromEntries(
+        Object.entries(s.commandHistory).filter(([id]) => !ids.includes(id)),
+      ),
+    }));
+  },
+
+  setServersGroup: async (ids, group) => {
+    const servers = await ipc.setServersGroup(ids, group);
+    set({ servers });
   },
 
   detectServerOs: async (serverId, username, authType, authValue, jumps) => {

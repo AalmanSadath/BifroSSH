@@ -121,6 +121,17 @@
 
 /* One chip per group, All first, Ungrouped last. Shown only once a host has
    a group; before that they would be a row with nothing to choose. */
+/* As wide as its label and no wider; the menu takes the button's width, and
+   its entries are shorter than the label. */
+.hosts-import {
+  flex: none;
+}
+
+.hosts-import .picker-btn {
+  width: auto;
+  gap: 8px;
+}
+
 .hosts-chips {
   display: flex;
   flex-wrap: wrap;
@@ -192,6 +203,14 @@
 .host-card:hover {
   border-color: var(--text-dim);
   background: var(--bg-mid);
+}
+
+/* Picked for a bulk action. The accent border rather than a fill, so the
+   status dot and the probe colours on the card still read as they do. */
+.host-card-selected,
+.host-card-selected:hover {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 .host-card-icon {

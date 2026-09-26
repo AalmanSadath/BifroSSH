@@ -227,3 +227,78 @@
   background: var(--accent);
   opacity: 0.5;
 }
+
+/* The rest of a command suggested from history, drawn after the cursor. Never
+   a target for the mouse: a click there is a click on the terminal. */
+.term-suggestion {
+  opacity: 0.4;
+  white-space: pre;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* The monitor bar: one fixed-height row under the terminal, in the terminal's
+   own background so it reads as part of the pane rather than the app's
+   chrome. Fixed height is what keeps the terminal above it from being
+   resized between readings. */
+.term-monitor {
+  flex: 0 0 22px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 10px;
+  overflow: hidden;
+  white-space: nowrap;
+  background: var(--term-bg, var(--bg-darkest));
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* No session under it, or the last reading failed: the numbers shown are old. */
+.term-monitor-stale {
+  opacity: 0.5;
+}
+
+.term-monitor-note {
+  color: var(--text-dim);
+}
+
+.term-monitor-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.term-monitor-detail {
+  color: var(--text-dim);
+}
+
+.term-meter {
+  display: inline-block;
+  width: 36px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.term-meter-fill {
+  display: block;
+  height: 100%;
+  transition: width 0.4s ease;
+}
+
+.term-meter-ok { background: var(--success); }
+.term-meter-warn { background: var(--warning); }
+.term-meter-high { background: var(--danger); }
+
+.term-monitor-value {
+  min-width: 3ch;
+  text-align: right;
+}
+
+.term-monitor-warn,
+.term-monitor-value.term-monitor-warn { color: var(--warning); }
+.term-monitor-value.term-monitor-high { color: var(--danger); }

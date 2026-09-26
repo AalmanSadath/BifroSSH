@@ -12,6 +12,12 @@ import { useAppStore } from '../store/appStore';
 import { parseMark } from '../activity';
 import { useHint } from './shared/useHint';
 import { registerTerminal, unregisterTerminal } from '../terminalRegistry';
+import { attachHighlighter, type HighlightState, type Highlighter } from '../terminalHighlighter';
+import { HIGHLIGHT_COLORS, compileRules } from '../highlight';
+import { attachCommandTracker, type CommandTracker } from '../terminalCommands';
+import { attachSuggester, type Suggester } from '../terminalSuggest';
+import { monitorWanted } from '../hostStats';
+import MonitorBar from './MonitorBar';
 import type { SessionTab, SshClosed } from '../types';
 import { THEMES } from '../styles/themes';
 import '@xterm/xterm/css/xterm.css';
@@ -55,6 +61,8 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
   const boundOnceRef = useRef(false);
   const { settings, servers, removeSession, markDropped, reconnectSession, stopRetrying, retryingTabIds, sendInput, setActiveTab, sessionThemeOverrides, sessionZoom, zoomSession, customThemes, markActivity } = useAppStore();
   const hint = useHint();
+  const monitorShown = tab.status !== 'error'
+    && monitorWanted(settings.monitor_bar, servers.find((s) => s.id === serverId));
 
   // This tab's own size if it has been zoomed, else the one every terminal
   // uses. Same precedence as the theme override below it.
@@ -66,6 +74,14 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
   // store through a ref rather than the first render's action.
   const markActivityRef = useRef(markActivity);
   markActivityRef.current = markActivity;
+  const highlighterRef = useRef<Highlighter | null>(null);
+  const commandsRef = useRef<CommandTracker | null>(null);
+  const suggesterRef = useRef<Suggester | null>(null);
+  /** What the suggester reads each time it looks; a ref for the same reason as the highlighter's. */
+  const suggestStateRef = useRef({ enabled: false, history: [] as string[] });
+  /** What the highlighter reads each pass; kept in a ref so the terminal's
+      once-per-tab effect can hand it a getter rather than a stale copy. */
+  const highlightStateRef = useRef<HighlightState>({ enabled: false, rules: [], palette: {} });
 
   const shortcutsRef = useRef(resolveShortcuts(settings.shortcuts));
   shortcutsRef.current = resolveShortcuts(settings.shortcuts);
@@ -280,7 +296,10 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
     // anything downstream; a shell that sends none simply never calls this.
     term.parser.registerOscHandler(133, (data) => {
       const mark = parseMark(data);
-      if (mark) markActivityRef.current(tabId, mark);
+      if (mark) {
+        markActivityRef.current(tabId, mark);
+        commandsRef.current?.mark(mark.kind);
+      }
       return true;
     });
 
@@ -326,7 +345,12 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
     const pasteFromClipboard = () => {
       navigator.clipboard.readText()
         .catch(() => ipc.clipboardReadText())
-        .then((text) => { if (text) term.paste(text); })
+        .then((text) => {
+          if (!text) return;
+          // Pasted text is typing as far as highlighting is concerned.
+          highlighterRef.current?.markInput();
+          term.paste(text);
+        })
         .catch((e) => console.error('Could not read the clipboard', e));
     };
 
@@ -387,8 +411,24 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
           pasteFromClipboard();
           return false;
         default:
-          return true;
+          break;
       }
+      // Right arrow at the end of the line takes the suggestion, the way fish
+      // and zsh-autosuggestions do. With none showing, or with a modifier
+      // held, it reaches the shell as usual.
+      if (ev.key === 'ArrowRight' && !ev.shiftKey && !ev.ctrlKey && !ev.altKey && !ev.metaKey) {
+        const rest = suggesterRef.current?.current();
+        if (rest) {
+          ev.preventDefault();
+          suggesterRef.current?.clear();
+          highlighterRef.current?.markInput();
+          // Through onData, exactly as if typed: to the session, and to every
+          // tab this one broadcasts to.
+          term.input(rest);
+          return false;
+        }
+      }
+      return true;
     });
 
     term.onData((data) => {
@@ -419,7 +459,21 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
     // What the tab menu reaches for when it is asked for a transcript.
     registerTerminal(tabId, term);
 
+    highlighterRef.current = attachHighlighter(term, () => highlightStateRef.current);
+    // What is run at a prompt on a saved host is kept for its suggestions. A
+    // quick connection has no host record to keep it against.
+    commandsRef.current = attachCommandTracker(term, (command) => {
+      if (serverId) useAppStore.getState().learnCommand(serverId, command);
+    });
+    suggesterRef.current = attachSuggester(term, commandsRef.current, () => suggestStateRef.current);
+
     return () => {
+      highlighterRef.current?.dispose();
+      highlighterRef.current = null;
+      suggesterRef.current?.dispose();
+      suggesterRef.current = null;
+      commandsRef.current?.dispose();
+      commandsRef.current = null;
       unregisterTerminal(tabId);
       container.removeEventListener('contextmenu', onContextMenu, true);
       container.removeEventListener('mouseup', onMouseUp);
@@ -536,6 +590,31 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
     settings.cursor_blink,
     settings.scrollback_lines,
   ]);
+
+  // The host's history, read once, the first time any of its tabs opens.
+  useEffect(() => {
+    if (serverId) void useAppStore.getState().loadCommandHistory(serverId);
+  }, [serverId]);
+
+  const history = useAppStore((s) => s.commandHistory[serverId]);
+  useEffect(() => {
+    suggestStateRef.current = { enabled: settings.autosuggest, history: history ?? [] };
+    suggesterRef.current?.refresh();
+  }, [settings.autosuggest, history]);
+
+  // The rules and the colours they resolve to. Compiled here, once per
+  // change, rather than on every pass over the output.
+  useEffect(() => {
+    const theme = resolveTheme();
+    const palette: Record<string, string | undefined> = {};
+    for (const name of HIGHLIGHT_COLORS) palette[name] = theme[name];
+    highlightStateRef.current = {
+      enabled: settings.highlight_enabled,
+      rules: compileRules(settings.highlight_rules),
+      palette,
+    };
+    highlighterRef.current?.refresh();
+  }, [resolveTheme, settings.highlight_enabled, settings.highlight_rules]);
 
   // Two frames after becoming visible, so the box has a size to fit to.
   useEffect(() => {
@@ -731,6 +810,9 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
           theme effect, so neither the padding around the canvas nor any
           slack under it can be left showing another colour. */}
       <div ref={containerRef} className="terminal-container" />
+      {/* Mounted as long as it is wanted, session or not, so a drop and a
+          reconnect do not resize the terminal twice. */}
+      {monitorShown && <MonitorBar sessionId={sessionId} visible={visible} />}
     </div>
   );
 }

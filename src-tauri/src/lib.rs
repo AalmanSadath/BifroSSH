@@ -5,6 +5,7 @@ mod commands;
 mod connect;
 mod crypto;
 mod hostkeys;
+mod hoststats;
 mod hostverify;
 mod importers;
 mod jump;
@@ -165,6 +166,8 @@ fn start(
             commands::save_server,
             commands::get_server_password,
             commands::delete_server,
+            commands::delete_servers,
+            commands::set_servers_group,
             commands::list_keys,
             commands::import_key_from_path,
             commands::save_key_from_content,
@@ -200,6 +203,9 @@ fn start(
             commands::save_sftp_bookmarks,
             commands::get_open_tabs,
             commands::save_open_tabs,
+            commands::get_command_history,
+            commands::record_commands,
+            commands::clear_command_history,
             commands::get_custom_themes,
             commands::save_custom_themes,
             commands::vault_status,
@@ -225,6 +231,7 @@ fn start(
             commands::ssh_resize,
             commands::ssh_attach,
             commands::ssh_disconnect,
+            commands::ssh_host_stats,
             commands::ssh_set_log,
             commands::session_log_dir,
             commands::sftp_local_home,

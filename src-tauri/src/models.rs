@@ -169,6 +169,10 @@ pub struct Server {
     /// form then keeps their order, their spacing and their comments.
     #[serde(default)]
     pub env: Option<String>,
+    /// The monitor bar for this host: None follows the setting, Some(true)
+    /// shows it with the setting off, Some(false) hides it with it on.
+    #[serde(default)]
+    pub monitor: Option<bool>,
 }
 
 /// The variables in an [`Server::env`] block, in the order they were written.
@@ -323,6 +327,47 @@ pub struct Settings {
     /// a later version still reaches everyone who never touched it. The
     /// frontend owns the table of actions and the chord spelling.
     pub shortcuts: std::collections::HashMap<String, String>,
+    /// Colour what the rules below match in terminal output. On by default.
+    pub highlight_enabled: bool,
+    /// Patterns to colour, applied in order; the first to match a stretch of
+    /// text wins it.
+    pub highlight_rules: Vec<HighlightRule>,
+    /// Suggest the rest of a command from the host's history while typing at
+    /// a prompt. On by default; needs the shell integration.
+    pub autosuggest: bool,
+    /// Show the monitor bar under terminals. Off by default: it runs a small
+    /// command on the host every few seconds. A host can override it.
+    pub monitor_bar: bool,
+}
+
+/// One keyword highlighting rule.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HighlightRule {
+    /// A regular expression, in JavaScript's syntax since the terminal is
+    /// where it runs. Stored as typed; one that does not compile is ignored
+    /// there rather than refused here.
+    pub pattern: String,
+    /// An ANSI colour name (`red`, `brightYellow`, ...), resolved against the
+    /// tab's own theme so a rule stays legible whichever theme is on.
+    pub color: String,
+    #[serde(default)]
+    pub case_sensitive: bool,
+}
+
+impl HighlightRule {
+    /// What a fresh install highlights, and what "Restore defaults" puts back.
+    pub fn defaults() -> Vec<HighlightRule> {
+        let rule = |pattern: &str, color: &str| HighlightRule {
+            pattern: pattern.to_string(),
+            color: color.to_string(),
+            case_sensitive: false,
+        };
+        vec![
+            rule(r"\b(error|errors|failed|failure|fatal)\b", "red"),
+            rule(r"\b(warn|warning|warnings)\b", "yellow"),
+            rule(r"\b(ok|success|succeeded|done)\b", "green"),
+        ]
+    }
 }
 
 impl Default for Settings {
@@ -351,6 +396,10 @@ impl Default for Settings {
             restore_tabs: true,
             verify_transfers: false,
             shortcuts: std::collections::HashMap::new(),
+            highlight_enabled: true,
+            highlight_rules: HighlightRule::defaults(),
+            autosuggest: true,
+            monitor_bar: false,
         }
     }
 }
@@ -457,6 +506,28 @@ pub struct AppData {
     /// and nothing in the backend needs to interpret them.
     #[serde(default)]
     pub custom_themes: std::collections::HashMap<String, serde_json::Value>,
+    /// Commands run at a prompt on each saved host, by server id, most recent
+    /// first, for the terminal's suggestions. A command line can hold a secret
+    /// typed as an argument, so this lives only here, inside the encrypted
+    /// document, and is not part of an export.
+    #[serde(default)]
+    pub command_history: std::collections::HashMap<String, Vec<String>>,
+}
+
+/// How many commands a host keeps.
+pub const HISTORY_CAP: usize = 500;
+
+/// Adds commands to a host's history, oldest of them first.
+///
+/// Each one goes to the front, and an earlier copy of the same command is
+/// removed rather than kept twice: what matters for a suggestion is when a
+/// command was last run, not how many times. Past the cap the oldest go.
+pub fn remember_commands(history: &mut Vec<String>, commands: &[String]) {
+    for command in commands {
+        history.retain(|c| c != command);
+        history.insert(0, command.clone());
+    }
+    history.truncate(HISTORY_CAP);
 }
 
 /// A record addressed by a string id.
@@ -602,6 +673,34 @@ mod tests {
             }"#,
         );
         assert!(parsed.is_err(), "a host with no hostname is not a host");
+    }
+
+    /// A settings file from before highlighting gets the default rules
+    /// switched on, and one where the user emptied the list keeps it empty.
+    #[test]
+    fn highlight_rules_default_only_when_absent() {
+        let before: Settings = serde_json::from_str("{}").unwrap();
+        assert!(before.highlight_enabled);
+        assert_eq!(before.highlight_rules, HighlightRule::defaults());
+        let emptied: Settings = serde_json::from_str(r#"{ "highlight_rules": [] }"#).unwrap();
+        assert!(emptied.highlight_rules.is_empty());
+    }
+
+    #[test]
+    fn a_command_run_again_moves_to_the_front_instead_of_repeating() {
+        let mut history = vec!["ls".to_string(), "df -h".to_string()];
+        remember_commands(&mut history, &["uptime".to_string(), "df -h".to_string()]);
+        assert_eq!(history, vec!["df -h", "uptime", "ls"]);
+    }
+
+    #[test]
+    fn history_keeps_the_newest_up_to_its_cap() {
+        let mut history = Vec::new();
+        let commands: Vec<String> = (0..HISTORY_CAP + 10).map(|i| format!("cmd {i}")).collect();
+        remember_commands(&mut history, &commands);
+        assert_eq!(history.len(), HISTORY_CAP);
+        assert_eq!(history[0], format!("cmd {}", HISTORY_CAP + 9));
+        assert!(!history.contains(&"cmd 0".to_string()));
     }
 
     #[test]

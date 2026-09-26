@@ -9,6 +9,15 @@ import { THEMES } from '../styles/themes';
 import { STORED } from '../types';
 import type { Server } from '../types';
 import Drawer from './shared/Drawer';
+import { Picker, type PickerOption } from './settings/Picker';
+
+type MonitorChoice = 'default' | 'always' | 'never';
+
+const MONITOR_CHOICES: PickerOption<MonitorChoice>[] = [
+  { value: 'default', label: 'As in Settings' },
+  { value: 'always', label: 'Always' },
+  { value: 'never', label: 'Never' },
+];
 import PortalDropdown, { PortalMenu, anchorBelow, type AnchorRect } from './shared/PortalDropdown';
 import PassphraseInput from './shared/PassphraseInput';
 
@@ -64,6 +73,9 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
   const [notes, setNotes] = useState(server?.notes ?? '');
   const [term, setTerm] = useState(server?.term ?? '');
   const [env, setEnv] = useState(server?.env ?? '');
+  const [monitor, setMonitor] = useState<MonitorChoice>(
+    server?.monitor === true ? 'always' : server?.monitor === false ? 'never' : 'default',
+  );
   const [showGroups, setShowGroups] = useState(false);
   const [groupRect, setGroupRect] = useState<AnchorRect | null>(null);
   const groupRef = useRef<HTMLDivElement>(null);
@@ -133,6 +145,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
           notes: notes.trim() || null,
           term: term.trim() || null,
           env: env.trim() === '' ? null : env,
+          monitor: monitor === 'default' ? null : monitor === 'always',
         },
         (!identityId && !keyId && password.trim()) ? password.trim() : undefined,
       );
@@ -351,6 +364,15 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
             />
             <span>Log every session to a file</span>
           </label>
+
+          <div className="form-group">
+            <label>Monitor Bar</label>
+            <Picker value={monitor} options={MONITOR_CHOICES} onChange={setMonitor} />
+            <p className="form-hint">
+              CPU, memory, disk and network under this host's terminals, read every 3 seconds
+              over the same connection. Linux hosts only.
+            </p>
+          </div>
 
           <div className="form-group">
             <label>Run on Connect</label>

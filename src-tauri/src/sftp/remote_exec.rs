@@ -45,7 +45,7 @@ pub(super) fn exec_failure(
 }
 
 /// Runs a command on the far end and returns its stdout.
-pub(super) async fn run_capture(
+pub(crate) async fn run_capture(
     opener: &dyn ChannelOpener,
     tool: &str,
     command: &str,

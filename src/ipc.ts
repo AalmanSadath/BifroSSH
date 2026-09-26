@@ -29,6 +29,7 @@ import type {
   GeneratedKey,
   HostKeyDecision,
   HostProbe,
+  HostSample,
   Identity,
   IdentityInput,
   ImportOptions,
@@ -70,6 +71,14 @@ export const getServerPassword = (serverId: string) =>
 
 export const deleteServer = (serverId: string) =>
   invoke<void>('delete_server', { serverId });
+
+/** Several hosts, one write. */
+export const deleteServers = (serverIds: string[]) =>
+  invoke<void>('delete_servers', { serverIds });
+
+/** Several hosts into one group, or none for null; answers with every host. */
+export const setServersGroup = (serverIds: string[], group: string | null) =>
+  invoke<Server[]>('set_servers_group', { serverIds, group });
 
 // ── keys ─────────────────────────────────────────────────────────────────
 
@@ -230,6 +239,17 @@ export const getOpenTabs = () => invoke<OpenTab[]>('get_open_tabs');
 
 export const saveOpenTabs = (items: OpenTab[]) => invoke<void>('save_open_tabs', { items });
 
+export const getCommandHistory = (serverId: string) =>
+  invoke<string[]>('get_command_history', { serverId });
+
+/** Commands run on a host, oldest first. */
+export const recordCommands = (serverId: string, commands: string[]) =>
+  invoke<void>('record_commands', { serverId, commands });
+
+/** One host's history, or every host's for null. */
+export const clearCommandHistory = (serverId: string | null) =>
+  invoke<void>('clear_command_history', { serverId });
+
 export const getCustomThemes = () =>
   invoke<Record<string, NamedTheme>>('get_custom_themes');
 
@@ -314,6 +334,10 @@ export const sshAttach = (sessionId: string) =>
 
 export const sshDisconnect = (sessionId: string) =>
   invoke<void>('ssh_disconnect', { sessionId });
+
+/** One reading of the host a terminal is on, taken over its own connection. */
+export const sshHostStats = (sessionId: string) =>
+  invoke<HostSample>('ssh_host_stats', { sessionId });
 
 /** Starts (returning the file's path) or stops logging a session's output. */
 export const sshSetLog = (sessionId: string, label: string, on: boolean) =>
