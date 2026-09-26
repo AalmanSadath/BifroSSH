@@ -151,6 +151,11 @@ pub async fn start(
     builder.args(&command.args);
     builder.env("TERM", "xterm-256color");
     builder.env("COLORTERM", "truecolor");
+    // flatpak-spawn is only a relay: the host's session helper makes the
+    // terminal the shell's controlling terminal, and the kernel refuses
+    // that while flatpak-spawn's session already holds it, leaving the
+    // shell with no job control.
+    builder.set_controlling_tty(command.program != "flatpak-spawn");
     if let Some(home) = dirs::home_dir() {
         builder.cwd(home);
     }

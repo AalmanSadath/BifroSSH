@@ -17,8 +17,11 @@ finish-args:
   - --socket=wayland
   # X11 fallback
   - --socket=fallback-x11
-  # GPU/DRI for WebKitGTK rendering
-  - --device=dri
+  # GPU/DRI for WebKitGTK rendering, and the host's /dev/pts: a local
+  # shell tab's terminal must be a host pty, or the shell running on the
+  # host cannot name it (tty, GPG_TTY) since the sandbox's own /dev/pts
+  # is invisible there
+  - --device=all
   # SSH key files — read-only
   - --filesystem=~/.ssh:ro
   # SSH agent socket for agent-forwarding / key unlock
