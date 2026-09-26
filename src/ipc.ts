@@ -29,6 +29,7 @@ import type {
   GeneratedKey,
   HostKeyDecision,
   HostProbe,
+  HostSample,
   Identity,
   IdentityInput,
   ImportOptions,
@@ -333,6 +334,10 @@ export const sshAttach = (sessionId: string) =>
 
 export const sshDisconnect = (sessionId: string) =>
   invoke<void>('ssh_disconnect', { sessionId });
+
+/** One reading of the host a terminal is on, taken over its own connection. */
+export const sshHostStats = (sessionId: string) =>
+  invoke<HostSample>('ssh_host_stats', { sessionId });
 
 /** Starts (returning the file's path) or stops logging a session's output. */
 export const sshSetLog = (sessionId: string, label: string, on: boolean) =>

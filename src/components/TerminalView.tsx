@@ -16,6 +16,8 @@ import { attachHighlighter, type HighlightState, type Highlighter } from '../ter
 import { HIGHLIGHT_COLORS, compileRules } from '../highlight';
 import { attachCommandTracker, type CommandTracker } from '../terminalCommands';
 import { attachSuggester, type Suggester } from '../terminalSuggest';
+import { monitorWanted } from '../hostStats';
+import MonitorBar from './MonitorBar';
 import type { SessionTab, SshClosed } from '../types';
 import { THEMES } from '../styles/themes';
 import '@xterm/xterm/css/xterm.css';
@@ -59,6 +61,8 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
   const boundOnceRef = useRef(false);
   const { settings, servers, removeSession, markDropped, reconnectSession, stopRetrying, retryingTabIds, sendInput, setActiveTab, sessionThemeOverrides, sessionZoom, zoomSession, customThemes, markActivity } = useAppStore();
   const hint = useHint();
+  const monitorShown = tab.status !== 'error'
+    && monitorWanted(settings.monitor_bar, servers.find((s) => s.id === serverId));
 
   // This tab's own size if it has been zoomed, else the one every terminal
   // uses. Same precedence as the theme override below it.
@@ -806,6 +810,9 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
           theme effect, so neither the padding around the canvas nor any
           slack under it can be left showing another colour. */}
       <div ref={containerRef} className="terminal-container" />
+      {/* Mounted as long as it is wanted, session or not, so a drop and a
+          reconnect do not resize the terminal twice. */}
+      {monitorShown && <MonitorBar sessionId={sessionId} visible={visible} />}
     </div>
   );
 }
