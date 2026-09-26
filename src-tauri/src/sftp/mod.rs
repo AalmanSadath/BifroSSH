@@ -16,7 +16,7 @@ use russh_sftp::client::SftpSession;
 
 mod edit;
 mod listing;
-mod remote_exec;
+pub(crate) mod remote_exec;
 mod sides;
 mod archive;
 mod ops;
@@ -206,7 +206,7 @@ pub(super) struct SftpConnection {
 /// verifier and the tests with one that trusts anything, and neither
 /// difference matters to `tar`.
 #[async_trait::async_trait]
-pub(super) trait ChannelOpener: Send + Sync {
+pub(crate) trait ChannelOpener: Send + Sync {
     async fn open_session(&self) -> anyhow::Result<russh::Channel<russh::client::Msg>>;
 }
 

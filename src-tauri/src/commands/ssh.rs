@@ -346,3 +346,31 @@ pub async fn ssh_disconnect(
     }
     Ok(())
 }
+
+/// How long one sample may take before it is abandoned. Well under the bar's
+/// three-second interval would starve a slow host; the bar skips a tick while
+/// one is still out instead.
+const SAMPLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// One reading of the host a terminal is connected to, for the monitor bar.
+///
+/// Runs over the terminal's own connection on a channel of its own, so there
+/// is no second login and nothing appears in the shell. The sessions lock is
+/// released before the command runs: a slow host must not hold up typing.
+#[tauri::command]
+pub async fn ssh_host_stats(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> CmdResult<crate::hoststats::Sample> {
+    let opener = {
+        let sessions = state.ssh_state.sessions.lock().await;
+        Arc::clone(&sessions.get(&session_id).ok_or("Session not found")?.opener)
+    };
+    let out = tokio::time::timeout(
+        SAMPLE_TIMEOUT,
+        crate::sftp::remote_exec::run_capture(&*opener, "the monitor", crate::hoststats::STATS_COMMAND),
+    )
+    .await
+    .map_err(|_| CmdError::from("The host took too long to answer"))??;
+    crate::hoststats::parse_sample(&out).map_err(CmdError::from)
+}

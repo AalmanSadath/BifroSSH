@@ -5,6 +5,7 @@ mod commands;
 mod connect;
 mod crypto;
 mod hostkeys;
+mod hoststats;
 mod hostverify;
 mod importers;
 mod jump;
@@ -230,6 +231,7 @@ fn start(
             commands::ssh_resize,
             commands::ssh_attach,
             commands::ssh_disconnect,
+            commands::ssh_host_stats,
             commands::ssh_set_log,
             commands::session_log_dir,
             commands::sftp_local_home,

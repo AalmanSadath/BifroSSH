@@ -115,6 +115,11 @@ impl Attach {
 pub struct SshSessionHandle {
     pub cmd_tx: mpsc::Sender<SshCommand>,
     pub attach: Arc<Mutex<Attach>>,
+    /// The connection itself, for a command run beside the shell on its own
+    /// channel, such as the monitor bar's sample: no second login, no second
+    /// host-key check. Dropped with this entry when the session loop ends, so
+    /// it does not keep a closed session's connection open.
+    pub opener: Arc<dyn crate::sftp::ChannelOpener>,
 }
 
 pub struct SshState {
@@ -357,11 +362,15 @@ pub async fn connect_ssh(
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<SshCommand>(256);
     let attach = Arc::new(Mutex::new(Attach::default()));
 
+    // Kept rather than dropped now that the shell is up, which is what used to
+    // happen: `channel_open_session` takes `&self`, so one handle behind an
+    // Arc can open channels for anyone holding it.
+    let opener: Arc<dyn crate::sftp::ChannelOpener> = Arc::new(handle);
     {
         let mut sessions = ssh_state.sessions.lock().await;
         sessions.insert(
             session_id.clone(),
-            SshSessionHandle { cmd_tx, attach: Arc::clone(&attach) },
+            SshSessionHandle { cmd_tx, attach: Arc::clone(&attach), opener },
         );
     }
 
