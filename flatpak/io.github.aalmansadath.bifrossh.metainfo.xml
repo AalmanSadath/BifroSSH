@@ -85,6 +85,36 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.14.7" date="2026-09-26">
+      <description>
+        <p>
+          Terminal output can be coloured by keyword. Errors show in red,
+          warnings in yellow and successes in green by default, and the
+          rules can be edited or added to in Settings. What is typed at a
+          prompt is never coloured, and full-screen programs keep their own
+          colours.
+        </p>
+        <p>
+          Several hosts can be selected at once with Ctrl-click, Shift-click
+          or Ctrl+A, then connected, checked, moved to a group or removed
+          together from the right-click menu. Removing a host now also
+          removes its SFTP bookmarks. Both host imports sit under one Import
+          Hosts menu.
+        </p>
+        <p>
+          While typing at a prompt, the rest of a command run before on that
+          host is suggested in grey, and Right arrow accepts it. The history
+          is kept encrypted, per host, is left out of exports, and can be
+          cleared or switched off in Settings.
+        </p>
+        <p>
+          An optional bar under a terminal shows the host's CPU, memory,
+          disk, network and load every few seconds, over the connection the
+          terminal already has. It is off by default and can be switched on
+          in Settings or for a single host. Linux hosts only.
+        </p>
+      </description>
+    </release>
     <release version="0.14.6" date="2026-09-26">
       <description>
         <p>
