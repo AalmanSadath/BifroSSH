@@ -85,6 +85,37 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.15.0" date="2026-09-27">
+      <description>
+        <p>
+          Hosts can carry tags as well as a group. Tags are shown on the host
+          cards, can be added to or removed from several hosts at once from
+          the right-click menu, and are matched by search; #name finds only
+          the hosts with exactly that tag. Termius imports keep their tags.
+        </p>
+        <p>
+          A session can be recorded from its tab menu, as an asciicast file
+          in a recordings folder that can be changed in Settings. Only what
+          the host prints is recorded, never what is typed. A new Recordings
+          panel under Known Hosts lists the recordings and plays them, with
+          seeking, speeds and long pauses shortened.
+        </p>
+        <p>
+          A shell on this computer can be opened in a tab, from the Local
+          Shell button, Ctrl+Shift+N or the command palette. The shell can
+          be chosen in Settings. In the Flatpak it runs on the host, so the
+          usual tools are there.
+        </p>
+        <p>
+          A key can sign in with an OpenSSH user certificate. The certificate
+          can be pasted or imported in the Keychain, where it is checked
+          against the key and its validity shown, and one beside a key file
+          or named by CertificateFile in an imported ssh config is picked up
+          on its own. Security-key (sk-) keys are refused when added, with
+          the reason, since the app cannot use them.
+        </p>
+      </description>
+    </release>
     <release version="0.14.7" date="2026-09-26">
       <description>
         <p>
