@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as ipc from '../ipc';
 import { useAppStore, reportFailure } from '../store/appStore';
 import { useHint } from './shared/useHint';
@@ -95,8 +95,6 @@ export default function HostsPanel() {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
       e.preventDefault();
       setSelection({ selected: new Set(order), anchor: order[0] ?? null });
-    } else if (e.key === 'Escape' && picked.length > 0) {
-      setSelection(EMPTY_SELECTION);
     } else if (e.key === 'Delete' && picked.length > 0) {
       setConfirmDelete(picked);
     }
@@ -106,6 +104,27 @@ export default function HostsPanel() {
     const existing = sessions.find((s) => s.server_id === server.id && s.status === 'connected');
     if (existing) { setActiveTab(existing.tab_id); return; }
     openSession(server.id);
+  }
+
+  // Escape lets go of the selection wherever focus is, since after a bulk
+  // action it is rarely still on a card. Not while a dialog or a menu is up:
+  // Escape there is for closing that.
+  const anythingPicked = selection.selected.size > 0;
+  const overlayOpen = movingToGroup || confirmDelete !== null || contextMenu !== null;
+  useEffect(() => {
+    if (!anythingPicked || overlayOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelection(EMPTY_SELECTION);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [anythingPicked, overlayOpen]);
+
+  /** A click on the page that is not on a card, or on something to act with, lets go. */
+  function onPanelMouseDown(e: React.MouseEvent) {
+    if (!anythingPicked) return;
+    if ((e.target as HTMLElement).closest('.host-card, .hosts-bulk-bar, button, input, a, label')) return;
+    setSelection(EMPTY_SELECTION);
   }
 
   function handleContextMenu(e: React.MouseEvent, server: Server) {
@@ -124,7 +143,7 @@ export default function HostsPanel() {
 
   return (
     <>
-      <div className="panel hosts-panel" onKeyDown={onPanelKeyDown} onContextMenu={(e) => { if ((e.target as HTMLElement).closest('button, input, textarea, select, label, a')) return; e.preventDefault(); setContextMenu({ kind: 'panel', x: e.clientX, y: e.clientY }); }}>
+      <div className="panel hosts-panel" onKeyDown={onPanelKeyDown} onMouseDown={onPanelMouseDown} onContextMenu={(e) => { if ((e.target as HTMLElement).closest('button, input, textarea, select, label, a')) return; e.preventDefault(); setContextMenu({ kind: 'panel', x: e.clientX, y: e.clientY }); }}>
         <div className="panel-title-row">
           <div className="panel-title">Hosts</div>
         </div>
@@ -192,7 +211,6 @@ export default function HostsPanel() {
               Check
             </button>
             <button className="btn-danger btn-sm" onClick={() => setConfirmDelete(picked)}>Delete</button>
-            <button className="btn-secondary btn-sm" onClick={() => setSelection(EMPTY_SELECTION)}>Clear</button>
           </div>
         )}
 
