@@ -6,6 +6,7 @@ import ThemePicker, { ThumbNail } from '../ThemePicker';
 import { THEMES } from '../../styles/themes';
 import { Picker, usePatch, type PickerOption } from './Picker';
 import { useCopy } from '../shared/useCopy';
+import HighlightRules from './HighlightRules';
 import { SHELLS, snippetFor } from '../../shellIntegration';
 import type { CursorStyle } from '../../types';
 
@@ -134,6 +135,8 @@ export default function TerminalSection() {
           ))}
         </div>
       </section>
+
+      <HighlightRules />
 
       <section className="panel-section">
         <h3>Cursor</h3>
