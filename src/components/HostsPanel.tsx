@@ -10,6 +10,7 @@ import ClientImport from './ClientImport';
 import OsIcon from './OsIcon';
 import ConfirmModal from './shared/ConfirmModal';
 import ContextMenu from './shared/ContextMenu';
+import PortalDropdown from './shared/PortalDropdown';
 import MoveToGroupModal from './MoveToGroupModal';
 import { EMPTY_SELECTION, clickSelect, inOrder, type Selection } from '../selection';
 import { cardKeys } from './shared/cardKeys';
@@ -151,16 +152,31 @@ export default function HostsPanel() {
           <button className="btn-primary btn-sm" onClick={() => { setEditServer(null); setShowServerForm(true); }}>
             + Add Host
           </button>
-          <button className="btn-secondary btn-sm" onClick={() => setShowSshImport(true)}>
-            Import from ssh config
-          </button>
-          <button
-            className="btn-secondary btn-sm"
-            onClick={() => setShowClientImport(true)}
-            title={hint('Hosts exported from Termius, PuTTY or MobaXterm')}
-          >
-            Import from another client
-          </button>
+          {/* One control for both sources, so the toolbar does not grow a
+              button per client that hosts can come from. */}
+          <div className="hosts-import">
+            <PortalDropdown label="Import Hosts">
+              {(close) => (
+                <>
+                  <button
+                    type="button"
+                    className="picker-item"
+                    onMouseDown={(e) => { e.preventDefault(); close(); setShowSshImport(true); }}
+                  >
+                    sshconfig
+                  </button>
+                  <button
+                    type="button"
+                    className="picker-item"
+                    title={hint('Hosts exported from Termius, PuTTY or MobaXterm')}
+                    onMouseDown={(e) => { e.preventDefault(); close(); setShowClientImport(true); }}
+                  >
+                    Another Client
+                  </button>
+                </>
+              )}
+            </PortalDropdown>
+          </div>
           {servers.length > 0 && (
             <button
               className="btn-secondary btn-sm"
