@@ -114,6 +114,59 @@ impl Attach {
     }
 }
 
+/// Where a session's output goes: batched, into the log and the recording
+/// if there are any, then to the terminal, or held until it has attached.
+///
+/// Shared by the SSH session loop and the local shell's, so both treat
+/// their output the same way.
+pub(crate) struct SessionOutput {
+    app: AppHandle,
+    sid: String,
+    attach: Arc<Mutex<Attach>>,
+    pub log: Option<std::fs::File>,
+    pub recorder: Option<crate::recording::Recorder>,
+    /// Waiting for the next flush.
+    pub buf: Vec<u8>,
+}
+
+impl SessionOutput {
+    pub fn new(app: AppHandle, sid: String, attach: Arc<Mutex<Attach>>, log: Option<std::fs::File>) -> Self {
+        SessionOutput { app, sid, attach, log, recorder: None, buf: Vec::with_capacity(8192) }
+    }
+
+    pub async fn flush(&mut self) {
+        if self.buf.is_empty() {
+            return;
+        }
+        // Before the hold, so a tab that never attaches still logs. A file
+        // that will not take the bytes is dropped rather than allowed to end
+        // the session.
+        {
+            use std::io::Write;
+            if self.log.as_mut().is_some_and(|file| file.write_all(&self.buf).is_err()) {
+                drop(self.log.take());
+            }
+        }
+        if self.recorder.as_mut().is_some_and(|r| r.output(&self.buf).is_err()) {
+            drop(self.recorder.take());
+        }
+        // Held rather than emitted until a terminal has attached, under the
+        // same lock the handover takes.
+        if !self.attach.lock().await.hold(&self.buf) {
+            let encoded = BASE64.encode(&self.buf);
+            let _ = self.app.emit(&format!("ssh-output:{}", self.sid), encoded);
+        }
+        self.buf.clear();
+    }
+
+    /// The terminal changed size: a recording keeps that.
+    pub fn resized(&mut self, cols: u32, rows: u32) {
+        if self.recorder.as_mut().is_some_and(|r| r.resize(cols, rows).is_err()) {
+            drop(self.recorder.take());
+        }
+    }
+}
+
 pub struct SshSessionHandle {
     pub cmd_tx: mpsc::Sender<SshCommand>,
     pub attach: Arc<Mutex<Attach>>,
@@ -121,7 +174,9 @@ pub struct SshSessionHandle {
     /// channel, such as the monitor bar's sample: no second login, no second
     /// host-key check. Dropped with this entry when the session loop ends, so
     /// it does not keep a closed session's connection open.
-    pub opener: Arc<dyn crate::sftp::ChannelOpener>,
+    ///
+    /// None for a local shell, which has no connection to open one on.
+    pub opener: Option<Arc<dyn crate::sftp::ChannelOpener>>,
 }
 
 pub struct SshState {
@@ -372,7 +427,7 @@ pub async fn connect_ssh(
         let mut sessions = ssh_state.sessions.lock().await;
         sessions.insert(
             session_id.clone(),
-            SshSessionHandle { cmd_tx, attach: Arc::clone(&attach), opener },
+            SshSessionHandle { cmd_tx, attach: Arc::clone(&attach), opener: Some(opener) },
         );
     }
 
@@ -398,9 +453,7 @@ pub async fn connect_ssh(
 
         let mut flush_tick = interval(Duration::from_millis(8));
         flush_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        let mut outbuf: Vec<u8> = Vec::with_capacity(8192);
-        let mut log = params.log;
-        let mut recorder: Option<crate::recording::Recorder> = None;
+        let mut out = SessionOutput::new(app.clone(), sid.clone(), Arc::clone(&attach), params.log);
         let mut saw_exit_status = false;
         let mut closed_by_user = false;
         // When EOF arrived, if it has. The loop stays for the close that
@@ -408,32 +461,6 @@ pub async fn connect_ssh(
         // is a server that has gone.
         let mut eof_at: Option<tokio::time::Instant> = None;
         const AFTER_EOF: Duration = Duration::from_secs(3);
-
-        macro_rules! flush_outbuf {
-            () => {
-                if !outbuf.is_empty() {
-                    // Before the hold, so a tab that never attaches still
-                    // logs. A file that will not take the bytes is dropped
-                    // rather than allowed to end the session.
-                    {
-                        use std::io::Write;
-                        if log.as_mut().is_some_and(|file| file.write_all(&outbuf).is_err()) {
-                            drop(log.take());
-                        }
-                    }
-                    if recorder.as_mut().is_some_and(|r| r.output(&outbuf).is_err()) {
-                        drop(recorder.take());
-                    }
-                    // Held rather than emitted until a terminal has attached,
-                    // under the same lock the handover takes.
-                    if !attach.lock().await.hold(&outbuf) {
-                        let encoded = BASE64.encode(&outbuf);
-                        let _ = app.emit(&format!("ssh-output:{}", sid), encoded);
-                    }
-                    outbuf.clear();
-                }
-            };
-        }
 
         loop {
             tokio::select! {
@@ -446,18 +473,16 @@ pub async fn connect_ssh(
                         }
                         SshCommand::Resize { cols, rows } => {
                             let _ = channel.window_change(cols, rows, 0, 0).await;
-                            if recorder.as_mut().is_some_and(|r| r.resize(cols, rows).is_err()) {
-                                drop(recorder.take());
-                            }
+                            out.resized(cols, rows);
                         }
                         SshCommand::SetLog(file) => {
-                            log = file;
+                            out.log = file;
                         }
                         SshCommand::SetRecording(next) => {
                             // What is waiting to go out belongs to the old
                             // recording, not the new one.
-                            flush_outbuf!();
-                            recorder = next;
+                            out.flush().await;
+                            out.recorder = next;
                         }
                         SshCommand::Close => {
                             closed_by_user = true;
@@ -471,14 +496,14 @@ pub async fn connect_ssh(
                         // is what a PTY session means, so the two arms are one.
                         ChannelMsg::Data { ref data }
                         | ChannelMsg::ExtendedData { ref data, .. } => {
-                            let was_empty = outbuf.is_empty();
+                            let was_empty = out.buf.is_empty();
                             quiet_since = Some(tokio::time::Instant::now());
                             match echo.as_mut() {
-                                Some((filter, _)) => filter.feed(data.as_ref(), &mut outbuf),
-                                None => outbuf.extend_from_slice(data.as_ref()),
+                                Some((filter, _)) => filter.feed(data.as_ref(), &mut out.buf),
+                                None => out.buf.extend_from_slice(data.as_ref()),
                             }
-                            if was_empty || outbuf.len() >= 8192 {
-                                flush_outbuf!();
+                            if was_empty || out.buf.len() >= 8192 {
+                                out.flush().await;
                             }
                         }
                         // OpenSSH ends a session as EOF, then the exit
@@ -486,11 +511,11 @@ pub async fn connect_ssh(
                         // left before the status arrived, so a typed exit
                         // was reported as a dropped connection.
                         ChannelMsg::Eof => {
-                            flush_outbuf!();
+                            out.flush().await;
                             eof_at.get_or_insert_with(tokio::time::Instant::now);
                         }
                         ChannelMsg::Close => {
-                            flush_outbuf!();
+                            out.flush().await;
                             break;
                         }
                         // Sent by the server when the shell ends on its own.
@@ -501,7 +526,7 @@ pub async fn connect_ssh(
                     }
                 }
                 _ = flush_tick.tick() => {
-                    flush_outbuf!();
+                    out.flush().await;
                     if startup.is_some()
                         && (quiet_since.is_some_and(|t| t.elapsed() >= SETTLE)
                             || shell_at.elapsed() >= STARTUP_BY)
@@ -521,9 +546,9 @@ pub async fn connect_ssh(
                     // came and whatever was held goes back where it was.
                     if let Some((filter, until)) = echo.as_mut() {
                         if filter.is_done() || tokio::time::Instant::now() >= *until {
-                            filter.give_up(&mut outbuf);
+                            filter.give_up(&mut out.buf);
                             echo = None;
-                            flush_outbuf!();
+                            out.flush().await;
                         }
                     }
                     if eof_at.is_some_and(|t| t.elapsed() > AFTER_EOF) {

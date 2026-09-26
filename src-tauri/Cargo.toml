@@ -43,6 +43,8 @@ hmac = "0.12"
 aes = "0.8"
 cbc = "0.1"
 argon2 = "0.5"
+portable-pty = "0.9.0"
+shell-words = "1.1.1"
 
 [target.'cfg(unix)'.dependencies]
 # getpwuid_r and friends, for the owner column of a local listing. Already

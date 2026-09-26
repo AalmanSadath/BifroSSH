@@ -352,6 +352,10 @@ export const sshHostStats = (sessionId: string) =>
 export const sshSetLog = (sessionId: string, label: string, on: boolean) =>
   invoke<string | null>('ssh_set_log', { sessionId, label, on });
 
+/** Opens a shell on this machine; answers with its session id. */
+export const localShellConnect = (cols: number, rows: number) =>
+  invoke<string>('local_shell_connect', { cols, rows });
+
 /** Starts or stops recording a session; answers with the file's path when starting. */
 export const sshSetRecording = (
   sessionId: string,

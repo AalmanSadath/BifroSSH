@@ -9,6 +9,7 @@ mod hoststats;
 mod hostverify;
 mod importers;
 mod jump;
+mod localshell;
 mod keyring;
 mod keystore;
 mod models;
@@ -238,6 +239,7 @@ fn start(
             commands::ssh_host_stats,
             commands::ssh_set_log,
             commands::ssh_set_recording,
+            commands::local_shell_connect,
             commands::recording_dir,
             commands::reveal_file,
             commands::session_log_dir,

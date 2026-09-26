@@ -368,6 +368,10 @@ pub struct Settings {
     /// Show the monitor bar under terminals. Off by default: it runs a small
     /// command on the host every few seconds. A host can override it.
     pub monitor_bar: bool,
+    /// The program a local shell tab runs, with its arguments as a shell
+    /// would split them. Empty is the system's own: the login shell on Unix,
+    /// PowerShell on Windows.
+    pub local_shell: String,
 }
 
 /// One keyword highlighting rule.
@@ -431,6 +435,7 @@ impl Default for Settings {
             highlight_rules: HighlightRule::defaults(),
             autosuggest: true,
             monitor_bar: false,
+            local_shell: String::new(),
         }
     }
 }

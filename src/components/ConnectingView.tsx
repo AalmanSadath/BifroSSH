@@ -41,7 +41,9 @@ export default function ConnectingView({
           </div>
           <div className="connecting-info">
             <div className="connecting-name">{server.name}</div>
-            <div className="connecting-addr">SSH {server.host}:{server.port}</div>
+            <div className="connecting-addr">
+              {server.os === 'local' ? 'Shell on this computer' : `SSH ${server.host}:${server.port}`}
+            </div>
           </div>
           {!isError && (
             <button className="btn-secondary btn-sm connecting-log-btn" onClick={() => setShowLogs((v) => !v)}>

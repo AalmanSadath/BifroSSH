@@ -17,6 +17,7 @@ export type ActionId =
   | 'palette'
   | 'duplicate-tab'
   | 'toggle-broadcast'
+  | 'local-shell'
   | 'close-tab'
   | 'select-tab-1'
   | 'select-tab-2'
@@ -91,6 +92,13 @@ export const ACTIONS: ShortcutAction[] = [
     detail: 'Types into every broadcasting tab at once.',
     group: 'Tabs',
     defaults: 'Ctrl+Shift+KeyB',
+  },
+  {
+    id: 'local-shell',
+    label: 'Local shell',
+    detail: 'Opens a tab with a shell on this computer.',
+    group: 'Tabs',
+    defaults: 'Ctrl+Shift+KeyN',
   },
   ...numberedTabs(),
   {

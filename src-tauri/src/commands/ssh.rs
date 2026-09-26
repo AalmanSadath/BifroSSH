@@ -422,7 +422,8 @@ pub async fn ssh_host_stats(
 ) -> CmdResult<crate::hoststats::Sample> {
     let opener = {
         let sessions = state.ssh_state.sessions.lock().await;
-        Arc::clone(&sessions.get(&session_id).ok_or("Session not found")?.opener)
+        let handle = sessions.get(&session_id).ok_or("Session not found")?;
+        Arc::clone(handle.opener.as_ref().ok_or("Not an SSH session")?)
     };
     let out = tokio::time::timeout(
         SAMPLE_TIMEOUT,
@@ -431,4 +432,20 @@ pub async fn ssh_host_stats(
     .await
     .map_err(|_| CmdError::from("The host took too long to answer"))??;
     crate::hoststats::parse_sample(&out).map_err(CmdError::from)
+}
+
+/// Opens a shell on this machine, run as the local shell setting says, and
+/// returns its session id; from there it is driven like any other session.
+#[tauri::command]
+pub async fn local_shell_connect(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    cols: u16,
+    rows: u16,
+) -> CmdResult<String> {
+    let setting = state.data.lock().await.settings.local_shell.clone();
+    let ssh_state = Arc::clone(&state.ssh_state);
+    crate::localshell::start(app, ssh_state, &setting, cols.max(1), rows.max(1))
+        .await
+        .map_err(CmdError::from)
 }

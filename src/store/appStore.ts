@@ -227,6 +227,7 @@ const DEFAULT_SETTINGS: Settings = {
   highlight_rules: DEFAULT_HIGHLIGHT_RULES,
   autosuggest: true,
   monitor_bar: false,
+  local_shell: '',
   accent_color: null,
 };
 
@@ -465,6 +466,8 @@ interface AppStore {
   toggleBroadcast: (tabId: string) => void;
   /** Starts or stops writing the tab's output to a file; the banner says if it could not. */
   toggleLogging: (tabId: string) => Promise<void>;
+  /** Opens a tab with a shell on this machine in it. */
+  openLocalShell: () => Promise<void>;
   /** Starts or stops recording the tab as asciicast; the banner says if it could not. */
   toggleRecording: (tabId: string) => Promise<void>;
   /** A recording just finished, for the notice that offers to play it. */
@@ -1450,6 +1453,24 @@ export const useAppStore = create<AppStore>((set, get) => ({
       set((s) => ({ sessions: s.sessions.map((t) => (t.tab_id === connectId ? { ...t, logging: 'host' } : t)) }));
     }
     if (ok) get().autostartTunnels({ kind: 'connect', serverId });
+  },
+
+  openLocalShell: async () => {
+    const connectId = crypto.randomUUID();
+    await startSession(
+      connectId,
+      {
+        tab_id: connectId,
+        session_id: null,
+        server_name: 'Local',
+        server_id: '',
+        kind: 'local',
+        status: 'connecting',
+        connect_id: connectId,
+        logs: [],
+      },
+      () => ipc.localShellConnect(80, 24),
+    );
   },
 
   quickConnect: async (host, port, username, authType, authValue) => {

@@ -332,6 +332,8 @@ export interface Settings {
   autosuggest: boolean;
   /** Show the monitor bar under terminals; a host can override it. */
   monitor_bar: boolean;
+  /** The program a local shell tab runs, with its arguments; empty is the system's own. */
+  local_shell: string;
 }
 
 /** How the user chose to keep the master key on the first run screen. */
@@ -551,6 +553,8 @@ export interface SessionTab {
    * the tab; a host that always logs is set and forgotten.
    */
   logging?: 'tab' | 'host';
+  /** A shell on this machine rather than a connection to a host. */
+  kind?: 'local';
   /** The recording this tab's output is going to, while one is. */
   recording?: string;
   connect_id?: string;

@@ -49,7 +49,7 @@ const SETTINGS_SECTIONS: { id: SettingsSection; label: string }[] = [
 export default function CommandPalette({ onClose, onCodeprint, onAddHost, onLock, onTranscript }: Props) {
   const {
     servers, sessions, activeTabId, codeprints, setActiveTab, openSession, openInSftp,
-    removeSession, toggleBroadcast, toggleLogging, toggleRecording, checkForUpdates, openSettings,
+    removeSession, toggleBroadcast, toggleLogging, toggleRecording, openLocalShell, checkForUpdates, openSettings,
   } = useAppStore();
   const [query, setQuery] = useState('');
   const [cursor, setCursor] = useState(0);
@@ -189,6 +189,13 @@ export default function CommandPalette({ onClose, onCodeprint, onAddHost, onLock
       });
     }
     items.push({ id: 'action:lock', title: 'Lock the vault', group: 'Actions', run: done(onLock) });
+    items.push({
+      id: 'action:local-shell',
+      title: 'Open a local shell',
+      subtitle: 'A shell on this computer, in a tab',
+      group: 'Actions',
+      run: done(() => { void openLocalShell(); }),
+    });
     items.push({
       id: 'action:updates',
       title: 'Check for updates',
