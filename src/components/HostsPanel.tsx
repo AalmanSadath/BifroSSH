@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import * as ipc from '../ipc';
 import { useAppStore, reportFailure } from '../store/appStore';
 import { useHint } from './shared/useHint';
@@ -10,6 +10,8 @@ import ClientImport from './ClientImport';
 import OsIcon from './OsIcon';
 import ConfirmModal from './shared/ConfirmModal';
 import ContextMenu from './shared/ContextMenu';
+import MoveToGroupModal from './MoveToGroupModal';
+import { EMPTY_SELECTION, clickSelect, inOrder, type Selection } from '../selection';
 import { cardKeys } from './shared/cardKeys';
 import { EditIcon, NoteIcon } from './shared/icons';
 import { probeClass, probeLabel, probeTitle } from '../probe';
@@ -23,16 +25,25 @@ const STATUS_DOT: Record<HostStatus, { className: string; title: string }> = {
 };
 
 export default function HostsPanel() {
-  const { servers, sessions, setActiveTab, removeSession, deleteServer, openSession, hostProbes, probeHosts } = useAppStore();
+  const { servers, sessions, setActiveTab, removeSession, deleteServers, setServersGroup, openSession, hostProbes, probeHosts } = useAppStore();
   const [showServerForm, setShowServerForm] = useState(false);
   const [showSshImport, setShowSshImport] = useState(false);
   const [showClientImport, setShowClientImport] = useState(false);
   const [editServer, setEditServer] = useState<Server | null>(null);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [contextMenu, setContextMenu] = useState<{ kind: 'server'; x: number; y: number; server: Server } | { kind: 'panel'; x: number; y: number } | null>(null);
+  /** Hosts waiting on the delete confirmation: one from a card, or a selection. */
+  const [confirmDelete, setConfirmDelete] = useState<string[] | null>(null);
+  const [contextMenu, setContextMenu] = useState<
+    | { kind: 'server'; x: number; y: number; server: Server }
+    | { kind: 'selection'; x: number; y: number }
+    | { kind: 'panel'; x: number; y: number }
+    | null
+  >(null);
   const [query, setQuery] = useState('');
   const hint = useHint();
   const [groupFilter, setGroupFilter] = useState<string | null>(null);
+  const [selection, setSelection] = useState<Selection>(EMPTY_SELECTION);
+  const [movingToGroup, setMovingToGroup] = useState(false);
+  const connectingRef = useRef(false);
 
   const groups = groupNames(servers);
   const anyUngrouped = servers.some((s) => groupOf(s) === null);
@@ -45,6 +56,51 @@ export default function HostsPanel() {
   const chips = groups.length > 0
     ? [null, ...groups, ...(anyUngrouped ? [UNGROUPED] : [])]
     : [];
+  // The cards in the order they are on screen, which is what a Shift-click
+  // ranges over and the order a bulk action works through.
+  const order = sections.flatMap((sec) => sec.servers.map((h) => h.id));
+  const picked = inOrder(order, selection.selected);
+  const nameOf = (id: string) => servers.find((h) => h.id === id)?.name ?? id;
+
+  /** A different search or group is a different list; what was picked meant the old one. */
+  function narrow(apply: () => void) {
+    apply();
+    setSelection(EMPTY_SELECTION);
+  }
+
+  function handleCardClick(e: React.MouseEvent, server: Server) {
+    setSelection((cur) => clickSelect(order, cur, server.id, { shift: e.shiftKey, toggle: e.ctrlKey || e.metaKey }));
+  }
+
+  /**
+   * Opens each in the order shown, one after another as a restore does, so a
+   * host that asks for a passphrase asks on its own. A host that already has
+   * a working tab is left as it is rather than given a second one.
+   */
+  async function connectAll(ids: string[]) {
+    if (connectingRef.current) return;
+    connectingRef.current = true;
+    try {
+      for (const id of ids) {
+        const open = useAppStore.getState().sessions.some((t) => t.server_id === id && t.status === 'connected');
+        if (!open) await openSession(id);
+      }
+    } finally {
+      connectingRef.current = false;
+    }
+  }
+
+  function onPanelKeyDown(e: React.KeyboardEvent) {
+    if ((e.target as HTMLElement).closest('input, textarea, select')) return;
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+      e.preventDefault();
+      setSelection({ selected: new Set(order), anchor: order[0] ?? null });
+    } else if (e.key === 'Escape' && picked.length > 0) {
+      setSelection(EMPTY_SELECTION);
+    } else if (e.key === 'Delete' && picked.length > 0) {
+      setConfirmDelete(picked);
+    }
+  }
 
   async function handleDoubleClick(server: Server) {
     const existing = sessions.find((s) => s.server_id === server.id && s.status === 'connected');
@@ -55,12 +111,20 @@ export default function HostsPanel() {
   function handleContextMenu(e: React.MouseEvent, server: Server) {
     e.preventDefault();
     e.stopPropagation();
+    // On one of several picked cards, the menu is about all of them. On any
+    // other card it is about that card, which becomes the selection so the
+    // two never disagree about what is being acted on.
+    if (selection.selected.has(server.id) && picked.length > 1) {
+      setContextMenu({ kind: 'selection', x: e.clientX, y: e.clientY });
+      return;
+    }
+    setSelection({ selected: new Set([server.id]), anchor: server.id });
     setContextMenu({ kind: 'server', x: e.clientX, y: e.clientY, server });
   }
 
   return (
     <>
-      <div className="panel hosts-panel" onContextMenu={(e) => { if ((e.target as HTMLElement).closest('button, input, textarea, select, label, a')) return; e.preventDefault(); setContextMenu({ kind: 'panel', x: e.clientX, y: e.clientY }); }}>
+      <div className="panel hosts-panel" onKeyDown={onPanelKeyDown} onContextMenu={(e) => { if ((e.target as HTMLElement).closest('button, input, textarea, select, label, a')) return; e.preventDefault(); setContextMenu({ kind: 'panel', x: e.clientX, y: e.clientY }); }}>
         <div className="panel-title-row">
           <div className="panel-title">Hosts</div>
         </div>
@@ -94,7 +158,7 @@ export default function HostsPanel() {
               type="text"
               placeholder="Filter by name, host, user, group or notes"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => narrow(() => setQuery(e.target.value))}
               spellCheck={false}
             />
           )}
@@ -106,11 +170,29 @@ export default function HostsPanel() {
               <button
                 key={chip ?? ''}
                 className={`hosts-chip${activeFilter === chip ? ' active' : ''}`}
-                onClick={() => setGroupFilter(chip)}
+                onClick={() => narrow(() => setGroupFilter(chip))}
               >
                 {chip ?? 'All'}
               </button>
             ))}
+          </div>
+        )}
+
+        {picked.length > 1 && (
+          <div className="hosts-bulk-bar">
+            <span className="hosts-bulk-count">{picked.length} selected</span>
+            <button className="btn-secondary btn-sm" onClick={() => void connectAll(picked)}>Connect</button>
+            <button className="btn-secondary btn-sm" onClick={() => setMovingToGroup(true)}>Move to group…</button>
+            <button
+              className="btn-secondary btn-sm"
+              onClick={() => { void probeHosts(picked, true); }}
+              disabled={checking}
+              title={hint('Open a TCP connection to each selected host and time it. Nothing is authenticated.')}
+            >
+              Check
+            </button>
+            <button className="btn-danger btn-sm" onClick={() => setConfirmDelete(picked)}>Delete</button>
+            <button className="btn-secondary btn-sm" onClick={() => setSelection(EMPTY_SELECTION)}>Clear</button>
           </div>
         )}
 
@@ -138,11 +220,12 @@ export default function HostsPanel() {
                 return (
                   <div
                     key={server.id}
-                    className="host-card"
+                    className={`host-card${selection.selected.has(server.id) ? ' host-card-selected' : ''}`}
                     {...cardKeys(() => handleDoubleClick(server))}
+                    onClick={(e) => handleCardClick(e, server)}
                     onDoubleClick={() => handleDoubleClick(server)}
                     onContextMenu={(e) => handleContextMenu(e, server)}
-                    title={hint('Double-click to connect · Right-click for options')}
+                    title={hint('Double-click to connect · Click to select, Ctrl or Shift to select several · Right-click for options')}
                   >
                     <div className="host-card-icon">
                       <OsIcon os={server.os} size={28} />
@@ -199,6 +282,22 @@ export default function HostsPanel() {
             <button className="menu-item" onClick={() => { setContextMenu(null); setEditServer(null); setShowServerForm(true); }}>
               Add Host
             </button>
+          ) : contextMenu.kind === 'selection' ? (
+            <>
+              <button className="menu-item" onClick={() => { setContextMenu(null); void connectAll(picked); }}>
+                Connect {picked.length}
+              </button>
+              <button className="menu-item" onClick={() => { setContextMenu(null); setMovingToGroup(true); }}>
+                Move to group…
+              </button>
+              <button className="menu-item" onClick={() => { setContextMenu(null); void probeHosts(picked, true); }} disabled={checking}>
+                Check {picked.length}
+              </button>
+              <div className="menu-divider" />
+              <button className="menu-item menu-item-danger" onClick={() => { setContextMenu(null); setConfirmDelete(picked); }}>
+                Remove {picked.length}
+              </button>
+            </>
           ) : (
             (() => {
               const activeSessions = sessions.filter((s) => s.server_id === contextMenu.server.id);
@@ -228,7 +327,7 @@ export default function HostsPanel() {
                     Edit
                   </button>
                   <div className="menu-divider" />
-                  <button className="menu-item menu-item-danger" onClick={() => { setConfirmDeleteId(contextMenu.server.id); setContextMenu(null); }}>
+                  <button className="menu-item menu-item-danger" onClick={() => { setConfirmDelete([contextMenu.server.id]); setContextMenu(null); }}>
                     Remove
                   </button>
                 </>
@@ -246,14 +345,34 @@ export default function HostsPanel() {
         <ServerForm
           server={editServer}
           onClose={() => { setShowServerForm(false); setEditServer(null); }}
-          onDelete={editServer ? () => setConfirmDeleteId(editServer.id) : undefined}
+          onDelete={editServer ? () => setConfirmDelete([editServer.id]) : undefined}
         />
       )}
-      {confirmDeleteId && (
+      {movingToGroup && (
+        <MoveToGroupModal
+          count={picked.length}
+          groups={groups}
+          onClose={() => setMovingToGroup(false)}
+          onMove={(group) => {
+            setMovingToGroup(false);
+            setServersGroup(picked, group).catch(reportFailure);
+          }}
+        />
+      )}
+      {confirmDelete && (
         <ConfirmModal
-          question="Delete this host?"
-          onCancel={() => setConfirmDeleteId(null)}
-          onConfirm={() => { deleteServer(confirmDeleteId).catch(reportFailure); setConfirmDeleteId(null); setShowServerForm(false); setEditServer(null); }}
+          question={confirmDelete.length === 1 ? `Delete ${nameOf(confirmDelete[0])}?` : `Delete ${confirmDelete.length} hosts?`}
+          hint={confirmDelete.length > 1
+            ? `${confirmDelete.slice(0, 4).map(nameOf).join(', ')}${confirmDelete.length > 4 ? ` and ${confirmDelete.length - 4} more` : ''}. Their SFTP bookmarks go with them.`
+            : undefined}
+          onCancel={() => setConfirmDelete(null)}
+          onConfirm={() => {
+            deleteServers(confirmDelete).catch(reportFailure);
+            setConfirmDelete(null);
+            setSelection(EMPTY_SELECTION);
+            setShowServerForm(false);
+            setEditServer(null);
+          }}
         />
       )}
     </>

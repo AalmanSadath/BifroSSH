@@ -194,6 +194,34 @@
   background: var(--bg-mid);
 }
 
+/* Picked for a bulk action. The accent border rather than a fill, so the
+   status dot and the probe colours on the card still read as they do. */
+.host-card-selected,
+.host-card-selected:hover {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* What can be done to several picked hosts at once, shown only while more
+   than one is picked. */
+.hosts-bulk-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -6px 0 14px;
+  padding: 8px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--bg-dark);
+}
+
+.hosts-bulk-count {
+  margin-right: auto;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
 .host-card-icon {
   width: 46px;
   height: 46px;
