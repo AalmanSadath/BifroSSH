@@ -10,6 +10,8 @@ import { DEFAULT_HIGHLIGHT_RULES } from '../highlight';
 import { withError, type DiagError } from '../diagnostics';
 import { remember } from '../commandHistory';
 import { clampZoom } from '../zoom';
+import { terminalFor } from '../terminalRegistry';
+import { screenSnapshot } from '../screenSnapshot';
 import { nextActivity, watched, type Activity, type Mark } from '../activity';
 import { isStale, type Probed } from '../probe';
 import type { AuthType, Codeprint, ProbeState, SftpBookmark, GeneratedKey, Identity, IdentityInput, JumpHopParams, KeyContent, KeyEntry, LogEntry, OpenTab, PortForwarding, ResolvedTheme, Server, ServerInput, SessionTab, Settings, SettingsSection, SystemAppearance } from '../types';
@@ -213,6 +215,7 @@ const DEFAULT_SETTINGS: Settings = {
   lock_on_suspend: true,
   scrollback_lines: 10000,
   session_log_dir: null,
+  recording_dir: null,
   check_for_updates: true,
   last_update_check: 0,
   auto_reconnect: true,
@@ -462,6 +465,15 @@ interface AppStore {
   toggleBroadcast: (tabId: string) => void;
   /** Starts or stops writing the tab's output to a file; the banner says if it could not. */
   toggleLogging: (tabId: string) => Promise<void>;
+  /** Starts or stops recording the tab as asciicast; the banner says if it could not. */
+  toggleRecording: (tabId: string) => Promise<void>;
+  /** A recording just finished, for the notice that offers to play it. */
+  savedRecording: string | null;
+  setSavedRecording: (path: string | null) => void;
+  /** The recording the Recordings panel is playing, if any. */
+  playingRecording: string | null;
+  /** Plays a recording in the Recordings panel, opening the panel; null stops it. */
+  playRecording: (path: string | null) => void;
   /**
    * Input from `tabId` to its own session, and when the tab broadcasts, to
    * every other broadcasting tab that is connected. The one path typed
@@ -611,6 +623,25 @@ export async function buildJumpChain(
   return hops.reverse();
 }
 
+/**
+ * Asks the backend to start or stop recording a session, with the size and
+ * the screen of the tab's terminal as they are now.
+ */
+function startOrStopRecording(sessionId: string, tabId: string, label: string, on: boolean): Promise<string | null> {
+  const term = terminalFor(tabId);
+  const buf = term?.buffer.active;
+  const screen = on && term && buf
+    ? screenSnapshot({
+      rows: term.rows,
+      top: buf.baseY,
+      cursorX: buf.cursorX,
+      cursorY: buf.cursorY,
+      line: (row) => buf.getLine(row)?.translateToString(true),
+    })
+    : null;
+  return ipc.sshSetRecording(sessionId, label, on, term?.cols ?? 80, term?.rows ?? 24, screen || null);
+}
+
 export const useAppStore = create<AppStore>((set, get) => ({
   servers: [],
   identities: [],
@@ -638,6 +669,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
     // reconnect with, and every attempt would fail on the way to the
     // attempt limit.
     set({ servers: [], identities: [], keys: [], portForwardings: [], codeprints: [], retryingTabIds: new Set(), hostProbes: {} }),
+  savedRecording: null,
+  setSavedRecording: (path) => set({ savedRecording: path }),
+  playingRecording: null,
+  playRecording: (path) => set(path ? { playingRecording: path, activeTabId: 'recordings' } : { playingRecording: null }),
   actionError: null,
   setActionError: (message) => {
     set({ actionError: message });
@@ -1179,6 +1214,21 @@ export const useAppStore = create<AppStore>((set, get) => ({
       ),
     })),
 
+  toggleRecording: async (tabId) => {
+    const tab = get().sessions.find((t) => t.tab_id === tabId);
+    if (!tab || !tab.session_id) return;
+    const on = !tab.recording;
+    try {
+      const path = await startOrStopRecording(tab.session_id, tabId, tab.server_name, on);
+      set((s) => ({
+        sessions: s.sessions.map((t) => (t.tab_id === tabId ? { ...t, recording: path ?? undefined } : t)),
+        savedRecording: on ? s.savedRecording : (tab.recording ?? null),
+      }));
+    } catch (e) {
+      get().setActionError(`Could not ${on ? 'start' : 'stop'} the recording: ${String(e)}`);
+    }
+  },
+
   toggleLogging: async (tabId) => {
     const tab = get().sessions.find((t) => t.tab_id === tabId);
     if (!tab || !tab.session_id) return;
@@ -1306,6 +1356,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
       if (tab.logging === 'tab') {
         const ok = await ipc.sshSetLog(sessionId, tab.server_name, true).then(() => true, () => false);
         set((s) => ({ sessions: s.sessions.map((t) => (t.tab_id === tabId ? { ...t, logging: ok ? 'tab' : undefined } : t)) }));
+      }
+      // Likewise a recording: the old file ended with the old session.
+      if (tab.recording) {
+        const path = await startOrStopRecording(sessionId, tabId, tab.server_name, true).catch(() => null);
+        set((s) => ({ sessions: s.sessions.map((t) => (t.tab_id === tabId ? { ...t, recording: path ?? undefined } : t)) }));
       }
     } catch (err) {
       // Still dropped, still there. The banner shows why it did not come back.

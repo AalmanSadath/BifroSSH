@@ -24,6 +24,7 @@ const PANELS: { id: string; label: string }[] = [
   { id: 'portforwarding', label: 'Port Forwarding' },
   { id: 'keychain', label: 'Keychain' },
   { id: 'knownhosts', label: 'Known Hosts' },
+  { id: 'recordings', label: 'Recordings' },
   { id: 'theme-editor', label: 'Theme Editor' },
 ];
 
@@ -48,7 +49,7 @@ const SETTINGS_SECTIONS: { id: SettingsSection; label: string }[] = [
 export default function CommandPalette({ onClose, onCodeprint, onAddHost, onLock, onTranscript }: Props) {
   const {
     servers, sessions, activeTabId, codeprints, setActiveTab, openSession, openInSftp,
-    removeSession, toggleBroadcast, toggleLogging, checkForUpdates, openSettings,
+    removeSession, toggleBroadcast, toggleLogging, toggleRecording, checkForUpdates, openSettings,
   } = useAppStore();
   const [query, setQuery] = useState('');
   const [cursor, setCursor] = useState(0);
@@ -154,6 +155,14 @@ export default function CommandPalette({ onClose, onCodeprint, onAddHost, onLock
         group: 'Actions',
         run: done(() => { void toggleLogging(active.tab_id); }),
       });
+      if (active.session_id) {
+        items.push({
+          id: 'action:record',
+          title: active.recording ? 'Stop recording this tab' : 'Record this tab',
+          group: 'Actions',
+          run: done(() => { void toggleRecording(active.tab_id); }),
+        });
+      }
       items.push({
         id: 'action:transcript-copy',
         title: 'Copy this tab as text',

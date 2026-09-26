@@ -241,6 +241,9 @@ export const sftpCompareTrees = (
 export const writeTextFile = (path: string, contents: string, overwrite: boolean) =>
   invoke<void>('write_text_file', { path, contents, overwrite });
 
+/** A text file the user picked, up to 64 MB. */
+export const readTextFile = (path: string) => invoke<string>('read_text_file', { path });
+
 export const getOpenTabs = () => invoke<OpenTab[]>('get_open_tabs');
 
 export const saveOpenTabs = (items: OpenTab[]) => invoke<void>('save_open_tabs', { items });
@@ -348,6 +351,22 @@ export const sshHostStats = (sessionId: string) =>
 /** Starts (returning the file's path) or stops logging a session's output. */
 export const sshSetLog = (sessionId: string, label: string, on: boolean) =>
   invoke<string | null>('ssh_set_log', { sessionId, label, on });
+
+/** Starts or stops recording a session; answers with the file's path when starting. */
+export const sshSetRecording = (
+  sessionId: string,
+  label: string,
+  on: boolean,
+  cols: number,
+  rows: number,
+  screen: string | null,
+) => invoke<string | null>('ssh_set_recording', { sessionId, label, on, cols, rows, screen });
+
+/** The folder recordings are written to, as configured or by default. */
+export const recordingDir = () => invoke<string>('recording_dir');
+
+/** Opens the file manager on the file's folder with the file selected. */
+export const revealFile = (path: string) => invoke<void>('reveal_file', { path });
 
 /** The folder session logs are written to, as configured or by default. */
 export const sessionLogDir = () => invoke<string>('session_log_dir');

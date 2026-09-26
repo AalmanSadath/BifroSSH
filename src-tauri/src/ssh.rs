@@ -28,6 +28,8 @@ pub enum SshCommand {
     /// Start writing output to this file, or stop. Opened by the caller,
     /// so the loop never learns a path.
     SetLog(Option<std::fs::File>),
+    /// Start recording output with its timing, or stop.
+    SetRecording(Option<crate::recording::Recorder>),
     Close,
 }
 
@@ -398,6 +400,7 @@ pub async fn connect_ssh(
         flush_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut outbuf: Vec<u8> = Vec::with_capacity(8192);
         let mut log = params.log;
+        let mut recorder: Option<crate::recording::Recorder> = None;
         let mut saw_exit_status = false;
         let mut closed_by_user = false;
         // When EOF arrived, if it has. The loop stays for the close that
@@ -417,6 +420,9 @@ pub async fn connect_ssh(
                         if log.as_mut().is_some_and(|file| file.write_all(&outbuf).is_err()) {
                             drop(log.take());
                         }
+                    }
+                    if recorder.as_mut().is_some_and(|r| r.output(&outbuf).is_err()) {
+                        drop(recorder.take());
                     }
                     // Held rather than emitted until a terminal has attached,
                     // under the same lock the handover takes.
@@ -440,9 +446,18 @@ pub async fn connect_ssh(
                         }
                         SshCommand::Resize { cols, rows } => {
                             let _ = channel.window_change(cols, rows, 0, 0).await;
+                            if recorder.as_mut().is_some_and(|r| r.resize(cols, rows).is_err()) {
+                                drop(recorder.take());
+                            }
                         }
                         SshCommand::SetLog(file) => {
                             log = file;
+                        }
+                        SshCommand::SetRecording(next) => {
+                            // What is waiting to go out belongs to the old
+                            // recording, not the new one.
+                            flush_outbuf!();
+                            recorder = next;
                         }
                         SshCommand::Close => {
                             closed_by_user = true;

@@ -333,6 +333,8 @@ pub struct Settings {
     pub scrollback_lines: u32,
     /// Where session logs are written; None is `<data dir>/logs`.
     pub session_log_dir: Option<String>,
+    /// Where session recordings go; None is `<data dir>/recordings`.
+    pub recording_dir: Option<String>,
     /// Ask GitHub once a day whether a newer release exists. On by default;
     /// the check is one anonymous GET of the releases endpoint.
     pub check_for_updates: bool,
@@ -417,6 +419,7 @@ impl Default for Settings {
             lock_on_suspend: true,
             scrollback_lines: 10_000,
             session_log_dir: None,
+            recording_dir: None,
             check_for_updates: true,
             last_update_check: 0,
             auto_reconnect: true,

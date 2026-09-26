@@ -14,6 +14,7 @@ mod keystore;
 mod models;
 mod ppk;
 mod prompts;
+mod recording;
 mod sessionlog;
 mod sftp;
 mod socks5;
@@ -195,6 +196,7 @@ fn start(
             commands::default_export_dir,
             commands::export_data,
             commands::write_text_file,
+            commands::read_text_file,
             commands::preview_import,
             commands::import_data,
             commands::get_port_forwardings,
@@ -235,6 +237,9 @@ fn start(
             commands::ssh_disconnect,
             commands::ssh_host_stats,
             commands::ssh_set_log,
+            commands::ssh_set_recording,
+            commands::recording_dir,
+            commands::reveal_file,
             commands::session_log_dir,
             commands::sftp_local_home,
             commands::sftp_list_local,

@@ -20,6 +20,7 @@ import { WINDOW_ACTIONS, actionFor, resolve as resolveShortcuts, tabIndexFor } f
 import CommandPalette from './components/CommandPalette';
 import SnippetPromptModal from './components/SnippetPromptModal';
 import FilePickerModal from './components/FilePickerModal';
+import RecordingsPanel from './components/RecordingsPanel';
 import HostKeyPrompt from './components/HostKeyPrompt';
 import AuthPromptModal from './components/AuthPromptModal';
 import Sidebar from './components/Sidebar';
@@ -45,7 +46,7 @@ import PortalDropdown from './components/shared/PortalDropdown';
 export default function App() {
   const {
     loadAll, loadError, actionError, setActionError, sessions, activeTabId, setActiveTab, removeSession,
-    renameSession, toggleBroadcast, openInSftp, sendInput, toggleLogging, splitGroup, splitWith, unsplit, openSession, quickConnect, servers, settings, keys,
+    renameSession, toggleBroadcast, openInSftp, sendInput, toggleLogging, toggleRecording, savedRecording, setSavedRecording, playRecording, splitGroup, splitWith, unsplit, openSession, quickConnect, servers, settings, keys,
     zoomSession, resetZoom, sessionZoom, splitWidths, setSplitWidths, sessionActivity,
     systemAppearance, setSystemAppearance, clearForLock,
   } = useAppStore();
@@ -511,6 +512,24 @@ export default function App() {
             <button className="btn-secondary btn-sm" onClick={() => loadAll()}>Try again</button>
           </div>
         )}
+        {savedRecording && (
+          <div className="notice-banner">
+            <span>Recording saved to {savedRecording}</span>
+            <button
+              className="btn-secondary btn-sm"
+              onClick={() => { playRecording(savedRecording); setSavedRecording(null); }}
+            >
+              Play
+            </button>
+            <button
+              className="load-error-dismiss"
+              aria-label="Dismiss"
+              onClick={() => setSavedRecording(null)}
+            >
+              ✕
+            </button>
+          </div>
+        )}
         {actionError && (
           <div className="load-error-banner">
             <span>{actionError}</span>
@@ -558,6 +577,7 @@ export default function App() {
               >
                 {splitGroup.includes(s.tab_id) && <span className="tab-split" title={hint('Shown in a split')}>⊟</span>}
                 {s.logging === 'tab' && <span className="tab-logging" title={hint('Output is being logged to a file')}>●</span>}
+                {s.recording && <span className="tab-recording" title={hint('Being recorded')}>REC</span>}
                 {s.broadcast && (
                   <span className="tab-broadcast" title={hint('Broadcasting: input also goes to every other tab marked the same way')}>⇶</span>
                 )}
@@ -689,6 +709,7 @@ export default function App() {
           {activeTabId === 'keychain' && <KeychainPanel />}
           <div style={{ display: activeTabId === 'sftp' ? 'contents' : 'none' }}><SftpPanel /></div>
           {activeTabId === 'knownhosts' && <KnownHostsPanel />}
+          {activeTabId === 'recordings' && <RecordingsPanel />}
           {activeTabId === 'portforwarding' && <PortForwardingPanel />}
           {activeTabId === 'settings' && <SettingsPanel />}
           {activeTabId === 'theme-editor' && <ThemeEditorPanel />}
@@ -835,6 +856,13 @@ export default function App() {
               >
                 {tabCtx.session.logging ? '✓ ' : ''}Log to file
               </button>
+              <button
+                className="menu-item"
+                disabled={!tabCtx.session.session_id}
+                onClick={() => { void toggleRecording(tabCtx.session.tab_id); setTabCtx(null); }}
+              >
+                {tabCtx.session.recording ? 'Stop recording' : 'Record session'}
+              </button>
               {/* Logging starts at connect; this is what is already on
                   screen, scrollback included. */}
               <button className="menu-item" onClick={() => { void transcript.copy(tabCtx.session); setTabCtx(null); }}>
@@ -859,3 +887,4 @@ export default function App() {
     </div>
   );
 }
+

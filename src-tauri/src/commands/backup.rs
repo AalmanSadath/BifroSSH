@@ -44,6 +44,22 @@ pub async fn write_text_file(path: String, contents: String, overwrite: bool) ->
     Ok(())
 }
 
+/// Largest file [`read_text_file`] will read: a long recording is tens of
+/// megabytes, and past this the webview would struggle to hold it anyway.
+const MAX_READ: u64 = 64 * 1024 * 1024;
+
+/// Reads a text file the user picked: a recording to play, a certificate.
+#[tauri::command]
+pub async fn read_text_file(path: String) -> CmdResult<String> {
+    let file = std::path::Path::new(&path);
+    let size = std::fs::metadata(file).map_err(|e| format!("Could not read {path}: {e}"))?.len();
+    if size > MAX_READ {
+        return Err(format!("{path} is {} MB; files over {} MB are not opened", size >> 20, MAX_READ >> 20).into());
+    }
+    let bytes = std::fs::read(file).map_err(|e| format!("Could not read {path}: {e}"))?;
+    String::from_utf8(bytes).map_err(|_| format!("{path} is not a text file").into())
+}
+
 #[tauri::command]
 pub async fn export_data(
     state: State<'_, AppState>,

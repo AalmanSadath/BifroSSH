@@ -304,6 +304,8 @@ export interface Settings {
   scrollback_lines: number;
   /** Where session logs go; null is the app's own logs folder. */
   session_log_dir: string | null;
+  /** Where session recordings go; null is the app's own data folder. */
+  recording_dir: string | null;
   /** Ask GitHub once a day whether a newer release exists. */
   check_for_updates: boolean;
   /** When the last check ran, epoch seconds; 0 for never. */
@@ -549,6 +551,8 @@ export interface SessionTab {
    * the tab; a host that always logs is set and forgotten.
    */
   logging?: 'tab' | 'host';
+  /** The recording this tab's output is going to, while one is. */
+  recording?: string;
   connect_id?: string;
   error?: string;
   logs?: LogEntry[];
