@@ -309,6 +309,8 @@ export interface Settings {
   highlight_enabled: boolean;
   /** Applied in order; the first rule to match a stretch of text wins it. */
   highlight_rules: HighlightRule[];
+  /** Suggest the rest of a command from the host's history at a prompt. */
+  autosuggest: boolean;
 }
 
 /** How the user chose to keep the master key on the first run screen. */

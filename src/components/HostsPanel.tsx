@@ -26,7 +26,7 @@ const STATUS_DOT: Record<HostStatus, { className: string; title: string }> = {
 };
 
 export default function HostsPanel() {
-  const { servers, sessions, setActiveTab, removeSession, deleteServers, setServersGroup, openSession, hostProbes, probeHosts } = useAppStore();
+  const { servers, sessions, setActiveTab, removeSession, deleteServers, setServersGroup, clearCommandHistory, openSession, hostProbes, probeHosts } = useAppStore();
   const [showServerForm, setShowServerForm] = useState(false);
   const [showSshImport, setShowSshImport] = useState(false);
   const [showClientImport, setShowClientImport] = useState(false);
@@ -342,6 +342,12 @@ export default function HostsPanel() {
                   </button>
                   <button className="menu-item" onClick={() => { setContextMenu(null); setEditServer(contextMenu.server); setShowServerForm(true); }}>
                     Edit
+                  </button>
+                  <button
+                    className="menu-item"
+                    onClick={() => { setContextMenu(null); clearCommandHistory(contextMenu.server.id).catch(reportFailure); }}
+                  >
+                    Clear command history
                   </button>
                   <div className="menu-divider" />
                   <button className="menu-item menu-item-danger" onClick={() => { setConfirmDelete([contextMenu.server.id]); setContextMenu(null); }}>

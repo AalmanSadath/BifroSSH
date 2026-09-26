@@ -222,6 +222,7 @@ const DEFAULT_SETTINGS: Settings = {
   shortcuts: {},
   highlight_enabled: true,
   highlight_rules: DEFAULT_HIGHLIGHT_RULES,
+  autosuggest: true,
   accent_color: null,
 };
 

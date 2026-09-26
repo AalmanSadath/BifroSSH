@@ -15,6 +15,7 @@ import { registerTerminal, unregisterTerminal } from '../terminalRegistry';
 import { attachHighlighter, type HighlightState, type Highlighter } from '../terminalHighlighter';
 import { HIGHLIGHT_COLORS, compileRules } from '../highlight';
 import { attachCommandTracker, type CommandTracker } from '../terminalCommands';
+import { attachSuggester, type Suggester } from '../terminalSuggest';
 import type { SessionTab, SshClosed } from '../types';
 import { THEMES } from '../styles/themes';
 import '@xterm/xterm/css/xterm.css';
@@ -71,6 +72,9 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
   markActivityRef.current = markActivity;
   const highlighterRef = useRef<Highlighter | null>(null);
   const commandsRef = useRef<CommandTracker | null>(null);
+  const suggesterRef = useRef<Suggester | null>(null);
+  /** What the suggester reads each time it looks; a ref for the same reason as the highlighter's. */
+  const suggestStateRef = useRef({ enabled: false, history: [] as string[] });
   /** What the highlighter reads each pass; kept in a ref so the terminal's
       once-per-tab effect can hand it a getter rather than a stale copy. */
   const highlightStateRef = useRef<HighlightState>({ enabled: false, rules: [], palette: {} });
@@ -403,8 +407,24 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
           pasteFromClipboard();
           return false;
         default:
-          return true;
+          break;
       }
+      // Right arrow at the end of the line takes the suggestion, the way fish
+      // and zsh-autosuggestions do. With none showing, or with a modifier
+      // held, it reaches the shell as usual.
+      if (ev.key === 'ArrowRight' && !ev.shiftKey && !ev.ctrlKey && !ev.altKey && !ev.metaKey) {
+        const rest = suggesterRef.current?.current();
+        if (rest) {
+          ev.preventDefault();
+          suggesterRef.current?.clear();
+          highlighterRef.current?.markInput();
+          // Through onData, exactly as if typed: to the session, and to every
+          // tab this one broadcasts to.
+          term.input(rest);
+          return false;
+        }
+      }
+      return true;
     });
 
     term.onData((data) => {
@@ -441,10 +461,13 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
     commandsRef.current = attachCommandTracker(term, (command) => {
       if (serverId) useAppStore.getState().learnCommand(serverId, command);
     });
+    suggesterRef.current = attachSuggester(term, commandsRef.current, () => suggestStateRef.current);
 
     return () => {
       highlighterRef.current?.dispose();
       highlighterRef.current = null;
+      suggesterRef.current?.dispose();
+      suggesterRef.current = null;
       commandsRef.current?.dispose();
       commandsRef.current = null;
       unregisterTerminal(tabId);
@@ -568,6 +591,12 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
   useEffect(() => {
     if (serverId) void useAppStore.getState().loadCommandHistory(serverId);
   }, [serverId]);
+
+  const history = useAppStore((s) => s.commandHistory[serverId]);
+  useEffect(() => {
+    suggestStateRef.current = { enabled: settings.autosuggest, history: history ?? [] };
+    suggesterRef.current?.refresh();
+  }, [settings.autosuggest, history]);
 
   // The rules and the colours they resolve to. Compiled here, once per
   // change, rather than on every pass over the output.

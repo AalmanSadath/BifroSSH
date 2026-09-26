@@ -227,3 +227,12 @@
   background: var(--accent);
   opacity: 0.5;
 }
+
+/* The rest of a command suggested from history, drawn after the cursor. Never
+   a target for the mouse: a click there is a click on the terminal. */
+.term-suggestion {
+  opacity: 0.4;
+  white-space: pre;
+  overflow: hidden;
+  pointer-events: none;
+}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import * as ipc from '../../ipc';
-import { useAppStore } from '../../store/appStore';
+import { useAppStore, reportFailure } from '../../store/appStore';
 import NumberSetting from '../shared/NumberSetting';
 import ThemePicker, { ThumbNail } from '../ThemePicker';
 import { THEMES } from '../../styles/themes';
@@ -18,7 +18,8 @@ const CURSOR_STYLES: PickerOption<CursorStyle>[] = [
 
 /** Everything about the terminal itself: its colours, its type and its cursor. */
 export default function TerminalSection() {
-  const { settings, customThemes } = useAppStore();
+  const { settings, customThemes, clearCommandHistory } = useAppStore();
+  const [historyCleared, setHistoryCleared] = useState(false);
   const patch = usePatch();
   const [themeExpanded, setThemeExpanded] = useState(false);
   const [fonts, setFonts] = useState<string[]>([]);
@@ -133,6 +134,31 @@ export default function TerminalSection() {
               {copied === id ? 'Copied' : failed ? 'Copy failed' : `Copy for ${label}`}
             </button>
           ))}
+        </div>
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={settings.autosuggest}
+            onChange={(e) => patch({ autosuggest: e.target.checked })}
+          />
+          <span>Suggest commands from history</span>
+        </label>
+        <p className="form-hint">
+          With the line above in place, commands run at a prompt on a saved host are remembered
+          for that host, and typing the start of one shows the rest in grey; Right arrow at the
+          end of the line takes it. A command typed with a leading space is never remembered.
+          History is kept encrypted with everything else and is not part of an export.
+        </p>
+        <div className="settings-inline-row">
+          <button
+            className="btn-secondary btn-sm"
+            onClick={() => {
+              clearCommandHistory(null).then(() => setHistoryCleared(true)).catch(reportFailure);
+            }}
+          >
+            Clear all command history
+          </button>
+          {historyCleared && <span className="form-hint form-hint-flush">Cleared</span>}
         </div>
       </section>
 

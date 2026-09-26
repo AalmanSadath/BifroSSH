@@ -328,6 +328,9 @@ pub struct Settings {
     /// Patterns to colour, applied in order; the first to match a stretch of
     /// text wins it.
     pub highlight_rules: Vec<HighlightRule>,
+    /// Suggest the rest of a command from the host's history while typing at
+    /// a prompt. On by default; needs the shell integration.
+    pub autosuggest: bool,
 }
 
 /// One keyword highlighting rule.
@@ -388,6 +391,7 @@ impl Default for Settings {
             shortcuts: std::collections::HashMap::new(),
             highlight_enabled: true,
             highlight_rules: HighlightRule::defaults(),
+            autosuggest: true,
         }
     }
 }
