@@ -252,6 +252,15 @@ export type SettingsSection =
   | 'data'
   | 'about';
 
+/** One keyword highlighting rule. */
+export interface HighlightRule {
+  /** A JavaScript regular expression, as typed. */
+  pattern: string;
+  /** An ANSI colour name, resolved against the tab's theme. */
+  color: string;
+  case_sensitive: boolean;
+}
+
 export interface Settings {
   theme: string;
   font_size: number;
@@ -296,6 +305,10 @@ export interface Settings {
    * `src/shortcuts.ts`.
    */
   shortcuts: Record<string, string>;
+  /** Colour what `highlight_rules` match in terminal output. */
+  highlight_enabled: boolean;
+  /** Applied in order; the first rule to match a stretch of text wins it. */
+  highlight_rules: HighlightRule[];
 }
 
 /** How the user chose to keep the master key on the first run screen. */

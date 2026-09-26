@@ -323,6 +323,41 @@ pub struct Settings {
     /// a later version still reaches everyone who never touched it. The
     /// frontend owns the table of actions and the chord spelling.
     pub shortcuts: std::collections::HashMap<String, String>,
+    /// Colour what the rules below match in terminal output. On by default.
+    pub highlight_enabled: bool,
+    /// Patterns to colour, applied in order; the first to match a stretch of
+    /// text wins it.
+    pub highlight_rules: Vec<HighlightRule>,
+}
+
+/// One keyword highlighting rule.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HighlightRule {
+    /// A regular expression, in JavaScript's syntax since the terminal is
+    /// where it runs. Stored as typed; one that does not compile is ignored
+    /// there rather than refused here.
+    pub pattern: String,
+    /// An ANSI colour name (`red`, `brightYellow`, ...), resolved against the
+    /// tab's own theme so a rule stays legible whichever theme is on.
+    pub color: String,
+    #[serde(default)]
+    pub case_sensitive: bool,
+}
+
+impl HighlightRule {
+    /// What a fresh install highlights, and what "Restore defaults" puts back.
+    pub fn defaults() -> Vec<HighlightRule> {
+        let rule = |pattern: &str, color: &str| HighlightRule {
+            pattern: pattern.to_string(),
+            color: color.to_string(),
+            case_sensitive: false,
+        };
+        vec![
+            rule(r"\b(error|errors|failed|failure|fatal)\b", "red"),
+            rule(r"\b(warn|warning|warnings)\b", "yellow"),
+            rule(r"\b(ok|success|succeeded|done)\b", "green"),
+        ]
+    }
 }
 
 impl Default for Settings {
@@ -351,6 +386,8 @@ impl Default for Settings {
             restore_tabs: true,
             verify_transfers: false,
             shortcuts: std::collections::HashMap::new(),
+            highlight_enabled: true,
+            highlight_rules: HighlightRule::defaults(),
         }
     }
 }
@@ -602,6 +639,17 @@ mod tests {
             }"#,
         );
         assert!(parsed.is_err(), "a host with no hostname is not a host");
+    }
+
+    /// A settings file from before highlighting gets the default rules
+    /// switched on, and one where the user emptied the list keeps it empty.
+    #[test]
+    fn highlight_rules_default_only_when_absent() {
+        let before: Settings = serde_json::from_str("{}").unwrap();
+        assert!(before.highlight_enabled);
+        assert_eq!(before.highlight_rules, HighlightRule::defaults());
+        let emptied: Settings = serde_json::from_str(r#"{ "highlight_rules": [] }"#).unwrap();
+        assert!(emptied.highlight_rules.is_empty());
     }
 
     #[test]

@@ -6,6 +6,7 @@ import { CHECK_INTERVAL_SECS, fetchLatestRelease, newerVersion, type Release } f
 import { STORED, UNDETECTED_OS, UNKNOWN_OS } from '../types';
 import { restoreOrder, tabsToSave } from '../sessionRestore';
 import { cleanTitle } from '../tabName';
+import { DEFAULT_HIGHLIGHT_RULES } from '../highlight';
 import { withError, type DiagError } from '../diagnostics';
 import { clampZoom } from '../zoom';
 import { nextActivity, watched, type Activity, type Mark } from '../activity';
@@ -187,6 +188,8 @@ const DEFAULT_SETTINGS: Settings = {
   restore_tabs: true,
   verify_transfers: false,
   shortcuts: {},
+  highlight_enabled: true,
+  highlight_rules: DEFAULT_HIGHLIGHT_RULES,
   accent_color: null,
 };
 
