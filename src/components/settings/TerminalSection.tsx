@@ -162,6 +162,24 @@ export default function TerminalSection() {
         </div>
       </section>
 
+      <section className="panel-section">
+        <h3>Monitor bar</h3>
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={settings.monitor_bar}
+            onChange={(e) => patch({ monitor_bar: e.target.checked })}
+          />
+          <span>Show a monitor bar under terminals</span>
+        </label>
+        <p className="form-hint">
+          CPU, memory, disk use of /, network in and out, and load, for the host a terminal is on.
+          Read every 3 seconds while the tab is showing, by a small command run over the same
+          connection on a channel of its own, so nothing appears in the shell. Needs a Linux host.
+          A host can be set to always or never show it, whatever this says.
+        </p>
+      </section>
+
       <HighlightRules />
 
       <section className="panel-section">

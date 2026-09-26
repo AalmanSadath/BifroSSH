@@ -169,6 +169,10 @@ pub struct Server {
     /// form then keeps their order, their spacing and their comments.
     #[serde(default)]
     pub env: Option<String>,
+    /// The monitor bar for this host: None follows the setting, Some(true)
+    /// shows it with the setting off, Some(false) hides it with it on.
+    #[serde(default)]
+    pub monitor: Option<bool>,
 }
 
 /// The variables in an [`Server::env`] block, in the order they were written.
@@ -331,6 +335,9 @@ pub struct Settings {
     /// Suggest the rest of a command from the host's history while typing at
     /// a prompt. On by default; needs the shell integration.
     pub autosuggest: bool,
+    /// Show the monitor bar under terminals. Off by default: it runs a small
+    /// command on the host every few seconds. A host can override it.
+    pub monitor_bar: bool,
 }
 
 /// One keyword highlighting rule.
@@ -392,6 +399,7 @@ impl Default for Settings {
             highlight_enabled: true,
             highlight_rules: HighlightRule::defaults(),
             autosuggest: true,
+            monitor_bar: false,
         }
     }
 }

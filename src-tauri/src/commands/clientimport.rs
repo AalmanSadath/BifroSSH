@@ -143,6 +143,7 @@ pub async fn import_client_hosts(
             notes: host.notes.clone(),
             term: None,
             env: None,
+            monitor: None,
         });
         result.imported += 1;
     }

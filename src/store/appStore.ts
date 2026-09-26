@@ -223,6 +223,7 @@ const DEFAULT_SETTINGS: Settings = {
   highlight_enabled: true,
   highlight_rules: DEFAULT_HIGHLIGHT_RULES,
   autosuggest: true,
+  monitor_bar: false,
   accent_color: null,
 };
 
