@@ -718,6 +718,7 @@ mod tests {
                 encrypted_key: Some(crypto::encrypt(b"PRIVATE", &source).unwrap()),
                 encrypted_passphrase: Some(crypto::encrypt(b"pw", &source).unwrap()),
                 algorithm: None,
+                certificate: None,
             }],
             ..Default::default()
         };
@@ -1030,6 +1031,7 @@ mod tests {
                 encrypted_key: None,
                 encrypted_passphrase: None,
                 algorithm: None,
+                certificate: None,
             }],
             ..Default::default()
         };

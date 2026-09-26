@@ -284,6 +284,11 @@ pub struct KeyEntry {
     pub encrypted_passphrase: Option<String>,
     #[serde(default)]
     pub algorithm: Option<String>,
+    /// The key's OpenSSH user certificate, the text of its `-cert.pub`.
+    /// Public, so kept as it is. None for a key without one; a key kept by
+    /// path also has any certificate beside its file picked up at connect.
+    #[serde(default)]
+    pub certificate: Option<String>,
 }
 
 /// Every field defaults, and the defaults are `Default::default()` rather

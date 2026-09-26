@@ -386,10 +386,12 @@ interface AppStore {
   detectServerOs: (serverId: string, username: string, authType: AuthType, authValue: string, jumps?: JumpHopParams[]) => Promise<void>;
 
   importKey: (name: string, path: string, passphrase: string | null, storeContent: boolean) => Promise<void>;
-  saveKeyFromContent: (name: string, content: string, passphrase: string | null) => Promise<void>;
+  saveKeyFromContent: (name: string, content: string, passphrase: string | null, certificate?: string | null) => Promise<void>;
   generateKey: (algorithm: string, passphrase?: string | null) => Promise<GeneratedKey>;
   getKeyContent: (keyId: string) => Promise<KeyContent>;
   updateKey: (keyId: string, name: string, content: string, passphrase: string | null) => Promise<void>;
+  /** Puts a certificate on a key, or takes it off with null; refused with the reason when it is not this key's. */
+  setKeyCertificate: (keyId: string, certificate: string | null) => Promise<void>;
   deleteKey: (id: string) => Promise<void>;
 
   saveIdentity: (identity: IdentityInput, password?: string) => Promise<void>;
@@ -855,8 +857,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set((s) => ({ keys: [...s.keys, key] }));
   },
 
-  saveKeyFromContent: async (name, content, passphrase) => {
-    const key = await ipc.saveKeyFromContent(name, content, passphrase);
+  saveKeyFromContent: async (name, content, passphrase, certificate) => {
+    const key = await ipc.saveKeyFromContent(name, content, passphrase, certificate ?? null);
     set((s) => ({ keys: [...s.keys, key] }));
   },
 
@@ -866,6 +868,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   getKeyContent: async (keyId) => {
     return ipc.getKeyContent(keyId);
+  },
+
+  setKeyCertificate: async (keyId, certificate) => {
+    const key = await ipc.setKeyCertificate(keyId, certificate);
+    set((s) => ({ keys: s.keys.map((k) => (k.id === keyId ? key : k)) }));
   },
 
   updateKey: async (keyId, name, content, passphrase) => {

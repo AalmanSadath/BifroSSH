@@ -84,8 +84,11 @@ opt-level = 1
 codegen-units = 1
 
 [patch.crates-io]
-# The only fork this app needs on its own terms. Skips agent identities
+# Skips agent identities
 # russh-keys cannot parse (FIDO sk-* keys) instead of failing the whole
 # listing. See the PATCH comment in src/agent/client.rs, and patches/README.md
 # for why the other three went.
 russh-keys = { path = "../patches/russh-keys-0.44.0" }
+# Decodes a certificate valid forever, the ssh-keygen default, which upstream
+# 0.6.7 refuses. See the PATCH comment in src/certificate/unix_time.rs.
+ssh-key = { path = "../patches/ssh-key-0.6.7" }

@@ -7,6 +7,8 @@ import { STORED } from '../types';
 import type { AgentKeyInfo, Identity } from '../types';
 import ConfirmModal from './shared/ConfirmModal';
 import ContextMenu from './shared/ContextMenu';
+import KeyCertificate from './KeyCertificate';
+import AutoTextarea from './shared/AutoTextarea';
 import Drawer from './shared/Drawer';
 import PassphraseInput from './shared/PassphraseInput';
 import { cardKeys } from './shared/cardKeys';
@@ -27,7 +29,7 @@ function clickableProps(onActivate: () => void) {
 }
 
 export default function KeychainPanel() {
-  const { keys, identities, saveKeyFromContent, generateKey, getKeyContent, updateKey, deleteKey, saveIdentity, deleteIdentity } = useAppStore();
+  const { keys, identities, saveKeyFromContent, generateKey, getKeyContent, updateKey, setKeyCertificate, deleteKey, saveIdentity, deleteIdentity } = useAppStore();
   // Four copy buttons, each saying so for itself.
   const { copied, copy } = useCopy();
   const hint = useHint();
@@ -36,6 +38,9 @@ export default function KeychainPanel() {
   const [showKeyForm, setShowKeyForm] = useState(false);
   const [keyName, setKeyName] = useState('');
   const [keyContent, setKeyContent] = useState('');
+  const [keyCert, setKeyCert] = useState('');
+  /** What the certificate field says is wrong; the save waits until it is fixed or cleared. */
+  const [certProblem, setCertProblem] = useState('');
   const [keyPassphrase, setKeyPassphrase] = useState('');
   const [keyError, setKeyError] = useState('');
   const [savingKey, setSavingKey] = useState(false);
@@ -94,9 +99,10 @@ export default function KeychainPanel() {
   const [editKeySaving, setEditKeySaving] = useState(false);
   const [editKeyLoading, setEditKeyLoading] = useState(false);
   const [editKeyError, setEditKeyError] = useState('');
+  const [editKeyCert, setEditKeyCert] = useState('');
 
   function resetKeyForm() {
-    setKeyName(''); setKeyContent(''); setKeyPassphrase(''); setKeyError('');
+    setKeyName(''); setKeyContent(''); setKeyCert(''); setKeyPassphrase(''); setKeyError('');
   }
 
   function handleKeyFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
@@ -121,6 +127,7 @@ export default function KeychainPanel() {
     e.preventDefault();
     if (!keyName.trim()) { setKeyError('Name required'); return; }
     if (!keyContent.trim()) { setKeyError('Key content required'); return; }
+    if (certProblem) return;
     setSavingKey(true);
     setKeyError('');
     try {
@@ -130,7 +137,7 @@ export default function KeychainPanel() {
         content = await ipc.convertPpk(content, keyPassphrase || null);
         passphraseToStore = null;
       }
-      await saveKeyFromContent(keyName.trim(), content, passphraseToStore);
+      await saveKeyFromContent(keyName.trim(), content, passphraseToStore, keyCert.trim() || null);
       setShowKeyForm(false);
       resetKeyForm();
     } catch (err) {
@@ -172,9 +179,10 @@ export default function KeychainPanel() {
     }
   }
 
-  async function handleOpenEditKey(key: { id: string; name: string }) {
+  async function handleOpenEditKey(key: { id: string; name: string; certificate?: string | null }) {
     setEditKeyId(key.id);
     setEditKeyName(key.name);
+    setEditKeyCert(key.certificate ?? '');
     setEditKeyPrivate('');
     setEditKeyPublic(null);
     setEditKeyError('');
@@ -198,6 +206,7 @@ export default function KeychainPanel() {
     setEditKeyPublic(null);
     setEditKeyPassphrase('');
     setEditKeyError('');
+    setEditKeyCert('');
   }
 
   async function handleSaveEditKey(e: React.FormEvent) {
@@ -205,10 +214,15 @@ export default function KeychainPanel() {
     if (!editKeyId) return;
     if (!editKeyName.trim()) { setEditKeyError('Name required'); return; }
     if (!editKeyPrivate.trim()) { setEditKeyError('Private key required'); return; }
+    if (certProblem) return;
     setEditKeySaving(true);
     setEditKeyError('');
     try {
       await updateKey(editKeyId, editKeyName.trim(), editKeyPrivate.trim(), editKeyPassphrase || null);
+      // After the key itself, so a new certificate is checked against the
+      // key as just saved. Sent every time: a save of a different key can
+      // have dropped the old one as no longer matching.
+      await setKeyCertificate(editKeyId, editKeyCert.trim() || null);
       closeEditKey();
     } catch (err) {
       setEditKeyError(String(err));
@@ -313,7 +327,7 @@ export default function KeychainPanel() {
           title="Add SSH Key"
           onClose={() => { setShowKeyForm(false); resetKeyForm(); }}
           action={
-            <button type="submit" form="key-form" className="btn-primary btn-sm" disabled={savingKey}>
+            <button type="submit" form="key-form" className="btn-primary btn-sm" disabled={savingKey || !!certProblem}>
               {savingKey ? 'Saving…' : 'Save Key'}
             </button>
           }
@@ -326,14 +340,27 @@ export default function KeychainPanel() {
               </div>
               <div className="form-group">
                 <label>Private key</label>
-                <textarea
+                <AutoTextarea
                   className="key-paste-area"
                   value={keyContent}
-                  onChange={(e) => setKeyContent(e.target.value)}
-                  placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;..."
+                  onChange={setKeyContent}
+                  placeholder={'-----BEGIN OPENSSH PRIVATE KEY-----\n...'}
                   rows={8}
-                  spellCheck={false}
                 />
+                <input
+                  ref={keyFileInputRef}
+                  type="file"
+                  accept=".ppk,.pem,.key,.txt,*"
+                  style={{ display: 'none' }}
+                  onChange={handleKeyFileSelect}
+                />
+                <button
+                  type="button"
+                  className="btn-secondary btn-sm self-start"
+                  onClick={() => keyFileInputRef.current?.click()}
+                >
+                  Import from key file
+                </button>
               </div>
               <div className="form-group">
                 <label>Passphrase (if encrypted)</label>
@@ -343,24 +370,17 @@ export default function KeychainPanel() {
                   placeholder="leave empty if none"
                 />
               </div>
+              <KeyCertificate
+                value={keyCert}
+                onChange={setKeyCert}
+                keyPem={keyContent}
+                passphrase={keyPassphrase}
+                onProblem={setCertProblem}
+              />
               {keyContent.trimStart().startsWith('PuTTY-User-Key-File') && (
                 <p className="form-info">PPK file will be converted to OpenSSH format on save.</p>
               )}
               {keyError && <p className="form-error">{keyError}</p>}
-              <input
-                ref={keyFileInputRef}
-                type="file"
-                accept=".ppk,.pem,.key,.txt,*"
-                style={{ display: 'none' }}
-                onChange={handleKeyFileSelect}
-              />
-              <button
-                type="button"
-                className="btn-secondary btn-sm self-start"
-                onClick={() => keyFileInputRef.current?.click()}
-              >
-                Import from key file
-              </button>
             </form>
           </div>
         </Drawer>
@@ -470,6 +490,7 @@ export default function KeychainPanel() {
                     <span className="kc-card-detail">
                       {key.algorithm ?? (key.key_path ? 'file path' : 'unknown')}
                       {key.encrypted_passphrase === STORED && ' · passphrase'}
+                      {key.certificate && ' · certificate'}
                     </span>
                   </div>
                   <button className="card-edit-btn" onClick={(e) => { e.stopPropagation(); handleOpenEditKey(key); }} title={hint('Edit')} disabled={editKeyLoading}>
@@ -649,7 +670,7 @@ export default function KeychainPanel() {
           title="Edit Key"
           onClose={closeEditKey}
           action={
-            <button type="submit" form="edit-key-form" className="btn-primary btn-sm" disabled={editKeySaving || editKeyLoading}>
+            <button type="submit" form="edit-key-form" className="btn-primary btn-sm" disabled={editKeySaving || editKeyLoading || !!certProblem}>
               {editKeySaving ? 'Saving…' : 'Save'}
             </button>
           }
@@ -683,16 +704,23 @@ export default function KeychainPanel() {
                   <div className="form-group">
                     <label>Private key</label>
                     <div className="key-pub-box key-pub-box--tall">
-                      <textarea
+                      <AutoTextarea
                         className="key-paste-area"
                         value={editKeyPrivate}
-                        onChange={(e) => setEditKeyPrivate(e.target.value)}
+                        onChange={setEditKeyPrivate}
                         rows={10}
-                        spellCheck={false}
                       />
                       <button type="button" className="btn-secondary btn-sm" onClick={() => void copy(editKeyPrivate, 'edit-key')}>{copied === 'edit-key' ? 'Copied' : 'Copy'}</button>
                     </div>
                   </div>
+                  <KeyCertificate
+                    keyId={editKeyId}
+                    value={editKeyCert}
+                    onChange={setEditKeyCert}
+                    keyPem={editKeyPrivate}
+                    passphrase={editKeyPassphrase}
+                    onProblem={setCertProblem}
+                  />
                   {editKeyError && <p className="form-error">{editKeyError}</p>}
                 </form>
               )

@@ -17,6 +17,7 @@ mod ppk;
 mod prompts;
 mod recording;
 mod sessionlog;
+mod sshcert;
 mod sftp;
 mod socks5;
 mod sshconfig;
@@ -179,6 +180,9 @@ fn start(
             commands::get_key_content,
             commands::update_key,
             commands::delete_key,
+            commands::set_key_certificate,
+            commands::inspect_key_certificate,
+            commands::check_certificate,
             commands::list_identities,
             commands::save_identity,
             commands::delete_identity,

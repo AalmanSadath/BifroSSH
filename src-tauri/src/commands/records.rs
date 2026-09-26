@@ -282,6 +282,7 @@ mod tests {
             encrypted_key: content.map(str::to_string),
             encrypted_passphrase: passphrase.map(str::to_string),
             algorithm: Some("ssh-ed25519".to_string()),
+            certificate: None,
         }
     }
 

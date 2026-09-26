@@ -17,6 +17,7 @@
  */
 import { invoke } from '@tauri-apps/api/core';
 import type {
+  CertInfo,
   AgentKeyInfo,
   AuthType,
   ClientImportResult,
@@ -101,7 +102,8 @@ export const saveKeyFromContent = (
   name: string,
   content: string,
   passphrase: string | null,
-) => invoke<KeyEntry>('save_key_from_content', { name, content, passphrase });
+  certificate: string | null = null,
+) => invoke<KeyEntry>('save_key_from_content', { name, content, passphrase, certificate });
 
 export const generateKey = (algorithm: string, passphrase: string | null) =>
   invoke<GeneratedKey>('generate_key', { algorithm, passphrase });
@@ -240,6 +242,18 @@ export const sftpCompareTrees = (
  */
 export const writeTextFile = (path: string, contents: string, overwrite: boolean) =>
   invoke<void>('write_text_file', { path, contents, overwrite });
+
+/** Puts a certificate on a key, or takes it off with null; answers with the key. */
+export const setKeyCertificate = (keyId: string, certificate: string | null) =>
+  invoke<KeyEntry>('set_key_certificate', { keyId, certificate });
+
+/** What a key's certificate says, or null when it has none. */
+export const inspectKeyCertificate = (keyId: string) =>
+  invoke<CertInfo | null>('inspect_key_certificate', { keyId });
+
+/** Whether certificate text is a user certificate for this private key, and what it says. */
+export const checkCertificate = (certificate: string, keyPem: string, passphrase: string | null) =>
+  invoke<CertInfo>('check_certificate', { certificate, keyPem, passphrase });
 
 /** A text file the user picked, up to 64 MB. */
 export const readTextFile = (path: string) => invoke<string>('read_text_file', { path });

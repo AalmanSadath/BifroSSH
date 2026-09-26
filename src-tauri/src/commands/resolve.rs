@@ -81,7 +81,14 @@ pub(super) fn resolve_auth(
                 None => None,
             };
 
-            Ok(SshAuth::KeyData { key_pem, passphrase })
+            // A certificate saved on the key, else one beside its file, as
+            // OpenSSH looks for it.
+            let cert = key
+                .certificate
+                .clone()
+                .or_else(|| key.key_path.as_deref().and_then(crate::sshcert::beside));
+
+            Ok(SshAuth::KeyData { key_pem, passphrase, cert })
         }
     }
 }

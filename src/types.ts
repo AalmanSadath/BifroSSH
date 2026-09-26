@@ -217,6 +217,21 @@ export interface KeyEntry {
   encrypted_key: string | null;
   encrypted_passphrase: string | null;
   algorithm: string | null;
+  /** The key's OpenSSH certificate, the text of its -cert.pub; public. */
+  certificate?: string | null;
+}
+
+/** What a key's certificate says. Times are seconds since the epoch. */
+export interface CertInfo {
+  key_id: string;
+  /** The user names it is good for; empty means any. */
+  principals: string[];
+  valid_after: number;
+  /** Null for a certificate that never expires. */
+  valid_before: number | null;
+  ca_fingerprint: string;
+  /** Sent under a name OpenSSH 8.8 and later refuse by default. */
+  rsa: boolean;
 }
 
 /** The material behind a saved key, decrypted for the one caller that asked. */
@@ -410,6 +425,7 @@ export interface SshConfigHost {
   user: string | null;
   port: number | null;
   identity_file: string | null;
+  certificate_file: string | null;
   /**
    * The config's ProxyJump value, verbatim, hops and all. Resolved to saved
    * servers on import, but only when every hop is imported alongside it.

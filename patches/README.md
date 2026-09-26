@@ -1,12 +1,12 @@
 # Vendored crates
 
-One crate is built from this directory instead of from crates.io, wired up by
-`[patch.crates-io]` at the bottom of `src-tauri/Cargo.toml`. It is the
+Two crates are built from this directory instead of from crates.io, wired up
+by `[patch.crates-io]` at the bottom of `src-tauri/Cargo.toml`. Each is the
 published source of that exact version with a small edit on top.
 
-There were four. A fork nobody can explain is a fork nobody dares remove, so
-this file records what the survivor changes and why, and what happened to the
-other three.
+There were four before these, all since removed. A fork nobody can explain is
+a fork nobody dares remove, so this file records what each one changes and
+why, and what happened to the others.
 
 Regenerate the diff against the published source:
 
@@ -15,6 +15,9 @@ curl -sSfLO https://static.crates.io/crates/russh-keys/russh-keys-0.44.0.crate
 tar xzf russh-keys-0.44.0.crate -C /tmp
 diff -ru /tmp/russh-keys-0.44.0 patches/russh-keys-0.44.0
 ```
+
+The same with `ssh-key/ssh-key-0.6.7.crate` for the other one; beside the
+edit, only the registry's `.cargo-ok` and `.cargo_vcs_info.json` are missing.
 
 ## `russh-keys-0.44.0` — the one that is ours
 
@@ -29,6 +32,23 @@ comment are read before parsing, so the reader stays in sync.
 
 This is a behaviour BifroSSH needs, not a build fix, so no version bump
 retires it. Its reason is also written at the edit itself.
+
+## `ssh-key-0.6.7`: certificates valid forever
+
+One file, `src/certificate/unix_time.rs`.
+
+OpenSSH marks a certificate that never expires with `valid_before` set to
+`0xFFFFFFFFFFFFFFFF`, and that is what `ssh-keygen -s` writes when it is not
+given `-V`, so most certificates in the wild have it. Upstream 0.6.7 caps
+certificate timestamps at `i64::MAX` and fails to decode anything above, so
+such a certificate could not be read at all, and russh 0.44 signs in with a
+certificate only as an `ssh_key::Certificate`. The patch accepts that one
+value as itself. The bytes are kept exactly, so the CA's signature over them
+still verifies.
+
+russh 0.44 depends on ssh-key 0.6, so a newer ssh-key cannot simply be
+chosen. What retires this is russh moving to an ssh-key release that reads
+the value, after which the entry and this directory go.
 
 ## `cookie`, `tauri` and `tauri-utils` — removed 2026-08-20
 
