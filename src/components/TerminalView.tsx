@@ -12,6 +12,8 @@ import { useAppStore } from '../store/appStore';
 import { parseMark } from '../activity';
 import { useHint } from './shared/useHint';
 import { registerTerminal, unregisterTerminal } from '../terminalRegistry';
+import { attachHighlighter, type HighlightState, type Highlighter } from '../terminalHighlighter';
+import { HIGHLIGHT_COLORS, compileRules } from '../highlight';
 import type { SessionTab, SshClosed } from '../types';
 import { THEMES } from '../styles/themes';
 import '@xterm/xterm/css/xterm.css';
@@ -66,6 +68,10 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
   // store through a ref rather than the first render's action.
   const markActivityRef = useRef(markActivity);
   markActivityRef.current = markActivity;
+  const highlighterRef = useRef<Highlighter | null>(null);
+  /** What the highlighter reads each pass; kept in a ref so the terminal's
+      once-per-tab effect can hand it a getter rather than a stale copy. */
+  const highlightStateRef = useRef<HighlightState>({ enabled: false, rules: [], palette: {} });
 
   const shortcutsRef = useRef(resolveShortcuts(settings.shortcuts));
   shortcutsRef.current = resolveShortcuts(settings.shortcuts);
@@ -419,7 +425,11 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
     // What the tab menu reaches for when it is asked for a transcript.
     registerTerminal(tabId, term);
 
+    highlighterRef.current = attachHighlighter(term, () => highlightStateRef.current);
+
     return () => {
+      highlighterRef.current?.dispose();
+      highlighterRef.current = null;
       unregisterTerminal(tabId);
       container.removeEventListener('contextmenu', onContextMenu, true);
       container.removeEventListener('mouseup', onMouseUp);
@@ -536,6 +546,20 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
     settings.cursor_blink,
     settings.scrollback_lines,
   ]);
+
+  // The rules and the colours they resolve to. Compiled here, once per
+  // change, rather than on every pass over the output.
+  useEffect(() => {
+    const theme = resolveTheme();
+    const palette: Record<string, string | undefined> = {};
+    for (const name of HIGHLIGHT_COLORS) palette[name] = theme[name];
+    highlightStateRef.current = {
+      enabled: settings.highlight_enabled,
+      rules: compileRules(settings.highlight_rules),
+      palette,
+    };
+    highlighterRef.current?.refresh();
+  }, [resolveTheme, settings.highlight_enabled, settings.highlight_rules]);
 
   // Two frames after becoming visible, so the box has a size to fit to.
   useEffect(() => {
