@@ -123,7 +123,7 @@ export default function HostsPanel() {
   /** A click on the page that is not on a card, or on something to act with, lets go. */
   function onPanelMouseDown(e: React.MouseEvent) {
     if (!anythingPicked) return;
-    if ((e.target as HTMLElement).closest('.host-card, .hosts-bulk-bar, button, input, a, label')) return;
+    if ((e.target as HTMLElement).closest('.host-card, button, input, a, label')) return;
     setSelection(EMPTY_SELECTION);
   }
 
@@ -194,23 +194,6 @@ export default function HostsPanel() {
                 {chip ?? 'All'}
               </button>
             ))}
-          </div>
-        )}
-
-        {picked.length > 1 && (
-          <div className="hosts-bulk-bar">
-            <span className="hosts-bulk-count">{picked.length} selected</span>
-            <button className="btn-secondary btn-sm" onClick={() => void connectAll(picked)}>Connect</button>
-            <button className="btn-secondary btn-sm" onClick={() => setMovingToGroup(true)}>Move to group…</button>
-            <button
-              className="btn-secondary btn-sm"
-              onClick={() => { void probeHosts(picked, true); }}
-              disabled={checking}
-              title={hint('Open a TCP connection to each selected host and time it. Nothing is authenticated.')}
-            >
-              Check
-            </button>
-            <button className="btn-danger btn-sm" onClick={() => setConfirmDelete(picked)}>Delete</button>
           </div>
         )}
 
