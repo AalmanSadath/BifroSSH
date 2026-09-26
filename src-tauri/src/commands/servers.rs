@@ -39,6 +39,7 @@ pub async fn save_server(
     let server = Server {
         id: if server.id.is_empty() { Uuid::new_v4().to_string() } else { server.id },
         encrypted_password,
+        tags: normalize_tags(server.tags),
         ..server
     };
 
@@ -91,6 +92,33 @@ pub async fn set_servers_group(
     for server in data.servers.iter_mut().filter(|s| server_ids.contains(&s.id)) {
         server.group = group.clone();
     }
+    state.save(&data)?;
+    Ok(data.servers.iter().cloned().map(Redacted::redacted).collect())
+}
+
+/// Gives several hosts a tag, with one write. A host that has it already, in
+/// any case, keeps it as it was.
+#[tauri::command]
+pub async fn add_servers_tag(
+    state: State<'_, AppState>,
+    server_ids: Vec<String>,
+    tag: String,
+) -> CmdResult<Vec<Server>> {
+    let mut data = state.data.lock().await;
+    tag_servers(&mut data.servers, &server_ids, &tag, true);
+    state.save(&data)?;
+    Ok(data.servers.iter().cloned().map(Redacted::redacted).collect())
+}
+
+/// Takes a tag off several hosts, with one write.
+#[tauri::command]
+pub async fn remove_servers_tag(
+    state: State<'_, AppState>,
+    server_ids: Vec<String>,
+    tag: String,
+) -> CmdResult<Vec<Server>> {
+    let mut data = state.data.lock().await;
+    tag_servers(&mut data.servers, &server_ids, &tag, false);
     state.save(&data)?;
     Ok(data.servers.iter().cloned().map(Redacted::redacted).collect())
 }

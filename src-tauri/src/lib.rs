@@ -168,6 +168,8 @@ fn start(
             commands::delete_server,
             commands::delete_servers,
             commands::set_servers_group,
+            commands::add_servers_tag,
+            commands::remove_servers_tag,
             commands::list_keys,
             commands::import_key_from_path,
             commands::save_key_from_content,

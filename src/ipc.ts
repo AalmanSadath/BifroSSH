@@ -80,6 +80,12 @@ export const deleteServers = (serverIds: string[]) =>
 export const setServersGroup = (serverIds: string[], group: string | null) =>
   invoke<Server[]>('set_servers_group', { serverIds, group });
 
+/** A tag onto several hosts, or off them; answers with every host. */
+export const addServersTag = (serverIds: string[], tag: string) =>
+  invoke<Server[]>('add_servers_tag', { serverIds, tag });
+export const removeServersTag = (serverIds: string[], tag: string) =>
+  invoke<Server[]>('remove_servers_tag', { serverIds, tag });
+
 // ── keys ─────────────────────────────────────────────────────────────────
 
 export const listKeys = () => invoke<KeyEntry[]>('list_keys');

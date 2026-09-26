@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as ipc from '../ipc';
 import { useAppStore, reportFailure } from '../store/appStore';
 import { useHint } from './shared/useHint';
-import { UNGROUPED, groupNames, groupOf, hostSections, hostStatus, type HostStatus } from '../hosts';
+import { UNGROUPED, groupNames, groupOf, hostSections, hostStatus, tagCounts, tagNames, type HostStatus } from '../hosts';
 import type { Server } from '../types';
 import ServerForm from './ServerForm';
 import SshConfigImport from './SshConfigImport';
@@ -12,6 +12,7 @@ import ConfirmModal from './shared/ConfirmModal';
 import ContextMenu from './shared/ContextMenu';
 import PortalDropdown from './shared/PortalDropdown';
 import MoveToGroupModal from './MoveToGroupModal';
+import TagModal from './TagModal';
 import { EMPTY_SELECTION, clickSelect, inOrder, type Selection } from '../selection';
 import { cardKeys } from './shared/cardKeys';
 import { EditIcon, NoteIcon } from './shared/icons';
@@ -26,7 +27,7 @@ const STATUS_DOT: Record<HostStatus, { className: string; title: string }> = {
 };
 
 export default function HostsPanel() {
-  const { servers, sessions, setActiveTab, removeSession, deleteServers, setServersGroup, clearCommandHistory, openSession, hostProbes, probeHosts } = useAppStore();
+  const { servers, sessions, setActiveTab, removeSession, deleteServers, setServersGroup, addServersTag, removeServersTag, clearCommandHistory, openSession, hostProbes, probeHosts } = useAppStore();
   const [showServerForm, setShowServerForm] = useState(false);
   const [showSshImport, setShowSshImport] = useState(false);
   const [showClientImport, setShowClientImport] = useState(false);
@@ -44,6 +45,8 @@ export default function HostsPanel() {
   const [groupFilter, setGroupFilter] = useState<string | null>(null);
   const [selection, setSelection] = useState<Selection>(EMPTY_SELECTION);
   const [movingToGroup, setMovingToGroup] = useState(false);
+  /** The tag dialog, and the hosts it is for. */
+  const [tagging, setTagging] = useState<{ mode: 'add' | 'remove'; ids: string[] } | null>(null);
   const connectingRef = useRef(false);
 
   const groups = groupNames(servers);
@@ -191,7 +194,8 @@ export default function HostsPanel() {
             <input
               className="hosts-search"
               type="text"
-              placeholder="Filter by name, host, user, group or notes"
+              placeholder="Filter by name, host, user, group, tag or notes"
+              title={hint('#name shows only the hosts with that exact tag')}
               value={query}
               onChange={(e) => narrow(() => setQuery(e.target.value))}
               spellCheck={false}
@@ -262,6 +266,26 @@ export default function HostsPanel() {
                             <NoteIcon size={15} />
                           </span>
                         )}
+                        {/* In the name row, like the note glyph, so a tagged
+                            card is no taller than the rest. A few shown, the
+                            others counted; all of them in the tooltip. */}
+                        {server.tags.length > 0 && (
+                          <span className="host-card-tags" title={server.tags.join(', ')}>
+                            {server.tags.slice(0, 3).map((t) => (
+                              <button
+                                key={t}
+                                type="button"
+                                className="host-tag"
+                                onClick={(e) => { e.stopPropagation(); narrow(() => setQuery(`#${t}`)); }}
+                                onDoubleClick={(e) => e.stopPropagation()}
+                                title={hint(`Show the hosts tagged ${t}`)}
+                              >
+                                {t}
+                              </button>
+                            ))}
+                            {server.tags.length > 3 && <span className="host-tag-more">+{server.tags.length - 3}</span>}
+                          </span>
+                        )}
                       </div>
                       {/* The check joins the address rather than taking a
                           line of its own: the card's two-line height is what
@@ -307,6 +331,16 @@ export default function HostsPanel() {
               <button className="menu-item" onClick={() => { setContextMenu(null); setMovingToGroup(true); }}>
                 Move to group…
               </button>
+              <button className="menu-item" onClick={() => { setContextMenu(null); setTagging({ mode: 'add', ids: picked }); }}>
+                Add tag…
+              </button>
+              <button
+                className="menu-item"
+                disabled={tagNames(servers.filter((h) => picked.includes(h.id))).length === 0}
+                onClick={() => { setContextMenu(null); setTagging({ mode: 'remove', ids: picked }); }}
+              >
+                Remove tag…
+              </button>
               <button className="menu-item" onClick={() => { setContextMenu(null); void probeHosts(picked, true); }} disabled={checking}>
                 Check {picked.length}
               </button>
@@ -342,6 +376,9 @@ export default function HostsPanel() {
                   </button>
                   <button className="menu-item" onClick={() => { setContextMenu(null); setEditServer(contextMenu.server); setShowServerForm(true); }}>
                     Edit
+                  </button>
+                  <button className="menu-item" onClick={() => { setContextMenu(null); setTagging({ mode: 'add', ids: [contextMenu.server.id] }); }}>
+                    Add tag…
                   </button>
                   <button
                     className="menu-item"
@@ -379,6 +416,20 @@ export default function HostsPanel() {
           onMove={(group) => {
             setMovingToGroup(false);
             setServersGroup(picked, group).catch(reportFailure);
+          }}
+        />
+      )}
+      {tagging && (
+        <TagModal
+          mode={tagging.mode}
+          count={tagging.ids.length}
+          tags={tagNames(tagging.mode === 'add' ? servers : servers.filter((h) => tagging.ids.includes(h.id)))}
+          counts={tagCounts(servers.filter((h) => tagging.ids.includes(h.id)))}
+          onClose={() => setTagging(null)}
+          onDone={(tag) => {
+            const { mode, ids } = tagging;
+            setTagging(null);
+            (mode === 'add' ? addServersTag(ids, tag) : removeServersTag(ids, tag)).catch(reportFailure);
           }}
         />
       )}

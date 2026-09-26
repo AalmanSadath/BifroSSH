@@ -69,6 +69,8 @@ export interface Server {
   env: string | null;
   /** The monitor bar here: null follows the setting, true always, false never. */
   monitor?: boolean | null;
+  /** Labels the host is found by, besides its group. */
+  tags: string[];
 }
 
 /** A directory saved for one click in the SFTP panel. */
@@ -440,6 +442,7 @@ export interface ScannedHost {
   port: number;
   username: string | null;
   group: string | null;
+  tags: string[];
   /** A saved host already has this address, port and user. */
   already_here: boolean;
   /** The file carries a password for it; the password itself stays in the backend. */

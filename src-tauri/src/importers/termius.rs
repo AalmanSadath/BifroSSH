@@ -79,7 +79,11 @@ pub(super) fn parse(text: &str) -> Result<ForeignScan> {
             username: field(username).map(str::to_string),
             password: field(password).map(str::to_string),
             group: field(group).map(str::to_string),
-            notes: field(tags).map(|t| format!("Tags: {t}")),
+            tags: field(tags)
+                .map(|t| t.split(',').map(str::to_string).collect())
+                .map(crate::models::normalize_tags)
+                .unwrap_or_default(),
+            notes: None,
         });
     }
     Ok(ForeignScan { source: Source::Termius, hosts, skipped })
@@ -108,7 +112,8 @@ mod tests {
         assert_eq!(h.username.as_deref(), Some("deploy"));
         assert_eq!(h.password.as_deref(), Some("hunter2"));
         assert_eq!(h.group.as_deref(), Some("Prod"));
-        assert_eq!(h.notes.as_deref(), Some("Tags: eu,live"));
+        assert_eq!(h.tags, ["eu", "live"]);
+        assert_eq!(h.notes, None);
     }
 
     /// The exporters in the wild disagree on order and on names, and a column

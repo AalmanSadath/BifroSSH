@@ -39,6 +39,7 @@ function server(over: Partial<Server> & { id: string }): Server {
     notes: null,
     term: null,
     env: null,
+    tags: [],
     ...over,
   };
 }

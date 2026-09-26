@@ -6,7 +6,7 @@
 //! sites and the lookups open coded at nine, which is nine chances to compare
 //! the wrong id and ten to forget a newly added secret.
 
-use crate::models::{AppData, Identified, Identity, KeyEntry, Server};
+use crate::models::{normalize_tags, AppData, Identified, Identity, KeyEntry, Server};
 
 /// What the frontend sees where a secret is stored.
 ///
@@ -140,6 +140,22 @@ pub fn key_pem(key: &KeyEntry, secret_key: &[u8; 32]) -> Result<String, crate::c
     }
 }
 
+/// Adds `tag` to, or takes it off, the hosts named in `ids`. Matched
+/// without regard to case, as [`normalize_tags`] keeps them.
+pub(super) fn tag_servers(servers: &mut [Server], ids: &[String], tag: &str, add: bool) {
+    let tag = tag.trim();
+    let lower = tag.to_lowercase();
+    for server in servers.iter_mut().filter(|s| ids.contains(&s.id)) {
+        let mut tags = std::mem::take(&mut server.tags);
+        if add {
+            tags.push(tag.to_string());
+        } else {
+            tags.retain(|t| t.to_lowercase() != lower);
+        }
+        server.tags = normalize_tags(tags);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -159,7 +175,7 @@ mod tests {
             connection_timeout: None,
             auth_kind: None,
             proxy_jump: None,
-            forward_agent: false, log_sessions: false, group: None, run_on_connect: None, hide_run_on_connect: true, notes: None, term: None, env: None, monitor: None,
+            forward_agent: false, log_sessions: false, group: None, run_on_connect: None, hide_run_on_connect: true, notes: None, term: None, env: None, monitor: None, tags: Vec::new(),
         }
     }
 
@@ -340,5 +356,23 @@ mod tests {
         upsert_by_id(&mut keys, key("a", Some("two"), None));
         assert_eq!(keys.len(), 1);
         assert_eq!(keys[0].encrypted_key.as_deref(), Some("two"));
+    }
+
+    #[test]
+    fn tagging_several_hosts_touches_only_those() {
+        let mut servers = vec![
+            Server { tags: vec!["Prod".into()], ..server("a", None) },
+            server("b", None),
+            server("c", None),
+        ];
+        let ids = ["a".to_string(), "b".to_string()];
+        tag_servers(&mut servers, &ids, " prod ", true);
+        // "a" had it in another case and keeps its own spelling.
+        assert_eq!(servers[0].tags, ["Prod"]);
+        assert_eq!(servers[1].tags, ["prod"]);
+        assert!(servers[2].tags.is_empty());
+
+        tag_servers(&mut servers, &ids, "PROD", false);
+        assert!(servers.iter().all(|s| s.tags.is_empty()));
     }
 }

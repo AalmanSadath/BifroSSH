@@ -94,6 +94,7 @@ fn bookmark(name: &str, value: &str, folder: Option<&str>) -> Result<Option<Fore
             .filter(|u| !u.is_empty() && u != "<default>"),
         password: None,
         group: folder.map(str::to_string),
+        tags: Vec::new(),
         notes: None,
     }))
 }

@@ -35,6 +35,7 @@ function host(id: string): Server {
     notes: null,
     term: null,
     env: null,
+    tags: [],
   };
 }
 

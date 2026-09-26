@@ -21,6 +21,7 @@ pub struct ScannedHost {
     pub port: u16,
     pub username: Option<String>,
     pub group: Option<String>,
+    pub tags: Vec<String>,
     /// A saved host already has this address, port and user, so importing it
     /// again would only make a second copy.
     pub already_here: bool,
@@ -61,6 +62,7 @@ pub async fn scan_client_export(state: State<'_, AppState>, path: String) -> Cmd
             port: h.port,
             username: h.username.clone(),
             group: h.group.clone(),
+            tags: h.tags.clone(),
             already_here: is_duplicate(&data.servers, h),
             has_password: h.password.is_some(),
         })
@@ -144,6 +146,7 @@ pub async fn import_client_hosts(
             term: None,
             env: None,
             monitor: None,
+            tags: host.tags.clone(),
         });
         result.imported += 1;
     }

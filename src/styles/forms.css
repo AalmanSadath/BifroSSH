@@ -591,3 +591,51 @@ button { cursor: pointer; font-family: inherit; }
   user-select: text;
   -webkit-user-select: text;
 }
+
+/* ── Tag input: chips with a field after them, in one box ───── */
+
+.tag-input {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-mid);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 4px 6px;
+  cursor: text;
+  transition: border-color 0.15s;
+}
+
+.tag-input:focus-within { border-color: var(--accent); }
+
+.tag-input input:not([type="checkbox"]):not([type="radio"]) {
+  flex: 1;
+  min-width: 80px;
+  width: auto;
+  border: none;
+  background: transparent;
+  padding: 3px 2px;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 8px;
+  border-radius: 10px;
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.tag-chip-remove {
+  background: none;
+  border: none;
+  padding: 0 2px;
+  font-size: 10px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.tag-chip-remove:hover { color: var(--text-primary); }

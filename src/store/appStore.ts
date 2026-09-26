@@ -377,6 +377,8 @@ interface AppStore {
   deleteServer: (id: string) => Promise<void>;
   deleteServers: (ids: string[]) => Promise<void>;
   setServersGroup: (ids: string[], group: string | null) => Promise<void>;
+  addServersTag: (ids: string[], tag: string) => Promise<void>;
+  removeServersTag: (ids: string[], tag: string) => Promise<void>;
   detectServerOs: (serverId: string, username: string, authType: AuthType, authValue: string, jumps?: JumpHopParams[]) => Promise<void>;
 
   importKey: (name: string, path: string, passphrase: string | null, storeContent: boolean) => Promise<void>;
@@ -780,6 +782,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setServersGroup: async (ids, group) => {
     const servers = await ipc.setServersGroup(ids, group);
     set({ servers });
+  },
+
+  addServersTag: async (ids, tag) => {
+    set({ servers: await ipc.addServersTag(ids, tag) });
+  },
+
+  removeServersTag: async (ids, tag) => {
+    set({ servers: await ipc.removeServersTag(ids, tag) });
   },
 
   detectServerOs: async (serverId, username, authType, authValue, jumps) => {

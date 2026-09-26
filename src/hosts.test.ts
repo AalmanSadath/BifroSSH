@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Server } from './types';
-import { UNGROUPED, groupNames, hostSections, hostStatus, matchesHost } from './hosts';
+import { UNGROUPED, groupNames, hostSections, hostStatus, matchesHost, normalizeTags, tagCounts, tagNames } from './hosts';
 
 function server(over: Partial<Server> & { id: string }): Server {
   return {
@@ -24,6 +24,7 @@ function server(over: Partial<Server> & { id: string }): Server {
     notes: null,
     term: null,
     env: null,
+    tags: [],
     ...over,
   };
 }
@@ -112,5 +113,33 @@ describe('hostStatus', () => {
     expect(hostStatus([{ status: 'error' }, { status: 'connected' }])).toBe('connected');
     expect(hostStatus([{ status: 'error' }, { status: 'connecting' }])).toBe('connecting');
     expect(hostStatus([{ status: 'connecting' }, { status: 'connected' }])).toBe('connected');
+  });
+});
+
+describe('tags', () => {
+  const tagged = server({ id: 'api', tags: ['Prod', 'eu-west'] });
+
+  it('are searched like the rest of the record', () => {
+    expect(matchesHost(tagged, 'west')).toBe(true);
+    expect(matchesHost(tagged, 'PROD')).toBe(true);
+  });
+
+  it('are asked for exactly with a #', () => {
+    expect(matchesHost(tagged, '#prod')).toBe(true);
+    expect(matchesHost(tagged, '#eu')).toBe(false);
+    // A host whose name contains the word but has no such tag.
+    expect(matchesHost(server({ id: 'prod-db' }), '#prod')).toBe(false);
+  });
+
+  it('are listed once whatever their case', () => {
+    expect(tagNames([tagged, server({ id: 'b', tags: ['prod', 'db'] })])).toEqual(['db', 'eu-west', 'Prod']);
+  });
+
+  it('are counted across hosts whatever their case', () => {
+    expect(tagCounts([tagged, server({ id: 'b', tags: ['prod'] })])).toEqual({ prod: 2, 'eu-west': 1 });
+  });
+
+  it('are trimmed and kept once', () => {
+    expect(normalizeTags([' a ', 'A', '', 'b'])).toEqual(['a', 'b']);
   });
 });

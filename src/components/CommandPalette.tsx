@@ -73,7 +73,8 @@ export default function CommandPalette({ onClose, onCodeprint, onAddHost, onLock
 
     for (const server of servers) {
       const where = `${server.username ? `${server.username}@` : ''}${server.host}:${server.port}`;
-      const sub = server.group ? `${where} · ${server.group}` : where;
+      const tags = server.tags.map((t) => `#${t}`).join(' ');
+      const sub = [where, server.group, tags].filter(Boolean).join(' · ');
       items.push({
         id: `host:${server.id}`,
         title: server.name,

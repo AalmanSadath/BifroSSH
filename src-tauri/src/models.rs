@@ -173,6 +173,34 @@ pub struct Server {
     /// shows it with the setting off, Some(false) hides it with it on.
     #[serde(default)]
     pub monitor: Option<bool>,
+    /// Labels to find the host by, beside its one group. Kept as
+    /// [`normalize_tags`] leaves them.
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+/// Most tags a host keeps, and the longest one, in characters.
+pub const MAX_TAGS: usize = 20;
+pub const MAX_TAG_LEN: usize = 32;
+
+/// Tags as a host keeps them: trimmed, blanks dropped, cut to
+/// [`MAX_TAG_LEN`], and each only once. Two tags differing only in case are
+/// the same tag, since the search that finds them ignores case; the first
+/// spelling stays. Past [`MAX_TAGS`] the rest are dropped.
+pub fn normalize_tags(tags: Vec<String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for tag in tags {
+        let tag: String = tag.trim().chars().take(MAX_TAG_LEN).collect();
+        let tag = tag.trim_end().to_string();
+        if tag.is_empty() || out.iter().any(|t| t.to_lowercase() == tag.to_lowercase()) {
+            continue;
+        }
+        if out.len() == MAX_TAGS {
+            break;
+        }
+        out.push(tag);
+    }
+    out
 }
 
 /// The variables in an [`Server::env`] block, in the order they were written.
@@ -796,5 +824,28 @@ mod tests {
             serde_json::from_str::<AuthMethod>(r#""keyboard-interactive""#).unwrap(),
             AuthMethod::KeyboardInteractive
         );
+    }
+
+    #[test]
+    fn tags_are_trimmed_cut_and_kept_once() {
+        let long = "x".repeat(40);
+        let tags = normalize_tags(vec![
+            " web ".into(),
+            "".into(),
+            "WEB".into(),
+            "db".into(),
+            long,
+        ]);
+        assert_eq!(tags, ["web", "db", &"x".repeat(MAX_TAG_LEN)]);
+
+        let many: Vec<String> = (0..30).map(|i| format!("t{i}")).collect();
+        assert_eq!(normalize_tags(many).len(), MAX_TAGS);
+    }
+
+    #[test]
+    fn a_host_saved_before_tags_loads_with_none() {
+        let s: Server =
+            serde_json::from_str(r#"{"name":"a","host":"h","port":22}"#).unwrap();
+        assert!(s.tags.is_empty());
     }
 }
