@@ -14,6 +14,7 @@ import { useHint } from './shared/useHint';
 import { registerTerminal, unregisterTerminal } from '../terminalRegistry';
 import { attachHighlighter, type HighlightState, type Highlighter } from '../terminalHighlighter';
 import { HIGHLIGHT_COLORS, compileRules } from '../highlight';
+import { attachCommandTracker, type CommandTracker } from '../terminalCommands';
 import type { SessionTab, SshClosed } from '../types';
 import { THEMES } from '../styles/themes';
 import '@xterm/xterm/css/xterm.css';
@@ -69,6 +70,7 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
   const markActivityRef = useRef(markActivity);
   markActivityRef.current = markActivity;
   const highlighterRef = useRef<Highlighter | null>(null);
+  const commandsRef = useRef<CommandTracker | null>(null);
   /** What the highlighter reads each pass; kept in a ref so the terminal's
       once-per-tab effect can hand it a getter rather than a stale copy. */
   const highlightStateRef = useRef<HighlightState>({ enabled: false, rules: [], palette: {} });
@@ -286,7 +288,10 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
     // anything downstream; a shell that sends none simply never calls this.
     term.parser.registerOscHandler(133, (data) => {
       const mark = parseMark(data);
-      if (mark) markActivityRef.current(tabId, mark);
+      if (mark) {
+        markActivityRef.current(tabId, mark);
+        commandsRef.current?.mark(mark.kind);
+      }
       return true;
     });
 
@@ -431,10 +436,17 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
     registerTerminal(tabId, term);
 
     highlighterRef.current = attachHighlighter(term, () => highlightStateRef.current);
+    // What is run at a prompt on a saved host is kept for its suggestions. A
+    // quick connection has no host record to keep it against.
+    commandsRef.current = attachCommandTracker(term, (command) => {
+      if (serverId) useAppStore.getState().learnCommand(serverId, command);
+    });
 
     return () => {
       highlighterRef.current?.dispose();
       highlighterRef.current = null;
+      commandsRef.current?.dispose();
+      commandsRef.current = null;
       unregisterTerminal(tabId);
       container.removeEventListener('contextmenu', onContextMenu, true);
       container.removeEventListener('mouseup', onMouseUp);
@@ -551,6 +563,11 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
     settings.cursor_blink,
     settings.scrollback_lines,
   ]);
+
+  // The host's history, read once, the first time any of its tabs opens.
+  useEffect(() => {
+    if (serverId) void useAppStore.getState().loadCommandHistory(serverId);
+  }, [serverId]);
 
   // The rules and the colours they resolve to. Compiled here, once per
   // change, rather than on every pass over the output.

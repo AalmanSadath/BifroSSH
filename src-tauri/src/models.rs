@@ -494,6 +494,28 @@ pub struct AppData {
     /// and nothing in the backend needs to interpret them.
     #[serde(default)]
     pub custom_themes: std::collections::HashMap<String, serde_json::Value>,
+    /// Commands run at a prompt on each saved host, by server id, most recent
+    /// first, for the terminal's suggestions. A command line can hold a secret
+    /// typed as an argument, so this lives only here, inside the encrypted
+    /// document, and is not part of an export.
+    #[serde(default)]
+    pub command_history: std::collections::HashMap<String, Vec<String>>,
+}
+
+/// How many commands a host keeps.
+pub const HISTORY_CAP: usize = 500;
+
+/// Adds commands to a host's history, oldest of them first.
+///
+/// Each one goes to the front, and an earlier copy of the same command is
+/// removed rather than kept twice: what matters for a suggestion is when a
+/// command was last run, not how many times. Past the cap the oldest go.
+pub fn remember_commands(history: &mut Vec<String>, commands: &[String]) {
+    for command in commands {
+        history.retain(|c| c != command);
+        history.insert(0, command.clone());
+    }
+    history.truncate(HISTORY_CAP);
 }
 
 /// A record addressed by a string id.
@@ -650,6 +672,23 @@ mod tests {
         assert_eq!(before.highlight_rules, HighlightRule::defaults());
         let emptied: Settings = serde_json::from_str(r#"{ "highlight_rules": [] }"#).unwrap();
         assert!(emptied.highlight_rules.is_empty());
+    }
+
+    #[test]
+    fn a_command_run_again_moves_to_the_front_instead_of_repeating() {
+        let mut history = vec!["ls".to_string(), "df -h".to_string()];
+        remember_commands(&mut history, &["uptime".to_string(), "df -h".to_string()]);
+        assert_eq!(history, vec!["df -h", "uptime", "ls"]);
+    }
+
+    #[test]
+    fn history_keeps_the_newest_up_to_its_cap() {
+        let mut history = Vec::new();
+        let commands: Vec<String> = (0..HISTORY_CAP + 10).map(|i| format!("cmd {i}")).collect();
+        remember_commands(&mut history, &commands);
+        assert_eq!(history.len(), HISTORY_CAP);
+        assert_eq!(history[0], format!("cmd {}", HISTORY_CAP + 9));
+        assert!(!history.contains(&"cmd 0".to_string()));
     }
 
     #[test]

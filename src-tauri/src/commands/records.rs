@@ -110,7 +110,7 @@ pub fn forget_references_to(data: &mut AppData, id: &str) {
 /// References from what stays are cleared by [`forget_references_to`].
 /// Records that belong to a removed host go with it: its SFTP bookmarks,
 /// which used to be left in the data file for ever, pointing at a host that
-/// could never be opened again.
+/// could never be opened again, and the commands it has run.
 pub fn remove_servers(data: &mut AppData, ids: &[String]) {
     data.servers.retain(|s| !ids.contains(&s.id));
     for id in ids {
@@ -118,6 +118,7 @@ pub fn remove_servers(data: &mut AppData, ids: &[String]) {
     }
     data.sftp_bookmarks
         .retain(|b| b.server_id.as_ref().is_none_or(|id| !ids.contains(id)));
+    data.command_history.retain(|id, _| !ids.contains(id));
 }
 
 /// The private key material a `KeyEntry` names, wherever it is kept.
@@ -241,7 +242,13 @@ mod tests {
             ..Default::default()
         };
 
+        data.command_history.insert("a".into(), vec!["ls".into()]);
+        data.command_history.insert("c".into(), vec!["uptime".into()]);
+
         remove_servers(&mut data, &["a".to_string(), "b".to_string()]);
+
+        assert!(!data.command_history.contains_key("a"));
+        assert!(data.command_history.contains_key("c"));
 
         let ids: Vec<&str> = data.servers.iter().map(|s| s.id.as_str()).collect();
         assert_eq!(ids, vec!["c"]);

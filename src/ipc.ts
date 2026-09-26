@@ -238,6 +238,17 @@ export const getOpenTabs = () => invoke<OpenTab[]>('get_open_tabs');
 
 export const saveOpenTabs = (items: OpenTab[]) => invoke<void>('save_open_tabs', { items });
 
+export const getCommandHistory = (serverId: string) =>
+  invoke<string[]>('get_command_history', { serverId });
+
+/** Commands run on a host, oldest first. */
+export const recordCommands = (serverId: string, commands: string[]) =>
+  invoke<void>('record_commands', { serverId, commands });
+
+/** One host's history, or every host's for null. */
+export const clearCommandHistory = (serverId: string | null) =>
+  invoke<void>('clear_command_history', { serverId });
+
 export const getCustomThemes = () =>
   invoke<Record<string, NamedTheme>>('get_custom_themes');
 
