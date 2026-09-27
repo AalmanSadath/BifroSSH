@@ -27,11 +27,12 @@ pub async fn connect_sftp(
     inactivity_timeout_secs: u32,
     sec: ConnectSecurity,
     jumps: Vec<JumpHop>,
+    proxy: Option<crate::proxycmd::ProxyCommand>,
 ) -> Result<()> {
     // The countdown pauses while a host key or auth prompt is on screen.
     let waiting = Arc::clone(&sec.waiting);
     crate::commands::timeout_pausable(
-        connect_sftp_inner(sftp_state, session_id, host, port, username, auth, inactivity_timeout_secs, sec, jumps),
+        connect_sftp_inner(sftp_state, session_id, host, port, username, auth, inactivity_timeout_secs, sec, jumps, proxy),
         30,
         waiting,
     )
@@ -52,6 +53,7 @@ async fn connect_sftp_inner(
     inactivity_timeout_secs: u32,
     sec: ConnectSecurity,
     jumps: Vec<JumpHop>,
+    proxy: Option<crate::proxycmd::ProxyCommand>,
 ) -> Result<()> {
     let config = Arc::new(client::Config {
         inactivity_timeout: Some(Duration::from_secs(inactivity_timeout_secs as u64)),
@@ -61,7 +63,7 @@ async fn connect_sftp_inner(
     sec.log("auth", &format!("Starting SFTP connection to \"{}\" port \"{}\"", host, port));
 
     // Resolution, the TCP connect, and every jump host in between.
-    let transport = crate::jump::open_transport(&jumps, host, port, &sec, None)
+    let transport = crate::jump::open_transport(&jumps, host, port, proxy.as_ref(), &sec, None)
         .await
         .inspect_err(|e| sec.log("error", &format!("{e:#}")))?;
 

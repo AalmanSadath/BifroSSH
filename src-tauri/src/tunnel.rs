@@ -74,6 +74,8 @@ pub struct TunnelParams {
     pub keepalive_secs: u32,
     /// Jump hosts to reach the SSH host through, outermost first.
     pub jumps: Vec<JumpHop>,
+    /// The ProxyCommand to dial with.
+    pub proxy: Option<crate::proxycmd::ProxyCommand>,
 }
 
 struct TunnelBase {
@@ -85,6 +87,7 @@ struct TunnelBase {
     sec: ConnectSecurity,
     keepalive_secs: u32,
     jumps: Vec<JumpHop>,
+    proxy: Option<crate::proxycmd::ProxyCommand>,
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
@@ -138,6 +141,7 @@ async fn transport_for(base: &TunnelBase) -> Result<crate::jump::BoxedTransport>
         &base.jumps,
         &base.ssh_host,
         base.ssh_port,
+        base.proxy.as_ref(),
         &base.sec,
         crate::ssh::keepalive_interval(base.keepalive_secs),
     )
@@ -204,8 +208,8 @@ async fn proxy_tcp_channel(stream: TcpStream, mut channel: Channel<Msg>) {
 // ── Tunnel starters ───────────────────────────────────────────────────────────
 
 pub async fn start_tunnel(pf_id: String, params: TunnelParams, state: Arc<TunnelState>) -> Result<()> {
-    let TunnelParams { kind, bind_address, ssh_host, ssh_port, ssh_username, auth, sec, keepalive_secs, jumps } = params;
-    let base = TunnelBase { bind_address, ssh_host, ssh_port, ssh_username, auth, sec, keepalive_secs, jumps };
+    let TunnelParams { kind, bind_address, ssh_host, ssh_port, ssh_username, auth, sec, keepalive_secs, jumps, proxy } = params;
+    let base = TunnelBase { bind_address, ssh_host, ssh_port, ssh_username, auth, sec, keepalive_secs, jumps, proxy };
     match kind {
         TunnelKind::Local { local_port, dest_host, dest_port } =>
             local_tunnel(pf_id, base, local_port, dest_host, dest_port, state).await,

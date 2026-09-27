@@ -24,6 +24,8 @@ pub struct SshConfigHost {
     /// The config's `ProxyJump` value, verbatim. Linked to a saved server on
     /// import when it names another host being imported alongside it.
     pub proxy_jump: Option<String>,
+    /// The config's `ProxyCommand`, verbatim, `none` included.
+    pub proxy_command: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -71,11 +73,17 @@ fn split_directive(line: &str) -> Option<(String, String)> {
         Some((k, v)) if !k.trim().contains(char::is_whitespace) => (k, v),
         _ => line.split_once(char::is_whitespace)?,
     };
-    let value = value.trim().trim_matches('"');
+    let key = key.trim().to_lowercase();
+    // A ProxyCommand is handed to the shell as written, quotes and all, as
+    // OpenSSH does; unquoting it here would unbalance any quotes inside.
+    let value = match key.as_str() {
+        "proxycommand" => value.trim(),
+        _ => value.trim().trim_matches('"'),
+    };
     if value.is_empty() {
         return None;
     }
-    Some((key.trim().to_lowercase(), value.to_string()))
+    Some((key, value.to_string()))
 }
 
 /// OpenSSH's own limit, and the reason one exists: a config that includes
@@ -227,6 +235,7 @@ pub fn parse(content: &str) -> SshConfigScan {
                         identity_file: None,
                         certificate_file: None,
                         proxy_jump: None,
+                        proxy_command: None,
                     });
                 }
             }
@@ -248,6 +257,10 @@ pub fn parse(content: &str) -> SshConfigScan {
                             host.certificate_file = Some(expand_home(&value))
                         }
                         "proxyjump" => host.proxy_jump = Some(value.clone()),
+                        // The first one given is the one ssh uses.
+                        "proxycommand" if host.proxy_command.is_none() => {
+                            host.proxy_command = Some(value.clone())
+                        }
                         _ => {}
                     }
                 }
@@ -393,6 +406,24 @@ mod tests {
     fn hostname_defaults_to_the_alias() {
         let scan = parse("Host example.com\n  User deploy\n");
         assert_eq!(scan.hosts[0].hostname, "example.com");
+    }
+
+    /// The command goes to the shell as written, quotes included, and the
+    /// first one given is the one that counts.
+    #[test]
+    fn a_proxy_command_is_kept_verbatim() {
+        let scan = parse(concat!(
+            "Host tunnelled\n",
+            "  ProxyCommand \"/opt/my proxy/bin/connect\" --to %h:%p\n",
+            "  ProxyCommand ignored\n",
+            "Host eq\n",
+            "  ProxyCommand=nc -X 5 -x socks:1080 %h %p\n",
+        ));
+        assert_eq!(
+            scan.hosts[0].proxy_command.as_deref(),
+            Some("\"/opt/my proxy/bin/connect\" --to %h:%p")
+        );
+        assert_eq!(scan.hosts[1].proxy_command.as_deref(), Some("nc -X 5 -x socks:1080 %h %p"));
     }
 
     /// `Host *` sets defaults for other entries; there is no host to import.

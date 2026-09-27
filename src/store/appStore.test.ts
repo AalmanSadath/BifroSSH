@@ -31,6 +31,7 @@ function server(over: Partial<Server> & { id: string }): Server {
     connection_timeout: null,
     auth_kind: null,
     proxy_jump: null,
+    proxy_command: null,
     forward_agent: false,
     log_sessions: false,
     group: null,
@@ -147,6 +148,7 @@ describe('buildJumpChain', () => {
       username: 'root',
       auth_type: 'key',
       auth_value: 'k',
+      server_id: 'outer',
     });
   });
 

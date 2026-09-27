@@ -116,6 +116,11 @@ export default function SshConfigImport({ onClose }: Props) {
                     jump
                   </span>
                 )}
+                {h.proxy_command && h.proxy_command.toLowerCase() !== 'none' && !h.proxy_jump && (
+                  <span className="checklist-tag" title={`Connects through: ${h.proxy_command}`}>
+                    proxy
+                  </span>
+                )}
               </label>
             ))}
           </div>

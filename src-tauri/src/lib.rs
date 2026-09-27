@@ -14,6 +14,7 @@ mod keyring;
 mod keystore;
 mod models;
 mod ppk;
+mod proxycmd;
 mod prompts;
 mod recording;
 mod sessionlog;

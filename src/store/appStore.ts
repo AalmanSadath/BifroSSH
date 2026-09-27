@@ -622,6 +622,7 @@ export async function buildJumpChain(
       username: resolved.username,
       auth_type: resolved.authType,
       auth_value: resolved.authValue,
+      server_id: jump.id,
     });
     current = jump;
   }
@@ -1544,7 +1545,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
       for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
         const server = servers.find((s) => s.id === id);
         if (!server) continue;
-        if (server.proxy_jump) { write(id, 'skipped'); continue; }
+        // Reached some other way than a TCP connection from here, so a TCP
+        // connection from here says nothing about it.
+        if (server.proxy_jump || server.proxy_command) { write(id, 'skipped'); continue; }
         try {
           const probe = await ipc.probeHost(
             server.host,

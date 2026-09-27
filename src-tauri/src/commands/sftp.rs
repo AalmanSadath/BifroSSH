@@ -38,7 +38,7 @@ pub async fn sftp_connect_remote(
     let (target, inactivity_timeout_secs) = {
         let data = state.data.lock().await;
         let target = server_target(
-            &data, &state.key()?, &server_id, auth_type, &auth_value, jumps.as_deref(),
+            &data, &state.key()?, &server_id, &username, auth_type, &auth_value, jumps.as_deref(),
         )?;
         (target, data.settings.sftp_inactivity_timeout_secs)
     };
@@ -56,6 +56,7 @@ pub async fn sftp_connect_remote(
         inactivity_timeout_secs,
         sec,
         target.jumps,
+        target.proxy,
     ).await?;
 
     Ok(session_id)

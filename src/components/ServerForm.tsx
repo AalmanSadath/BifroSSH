@@ -67,6 +67,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
   const [themeOverride, setThemeOverride] = useState<string>(server?.theme ?? settings.theme);
   const [timeoutSecs, setTimeoutSecs] = useState<string>(server?.connection_timeout != null ? String(server.connection_timeout) : '');
   const [proxyJump, setProxyJump] = useState(server?.proxy_jump ?? '');
+  const [proxyCommand, setProxyCommand] = useState(server?.proxy_command ?? '');
   const [forwardAgent, setForwardAgent] = useState(server?.forward_agent ?? false);
   const [logSessions, setLogSessions] = useState(server?.log_sessions ?? false);
   const [group, setGroup] = useState(server?.group ?? '');
@@ -140,6 +141,9 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
           // Set on the identity, not here; preserved so editing a host does not clear it.
           auth_kind: server?.auth_kind ?? null,
           proxy_jump: proxyJump || null,
+          // One way in or the other: a host behind a jump host is reached
+          // through it, and its own command would never run.
+          proxy_command: proxyJump ? null : proxyCommand.trim() || null,
           forward_agent: forwardAgent,
           log_sessions: logSessions,
           group: group.trim() || null,
@@ -306,7 +310,11 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
 
           <div className="form-group">
             <label>Jump Host</label>
-            <select value={proxyJump} onChange={(e) => setProxyJump(e.target.value)}>
+            <select
+              value={proxyJump}
+              onChange={(e) => setProxyJump(e.target.value)}
+              disabled={proxyCommand.trim() !== ''}
+            >
               <option value="">Connect directly</option>
               {jumpCandidates.map((candidate) => (
                 <option key={candidate.id} value={candidate.id}>
@@ -314,6 +322,22 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
                 </option>
               ))}
             </select>
+          </div>
+
+          <div className="form-group">
+            <label>Proxy Command</label>
+            <input
+              value={proxyJump ? '' : proxyCommand}
+              onChange={(e) => setProxyCommand(e.target.value)}
+              disabled={proxyJump !== ''}
+              placeholder={proxyJump ? 'Reached through the jump host' : 'cloudflared access ssh --hostname %h'}
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <p className="form-hint">
+              A program on this computer that carries the connection, as ssh's ProxyCommand does.
+              %h is the host, %p the port and %r the user. Leave empty to connect directly.
+            </p>
           </div>
 
           <div className="form-group" ref={groupRef}>

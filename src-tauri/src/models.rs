@@ -131,6 +131,12 @@ pub struct Server {
     /// a chain of bastions is expressed one link at a time.
     #[serde(default)]
     pub proxy_jump: Option<String>,
+    /// OpenSSH's ProxyCommand: a program run on this computer whose stdin
+    /// and stdout carry the connection, with `%h`, `%p` and `%r` filled in.
+    /// Used only when this server is the first one dialled, as OpenSSH does,
+    /// so a jump host's is used and a server behind one has its own ignored.
+    #[serde(default)]
+    pub proxy_command: Option<String>,
     /// ssh's -A. While a session to this host is open, programs there can use
     /// the local agent's keys, and so can anyone with root there. Off unless
     /// the user turned it on for this host.

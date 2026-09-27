@@ -21,7 +21,7 @@ pub async fn detect_server_os(
 ) -> CmdResult<String> {
     let target = {
         let data = state.data.lock().await;
-        server_target(&data, &state.key()?, &server_id, auth_type, &auth_value, jumps.as_deref())?
+        server_target(&data, &state.key()?, &server_id, &username, auth_type, &auth_value, jumps.as_deref())?
     };
 
     // Non-interactive: this runs in the background with no UI to prompt from,
@@ -36,6 +36,7 @@ pub async fn detect_server_os(
         "cat /etc/os-release 2>/dev/null; cat /proc/device-tree/model 2>/dev/null; echo; uname -s || ver",
         sec,
         &target.jumps,
+        target.proxy.as_ref(),
     )
     .await;
 

@@ -94,7 +94,7 @@ fn flatpak_spawn(program: String, args: Vec<String>) -> ShellCommand {
     ShellCommand { program: "flatpak-spawn".into(), args: all }
 }
 
-fn platform() -> Platform {
+pub(crate) fn platform() -> Platform {
     if cfg!(windows) {
         Platform::Windows
     } else if std::path::Path::new("/.flatpak-info").exists() {

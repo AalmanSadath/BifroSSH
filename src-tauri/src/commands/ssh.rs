@@ -16,6 +16,7 @@ use super::resolve::{resolve_auth, resolve_jumps, JumpHopRequest};
 struct Prepared {
     auth: crate::ssh::SshAuth,
     jumps: Vec<crate::jump::JumpHop>,
+    proxy: Option<crate::proxycmd::ProxyCommand>,
     timeout_secs: u64,
     keepalive_secs: u32,
 }
@@ -30,11 +31,13 @@ fn prepare(
     auth_type: AuthMethod,
     auth_value: &str,
     jumps: &[JumpHopRequest],
+    target: Option<(&crate::models::Server, &str)>,
     host_timeout: Option<u32>,
 ) -> CmdResult<Prepared> {
     Ok(Prepared {
         auth: resolve_auth(data, key, auth_type, auth_value)?,
         jumps: resolve_jumps(data, key, jumps)?,
+        proxy: super::resolve::first_proxy(data, target, jumps)?,
         timeout_secs: host_timeout.unwrap_or(data.settings.connection_timeout_secs) as u64,
         keepalive_secs: data.settings.keepalive_interval_secs,
     })
@@ -145,6 +148,7 @@ pub async fn ssh_connect(
             request.auth_type,
             &request.auth_value,
             &request.jumps,
+            Some((server, &request.username)),
             host_timeout,
         )?;
         Saved {
@@ -182,6 +186,7 @@ pub async fn ssh_connect(
         initial_rows: request.rows,
         keepalive_secs: prep.keepalive_secs,
         jumps: prep.jumps,
+        proxy: prep.proxy,
         forward_agent,
         log,
         run_on_connect,
@@ -222,6 +227,9 @@ pub async fn ssh_connect_quick(
             request.auth_type,
             &request.auth_value,
             &request.jumps,
+            // A quick connection can still be reached through a saved jump
+            // host, whose proxy command is then the one dialled.
+            None,
             None,
         )?
     };
@@ -235,6 +243,7 @@ pub async fn ssh_connect_quick(
         initial_rows: request.rows,
         keepalive_secs: prep.keepalive_secs,
         jumps: prep.jumps,
+        proxy: prep.proxy,
         // A quick connection has no host record to have said yes on.
         forward_agent: false,
         log: None,

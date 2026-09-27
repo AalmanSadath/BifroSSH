@@ -18,6 +18,7 @@ use tokio::time::Duration;
 
 use crate::connect::ConnectSecurity;
 use crate::hostverify::{HostKeyVerifier, VerifyingHandler};
+use crate::proxycmd::ProxyCommand;
 use crate::ssh::{AuthContext, SshAuth};
 
 /// OpenSSH puts no limit on chain length, but every hop is a full handshake
@@ -91,25 +92,40 @@ async fn tcp_transport(host: &str, port: u16, sec: &ConnectSecurity) -> Result<T
     Ok(stream)
 }
 
+/// The first connection out of this machine: TCP, or the proxy command's
+/// pipes when the host being dialled has one.
+async fn dial(host: &str, port: u16, proxy: Option<&ProxyCommand>, sec: &ConnectSecurity) -> Result<BoxedTransport> {
+    Ok(match proxy {
+        Some(proxy) => Box::new(crate::proxycmd::spawn(&proxy.expanded()?, sec)?),
+        None => Box::new(tcp_transport(host, port, sec).await?),
+    })
+}
+
 /// Open a transport to `target_host:target_port`, going through `hops` first.
 ///
 /// With no hops this is a plain TCP connection, so every caller can use it
 /// unconditionally. The returned stream is handed to `client::connect_stream`,
 /// which then performs the target's own handshake and host key check on top.
+///
+/// `proxy` is the ProxyCommand of whichever host is
+/// dialled first: the outermost jump host, or the target when there are
+/// none. Only that one is used, as with OpenSSH, since every later hop is
+/// reached through the one before it.
 pub async fn open_transport(
     hops: &[JumpHop],
     target_host: &str,
     target_port: u16,
+    proxy: Option<&ProxyCommand>,
     sec: &ConnectSecurity,
     keepalive: Option<Duration>,
 ) -> Result<BoxedTransport> {
     check_chain(hops)?;
 
     let Some(first) = hops.first() else {
-        return Ok(Box::new(tcp_transport(target_host, target_port, sec).await?));
+        return dial(target_host, target_port, proxy, sec).await;
     };
 
-    let mut stream: BoxedTransport = Box::new(tcp_transport(&first.host, first.port, sec).await?);
+    let mut stream = dial(&first.host, first.port, proxy, sec).await?;
 
     for (index, hop) in hops.iter().enumerate() {
         let (next_host, next_port) = dial_target(hops, index, target_host, target_port);

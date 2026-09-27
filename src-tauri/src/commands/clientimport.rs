@@ -137,6 +137,7 @@ pub async fn import_client_hosts(
             // the two methods that are not a password.
             auth_kind: None,
             proxy_jump: None,
+            proxy_command: None,
             forward_agent: false,
             log_sessions: false,
             group: host.group.clone(),

@@ -31,7 +31,7 @@ pub async fn tunnel_start(
 ) -> CmdResult<()> {
     let target = {
         let data = state.data.lock().await;
-        server_target(&data, &state.key()?, &server_id, auth_type, &auth_value, jumps.as_deref())?
+        server_target(&data, &state.key()?, &server_id, &username, auth_type, &auth_value, jumps.as_deref())?
     };
 
     // Check not already running
@@ -70,6 +70,7 @@ pub async fn tunnel_start(
         sec,
         keepalive_secs,
         jumps: target.jumps,
+        proxy: target.proxy,
     };
 
     crate::tunnel::start_tunnel(pf_id, params, Arc::clone(&state.tunnel_state))

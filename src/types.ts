@@ -49,6 +49,11 @@ export interface Server {
    */
   proxy_jump: string | null;
   /**
+   * OpenSSH's ProxyCommand: run on this computer, its stdin and stdout carry
+   * the connection. `%h`, `%p` and `%r` are filled in.
+   */
+  proxy_command: string | null;
+  /**
    * ssh's -A. While a session is open, programs on this host can use the
    * local agent's keys, and so can anyone with root there. Off by default.
    */
@@ -161,6 +166,8 @@ export interface JumpHopParams {
   username: string;
   auth_type: AuthType;
   auth_value: string;
+  /** The saved server this hop is; the backend reads its proxy command from it. */
+  server_id: string;
 }
 
 /**
@@ -433,6 +440,8 @@ export interface SshConfigHost {
    * servers on import, but only when every hop is imported alongside it.
    */
   proxy_jump: string | null;
+  /** The config's ProxyCommand, verbatim, `none` included. */
+  proxy_command: string | null;
 }
 
 export interface SshConfigScan {

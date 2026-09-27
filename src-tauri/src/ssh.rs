@@ -204,6 +204,8 @@ pub struct SshConnectParams {
     /// Jump hosts to reach this server through, outermost first. Empty for a
     /// direct connection.
     pub jumps: Vec<JumpHop>,
+    /// The ProxyCommand to dial with.
+    pub proxy: Option<crate::proxycmd::ProxyCommand>,
     /// ssh's -A: the remote may use the local agent for as long as the
     /// session lasts. Per host and off by default; see agent_forward.
     pub forward_agent: bool,
@@ -263,6 +265,8 @@ where
         .map_err(|e| host_key_error(&verifier, e))
 }
 
+// Threaded straight through from the command layer, like connect_sftp.
+#[allow(clippy::too_many_arguments)]
 pub async fn exec_ssh_command(
     host: &str,
     port: u16,
@@ -271,13 +275,14 @@ pub async fn exec_ssh_command(
     command: &str,
     sec: ConnectSecurity,
     jumps: &[JumpHop],
+    proxy: Option<&crate::proxycmd::ProxyCommand>,
 ) -> Result<String> {
     let config = Arc::new(client::Config {
         inactivity_timeout: Some(Duration::from_secs(15)),
         ..Default::default()
     });
 
-    let transport = jump::open_transport(jumps, host, port, &sec, None).await?;
+    let transport = jump::open_transport(jumps, host, port, proxy, &sec, None).await?;
 
     let verifier = HostKeyVerifier::new(sec.clone(), host, port, Some(username.to_string()));
     let mut handle = connect_verified(config, transport, verifier, VerifyingHandler::new).await?;
@@ -329,6 +334,7 @@ pub async fn connect_ssh(
         &params.jumps,
         &params.host,
         params.port,
+        params.proxy.as_ref(),
         &sec,
         keepalive_interval(params.keepalive_secs),
     )
