@@ -30,6 +30,9 @@ pub enum SshCommand {
     SetLog(Option<std::fs::File>),
     /// Start recording output with its timing, or stop.
     SetRecording(Option<crate::recording::Recorder>),
+    /// The terminal has finished a ZMODEM transfer, or found that what
+    /// looked like one was not: output goes to the log and recording again.
+    TransferDone,
     Close,
 }
 
@@ -132,6 +135,28 @@ pub(crate) struct SessionOutput {
     pub recorder: Option<crate::recording::Recorder>,
     /// Waiting for the next flush.
     pub buf: Vec<u8>,
+    /// A ZMODEM transfer is under way: its bytes are file data, not
+    /// something to keep in a log or play back, so neither gets them until
+    /// the terminal says it is over.
+    transfer: bool,
+    /// The end of the last flush, for a header split across two.
+    tail: Vec<u8>,
+}
+
+/// How every ZMODEM session starts on the wire: a hex header, `**`, ZDLE,
+/// `B`, then the type's first digit. ZRQINIT (`sz`) and ZRINIT (`rz`) both
+/// begin with `0`.
+const ZMODEM_START: &[u8] = b"**\x18B0";
+
+/// Where in `buf` a ZMODEM transfer starts, if one does: 0 when the header
+/// began at the end of `tail`, the previous chunk.
+pub(crate) fn zmodem_start(tail: &[u8], buf: &[u8]) -> Option<usize> {
+    let mut joined = tail.to_vec();
+    joined.extend_from_slice(buf);
+    joined
+        .windows(ZMODEM_START.len())
+        .position(|w| w == ZMODEM_START)
+        .map(|at| at.saturating_sub(tail.len()))
 }
 
 /// Where `needle` first appears in `haystack`.
@@ -141,24 +166,54 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 
 impl SessionOutput {
     pub fn new(app: AppHandle, sid: String, attach: Arc<Mutex<Attach>>, log: Option<std::fs::File>) -> Self {
-        SessionOutput { app, sid, attach, log, recorder: None, buf: Vec::with_capacity(8192) }
+        SessionOutput {
+            app,
+            sid,
+            attach,
+            log,
+            recorder: None,
+            buf: Vec::with_capacity(8192),
+            transfer: false,
+            tail: Vec::new(),
+        }
+    }
+
+    pub fn transfer_done(&mut self) {
+        self.transfer = false;
+        self.tail.clear();
     }
 
     pub async fn flush(&mut self) {
         if self.buf.is_empty() {
             return;
         }
+        // What the log and recording get: everything, up to where a
+        // transfer starts, and nothing while one runs.
+        let kept = if self.transfer {
+            0
+        } else {
+            match zmodem_start(&self.tail, &self.buf) {
+                Some(at) => {
+                    self.transfer = true;
+                    at
+                }
+                None => self.buf.len(),
+            }
+        };
+        let tail_from = self.buf.len().saturating_sub(ZMODEM_START.len() - 1);
+        self.tail = self.buf[tail_from..].to_vec();
+
         // Before the hold, so a tab that never attaches still logs. A file
         // that will not take the bytes is dropped rather than allowed to end
         // the session.
-        {
+        if kept > 0 {
             use std::io::Write;
-            if self.log.as_mut().is_some_and(|file| file.write_all(&self.buf).is_err()) {
+            if self.log.as_mut().is_some_and(|file| file.write_all(&self.buf[..kept]).is_err()) {
                 drop(self.log.take());
             }
-        }
-        if self.recorder.as_mut().is_some_and(|r| r.output(&self.buf).is_err()) {
-            drop(self.recorder.take());
+            if self.recorder.as_mut().is_some_and(|r| r.output(&self.buf[..kept]).is_err()) {
+                drop(self.recorder.take());
+            }
         }
         // Held rather than emitted until a terminal has attached, under the
         // same lock the handover takes.
@@ -553,6 +608,7 @@ pub async fn connect_ssh(
                             out.flush().await;
                             out.recorder = next;
                         }
+                        SshCommand::TransferDone => out.transfer_done(),
                         SshCommand::Close => {
                             closed_by_user = true;
                             break;
@@ -654,6 +710,25 @@ pub async fn connect_ssh(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `sz` and `rz` announce themselves with this; what came before it is
+    /// terminal output and is kept.
+    #[test]
+    fn a_zmodem_start_is_found_where_it_begins() {
+        assert_eq!(zmodem_start(b"", b"rz waiting to receive.**\x18B0100000023be50\r\n"), Some(22));
+        assert_eq!(zmodem_start(b"", b"**\x18B00000000000000\r\n"), Some(0));
+        assert_eq!(zmodem_start(b"", b"plain output ** with stars"), None);
+    }
+
+    /// Output arrives in whatever pieces the channel gives; a header split
+    /// between two is still a header.
+    #[test]
+    fn a_zmodem_start_split_across_chunks_is_found() {
+        assert_eq!(zmodem_start(b"xx**", b"\x18B00000"), Some(0));
+        assert_eq!(zmodem_start(b"**\x18", b"B0"), Some(0));
+        assert_eq!(zmodem_start(b"**\x18", b"C0"), None);
+    }
+
     /// The tab closes on the first two and stays on the third.
     #[test]
     fn a_close_is_told_apart_from_an_exit_and_a_drop() {

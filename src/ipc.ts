@@ -409,6 +409,31 @@ export const sftpConnectRemote = (
   serverId, username, authType, authValue, connectId, jumps,
 });
 
+/** Raw bytes for a session, base64: a ZMODEM transfer's. */
+export const sshSendBytes = (sessionId: string, data: string) =>
+  invoke<void>('ssh_send_bytes', { sessionId, data });
+
+/** A ZMODEM transfer is over: the session's log and recording take output again. */
+export const sshTransferDone = (sessionId: string) =>
+  invoke<void>('ssh_transfer_done', { sessionId });
+
+/** Creates a file for a received transfer, never over an existing one; returns its path. */
+export const localFileCreate = (dir: string, name: string) =>
+  invoke<string>('local_file_create', { dir, name });
+
+export const localFileAppend = (path: string, data: string) =>
+  invoke<void>('local_file_append', { path, data });
+
+/** Up to `len` bytes from `offset`, base64. */
+export const localFileReadChunk = (path: string, offset: number, len: number) =>
+  invoke<string>('local_file_read_chunk', { path, offset, len });
+
+export const localFileInfo = (path: string) =>
+  invoke<{ size: number; mtime: number }>('local_file_info', { path });
+
+export const localFileRemove = (path: string) =>
+  invoke<void>('local_file_remove', { path });
+
 /** Connects the Containers panel to a saved host; returns the connection's id. */
 export const containersConnect = (
   serverId: string,

@@ -5,8 +5,11 @@ import type { FileEntry } from '../types';
 import Modal from './shared/Modal';
 
 interface Props {
-  /** `save` asks for a name to write; `open` asks for a file that exists. */
-  mode: 'save' | 'open';
+  /**
+   * `save` asks for a name to write; `open` asks for a file that exists;
+   * `folder` asks for a folder, the one highlighted or else the one shown.
+   */
+  mode: 'save' | 'open' | 'folder';
   title: string;
   /** Where to start. Falls back to the home directory when absent or unreadable. */
   startDir?: string;
@@ -15,7 +18,13 @@ interface Props {
   /** Extensions worth showing, e.g. `['.bfx']`. Everything else is dimmed. */
   extensions?: string[];
   onCancel: () => void;
-  onChoose: (path: string) => void;
+  /** Called with one path, or, with `multiple`, with each chosen in turn by `onChooseMany`. */
+  onChoose?: (path: string) => void;
+  /** `open` only: any number of files, each clicked on or off, handed over together. */
+  multiple?: boolean;
+  onChooseMany?: (paths: string[]) => void;
+  /** Wording for the confirm button, when the mode's own does not fit. */
+  confirmLabel?: string;
 }
 
 /**
@@ -35,12 +44,17 @@ export default function FilePickerModal({
   extensions,
   onCancel,
   onChoose,
+  multiple,
+  onChooseMany,
+  confirmLabel,
 }: Props) {
   const [dir, setDir] = useState('');
   const [typedPath, setTypedPath] = useState('');
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [name, setName] = useState(defaultName ?? '');
   const [selected, setSelected] = useState<string | null>(null);
+  /** With `multiple`: the files ticked so far, kept across folders. */
+  const [picked, setPicked] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -60,7 +74,7 @@ export default function FilePickerModal({
     return has ? typed : typed + extensions[0];
   };
 
-  /** In save mode only folders can be picked; the name comes from the field. */
+  /** In save and folder mode only folders can be picked; a name comes from the field. */
   const selectable = (entry: FileEntry) => entry.is_dir || (mode === 'open' && matches(entry));
 
   async function navigate(path: string) {
@@ -106,15 +120,21 @@ export default function FilePickerModal({
     if (entry.is_dir) {
       navigate(entry.path);
     } else if (mode === 'open' && matches(entry)) {
-      onChoose(entry.path);
+      if (multiple) togglePicked(entry.path);
+      else onChoose?.(entry.path);
     }
+  }
+
+  function togglePicked(path: string) {
+    setPicked((p) => (p.includes(path) ? p.filter((x) => x !== path) : [...p, path]));
   }
 
   function click(entry: FileEntry) {
     if (entry.is_dir) {
       setSelected(entry.path);
     } else if (mode === 'open' && matches(entry)) {
-      setSelected(entry.path);
+      if (multiple) togglePicked(entry.path);
+      else setSelected(entry.path);
     } else if (mode === 'save' && !entry.is_dir) {
       // Clicking an existing file in save mode is how people say "overwrite
       // this one", so it fills the name rather than doing nothing.
@@ -124,7 +144,13 @@ export default function FilePickerModal({
 
   function confirm() {
     if (mode === 'open') {
-      if (selected) onChoose(selected);
+      if (multiple) { if (picked.length > 0) onChooseMany?.(picked); }
+      else if (selected) onChoose?.(selected);
+      return;
+    }
+    if (mode === 'folder') {
+      const folder = selected && entries.find((e) => e.path === selected)?.is_dir && !selected.endsWith('..') ? selected : dir;
+      onChoose?.(folder);
       return;
     }
     const trimmed = withExtension(name.trim());
@@ -132,7 +158,7 @@ export default function FilePickerModal({
     // A folder highlighted in save mode is a target to write into, not the
     // file itself, so the name is always appended to the directory shown.
     const base = selected && entries.find((e) => e.path === selected)?.is_dir ? selected : dir;
-    onChoose(localStyle().join(base, trimmed));
+    onChoose?.(localStyle().join(base, trimmed));
   }
 
   /**
@@ -143,7 +169,9 @@ export default function FilePickerModal({
    */
   const shown = entries.filter((e) => e.name === '..' || !e.hidden);
 
-  const canConfirm = mode === 'open' ? Boolean(selected) : name.trim().length > 0;
+  const canConfirm = mode === 'open'
+    ? (multiple ? picked.length > 0 : Boolean(selected))
+    : mode === 'folder' ? dir !== '' : name.trim().length > 0;
 
   return (
     <Modal title={title} onClose={onCancel}>
@@ -170,14 +198,14 @@ export default function FilePickerModal({
               className={[
                 'picker-row',
                 selectable(entry) ? '' : 'picker-row-dim',
-                selected === entry.path ? 'picker-row-selected' : '',
+                selected === entry.path || picked.includes(entry.path) ? 'picker-row-selected' : '',
               ]
                 .filter(Boolean)
                 .join(' ')}
               onClick={() => click(entry)}
               onDoubleClick={() => activate(entry)}
             >
-              <span className="picker-icon">{entry.is_dir ? '📁' : '📄'}</span>
+              <span className="picker-icon">{entry.is_dir ? '📁' : picked.includes(entry.path) ? '☑' : '📄'}</span>
               <span className="picker-name">{entry.name}</span>
             </div>
           ))
@@ -201,9 +229,12 @@ export default function FilePickerModal({
       )}
 
       <div className="modal-actions">
+        {multiple && picked.length > 0 && (
+          <span className="form-hint picker-count">{picked.length} {picked.length === 1 ? 'file' : 'files'} chosen</span>
+        )}
         <button className="btn-secondary" onClick={onCancel}>Cancel</button>
         <button className="btn-primary" onClick={confirm} disabled={!canConfirm}>
-          {mode === 'save' ? 'Save here' : 'Open'}
+          {confirmLabel ?? (mode === 'save' ? 'Save here' : mode === 'folder' ? 'Choose folder' : 'Open')}
         </button>
       </div>
     </Modal>

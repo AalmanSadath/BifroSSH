@@ -431,6 +431,31 @@ pub async fn session_log_dir(state: State<'_, AppState>) -> CmdResult<String> {
     Ok(dir.to_string_lossy().into_owned())
 }
 
+/// Raw bytes for the session, base64: a ZMODEM transfer's, which would
+/// be four times the size as the JSON number array typed input uses.
+#[tauri::command]
+pub async fn ssh_send_bytes(state: State<'_, AppState>, session_id: String, data: String) -> CmdResult<()> {
+    let bytes = BASE64.decode(data).map_err(|e| CmdError::from(e.to_string()))?;
+    let tx = {
+        let sessions = state.ssh_state.sessions.lock().await;
+        sessions.get(&session_id).ok_or("Session not found")?.cmd_tx.clone()
+    };
+    // Awaited outside the lock: a full queue is backpressure on the sender,
+    // and must not hold up every other session meanwhile.
+    tx.send(SshCommand::Data(bytes)).await.map_err(CmdError::from)
+}
+
+/// The terminal's ZMODEM transfer is over: the session's log and recording
+/// take output again.
+#[tauri::command]
+pub async fn ssh_transfer_done(state: State<'_, AppState>, session_id: String) -> CmdResult<()> {
+    let sessions = state.ssh_state.sessions.lock().await;
+    if let Some(handle) = sessions.get(&session_id) {
+        let _ = handle.cmd_tx.send(SshCommand::TransferDone).await;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn ssh_disconnect(
     state: State<'_, AppState>,

@@ -278,6 +278,7 @@ mod tunnel;
 mod vault;
 mod clipboard;
 mod containers;
+mod localfiles;
 mod records;
 mod resolve;
 
@@ -298,6 +299,7 @@ pub use tunnel::*;
 pub use vault::*;
 pub use clipboard::*;
 pub use containers::*;
+pub use localfiles::*;
 
 #[cfg(test)]
 mod error_tests {

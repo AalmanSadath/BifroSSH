@@ -242,6 +242,7 @@ pub async fn start(
                         out.flush().await;
                         out.recorder = next;
                     }
+                    SshCommand::TransferDone => out.transfer_done(),
                     SshCommand::Close => {
                         closed_by_user = true;
                         let _ = killer.kill();
