@@ -280,7 +280,7 @@ pub async fn start(
         drop(master);
         ssh_state.sessions.lock().await.remove(&sid);
         let reason = if closed_by_user { CloseReason::Closed } else { CloseReason::Exited };
-        let _ = app.emit(&format!("ssh-closed:{sid}"), ClosedEvent { reason });
+        let _ = app.emit(&format!("ssh-closed:{sid}"), ClosedEvent { reason, exit_status: None });
     });
 
     Ok(session_id)

@@ -331,6 +331,7 @@ dependencies = [
  "uuid",
  "windows",
  "zbus",
+ "zeroize",
 ]
 
 [[package]]

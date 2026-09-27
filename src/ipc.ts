@@ -25,6 +25,8 @@ import type {
   Codeprint,
   Conflict,
   ConnectRequest,
+  ContainerEngine,
+  ContainerListing,
   ExportResult,
   FileEntry,
   GeneratedKey,
@@ -406,6 +408,44 @@ export const sftpConnectRemote = (
 ) => invoke<string>('sftp_connect_remote', {
   serverId, username, authType, authValue, connectId, jumps,
 });
+
+/** Connects the Containers panel to a saved host; returns the connection's id. */
+export const containersConnect = (
+  serverId: string,
+  username: string,
+  authType: AuthType,
+  authValue: string,
+  connectId: string | null,
+  jumps: JumpHopParams[],
+) => invoke<string>('containers_connect', {
+  serverId, username, authType, authValue, connectId, jumps,
+});
+
+export const containersList = (connId: string) =>
+  invoke<ContainerListing>('containers_list', { connId });
+
+export const containersAction = (
+  connId: string,
+  engine: ContainerEngine,
+  id: string,
+  action: 'start' | 'stop' | 'restart',
+  /** Root's container: the action runs through sudo. */
+  root: boolean,
+) => invoke<void>('containers_action', { connId, engine, id, action, root });
+
+/**
+ * Turns sudo on for the panel's host, checked first. `password` is not
+ * needed where sudo asks for none; it is kept by the backend and never
+ * comes back.
+ */
+export const containersSudoOn = (connId: string, password: string | null) =>
+  invoke<void>('containers_sudo_on', { connId, password });
+
+export const containersSudoOff = (connId: string) =>
+  invoke<void>('containers_sudo_off', { connId });
+
+export const containersDisconnect = (connId: string) =>
+  invoke<void>('containers_disconnect', { connId });
 
 export const sftpGetHome = (sessionId: string) =>
   invoke<string>('sftp_get_home', { sessionId });

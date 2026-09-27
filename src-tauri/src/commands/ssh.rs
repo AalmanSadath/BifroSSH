@@ -109,6 +109,10 @@ pub struct ConnectRequest {
     pub connect_id: String,
     #[serde(default)]
     pub jumps: Vec<JumpHopRequest>,
+    /// A tab into a container on the host: its shell or its logs, run in
+    /// place of the login shell.
+    #[serde(default)]
+    pub container: Option<crate::containers::TabTarget>,
 }
 
 /// What the saved record contributes to a connection, read under one lock.
@@ -135,6 +139,26 @@ pub async fn ssh_connect(
     app: AppHandle,
     request: ConnectRequest,
 ) -> CmdResult<String> {
+    // Built from a checked id, before anything else, so a bad one is refused
+    // without a connection being made for it.
+    let command = request
+        .container
+        .as_ref()
+        .map(crate::containers::tab_command)
+        .transpose()
+        .map_err(CmdError::from)?;
+    // Through sudo when the tab asks, with what the Containers panel holds
+    // for the host, which is never sent from the frontend.
+    let (command, sudo_input) = match (command, &request.container) {
+        (Some(command), Some(target)) if target.sudo => {
+            let sudo = state.container_state.sudo.lock().await.get(&request.server_id).cloned().ok_or_else(|| {
+                CmdError::from("sudo is no longer on for this host. Turn it on in the Containers panel, then open the tab again.")
+            })?;
+            (Some(crate::containers::sudo_tab_command(&sudo, &command)), sudo.input())
+        }
+        (command, _) => (command, None),
+    };
+
     // One lock: the server, and everything the request names, come out together.
     let Saved { host, port, prep, forward_agent, log_to, label, run_on_connect, hide_run_on_connect, term, env } = {
         let data = state.data.lock().await;
@@ -189,10 +213,13 @@ pub async fn ssh_connect(
         proxy: prep.proxy,
         forward_agent,
         log,
-        run_on_connect,
+        // Typed into a login shell, which a container tab does not have.
+        run_on_connect: if command.is_some() { None } else { run_on_connect },
         hide_run_on_connect,
         term,
         env,
+        command,
+        sudo_input,
     };
 
     start_session(&state, &app, request.connect_id, params, prep.timeout_secs).await
@@ -251,6 +278,8 @@ pub async fn ssh_connect_quick(
         hide_run_on_connect: true,
         term: DEFAULT_TERM.to_string(),
         env: Vec::new(),
+        command: None,
+        sudo_input: None,
     };
 
     start_session(&state, &app, request.connect_id, params, prep.timeout_secs).await

@@ -54,6 +54,14 @@ describe('tabsToSave', () => {
     ]);
   });
 
+  it('drops container tabs, which would come back as the host shell', () => {
+    const sessions = [
+      tab({ tab_id: 'a', server_id: 's1' }),
+      tab({ tab_id: 'c', server_id: 's1', container: { engine: 'podman', id: 'abc', name: 'web', kind: 'shell' } }),
+    ];
+    expect(tabsToSave(sessions)).toEqual([{ server_id: 's1' }]);
+  });
+
   it('drops quick connections, which have nothing saved to connect with', () => {
     const sessions = [
       tab({ tab_id: 'a', server_id: 's1' }),

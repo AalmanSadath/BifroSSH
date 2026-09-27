@@ -487,6 +487,20 @@
   .tab-recording { animation: none; }
 }
 
+/* A container tab running as root. Always shown, whatever the hint
+   setting, and never animated: it is a standing fact, not an event. */
+.tab-sudo {
+  color: var(--bg-dark);
+  background: var(--danger);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 1px 4px;
+  border-radius: 3px;
+  margin-right: 5px;
+  flex-shrink: 0;
+}
+
 .tab-logging {
   color: var(--danger);
   font-size: 8px;

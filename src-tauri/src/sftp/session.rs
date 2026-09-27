@@ -7,12 +7,10 @@ use anyhow::{anyhow, Context, Result};
 use russh_sftp::client::SftpSession;
 use tokio::sync::Mutex;
 use tokio::time::Duration;
-use russh::*;
 
 use crate::connect::ConnectSecurity;
-use crate::hostverify::{HostKeyVerifier, VerifyingHandler};
 use crate::jump::JumpHop;
-use crate::ssh::{AuthContext, SshAuth};
+use crate::ssh::SshAuth;
 
 // Threaded straight through from the command layer. Collapsing these into a
 // params struct belongs with the wider connect-path dedup, not here.
@@ -55,29 +53,18 @@ async fn connect_sftp_inner(
     jumps: Vec<JumpHop>,
     proxy: Option<crate::proxycmd::ProxyCommand>,
 ) -> Result<()> {
-    let config = Arc::new(client::Config {
-        inactivity_timeout: Some(Duration::from_secs(inactivity_timeout_secs as u64)),
-        ..Default::default()
-    });
-
     sec.log("auth", &format!("Starting SFTP connection to \"{}\" port \"{}\"", host, port));
-
-    // Resolution, the TCP connect, and every jump host in between.
-    let transport = crate::jump::open_transport(&jumps, host, port, proxy.as_ref(), &sec, None)
-        .await
-        .inspect_err(|e| sec.log("error", &format!("{e:#}")))?;
-
-    let verifier = HostKeyVerifier::new(sec.clone(), host, port, Some(username.to_string()));
-    let mut handle =
-        crate::ssh::connect_verified(config, transport, verifier, VerifyingHandler::new)
-            .await
-            .inspect_err(|e| sec.log("error", &format!("{e:#}")))?;
-
-    sec.log("auth", &format!("Authenticating to \"{}\":\"{}\" as \"{}\"", host, port, username));
-    crate::ssh::authenticate(&mut handle, &auth, &AuthContext::new(sec.clone(), username).with_host(host))
-        .await
-        .inspect_err(|e| sec.log("error", &format!("{e:#}")))?;
-    sec.log("auth", "Authentication succeeded");
+    let handle = crate::ssh::connect_authenticated(
+        host,
+        port,
+        username,
+        &auth,
+        &sec,
+        &jumps,
+        proxy.as_ref(),
+        Some(Duration::from_secs(inactivity_timeout_secs as u64)),
+    )
+    .await?;
 
     sec.log("network", "Opening session channel...");
     let channel = handle.channel_open_session().await?;

@@ -17,6 +17,7 @@
 @import './styles/palette.css';
 @import './styles/knownhosts.css';
 @import './styles/recordings.css';
+@import './styles/containers.css';
 @import './styles/drawer.css';
 @import './styles/hosts.css';
 @import './styles/sftp.css';

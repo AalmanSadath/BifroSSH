@@ -39,6 +39,9 @@ interface Props {
   width?: number;
 }
 
+/** A container tab's command ending sooner than this, and failing, is kept open to be read. */
+const QUICK_FAILURE_MS = 3000;
+
 interface SearchOptions {
   caseSensitive: boolean;
   wholeWord: boolean;
@@ -48,6 +51,8 @@ interface SearchOptions {
 export default function TerminalView({ tab, visible, focused, header, resizer, width }: Props) {
   const { tab_id: tabId, session_id: sessionId, server_id: serverId } = tab;
   const isLocal = tab.kind === 'local';
+  /** Inside a container: paths and commands there are not the host's. */
+  const inContainer = !!tab.container;
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -65,7 +70,7 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
   const { settings, servers, removeSession, markDropped, reconnectSession, stopRetrying, retryingTabIds, sendInput, setActiveTab, sessionThemeOverrides, sessionZoom, zoomSession, customThemes, markActivity } = useAppStore();
   const hint = useHint();
   // A local shell has no host to read, and no connection to read it over.
-  const monitorShown = tab.status !== 'error' && tab.kind !== 'local'
+  const monitorShown = tab.status !== 'error' && tab.kind !== 'local' && !inContainer
     && monitorWanted(settings.monitor_bar, servers.find((s) => s.id === serverId));
 
   // This tab's own size if it has been zoomed, else the one every terminal
@@ -288,7 +293,8 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
         if (y - 1 === buf.baseY + buf.cursorY) { callback(undefined); return; }
         // A path in a local shell is on this machine, not on a host the
         // SFTP panel could open.
-        if (isLocal) { callback(undefined); return; }
+        // Nor is a path in a container.
+        if (isLocal || inContainer) { callback(undefined); return; }
         const line = buf.getLine(y - 1)?.translateToString(true) ?? '';
         callback(findPaths(line).map((p) => ({
           range: { start: { x: p.start + 1, y }, end: { x: p.end, y } },
@@ -470,7 +476,7 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
     // What is run at a prompt on a saved host is kept for its suggestions. A
     // quick connection has no host record to keep it against.
     commandsRef.current = attachCommandTracker(term, (command) => {
-      if (serverId) useAppStore.getState().learnCommand(serverId, command);
+      if (serverId && !inContainer) useAppStore.getState().learnCommand(serverId, command);
     });
     suggesterRef.current = attachSuggester(term, commandsRef.current, () => suggestStateRef.current);
 
@@ -522,6 +528,7 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
     // written ahead of output that came before it.
     let replayed = false;
     const queued: Uint8Array[] = [];
+    const boundAt = Date.now();
 
     const unlistenOutput = listen<string>(`ssh-output:${sessionId}`, (ev) => {
       if (disposed) return;
@@ -539,6 +546,16 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
         // back.
         term.write('\r\n\x1b[31m[Connection lost]\x1b[0m\r\n');
         markDropped(tabId);
+        return;
+      }
+      // A container command that failed straight away, because the container
+      // stopped or its image has no shell: closing would take the reason with
+      // the tab. It stays, saying so, with Enter to try again; not retried on
+      // its own, since it would fail the same way.
+      const status = ev.payload.exit_status ?? 0;
+      if (inContainer && ev.payload.reason === 'exited' && status !== 0 && Date.now() - boundAt < QUICK_FAILURE_MS) {
+        term.write(`\r\n\x1b[31m[Ended with status ${status}]\x1b[0m\r\n`);
+        markDropped(tabId, status);
         return;
       }
       // An exit the shell announced, or a close the user asked for. Nothing
@@ -800,7 +817,7 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
         <div className="term-dropped">
           <div className="term-dropped-row">
             <span className="term-dropped-text">
-              Connection lost.
+              {tab.ended_with !== undefined ? `The command ended with status ${tab.ended_with}.` : 'Connection lost.'}
               {tab.quick_info && ' A quick connection cannot be reopened without the credentials typed for it.'}
               {retrying && !tab.reconnecting && countdown !== null && ` Trying again in ${countdown}s (attempt ${tab.retryAttempt ?? 1}).`}
               {tab.gaveUpAfter !== undefined && ` Gave up after ${tab.gaveUpAfter} ${tab.gaveUpAfter === 1 ? 'try' : 'tries'}.`}
@@ -814,7 +831,7 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
                 disabled={tab.reconnecting}
                 onClick={() => { stopRetrying(tabId); void reconnectSession(tabId); }}
               >
-                {tab.reconnecting ? 'Reconnecting…' : retrying ? 'Try now' : 'Reconnect'}
+                {tab.reconnecting ? 'Reconnecting…' : retrying ? 'Try now' : tab.ended_with !== undefined ? 'Run again' : 'Reconnect'}
               </button>
             )}
             <button className="btn-secondary btn-sm" onClick={() => removeSession(tabId)}>Close</button>

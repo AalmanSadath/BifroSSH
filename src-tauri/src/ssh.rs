@@ -67,6 +67,11 @@ pub fn close_reason(closed_by_user: bool, saw_exit_status: bool) -> CloseReason 
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct ClosedEvent {
     pub reason: CloseReason,
+    /// What the remote command or shell exited with, when it said. A
+    /// container tab uses it to tell a command that failed from one that
+    /// finished.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_status: Option<u32>,
 }
 
 /// Output produced before the terminal is listening.
@@ -127,6 +132,11 @@ pub(crate) struct SessionOutput {
     pub recorder: Option<crate::recording::Recorder>,
     /// Waiting for the next flush.
     pub buf: Vec<u8>,
+}
+
+/// Where `needle` first appears in `haystack`.
+fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack.windows(needle.len()).position(|w| w == needle)
 }
 
 impl SessionOutput {
@@ -215,6 +225,12 @@ pub struct SshConnectParams {
     pub run_on_connect: Option<String>,
     /// Whether that line's echo is taken back out of the terminal.
     pub hide_run_on_connect: bool,
+    /// Run this instead of the login shell, as `ssh -t host command` does:
+    /// a shell in a container, or its logs. The tab closes when it exits.
+    pub command: Option<String>,
+    /// The sudo password and its newline, sent when the command prints
+    /// `containers::SUDO_MARKER` with echo off. Wiped when dropped.
+    pub sudo_input: Option<zeroize::Zeroizing<Vec<u8>>>,
     /// The terminal type the PTY is asked for.
     pub term: String,
     /// Variables to ask the server to set before the shell starts.
@@ -263,6 +279,41 @@ where
     client::connect_stream(config, transport, handler)
         .await
         .map_err(|e| host_key_error(&verifier, e))
+}
+
+/// A connection that is up, verified and authenticated, with nothing opened
+/// on it yet: what a panel with its own connection (SFTP, Containers) starts
+/// from. The connect is narrated into `sec`'s log, failures included.
+// Threaded straight through from the command layer, like connect_sftp.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn connect_authenticated(
+    host: &str,
+    port: u16,
+    username: &str,
+    auth: &SshAuth,
+    sec: &ConnectSecurity,
+    jumps: &[JumpHop],
+    proxy: Option<&crate::proxycmd::ProxyCommand>,
+    inactivity_timeout: Option<Duration>,
+) -> Result<client::Handle<VerifyingHandler>> {
+    let config = Arc::new(client::Config { inactivity_timeout, ..Default::default() });
+
+    // Resolution, the TCP connect, and every jump host in between.
+    let transport = jump::open_transport(jumps, host, port, proxy, sec, None)
+        .await
+        .inspect_err(|e| sec.log("error", &format!("{e:#}")))?;
+
+    let verifier = HostKeyVerifier::new(sec.clone(), host, port, Some(username.to_string()));
+    let mut handle = connect_verified(config, transport, verifier, VerifyingHandler::new)
+        .await
+        .inspect_err(|e| sec.log("error", &format!("{e:#}")))?;
+
+    sec.log("auth", &format!("Authenticating to \"{}\":\"{}\" as \"{}\"", host, port, username));
+    authenticate(&mut handle, auth, &AuthContext::new(sec.clone(), username).with_host(host))
+        .await
+        .inspect_err(|e| sec.log("error", &format!("{e:#}")))?;
+    sec.log("auth", "Authentication succeeded");
+    Ok(handle)
 }
 
 // Threaded straight through from the command layer, like connect_sftp.
@@ -405,11 +456,22 @@ pub async fn connect_ssh(
         emit_log(&app, &connect_id, "network", &format!("Asked the server to set {}", names.join(", ")));
     }
 
-    emit_log(&app, &connect_id, "network", "Starting shell...");
-    channel
-        .request_shell(false)
-        .await
-        .map_err(|_| anyhow!("Shell request failed"))?;
+    match &params.command {
+        Some(command) => {
+            emit_log(&app, &connect_id, "network", &format!("Running: {command}"));
+            channel
+                .exec(false, command.as_str())
+                .await
+                .map_err(|_| anyhow!("The server refused to run the command"))?;
+        }
+        None => {
+            emit_log(&app, &connect_id, "network", "Starting shell...");
+            channel
+                .request_shell(false)
+                .await
+                .map_err(|_| anyhow!("Shell request failed"))?;
+        }
+    }
 
     emit_log(&app, &connect_id, "auth", "Shell ready — connected");
 
@@ -419,6 +481,7 @@ pub async fn connect_ssh(
     // drawn, which reads as the app having typed it twice. It goes below
     // instead, once the shell has finished saying hello.
     let mut startup = params.run_on_connect.clone();
+    let mut sudo_input = params.sudo_input.clone();
     let hide_startup = params.hide_run_on_connect;
     let startup_log = startup.is_some().then(|| (app.clone(), connect_id.clone()));
 
@@ -460,7 +523,7 @@ pub async fn connect_ssh(
         let mut flush_tick = interval(Duration::from_millis(8));
         flush_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut out = SessionOutput::new(app.clone(), sid.clone(), Arc::clone(&attach), params.log);
-        let mut saw_exit_status = false;
+        let mut exit_status: Option<u32> = None;
         let mut closed_by_user = false;
         // When EOF arrived, if it has. The loop stays for the close that
         // follows, but not forever: a server that sends EOF and then nothing
@@ -508,6 +571,18 @@ pub async fn connect_ssh(
                                 Some((filter, _)) => filter.feed(data.as_ref(), &mut out.buf),
                                 None => out.buf.extend_from_slice(data.as_ref()),
                             }
+                            // The sudo prompt of a container tab, with echo
+                            // already off: answered, and taken out of what
+                            // the terminal is shown.
+                            if sudo_input.is_some() {
+                                if let Some(at) = find(&out.buf, crate::containers::SUDO_MARKER) {
+                                    out.buf.drain(at..at + crate::containers::SUDO_MARKER.len());
+                                    let input = sudo_input.take().unwrap_or_default();
+                                    if channel.data(input.as_slice()).await.is_err() {
+                                        break;
+                                    }
+                                }
+                            }
                             if was_empty || out.buf.len() >= 8192 {
                                 out.flush().await;
                             }
@@ -527,7 +602,7 @@ pub async fn connect_ssh(
                         // Sent by the server when the shell ends on its own.
                         // Remembered rather than acted on: the close that
                         // follows is what ends the loop.
-                        ChannelMsg::ExitStatus { .. } => saw_exit_status = true,
+                        ChannelMsg::ExitStatus { exit_status: code } => exit_status = Some(code),
                         _ => {}
                     }
                 }
@@ -569,8 +644,8 @@ pub async fn connect_ssh(
             let mut sessions = ssh_state_cleanup.sessions.lock().await;
             sessions.remove(&sid);
         }
-        let reason = close_reason(closed_by_user, saw_exit_status);
-        let _ = app.emit(&format!("ssh-closed:{}", sid), ClosedEvent { reason });
+        let reason = close_reason(closed_by_user, exit_status.is_some());
+        let _ = app.emit(&format!("ssh-closed:{}", sid), ClosedEvent { reason, exit_status });
     });
 
     Ok(())
@@ -590,7 +665,7 @@ mod tests {
 
     #[test]
     fn the_reason_is_sent_as_the_word_the_frontend_matches_on() {
-        let json = serde_json::to_string(&ClosedEvent { reason: CloseReason::Dropped }).unwrap();
+        let json = serde_json::to_string(&ClosedEvent { reason: CloseReason::Dropped, exit_status: None }).unwrap();
         assert_eq!(json, r#"{"reason":"dropped"}"#);
     }
 
