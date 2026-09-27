@@ -228,6 +228,7 @@ const DEFAULT_SETTINGS: Settings = {
   autosuggest: true,
   monitor_bar: false,
   local_shell: '',
+  inline_images: true,
   accent_color: null,
 };
 

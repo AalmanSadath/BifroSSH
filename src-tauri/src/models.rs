@@ -377,6 +377,10 @@ pub struct Settings {
     /// would split them. Empty is the system's own: the login shell on Unix,
     /// PowerShell on Windows.
     pub local_shell: String,
+    /// Draw images programs send in Sixel or the iTerm2 protocol (imgcat,
+    /// chafa, img2sixel). On by default; the terminal only holds memory for
+    /// images that have actually been shown.
+    pub inline_images: bool,
 }
 
 /// One keyword highlighting rule.
@@ -441,6 +445,7 @@ impl Default for Settings {
             autosuggest: true,
             monitor_bar: false,
             local_shell: String::new(),
+            inline_images: true,
         }
     }
 }

@@ -1000,6 +1000,13 @@
     },
     {
         "type": "file",
+        "url": "https://registry.npmjs.org/@xterm/addon-image/-/addon-image-0.9.0.tgz",
+        "sha512": "a18580f3f400af9fc49b0975c4bed60a83aa786dc865fa73133fce56ad63e0e8bdf77e134261e2cae6c29629117f40ff8cbdc936236ecff2ecab1d245d0d3604",
+        "dest-filename": "80f3f400af9fc49b0975c4bed60a83aa786dc865fa73133fce56ad63e0e8bdf77e134261e2cae6c29629117f40ff8cbdc936236ecff2ecab1d245d0d3604",
+        "dest": "flatpak-node/npm-cache/_cacache/content-v2/sha512/a1/85"
+    },
+    {
+        "type": "file",
         "url": "https://registry.npmjs.org/@xterm/addon-search/-/addon-search-0.16.0.tgz",
         "sha512": "f4e7ae045bb4fee6493eefbd007298ea0ff0d02cf26ff52dd00e6defd23850ba14e087d4e411293c55464313f8cd34cc75f6446245484586c7057d715b08de48",
         "dest-filename": "ae045bb4fee6493eefbd007298ea0ff0d02cf26ff52dd00e6defd23850ba14e087d4e411293c55464313f8cd34cc75f6446245484586c7057d715b08de48",
@@ -3486,6 +3493,12 @@
         "contents": "eb5dc2f3c6b23e637ecb2f506865e15e24380d65\t{\"key\": \"make-fetch-happen:request-cache:https://registry.npmjs.org/assertion-error/-/assertion-error-2.0.1.tgz\", \"integrity\": \"sha512-Izi8RQcffqCeNVgFigKli1ssklIbpHnCYc6AknXGYoB6grJqyeby7jv12JUQgmTAnIDnbck1uxksT4dzN3PWBA==\", \"time\": 0, \"size\": 2472, \"metadata\": {\"url\": \"https://registry.npmjs.org/assertion-error/-/assertion-error-2.0.1.tgz\", \"reqHeaders\": {}, \"resHeaders\": {}}}",
         "dest-filename": "2953701ac0c3bbcad9386cb5df0c034fbdfc47242f902c888707f6346f12",
         "dest": "flatpak-node/npm-cache/_cacache/index-v5/8f/92"
+    },
+    {
+        "type": "inline",
+        "contents": "ec18baec6d27cec481206e1edee9b663a2f0c96d\t{\"key\": \"make-fetch-happen:request-cache:https://registry.npmjs.org/@xterm/addon-image/-/addon-image-0.9.0.tgz\", \"integrity\": \"sha512-oYWA8/QAr5/Emwl1xL7WCoOqeG3IZfpzEz/OVq1j4Oi9934TQmHiyubClikRf0D/jL3JNiNuz/Lsqx0kXQ02BA==\", \"time\": 0, \"size\": 203418, \"metadata\": {\"url\": \"https://registry.npmjs.org/@xterm/addon-image/-/addon-image-0.9.0.tgz\", \"reqHeaders\": {}, \"resHeaders\": {}}}",
+        "dest-filename": "a2c13808594402e66ed61fae5de4b54f9786c8a7fe08b465ccb3a9b13010",
+        "dest": "flatpak-node/npm-cache/_cacache/index-v5/71/db"
     },
     {
         "type": "inline",

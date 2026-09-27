@@ -349,6 +349,8 @@ export interface Settings {
   monitor_bar: boolean;
   /** The program a local shell tab runs, with its arguments; empty is the system's own. */
   local_shell: string;
+  /** Draw Sixel and iTerm2 images in the terminal. */
+  inline_images: boolean;
 }
 
 /** How the user chose to keep the master key on the first run screen. */

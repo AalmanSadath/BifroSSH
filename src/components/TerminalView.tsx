@@ -3,6 +3,8 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { ImageAddon } from '@xterm/addon-image';
+import { IMAGE_OPTIONS } from '../terminalImages';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { findPaths } from '../paths';
 import { TERMINAL_ACTIONS, actionFor, resolve as resolveShortcuts } from '../shortcuts';
@@ -595,6 +597,16 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
     settings.cursor_blink,
     settings.scrollback_lines,
   ]);
+
+  // Sixel and iTerm2 images. Loaded and dropped with the setting, since the
+  // addon has no switch of its own; dropping it takes its images with it.
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term || !settings.inline_images) return;
+    const images = new ImageAddon(IMAGE_OPTIONS);
+    term.loadAddon(images);
+    return () => images.dispose();
+  }, [settings.inline_images]);
 
   // The host's history, read once, the first time any of its tabs opens.
   useEffect(() => {

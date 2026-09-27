@@ -116,6 +116,18 @@ export default function TerminalSection() {
           How much output a terminal keeps above the screen. Applies to open tabs as well;
           lowering it drops what is beyond the new limit.
         </p>
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={settings.inline_images}
+            onChange={(e) => patch({ inline_images: e.target.checked })}
+          />
+          <span>Show images in the terminal</span>
+        </label>
+        <p className="form-hint">
+          Pictures that programs such as imgcat, chafa or img2sixel send, in the Sixel or iTerm2
+          format. Switching it off also clears the images already in open terminals.
+        </p>
       </section>
 
       <section className="panel-section">
