@@ -85,6 +85,29 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.15.2" date="2026-09-29">
+      <description>
+        <p>
+          A new Containers panel lists the Docker and Podman containers on a
+          host, starts, stops and restarts them, and opens a shell inside
+          one or follows its logs in a terminal tab. With sudo turned on,
+          root's containers are listed beside your own and marked as such;
+          the password is checked first, held only in memory, and cleared
+          when you stop sudo, disconnect or lock the app.
+        </p>
+        <p>
+          A host can connect through a proxy command, as OpenSSH's
+          ProxyCommand does, for tools such as cloudflared or nc through a
+          proxy. Hosts imported from an ssh config keep theirs.
+        </p>
+        <p>
+          Files can be sent and received in a terminal with ZMODEM: sz on
+          the host saves files to a folder you choose, and rz sends the files
+          you pick. Images that programs print in the Sixel or iTerm2 format
+          now show in the terminal, which can be switched off in Settings.
+        </p>
+      </description>
+    </release>
     <release version="0.15.1" date="2026-09-27">
       <description>
         <p>
