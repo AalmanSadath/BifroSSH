@@ -368,6 +368,9 @@ async fn dynamic_tunnel(
             .await
             .channel_open_direct_tcpip(&host, port as u32, "127.0.0.1", 0)
             .await;
+        if crate::socks5::reply(&mut stream, ch.is_ok()).await.is_err() {
+            return;
+        }
         if let Ok(ch) = ch {
             proxy_tcp_channel(stream, ch).await;
         }

@@ -12,8 +12,8 @@
 use anyhow::{anyhow, Result};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-/// Greets a SOCKS5 client and reads the address it wants, leaving the stream
-/// ready to carry traffic.
+/// Greets a SOCKS5 client and reads the address it wants. The client waits
+/// for `reply` to say whether it got there.
 ///
 /// Generic over the stream so a test can hand it a pipe. In use it is always a
 /// `TcpStream` from the local listener.
@@ -68,10 +68,21 @@ pub async fn handshake<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S) -> Res
         t => return Err(anyhow!("Unknown addr type {}", t)),
     };
 
-    // Succeeded. The bound address we report is all zeroes, which clients
-    // ignore for CONNECT.
-    stream.write_all(&[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await?;
     Ok((host, port))
+}
+
+/// Tells the client whether its CONNECT went through, once the channel to
+/// the target has opened or failed to. Answering before that, as this once
+/// did, told every client it had connected, and one whose target could not
+/// be reached saw a connection that closed at once instead of an error.
+///
+/// The bound address is all zeroes, which clients ignore for CONNECT.
+pub async fn reply<S: AsyncWrite + Unpin>(stream: &mut S, connected: bool) -> Result<()> {
+    // 0x01 is "general failure": the server does not say why a channel was
+    // refused in terms SOCKS has a code for.
+    let code = if connected { 0x00 } else { 0x01 };
+    stream.write_all(&[0x05, code, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -89,6 +100,9 @@ mod tests {
         // real client that stops mid-request eventually does the same.
         client.shutdown().await.unwrap();
         let outcome = handshake(&mut server).await;
+        if outcome.is_ok() {
+            reply(&mut server, true).await.unwrap();
+        }
         // Dropping the server end lets the client read to EOF instead of
         // blocking on a reply that is never coming.
         drop(server);
@@ -164,6 +178,18 @@ mod tests {
         req.extend_from_slice(&[0x05, 0x01, 0x00, 0x01, 10, 0, 0, 1, 0x00, 0x16]);
         let (out, _) = talk(&req).await;
         assert_eq!(out.unwrap(), ("10.0.0.1".to_string(), 22));
+    }
+
+    /// A target the SSH server would not open a channel to is an error the
+    /// client is told about, not a connection that closes at once.
+    #[tokio::test]
+    async fn a_connect_that_failed_is_answered_as_a_failure() {
+        let (mut client, mut server) = duplex(64);
+        reply(&mut server, false).await.unwrap();
+        drop(server);
+        let mut got = Vec::new();
+        client.read_to_end(&mut got).await.unwrap();
+        assert_eq!(got, [0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
     }
 
     #[tokio::test]
