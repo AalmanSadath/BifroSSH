@@ -283,9 +283,8 @@ pub struct SshConnectParams {
     /// Run this instead of the login shell, as `ssh -t host command` does:
     /// a shell in a container, or its logs. The tab closes when it exits.
     pub command: Option<String>,
-    /// The sudo password and its newline, sent when the command prints
-    /// `containers::SUDO_MARKER` with echo off. Wiped when dropped.
-    pub sudo_input: Option<zeroize::Zeroizing<Vec<u8>>>,
+    /// The sudo password, sent when sudo prompts with its marker.
+    pub sudo: Option<crate::containers::SudoAnswer>,
     /// The terminal type the PTY is asked for.
     pub term: String,
     /// Variables to ask the server to set before the shell starts.
@@ -536,7 +535,7 @@ pub async fn connect_ssh(
     // drawn, which reads as the app having typed it twice. It goes below
     // instead, once the shell has finished saying hello.
     let mut startup = params.run_on_connect.clone();
-    let mut sudo_input = params.sudo_input.clone();
+    let mut sudo = params.sudo.clone();
     let hide_startup = params.hide_run_on_connect;
     let startup_log = startup.is_some().then(|| (app.clone(), connect_id.clone()));
 
@@ -630,11 +629,11 @@ pub async fn connect_ssh(
                             // The sudo prompt of a container tab, with echo
                             // already off: answered, and taken out of what
                             // the terminal is shown.
-                            if sudo_input.is_some() {
-                                if let Some(at) = find(&out.buf, crate::containers::SUDO_MARKER) {
-                                    out.buf.drain(at..at + crate::containers::SUDO_MARKER.len());
-                                    let input = sudo_input.take().unwrap_or_default();
-                                    if channel.data(input.as_slice()).await.is_err() {
+                            let at = sudo.as_ref().and_then(|s| find(&out.buf, &s.marker).map(|at| (at, s.marker.len())));
+                            if let Some((at, len)) = at {
+                                out.buf.drain(at..at + len);
+                                if let Some(answer) = sudo.take() {
+                                    if channel.data(answer.input.as_slice()).await.is_err() {
                                         break;
                                     }
                                 }
