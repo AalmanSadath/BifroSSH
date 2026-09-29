@@ -145,6 +145,7 @@ pub fn unwrap_key(blob: &str, kek: &[u8; 32]) -> Result<[u8; 32]> {
 
 pub fn derive_passphrase_kek(passphrase: &str, w: &PassphraseWrapper) -> Result<[u8; 32]> {
     use argon2::{Algorithm, Argon2, Params, Version};
+    check_argon2_costs(w.m_cost, w.t_cost, w.p_cost)?;
     let salt = BASE64.decode(&w.salt)?;
     let params = Params::new(w.m_cost, w.t_cost, w.p_cost, Some(32))
         .map_err(|e| anyhow!("Bad Argon2 parameters: {e}"))?;
@@ -159,6 +160,26 @@ pub fn derive_passphrase_kek(passphrase: &str, w: &PassphraseWrapper) -> Result<
 
 /// How hard a passphrase is to grind.
 ///
+/// The most a stored or imported set of Argon2 costs may ask for. The costs
+/// are read from the file being opened, and a backup from anywhere could
+/// otherwise ask for terabytes, which ends the process, or a run of hours.
+/// Far above what this app writes (`ARGON2`) and what anyone would choose.
+const MAX_M_COST_KIB: u32 = 1024 * 1024;
+const MAX_T_COST: u32 = 64;
+const MAX_P_COST: u32 = 16;
+
+fn check_argon2_costs(m_cost: u32, t_cost: u32, p_cost: u32) -> Result<()> {
+    if m_cost > MAX_M_COST_KIB || t_cost > MAX_T_COST || p_cost > MAX_P_COST {
+        return Err(anyhow!(
+            "The file asks for Argon2 costs of {} MiB, {t_cost} passes and {p_cost} lanes, more than \
+             the {} MiB, {MAX_T_COST} passes and {MAX_P_COST} lanes allowed, so it is not opened",
+            m_cost / 1024,
+            MAX_M_COST_KIB / 1024,
+        ));
+    }
+    Ok(())
+}
+
 /// OWASP's second recommended Argon2id profile: 19 MiB, 2 passes, 1 lane.
 /// Chosen over the heavier ones because this runs on the UI thread at unlock.
 ///
@@ -613,6 +634,19 @@ mod tests {
     fn a_new_wrapper_uses_the_shared_argon2_profile() {
         let w = new_passphrase_wrapper("pass", &key(3), PassphraseForm::Verbatim).unwrap();
         assert_eq!((w.m_cost, w.t_cost, w.p_cost), (ARGON2.m_cost, ARGON2.t_cost, ARGON2.p_cost));
+    }
+
+    /// Costs read from a file are capped before any memory is asked for.
+    #[test]
+    fn argon2_costs_from_a_file_are_capped() {
+        let mut w = new_passphrase_wrapper("correct horse", &key(1), PassphraseForm::Verbatim).unwrap();
+        w.m_cost = u32::MAX;
+        let err = derive_passphrase_kek("correct horse", &w).unwrap_err().to_string();
+        assert!(err.contains("not opened"), "{err}");
+        w.m_cost = ARGON2.m_cost;
+        w.t_cost = 1_000_000;
+        assert!(derive_passphrase_kek("correct horse", &w).is_err());
+        assert!(check_argon2_costs(ARGON2.m_cost, ARGON2.t_cost, ARGON2.p_cost).is_ok());
     }
 
     #[test]
