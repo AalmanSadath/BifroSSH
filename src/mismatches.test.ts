@@ -7,7 +7,7 @@ const mismatch = (over: Partial<Mismatch> = {}): Mismatch =>
   ({ jobId: 'a', name: 'tree', landed: '/dst/tree', rels: ['one.txt'], ...over });
 
 const summary = (): TransferSummary =>
-  ({ files: 1, directories: 0, skipped_symlinks: 0, skipped_existing: 0, renamed: 0, cancelled: false, resumed: 0, mismatched: [], resumable: 0, landed: null, verified: 0, failed: null });
+  ({ files: 1, directories: 0, skipped_symlinks: 0, skipped_names: 0, skipped_existing: 0, renamed: 0, cancelled: false, resumed: 0, mismatched: [], resumable: 0, landed: null, verified: 0, failed: null });
 
 const row = (id: string) => ({ id, name: id, target: 'right' as const, destination: 'pi' });
 

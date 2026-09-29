@@ -1730,7 +1730,7 @@ export default function SftpPanel() {
         run: async (id, conflict) => {
           if (!collides) return send(id, null);
           if (conflict === 'skip') {
-            return { files: 0, directories: 0, skipped_symlinks: 0, skipped_existing: 1, renamed: 0, cancelled: false, resumed: 0, mismatched: [], resumable: 0, landed: null, verified: 0, failed: null };
+            return { files: 0, directories: 0, skipped_symlinks: 0, skipped_names: 0, skipped_existing: 1, renamed: 0, cancelled: false, resumed: 0, mismatched: [], resumable: 0, landed: null, verified: 0, failed: null };
           }
           return send(id, conflict === 'keep_both' ? freeName(taken, entry.name) : null);
         },
@@ -1788,7 +1788,7 @@ export default function SftpPanel() {
               const answer = await askConflict({ name: next.name, files, more });
               if (answer === null) {
                 // The rest of the batch leaves with it.
-                const cancelledSummary: TransferSummary = { files: 0, directories: 0, skipped_symlinks: 0, skipped_existing: 0, renamed: 0, cancelled: true, resumed: 0, mismatched: [], resumable: 0, landed: null, verified: 0, failed: null };
+                const cancelledSummary: TransferSummary = { files: 0, directories: 0, skipped_symlinks: 0, skipped_names: 0, skipped_existing: 0, renamed: 0, cancelled: true, resumed: 0, mismatched: [], resumable: 0, landed: null, verified: 0, failed: null };
                 updateQueue((q) => finished(q, next.id, { summary: cancelledSummary }, Date.now()));
                 for (const row of queueRef.current) {
                   if (row.status === 'queued' && jobsRef.current.get(row.id)?.batch === job.batch) {

@@ -18,9 +18,29 @@ const MAX_CHUNK: u64 = 4 << 20;
 /// user chose: the last path component only, with nothing that climbs out
 /// of that folder or means something to a shell or a file manager.
 pub fn safe_name(offered: &str) -> Option<String> {
+    clean_name(offered, cfg!(windows))
+}
+
+/// `safe_name`, with Windows' rules or without, so both are tested
+/// everywhere. On Windows a name such as `C:x` is a path on drive C rather
+/// than a name in the folder, `x:y` is an NTFS stream and `nul.txt` a
+/// device, so those characters become `_` and a device name gets one in
+/// front.
+fn clean_name(offered: &str, windows: bool) -> Option<String> {
+    use crate::sftp::{is_windows_device, WINDOWS_FORBIDDEN};
     let base = offered.rsplit(['/', '\\']).next().unwrap_or("");
-    let cleaned: String = base.chars().filter(|c| !c.is_control()).collect();
-    let cleaned = cleaned.trim().trim_start_matches('.').trim().to_string();
+    let cleaned: String = base
+        .chars()
+        .filter(|c| !c.is_control())
+        .map(|c| if windows && WINDOWS_FORBIDDEN.contains(&c) { '_' } else { c })
+        .collect();
+    let mut cleaned = cleaned.trim().trim_start_matches('.').trim().to_string();
+    if windows {
+        cleaned = cleaned.trim_end_matches(['.', ' ']).to_string();
+        if is_windows_device(&cleaned) {
+            cleaned.insert(0, '_');
+        }
+    }
     (!cleaned.is_empty()).then_some(cleaned)
 }
 
@@ -120,6 +140,20 @@ mod tests {
         assert_eq!(safe_name(".."), None);
         assert_eq!(safe_name("dir/"), None);
         assert_eq!(safe_name(""), None);
+    }
+
+    /// On Windows the folder is still the one chosen, whatever the name.
+    #[test]
+    fn an_offered_name_is_made_one_windows_takes_as_a_plain_name() {
+        assert_eq!(clean_name("C:evil.bat", true).as_deref(), Some("C_evil.bat"));
+        assert_eq!(clean_name("notes.txt:hidden", true).as_deref(), Some("notes.txt_hidden"));
+        assert_eq!(clean_name("what?.txt", true).as_deref(), Some("what_.txt"));
+        assert_eq!(clean_name("nul.txt", true).as_deref(), Some("_nul.txt"));
+        assert_eq!(clean_name("trailing. ", true).as_deref(), Some("trailing"));
+        assert_eq!(clean_name("...", true), None);
+        // Elsewhere those are ordinary characters, and kept.
+        assert_eq!(clean_name("10:30.log", false).as_deref(), Some("10:30.log"));
+        assert_eq!(clean_name("nul.txt", false).as_deref(), Some("nul.txt"));
     }
 
     #[tokio::test]

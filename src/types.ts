@@ -111,6 +111,8 @@ export interface TransferSummary {
   directories: number;
   /** Symlinks are never copied; following one risks a loop. */
   skipped_symlinks: number;
+  /** Left out because this computer cannot use the name (Windows: `C:x`, `nul`). */
+  skipped_names: number;
   /** Left alone because one was already there and the answer was skip. */
   skipped_existing: number;
   /** Files written under a name of their own because one was already there. */

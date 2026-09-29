@@ -58,6 +58,10 @@ pub async fn open_remote(
         .filter(|n| !n.is_empty())
         .ok_or_else(|| anyhow!("Not a file: {remote_path}"))?
         .to_string();
+    // Joined onto the folder below, so it has to be a plain name here.
+    if !super::local_name_ok(&name) {
+        return Err(anyhow!("{name:?} cannot be opened on this computer under that name"));
+    }
     let remote_dir = parent_remote(&remote_path);
 
     let dir = std::env::temp_dir()

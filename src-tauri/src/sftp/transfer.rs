@@ -128,6 +128,25 @@ fn stem_and_ext(name: &str) -> (&str, &str) {
     }
 }
 
+/// What `walk_for` found: the tree, the symlinks the walk passed over, and
+/// how many entries the destination cannot hold under their names.
+struct Walked {
+    items: Vec<TreeItem>,
+    skipped_symlinks: u32,
+    skipped_names: u32,
+}
+
+/// The tree under `root` on `src`, less anything `dst` cannot hold under its
+/// name. A directory that is left out takes everything under it along, since
+/// every part of each path is checked.
+async fn walk_for<S: FileSide, D: FileSide>(src: &S, dst: &D, root: &str) -> Result<Walked> {
+    let (mut items, skipped_symlinks) = src.walk(root).await?;
+    let before = items.len();
+    items.retain(|item| item.rel.split('/').all(|part| dst.allows(part)));
+    let skipped_names = (before - items.len()) as u32;
+    Ok(Walked { items, skipped_symlinks, skipped_names })
+}
+
 /// `name (2)`, then `name (3)`, and so on: the first one not already at
 /// the destination.
 async fn free_path<D: FileSide>(dst: &D, dir: &str, name: &str) -> String {
@@ -453,6 +472,9 @@ async fn transfer<S: FileSide, D: FileSide>(
     if dst_dir.is_empty() {
         return Err(anyhow!("No destination directory"));
     }
+    if !dst.allows(&name) {
+        return Err(anyhow!("{name:?} cannot be saved here under that name"));
+    }
     if !src.is_dir(src_path).await? {
         let wanted = dst.join(dst_dir, &name);
         let Some(dest) = resolve_conflict(dst, dst_dir, &name, policy).await else {
@@ -478,7 +500,7 @@ async fn transfer<S: FileSide, D: FileSide>(
     }
     let dest_root = dst.join(dst_dir, &name);
 
-    let (items, skipped_symlinks) = src.walk(src_path).await?;
+    let Walked { items, skipped_symlinks, skipped_names } = walk_for(src, dst, src_path).await?;
     let files: Vec<&TreeItem> = items.iter().filter(|i| !i.is_dir).collect();
     let count = files.len() as u32;
 
@@ -564,6 +586,7 @@ async fn transfer<S: FileSide, D: FileSide>(
         files: files_done,
         directories,
         skipped_symlinks,
+        skipped_names,
         skipped_existing,
         renamed,
         resumed,
@@ -656,12 +679,16 @@ pub(super) async fn conflicts<S: FileSide, D: FileSide>(
         .context("Invalid source path")?
         .to_string_lossy()
         .into_owned();
+    // The transfer itself refuses this, and says why.
+    if !dst.allows(&name) {
+        return Ok(vec![]);
+    }
     if !src.is_dir(src_path).await? {
         let there = dst.exists(&dst.join(dst_dir, &name)).await;
         return Ok(if there { vec![name] } else { vec![] });
     }
     let dest_root = dst.join(dst_dir, &name);
-    let (items, _) = src.walk(src_path).await?;
+    let items = walk_for(src, dst, src_path).await?.items;
     let mut found = Vec::new();
     for item in items.iter().filter(|i| !i.is_dir) {
         if dst.exists(&dst.join(&dest_root, &item.rel)).await {
