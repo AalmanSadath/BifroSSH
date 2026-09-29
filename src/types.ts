@@ -779,6 +779,10 @@ export interface MergePlan {
   missing_key_paths: string[];
   host_key_conflicts: string[];
   has_settings: boolean;
+  /** New hosts that connect through a proxy command run on this computer. */
+  proxy_command_hosts: string[];
+  /** The local shell the file's settings would put in place, if changed. */
+  local_shell: string | null;
 }
 
 export interface ImportOptions {
