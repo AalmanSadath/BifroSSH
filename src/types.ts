@@ -27,7 +27,11 @@ export const UNKNOWN_OS = 'server';
 export const STORED = '[stored]';
 
 /** How a connection proves who it is. Spelled `auth_type` on the wire. */
-export type AuthType = 'key' | 'password' | 'keyboard-interactive' | 'agent';
+/**
+ * `server-password` and `identity-password` carry the record's id: the
+ * backend decrypts the saved password itself, so it never enters the page.
+ */
+export type AuthType = 'key' | 'password' | 'keyboard-interactive' | 'agent' | 'server-password' | 'identity-password';
 
 export interface Server {
   id: string;

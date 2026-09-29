@@ -35,7 +35,7 @@ fn prepare(
     host_timeout: Option<u32>,
 ) -> CmdResult<Prepared> {
     Ok(Prepared {
-        auth: resolve_auth(data, key, auth_type, auth_value)?,
+        auth: resolve_auth(data, key, auth_type, auth_value, target.map(|(server, _)| server.id.as_str()))?,
         jumps: resolve_jumps(data, key, jumps)?,
         proxy: super::resolve::first_proxy(data, target, jumps)?,
         timeout_secs: host_timeout.unwrap_or(data.settings.connection_timeout_secs) as u64,

@@ -7,7 +7,6 @@ import type { Identity, Server, SessionTab } from '../types';
 // the rules around it can be tested without a backend, and so a test can see
 // exactly which record was asked for.
 vi.mock('../ipc', () => ({
-  getIdentityPassword: vi.fn(async (id: string) => `identity-secret:${id}`),
   getServerPassword: vi.fn(async (id: string) => `server-secret:${id}`),
   // The strip writes itself down on every change; here there is nowhere to
   // write it to.
@@ -83,19 +82,26 @@ describe('resolveServerAuth', () => {
     expect(await resolveServerAuth(s, [])).toBeNull();
   });
 
-  it('asks the keychain only when the record says a password is stored', async () => {
+  /**
+   * A saved password is named, never fetched: the backend decrypts it for the
+   * connect, so the plaintext never has to be in the page.
+   */
+  it('names a saved password by its record rather than reading it', async () => {
     const stored = server({ id: 's1', encrypted_password: STORED });
     expect(await resolveServerAuth(stored, [])).toEqual({
       username: 'root',
-      authType: 'password',
-      authValue: 'server-secret:s1',
+      authType: 'server-password',
+      authValue: 's1',
     });
-    expect(ipc.getServerPassword).toHaveBeenCalledWith('s1');
-
-    vi.clearAllMocks();
-    const none = server({ id: 's2' });
-    expect(await resolveServerAuth(none, [])).toBeNull();
+    const id = identity({ id: 'i1', encrypted_password: STORED });
+    expect(await resolveServerAuth(server({ id: 's2', identity_id: 'i1' }), [id])).toEqual({
+      username: 'ident-user',
+      authType: 'identity-password',
+      authValue: 'i1',
+    });
     expect(ipc.getServerPassword).not.toHaveBeenCalled();
+
+    expect(await resolveServerAuth(server({ id: 's3' }), [])).toBeNull();
   });
 
   it('sends nothing for prompt auth and the fingerprint for an agent', async () => {
@@ -117,7 +123,6 @@ describe('resolveServerAuth', () => {
     const id = identity({ id: 'i1', auth_kind: 'agent', encrypted_password: STORED });
     const resolved = await resolveServerAuth(server({ id: 's1', identity_id: 'i1' }), [id]);
     expect(resolved?.authType).toBe('agent');
-    expect(ipc.getIdentityPassword).not.toHaveBeenCalled();
   });
 
   it('has nothing to offer for a host with no username', async () => {

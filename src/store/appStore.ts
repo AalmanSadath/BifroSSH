@@ -547,11 +547,7 @@ export async function resolveServerAuth(
       };
     }
     if (identity.encrypted_password === STORED) {
-      return {
-        username: identity.username,
-        authType: 'password',
-        authValue: await ipc.getIdentityPassword(identity.id),
-      };
+      return { username: identity.username, authType: 'identity-password', authValue: identity.id };
     }
     if (identity.key_id) {
       return { username: identity.username, authType: 'key', authValue: identity.key_id };
@@ -571,11 +567,7 @@ export async function resolveServerAuth(
     return { username: server.username, authType: 'key', authValue: server.key_id };
   }
   if (server.encrypted_password === STORED) {
-    return {
-      username: server.username,
-      authType: 'password',
-      authValue: await ipc.getServerPassword(server.id),
-    };
+    return { username: server.username, authType: 'server-password', authValue: server.id };
   }
   return null;
 }

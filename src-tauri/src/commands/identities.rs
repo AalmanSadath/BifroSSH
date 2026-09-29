@@ -41,8 +41,7 @@ pub async fn save_identity(
     } else if let Some(pw) = password.as_deref().filter(|p| !p.is_empty()) {
         // An empty box means no password, the same as it does for a server.
         // Encrypting it instead stored a credential that was not one, and
-        // get_identity_password then handed back "" rather than saying there
-        // was nothing to hand back.
+        // signing in then sent "" rather than saying there was nothing saved.
         identity.encrypted_password = Some(state.encrypt(pw.as_bytes())?);
     } else if identity.key_id.is_some() {
         identity.encrypted_password = None;
@@ -55,18 +54,6 @@ pub async fn save_identity(
     upsert_by_id(&mut data.identities, identity.clone());
     state.save(&data)?;
     Ok(identity.redacted())
-}
-
-#[tauri::command]
-pub async fn get_identity_password(
-    state: State<'_, AppState>,
-    identity_id: String,
-) -> CmdResult<String> {
-    let data = state.data.lock().await;
-    let identity = find_by_id(&data.identities, &identity_id)
-        .ok_or("Identity not found")?;
-    let enc = identity.encrypted_password.as_ref().ok_or("No password stored for this identity")?;
-    state.decrypt_str(enc)
 }
 
 #[tauri::command]
