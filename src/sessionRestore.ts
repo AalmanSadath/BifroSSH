@@ -15,7 +15,9 @@ import type { OpenTab, Server, SessionTab } from './types';
  */
 export function tabsToSave(sessions: SessionTab[]): OpenTab[] {
   return sessions
-    .filter((t) => t.server_id !== '' && t.status !== 'error')
+    // A container tab would come back as the host's own shell, and the
+    // container may be gone by the next launch; it is left for the panel.
+    .filter((t) => t.server_id !== '' && t.status !== 'error' && !t.container)
     .map((t) => (t.title ? { server_id: t.server_id, title: t.title } : { server_id: t.server_id }));
 }
 

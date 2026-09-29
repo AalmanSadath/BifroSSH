@@ -21,6 +21,7 @@ interface Props {
 // section of their own, since "sftp" is what the user types for either.
 const PANELS: { id: string; label: string }[] = [
   { id: 'hosts', label: 'Hosts' },
+  { id: 'containers', label: 'Containers' },
   { id: 'portforwarding', label: 'Port Forwarding' },
   { id: 'keychain', label: 'Keychain' },
   { id: 'knownhosts', label: 'Known Hosts' },

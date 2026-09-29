@@ -171,6 +171,7 @@ pub struct AppState {
     pub ssh_state: Arc<SshState>,
     pub sftp_state: Arc<SftpClientState>,
     pub tunnel_state: Arc<TunnelState>,
+    pub container_state: crate::containers::ContainerState,
     pub prompts: Arc<PromptState>,
 }
 
@@ -276,6 +277,8 @@ mod sftp;
 mod tunnel;
 mod vault;
 mod clipboard;
+mod containers;
+mod localfiles;
 mod records;
 mod resolve;
 
@@ -295,6 +298,8 @@ pub use sftp::*;
 pub use tunnel::*;
 pub use vault::*;
 pub use clipboard::*;
+pub use containers::*;
+pub use localfiles::*;
 
 #[cfg(test)]
 mod error_tests {
@@ -339,6 +344,7 @@ mod key_cell_tests {
             ssh_state: Arc::new(SshState::new()),
             sftp_state: Arc::new(SftpClientState::new()),
             tunnel_state: Arc::new(TunnelState::new()),
+            container_state: Default::default(),
             prompts: Arc::new(PromptState::new()),
         }
     }

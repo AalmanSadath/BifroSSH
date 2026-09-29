@@ -18,7 +18,7 @@ use super::ChannelOpener;
 /// called `a b` or `don't` has to survive it. Single quotes take
 /// everything literally; the only character that needs care is the quote
 /// itself, which is closed, escaped and reopened.
-pub(super) fn quote(word: &str) -> String {
+pub(crate) fn quote(word: &str) -> String {
     format!("'{}'", word.replace('\'', r"'\''"))
 }
 
@@ -50,6 +50,18 @@ pub(crate) async fn run_capture(
     tool: &str,
     command: &str,
 ) -> Result<String> {
+    run_capture_with_input(opener, tool, command, None).await
+}
+
+/// The same, with `input` written to the command's stdin and then closed:
+/// how a password reaches `sudo -S` without being on a command line that
+/// anyone on the host could read.
+pub(crate) async fn run_capture_with_input(
+    opener: &dyn ChannelOpener,
+    tool: &str,
+    command: &str,
+    input: Option<&[u8]>,
+) -> Result<String> {
     let mut channel = opener
         .open_session()
         .await
@@ -58,6 +70,11 @@ pub(crate) async fn run_capture(
         .exec(true, command)
         .await
         .with_context(|| format!("The server refused to run {tool}"))?;
+    if let Some(input) = input {
+        channel.data(input).await.with_context(|| format!("Could not write to {tool}"))?;
+        // Closed after, so nothing on the far end waits for more.
+        let _ = channel.eof().await;
+    }
 
     let mut stdout = Vec::new();
     let mut stderr = String::new();

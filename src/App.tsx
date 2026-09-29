@@ -36,6 +36,7 @@ import ThemeEditorPanel from './components/ThemeEditorPanel';
 import SftpPanel from './components/SftpPanel';
 import ServerForm from './components/ServerForm';
 import TerminalSidebar from './components/TerminalSidebar';
+import ContainersPanel from './components/ContainersPanel';
 import PortForwardingPanel from './components/PortForwardingPanel';
 import ContextMenu from './components/shared/ContextMenu';
 import Modal from './components/shared/Modal';
@@ -359,7 +360,7 @@ export default function App() {
         case 'duplicate-tab':
           // A quick connection has no host record to open again.
           if (current?.kind === 'local') void openLocalShell();
-          else if (current && current.server_id) openSession(current.server_id);
+          else if (current && current.server_id) openSession(current.server_id, undefined, current.container);
           return;
         case 'local-shell':
           void openLocalShell();
@@ -418,7 +419,7 @@ export default function App() {
   function handleDuplicate(session: SessionTab) {
     setTabCtx(null);
     if (session.kind === 'local') void openLocalShell();
-    else openSession(session.server_id);
+    else openSession(session.server_id, undefined, session.container);
   }
 
   function handleQuickSubmit(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -589,6 +590,7 @@ export default function App() {
               >
                 {splitGroup.includes(s.tab_id) && <span className="tab-split" title={hint('Shown in a split')}>⊟</span>}
                 {s.logging === 'tab' && <span className="tab-logging" title={hint('Output is being logged to a file')}>●</span>}
+                {s.container?.sudo && <span className="tab-sudo" title="Running as root with sudo">SUDO</span>}
                 {s.recording && <span className="tab-recording" title={hint('Being recorded')}>REC</span>}
                 {s.broadcast && (
                   <span className="tab-broadcast" title={hint('Broadcasting: input also goes to every other tab marked the same way')}>⇶</span>
@@ -674,14 +676,14 @@ export default function App() {
                 id: '', name: s.server_name, host: 'this computer', port: 0,
                 identity_id: null, theme: null, connection_timeout: null, os: 'local',
                 username: null, encrypted_password: null, key_id: null,
-                auth_kind: null, proxy_jump: null, forward_agent: false, log_sessions: false, group: null, run_on_connect: null, hide_run_on_connect: true, notes: null, term: null, env: null, monitor: null, tags: [],
+                auth_kind: null, proxy_jump: null, proxy_command: null, forward_agent: false, log_sessions: false, group: null, run_on_connect: null, hide_run_on_connect: true, notes: null, term: null, env: null, monitor: null, tags: [],
               } : undefined)
               ?? (s.quick_info ? {
                 id: '', name: s.server_name,
                 host: s.quick_info.host, port: s.quick_info.port,
                 identity_id: null, theme: null, connection_timeout: null, os: '',
                 username: s.quick_info.username, encrypted_password: null, key_id: null,
-                auth_kind: null, proxy_jump: null, forward_agent: false, log_sessions: false, group: null, run_on_connect: null, hide_run_on_connect: true, notes: null, term: null, env: null, monitor: null, tags: [],
+                auth_kind: null, proxy_jump: null, proxy_command: null, forward_agent: false, log_sessions: false, group: null, run_on_connect: null, hide_run_on_connect: true, notes: null, term: null, env: null, monitor: null, tags: [],
               } : undefined);
 
             if (s.status === 'connecting' || s.status === 'error') {
@@ -704,7 +706,7 @@ export default function App() {
                     onClose={() => removeSession(s.tab_id)}
                     onRetry={s.quick_info ? undefined
                       : s.kind === 'local' ? () => { removeSession(s.tab_id); void openLocalShell(); }
-                        : () => { removeSession(s.tab_id); openSession(s.server_id); }}
+                        : () => { removeSession(s.tab_id); openSession(s.server_id, undefined, s.container); }}
                     onEditHost={s.quick_info || s.kind === 'local' ? undefined : () => setEditServerId(server.id)}
                   />
                 </div>
@@ -726,6 +728,7 @@ export default function App() {
           </div>
 
           {(activeTabId === 'hosts' || activeTabId === null) && <HostsPanel />}
+          {activeTabId === 'containers' && <ContainersPanel />}
           {activeTabId === 'keychain' && <KeychainPanel />}
           <div style={{ display: activeTabId === 'sftp' ? 'contents' : 'none' }}><SftpPanel /></div>
           {activeTabId === 'knownhosts' && <KnownHostsPanel />}
@@ -860,8 +863,9 @@ export default function App() {
               <button className="menu-item" onClick={() => { startRename(tabCtx.session); setTabCtx(null); }}>
                 Rename
               </button>
-              {/* A quick connection has no saved host for the SFTP panel to open. */}
-              {!tabCtx.session.quick_info && tabCtx.session.kind !== 'local' && (
+              {/* A quick connection has no saved host for the SFTP panel to open,
+                  and a container's files are not the host's. */}
+              {!tabCtx.session.quick_info && tabCtx.session.kind !== 'local' && !tabCtx.session.container && (
                 <button className="menu-item" onClick={() => { openInSftp(tabCtx.session.server_id, '~'); setTabCtx(null); }}>
                   Open in SFTP
                 </button>

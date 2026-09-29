@@ -12,6 +12,8 @@ pub(super) struct ServerTarget {
     pub port: u16,
     pub auth: SshAuth,
     pub jumps: Vec<JumpHop>,
+    /// The ProxyCommand to dial with; see `first_proxy`.
+    pub proxy: Option<crate::proxycmd::ProxyCommand>,
 }
 
 /// Looks up a saved server and resolves the credential and chain named with it.
@@ -30,17 +32,52 @@ pub(super) fn server_target(
     data: &AppData,
     secret_key: &[u8; 32],
     server_id: &str,
+    username: &str,
     auth_type: AuthMethod,
     auth_value: &str,
     jumps: Option<&[JumpHopRequest]>,
 ) -> CmdResult<ServerTarget> {
     let server = super::records::find_by_id(&data.servers, server_id).ok_or("Server not found")?;
+    let jumps = jumps.unwrap_or(&[]);
     Ok(ServerTarget {
         host: server.host.clone(),
         port: server.port,
         auth: resolve_auth(data, secret_key, auth_type, auth_value)?,
-        jumps: resolve_jumps(data, secret_key, jumps.unwrap_or(&[]))?,
+        jumps: resolve_jumps(data, secret_key, jumps)?,
+        proxy: first_proxy(data, Some((server, username)), jumps)?,
     })
+}
+
+/// The ProxyCommand of whichever host is dialled first, with what its
+/// tokens stand for: the outermost jump host's when there are jump hosts, else the
+/// target's. As with OpenSSH, a host reached through another never uses its
+/// own.
+///
+/// Read from the saved servers, never taken from the request: it is run on
+/// this computer, so the frontend names a server and nothing more.
+pub(super) fn first_proxy(
+    data: &AppData,
+    target: Option<(&Server, &str)>,
+    jumps: &[JumpHopRequest],
+) -> CmdResult<Option<crate::proxycmd::ProxyCommand>> {
+    let first = match jumps.first() {
+        Some(hop) => hop
+            .server_id
+            .as_deref()
+            .and_then(|id| super::records::find_by_id(&data.servers, id))
+            .map(|server| (server, hop.username.as_str())),
+        None => target,
+    };
+    let Some((server, user)) = first else { return Ok(None) };
+    let Some(command) = server.proxy_command.as_deref().filter(|c| !c.trim().is_empty()) else {
+        return Ok(None);
+    };
+    Ok(Some(crate::proxycmd::ProxyCommand {
+        command: command.trim().to_string(),
+        host: server.host.clone(),
+        port: server.port,
+        user: user.to_string(),
+    }))
 }
 
 // ── Resolving a saved server into connectable parts ──────────────────
@@ -104,6 +141,9 @@ pub struct JumpHopRequest {
     pub username: String,
     pub auth_type: AuthMethod,
     pub auth_value: String,
+    /// The saved server this hop is, for its ProxyCommand.
+    #[serde(default)]
+    pub server_id: Option<String>,
 }
 
 pub(super) fn resolve_jumps(
@@ -123,4 +163,73 @@ pub(super) fn resolve_jumps(
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn server(id: &str, host: &str, proxy: Option<&str>) -> Server {
+        Server {
+            id: id.to_string(),
+            name: id.to_string(),
+            host: host.to_string(),
+            port: 2022,
+            identity_id: None,
+            username: None,
+            encrypted_password: None,
+            key_id: None,
+            theme: None,
+            os: String::new(),
+            connection_timeout: None,
+            auth_kind: None,
+            proxy_jump: None,
+            proxy_command: proxy.map(str::to_string),
+            forward_agent: false, log_sessions: false, group: None, run_on_connect: None, hide_run_on_connect: true, notes: None, term: None, env: None, monitor: None, tags: Vec::new(),
+        }
+    }
+
+    fn hop(server_id: &str, username: &str) -> JumpHopRequest {
+        JumpHopRequest {
+            host: String::new(),
+            port: 22,
+            username: username.to_string(),
+            auth_type: AuthMethod::Password,
+            auth_value: String::new(),
+            server_id: Some(server_id.to_string()),
+        }
+    }
+
+    fn expanded(proxy: Option<crate::proxycmd::ProxyCommand>) -> Option<String> {
+        proxy.map(|p| p.expanded().unwrap())
+    }
+
+    #[test]
+    fn a_direct_host_uses_its_own_proxy_command() {
+        let data = AppData { servers: vec![server("t", "target", Some("nc %h %p # %r"))], ..Default::default() };
+        let got = expanded(first_proxy(&data, Some((&data.servers[0], "alice")), &[]).unwrap());
+        assert_eq!(got.as_deref(), Some("nc target 2022 # alice"));
+    }
+
+    /// Only the host dialled first runs a proxy command, as with OpenSSH: the
+    /// outermost jump host's, filled in with its own name and user, and never
+    /// the target's behind it.
+    #[test]
+    fn behind_a_jump_host_the_jump_hosts_command_is_used() {
+        let data = AppData {
+            servers: vec![server("t", "target", Some("never")), server("j", "bastion", Some("cloudflared %h as %r"))],
+            ..Default::default()
+        };
+        let got = expanded(first_proxy(&data, Some((&data.servers[0], "alice")), &[hop("j", "ops")]).unwrap());
+        assert_eq!(got.as_deref(), Some("cloudflared bastion as ops"));
+
+        let plain = AppData { servers: vec![server("t", "target", Some("never")), server("j", "bastion", None)], ..Default::default() };
+        assert_eq!(first_proxy(&plain, Some((&plain.servers[0], "alice")), &[hop("j", "ops")]).unwrap(), None);
+    }
+
+    #[test]
+    fn a_blank_command_is_none() {
+        let data = AppData { servers: vec![server("t", "target", Some("  "))], ..Default::default() };
+        assert_eq!(first_proxy(&data, Some((&data.servers[0], "a")), &[]).unwrap(), None);
+    }
 }

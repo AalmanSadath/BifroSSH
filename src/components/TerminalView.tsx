@@ -3,6 +3,8 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { ImageAddon } from '@xterm/addon-image';
+import { IMAGE_OPTIONS } from '../terminalImages';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { findPaths } from '../paths';
 import { TERMINAL_ACTIONS, actionFor, resolve as resolveShortcuts } from '../shortcuts';
@@ -18,6 +20,9 @@ import { attachCommandTracker, type CommandTracker } from '../terminalCommands';
 import { attachSuggester, type Suggester } from '../terminalSuggest';
 import { monitorWanted } from '../hostStats';
 import MonitorBar from './MonitorBar';
+import FilePickerModal from './FilePickerModal';
+import { attachZmodem, toBase64, type TransferProgress, type ZmodemHandle } from '../zmodem';
+import { formatSize } from '../transferStatus';
 import type { SessionTab, SshClosed } from '../types';
 import { THEMES } from '../styles/themes';
 import '@xterm/xterm/css/xterm.css';
@@ -37,6 +42,19 @@ interface Props {
   width?: number;
 }
 
+/** Where the last ZMODEM download went, so the next one starts there; for every tab. */
+let lastZmodemFolder: string | null = null;
+
+/** A ZMODEM transfer waiting on the user: a folder to save into, or files to send. */
+interface ZmodemPick {
+  mode: 'folder' | 'files';
+  startDir?: string;
+  resolve: (chosen: string | string[] | null) => void;
+}
+
+/** A container tab's command ending sooner than this, and failing, is kept open to be read. */
+const QUICK_FAILURE_MS = 3000;
+
 interface SearchOptions {
   caseSensitive: boolean;
   wholeWord: boolean;
@@ -46,11 +64,16 @@ interface SearchOptions {
 export default function TerminalView({ tab, visible, focused, header, resizer, width }: Props) {
   const { tab_id: tabId, session_id: sessionId, server_id: serverId } = tab;
   const isLocal = tab.kind === 'local';
+  /** Inside a container: paths and commands there are not the host's. */
+  const inContainer = !!tab.container;
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const searchRef = useRef<SearchAddon | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const zmodemRef = useRef<ZmodemHandle | null>(null);
+  const [transfer, setTransfer] = useState<TransferProgress | null>(null);
+  const [zmodemPick, setZmodemPick] = useState<ZmodemPick | null>(null);
   /**
    * The session the terminal's own handlers send to. A ref, because the
    * handlers are bound once when the terminal is made and the session under
@@ -63,7 +86,7 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
   const { settings, servers, removeSession, markDropped, reconnectSession, stopRetrying, retryingTabIds, sendInput, setActiveTab, sessionThemeOverrides, sessionZoom, zoomSession, customThemes, markActivity } = useAppStore();
   const hint = useHint();
   // A local shell has no host to read, and no connection to read it over.
-  const monitorShown = tab.status !== 'error' && tab.kind !== 'local'
+  const monitorShown = tab.status !== 'error' && tab.kind !== 'local' && !inContainer
     && monitorWanted(settings.monitor_bar, servers.find((s) => s.id === serverId));
 
   // This tab's own size if it has been zoomed, else the one every terminal
@@ -286,7 +309,8 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
         if (y - 1 === buf.baseY + buf.cursorY) { callback(undefined); return; }
         // A path in a local shell is on this machine, not on a host the
         // SFTP panel could open.
-        if (isLocal) { callback(undefined); return; }
+        // Nor is a path in a container.
+        if (isLocal || inContainer) { callback(undefined); return; }
         const line = buf.getLine(y - 1)?.translateToString(true) ?? '';
         callback(findPaths(line).map((p) => ({
           range: { start: { x: p.start + 1, y }, end: { x: p.end, y } },
@@ -437,6 +461,12 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
     });
 
     term.onData((data) => {
+      // A transfer owns the session while it runs: anything typed would land
+      // in the middle of the protocol. Ctrl+C is the way out.
+      if (zmodemRef.current?.active()) {
+        if (data.includes('\x03')) zmodemRef.current.cancel();
+        return;
+      }
       const sid = sessionIdRef.current;
       if (!sid) {
         // Dropped. Enter is what the hands do to a dead session anyway, so
@@ -464,15 +494,40 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
     // What the tab menu reaches for when it is asked for a transcript.
     registerTerminal(tabId, term);
 
+    zmodemRef.current = attachZmodem(term, {
+      send: (bytes) => {
+        const sid = sessionIdRef.current;
+        return sid ? ipc.sshSendBytes(sid, toBase64(bytes)) : Promise.reject(new Error('the session has closed'));
+      },
+      done: () => {
+        const sid = sessionIdRef.current;
+        if (sid) ipc.sshTransferDone(sid).catch(() => {});
+      },
+      chooseFolder: async () => {
+        const startDir = lastZmodemFolder ?? await ipc.defaultExportDir().catch(() => undefined);
+        const chosen = await new Promise<string | string[] | null>((resolve) => setZmodemPick({ mode: 'folder', startDir, resolve }));
+        if (typeof chosen === 'string') lastZmodemFolder = chosen;
+        return typeof chosen === 'string' ? chosen : null;
+      },
+      chooseFiles: async () => {
+        const chosen = await new Promise<string | string[] | null>((resolve) => setZmodemPick({ mode: 'files', resolve }));
+        return Array.isArray(chosen) ? chosen : null;
+      },
+      progress: setTransfer,
+      finished: (message, ok) => term.write(`\r\n\x1b[${ok ? 32 : 33}m[${message}]\x1b[0m\r\n`),
+    });
+
     highlighterRef.current = attachHighlighter(term, () => highlightStateRef.current);
     // What is run at a prompt on a saved host is kept for its suggestions. A
     // quick connection has no host record to keep it against.
     commandsRef.current = attachCommandTracker(term, (command) => {
-      if (serverId) useAppStore.getState().learnCommand(serverId, command);
+      if (serverId && !inContainer) useAppStore.getState().learnCommand(serverId, command);
     });
     suggesterRef.current = attachSuggester(term, commandsRef.current, () => suggestStateRef.current);
 
     return () => {
+      zmodemRef.current?.cancel();
+      zmodemRef.current = null;
       highlighterRef.current?.dispose();
       highlighterRef.current = null;
       suggesterRef.current?.dispose();
@@ -506,6 +561,12 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
     let disposed = false;
     const decode = (payload: string) =>
       Uint8Array.from(atob(payload), (c) => c.charCodeAt(0));
+    // Through the ZMODEM sentry, which hands the terminal everything that is
+    // not a transfer.
+    const output = (buf: Uint8Array) => {
+      if (zmodemRef.current) zmodemRef.current.consume(buf);
+      else term.write(buf);
+    };
 
     if (boundOnceRef.current) {
       term.write('\r\n\x1b[32m[Reconnected]\x1b[0m\r\n');
@@ -520,23 +581,36 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
     // written ahead of output that came before it.
     let replayed = false;
     const queued: Uint8Array[] = [];
+    const boundAt = Date.now();
 
     const unlistenOutput = listen<string>(`ssh-output:${sessionId}`, (ev) => {
       if (disposed) return;
       const buf = decode(ev.payload);
       if (buf.length === 0) return;
-      if (replayed) term.write(buf);
+      if (replayed) output(buf);
       else queued.push(buf);
     });
 
     const unlistenClose = listen<SshClosed>(`ssh-closed:${sessionId}`, (ev) => {
       if (disposed) return;
+      // A transfer cannot outlive its session; its half-written file goes.
+      zmodemRef.current?.cancel();
       if (ev.payload.reason === 'dropped') {
         // The tab stays, with everything on it. The line marks where the
         // connection went in the scrollback, and the banner offers the way
         // back.
         term.write('\r\n\x1b[31m[Connection lost]\x1b[0m\r\n');
         markDropped(tabId);
+        return;
+      }
+      // A container command that failed straight away, because the container
+      // stopped or its image has no shell: closing would take the reason with
+      // the tab. It stays, saying so, with Enter to try again; not retried on
+      // its own, since it would fail the same way.
+      const status = ev.payload.exit_status ?? 0;
+      if (inContainer && ev.payload.reason === 'exited' && status !== 0 && Date.now() - boundAt < QUICK_FAILURE_MS) {
+        term.write(`\r\n\x1b[31m[Ended with status ${status}]\x1b[0m\r\n`);
+        markDropped(tabId, status);
         return;
       }
       // An exit the shell announced, or a close the user asked for. Nothing
@@ -555,7 +629,7 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
         if (disposed) return;
         if (pending) {
           const buf = decode(pending);
-          if (buf.length > 0) term.write(buf);
+          if (buf.length > 0) output(buf);
         }
       })
       .catch(() => {})
@@ -564,7 +638,7 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
         // shows nothing at all from here on.
         if (disposed) return;
         replayed = true;
-        for (const buf of queued) term.write(buf);
+        for (const buf of queued) output(buf);
         queued.length = 0;
       });
 
@@ -595,6 +669,16 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
     settings.cursor_blink,
     settings.scrollback_lines,
   ]);
+
+  // Sixel and iTerm2 images. Loaded and dropped with the setting, since the
+  // addon has no switch of its own; dropping it takes its images with it.
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term || !settings.inline_images) return;
+    const images = new ImageAddon(IMAGE_OPTIONS);
+    term.loadAddon(images);
+    return () => images.dispose();
+  }, [settings.inline_images]);
 
   // The host's history, read once, the first time any of its tabs opens.
   useEffect(() => {
@@ -782,13 +866,48 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
         </div>
       )}
 
+      {transfer && (
+        <div className="zmodem-overlay">
+          <div className="zmodem-row">
+            <span className="zmodem-text">
+              {transfer.direction === 'receive' ? 'Receiving' : 'Sending'} {transfer.name}
+              {transfer.fileCount && transfer.fileCount > 1 ? ` (${transfer.fileIndex} of ${transfer.fileCount})` : ''}
+            </span>
+            <span className="zmodem-size">
+              {formatSize(transfer.done)}{transfer.total !== null ? ` of ${formatSize(transfer.total)}` : ''}
+            </span>
+            <button className="btn-secondary btn-sm" onClick={() => zmodemRef.current?.cancel()} title={hint('Ctrl+C')}>
+              Cancel
+            </button>
+          </div>
+          {transfer.total ? (
+            <progress className="zmodem-bar" value={transfer.done} max={transfer.total} />
+          ) : (
+            <progress className="zmodem-bar" />
+          )}
+        </div>
+      )}
+
+      {zmodemPick && (
+        <FilePickerModal
+          mode={zmodemPick.mode === 'folder' ? 'folder' : 'open'}
+          multiple={zmodemPick.mode === 'files'}
+          title={zmodemPick.mode === 'folder' ? 'Save the files the host is sending in…' : 'Send files to the host'}
+          startDir={zmodemPick.startDir}
+          confirmLabel={zmodemPick.mode === 'folder' ? 'Save here' : 'Send'}
+          onCancel={() => { zmodemPick.resolve(null); setZmodemPick(null); }}
+          onChoose={(path) => { zmodemPick.resolve(path); setZmodemPick(null); }}
+          onChooseMany={(paths) => { zmodemPick.resolve(paths); setZmodemPick(null); }}
+        />
+      )}
+
       {tab.status === 'dropped' && (
         // Over the terminal rather than in place of it: the scrollback is the
         // point of keeping the tab, and it stays readable behind this.
         <div className="term-dropped">
           <div className="term-dropped-row">
             <span className="term-dropped-text">
-              Connection lost.
+              {tab.ended_with !== undefined ? `The command ended with status ${tab.ended_with}.` : 'Connection lost.'}
               {tab.quick_info && ' A quick connection cannot be reopened without the credentials typed for it.'}
               {retrying && !tab.reconnecting && countdown !== null && ` Trying again in ${countdown}s (attempt ${tab.retryAttempt ?? 1}).`}
               {tab.gaveUpAfter !== undefined && ` Gave up after ${tab.gaveUpAfter} ${tab.gaveUpAfter === 1 ? 'try' : 'tries'}.`}
@@ -802,7 +921,7 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
                 disabled={tab.reconnecting}
                 onClick={() => { stopRetrying(tabId); void reconnectSession(tabId); }}
               >
-                {tab.reconnecting ? 'Reconnecting…' : retrying ? 'Try now' : 'Reconnect'}
+                {tab.reconnecting ? 'Reconnecting…' : retrying ? 'Try now' : tab.ended_with !== undefined ? 'Run again' : 'Reconnect'}
               </button>
             )}
             <button className="btn-secondary btn-sm" onClick={() => removeSession(tabId)}>Close</button>

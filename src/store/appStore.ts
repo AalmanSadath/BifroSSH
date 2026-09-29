@@ -14,7 +14,7 @@ import { terminalFor } from '../terminalRegistry';
 import { screenSnapshot } from '../screenSnapshot';
 import { nextActivity, watched, type Activity, type Mark } from '../activity';
 import { isStale, type Probed } from '../probe';
-import type { AuthType, Codeprint, ProbeState, SftpBookmark, GeneratedKey, Identity, IdentityInput, JumpHopParams, KeyContent, KeyEntry, LogEntry, OpenTab, PortForwarding, ResolvedTheme, Server, ServerInput, SessionTab, Settings, SettingsSection, SystemAppearance } from '../types';
+import type { AuthType, Codeprint, ConnectRequest, ContainerTab, ProbeState, SftpBookmark, GeneratedKey, Identity, IdentityInput, JumpHopParams, KeyContent, KeyEntry, LogEntry, OpenTab, PortForwarding, ResolvedTheme, Server, ServerInput, SessionTab, Settings, SettingsSection, SystemAppearance } from '../types';
 import type { NamedTheme } from '../styles/themes';
 
 /**
@@ -228,6 +228,7 @@ const DEFAULT_SETTINGS: Settings = {
   autosuggest: true,
   monitor_bar: false,
   local_shell: '',
+  inline_images: true,
   accent_color: null,
 };
 
@@ -464,7 +465,11 @@ interface AppStore {
   updateSessionError: (tabId: string, error: string) => void;
   appendSessionLog: (tabId: string, entry: LogEntry) => void;
   /** The connection under a tab went away; the tab stays. */
-  markDropped: (tabId: string) => void;
+  /**
+   * The tab's session went away. `endedWith` is set when it was the command
+   * that failed rather than the connection, which is never retried on its own.
+   */
+  markDropped: (tabId: string, endedWith?: number) => void;
   toggleBroadcast: (tabId: string) => void;
   /** Starts or stops writing the tab's output to a file; the banner says if it could not. */
   toggleLogging: (tabId: string) => Promise<void>;
@@ -499,7 +504,11 @@ interface AppStore {
    */
   retryLoop: (tabId: string, delayMs: number, attempt: number) => Promise<void>;
   /** `title` is a name recorded for a restored tab; new tabs have none. */
-  openSession: (serverId: string, title?: string) => Promise<void>;
+  /** Opens a tab on a saved host; with `container`, into that container instead of the host's shell. */
+  openSession: (serverId: string, title?: string, container?: ContainerTab) => Promise<void>;
+  /** The Containers panel's connection, kept here so switching panels does not drop it. */
+  containersConn: ContainersConn | null;
+  setContainersConn: (conn: ContainersConn | null) => void;
   quickConnect: (host: string, port: number, username: string, authType: AuthType, authValue: string) => Promise<void>;
   setActiveTab: (id: string | null) => void;
 }
@@ -589,6 +598,23 @@ const MAX_JUMP_HOPS = 8;
  * A jump host that has no usable credentials is an error rather than a silent
  * direct connection, which would bypass the bastion the user asked for.
  */
+/** The Containers panel's connection, and whether it is using sudo on the host. */
+export interface ContainersConn {
+  serverId: string;
+  connId: string;
+  sudo: boolean;
+}
+
+/** A container tab's name: the container and the host, or what it shows. */
+export function containerTabName(container: ContainerTab, hostName: string): string {
+  return container.kind === 'logs' ? `Logs: ${container.name}` : `${container.name} · ${hostName}`;
+}
+
+/** What the backend is told of a container tab: never its name, only what it checks. */
+function containerRequest(container: ContainerTab | undefined): ConnectRequest['container'] {
+  return container ? { engine: container.engine, id: container.id, kind: container.kind, sudo: container.sudo } : undefined;
+}
+
 export async function buildJumpChain(
   server: Server,
   servers: Server[],
@@ -621,6 +647,7 @@ export async function buildJumpChain(
       username: resolved.username,
       auth_type: resolved.authType,
       auth_value: resolved.authValue,
+      server_id: jump.id,
     });
     current = jump;
   }
@@ -1258,14 +1285,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
   },
 
-  markDropped: (tabId) => {
+  markDropped: (tabId, endedWith) => {
     set((s) => {
       // Whatever was running went with the connection, and its shell will
       // never send the mark that rounds it off.
       const { [tabId]: _activity, ...activity } = s.sessionActivity;
       return {
         sessions: s.sessions.map((t) =>
-          t.tab_id === tabId ? { ...t, status: 'dropped', session_id: null, error: undefined } : t
+          t.tab_id === tabId ? { ...t, status: 'dropped', session_id: null, error: undefined, ended_with: endedWith } : t
         ),
         sessionActivity: activity,
       };
@@ -1274,7 +1301,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const { settings, sessions } = get();
     const tab = sessions.find((t) => t.tab_id === tabId);
     // A quick connection has no saved host to connect to again.
-    if (!settings.auto_reconnect || !tab || tab.quick_info) return;
+    if (endedWith !== undefined || !settings.auto_reconnect || !tab || tab.quick_info) return;
     set((s) => ({ retryingTabIds: new Set(s.retryingTabIds).add(tabId) }));
     get().retryLoop(tabId, RETRY_FIRST_MS, 1);
   },
@@ -1344,7 +1371,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
     set((s) => ({
       sessions: s.sessions.map((t) => (
-        t.tab_id === tabId ? { ...t, reconnecting: true, error: undefined, retryAt: undefined, gaveUpAfter: undefined } : t
+        t.tab_id === tabId ? { ...t, reconnecting: true, error: undefined, retryAt: undefined, gaveUpAfter: undefined, ended_with: undefined } : t
       )),
     }));
     try {
@@ -1358,6 +1385,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         rows: 24,
         connect_id: crypto.randomUUID(),
         jumps,
+        container: containerRequest(tab.container),
       });
       get().updateSessionConnected(tabId, sessionId);
       // A logged tab goes on being logged, to a new file for the new session.
@@ -1382,15 +1410,20 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
   },
 
-  openSession: async (serverId, title) => {
+  containersConn: null,
+  setContainersConn: (conn) => set({ containersConn: conn }),
+
+  openSession: async (serverId, title, container) => {
     const { servers, identities, sessions, detectServerOs } = get();
     const server = servers.find((s) => s.id === serverId);
     if (!server) return;
 
     // Resolve credentials: identity takes priority, then server-direct credentials
     const connectId = crypto.randomUUID();
-    const existing = sessions.filter((s) => s.server_id === serverId).length;
-    const tabName = existing === 0 ? server.name : `${server.name} (${existing})`;
+    const existing = sessions.filter((s) => s.server_id === serverId && !s.container).length;
+    const tabName = container
+      ? containerTabName(container, server.name)
+      : existing === 0 ? server.name : `${server.name} (${existing})`;
 
     const resolved = await resolveServerAuth(server, identities);
     if (!resolved) {
@@ -1413,6 +1446,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
           server_name: tabName,
           title,
           server_id: serverId,
+          container,
           status: 'error',
           error: reason,
           logs: [{ kind: 'error', message: reason }],
@@ -1435,6 +1469,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         server_name: tabName,
         title,
         server_id: serverId,
+        container,
         status: 'connecting',
         connect_id: connectId,
         logs: [],
@@ -1450,6 +1485,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
           rows: 24,
           connect_id: connectId,
           jumps,
+          container: containerRequest(container),
         });
       },
     );
@@ -1459,7 +1495,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
     if (ok && server.log_sessions) {
       set((s) => ({ sessions: s.sessions.map((t) => (t.tab_id === connectId ? { ...t, logging: 'host' } : t)) }));
     }
-    if (ok) get().autostartTunnels({ kind: 'connect', serverId });
+    // A container tab is a second view of a host already in use, not a
+    // connection to it that tunnels should start with.
+    if (ok && !container) get().autostartTunnels({ kind: 'connect', serverId });
   },
 
   openLocalShell: async () => {
@@ -1543,7 +1581,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
       for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
         const server = servers.find((s) => s.id === id);
         if (!server) continue;
-        if (server.proxy_jump) { write(id, 'skipped'); continue; }
+        // Reached some other way than a TCP connection from here, so a TCP
+        // connection from here says nothing about it.
+        if (server.proxy_jump || server.proxy_command) { write(id, 'skipped'); continue; }
         try {
           const probe = await ipc.probeHost(
             server.host,

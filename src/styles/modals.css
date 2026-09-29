@@ -480,3 +480,9 @@
   white-space: pre-wrap;
   word-break: break-all;
 }
+
+/* How many files a multiple pick holds, on the left of the buttons. */
+.picker-count {
+  margin: 0 auto 0 0;
+  align-self: center;
+}

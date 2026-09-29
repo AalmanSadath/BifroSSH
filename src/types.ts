@@ -49,6 +49,11 @@ export interface Server {
    */
   proxy_jump: string | null;
   /**
+   * OpenSSH's ProxyCommand: run on this computer, its stdin and stdout carry
+   * the connection. `%h`, `%p` and `%r` are filled in.
+   */
+  proxy_command: string | null;
+  /**
    * ssh's -A. While a session is open, programs on this host can use the
    * local agent's keys, and so can anyone with root there. Off by default.
    */
@@ -161,6 +166,8 @@ export interface JumpHopParams {
   username: string;
   auth_type: AuthType;
   auth_value: string;
+  /** The saved server this hop is; the backend reads its proxy command from it. */
+  server_id: string;
 }
 
 /**
@@ -177,6 +184,8 @@ export interface ConnectRequest {
   /** Names the channel the connection log is narrated on. */
   connect_id: string;
   jumps: JumpHopParams[];
+  /** Run the container's shell or logs in place of the login shell. */
+  container?: { engine: ContainerEngine; id: string; kind: ContainerTab['kind']; sudo?: boolean };
 }
 
 /** The same, for a host that was typed in rather than saved. */
@@ -349,6 +358,8 @@ export interface Settings {
   monitor_bar: boolean;
   /** The program a local shell tab runs, with its arguments; empty is the system's own. */
   local_shell: string;
+  /** Draw Sixel and iTerm2 images in the terminal. */
+  inline_images: boolean;
 }
 
 /** How the user chose to keep the master key on the first run screen. */
@@ -431,6 +442,8 @@ export interface SshConfigHost {
    * servers on import, but only when every hop is imported alongside it.
    */
   proxy_jump: string | null;
+  /** The config's ProxyCommand, verbatim, `none` included. */
+  proxy_command: string | null;
 }
 
 export interface SshConfigScan {
@@ -571,6 +584,10 @@ export interface SessionTab {
   logging?: 'tab' | 'host';
   /** A shell on this machine rather than a connection to a host. */
   kind?: 'local';
+  /** A tab into a container on the host, rather than the host's own shell. */
+  container?: ContainerTab;
+  /** Set while dropped because its command failed, not its connection: the status it ended with. */
+  ended_with?: number;
   /** The recording this tab's output is going to, while one is. */
   recording?: string;
   connect_id?: string;
@@ -588,6 +605,43 @@ export interface TunnelClosed {
 
 export interface SshClosed {
   reason: 'exited' | 'closed' | 'dropped';
+  /** What the remote shell or command exited with, when it said. */
+  exit_status?: number;
+}
+
+export type ContainerEngine = 'docker' | 'podman';
+
+/** One container on a host, as its engine lists it. */
+export interface Container {
+  engine: ContainerEngine;
+  id: string;
+  name: string;
+  image: string;
+  /** `running`, `exited`, `created`, `paused`, as the engine says it. */
+  state: string;
+  /** The engine's own words: "Up 3 hours", "Exited (0) 2 days ago". */
+  status: string;
+  ports: string;
+  /** Root's, listed through sudo: acting on it, or a tab into it, runs as root. */
+  root: boolean;
+}
+
+export interface ContainerListing {
+  /** The engines that answered, and as whom. */
+  engines: { engine: ContainerEngine; root: boolean }[];
+  containers: Container[];
+  /** Why an engine the host has could not be listed, when another could. */
+  problems: string[];
+}
+
+/** A terminal tab into a container: its shell, or its logs followed. */
+export interface ContainerTab {
+  engine: ContainerEngine;
+  id: string;
+  name: string;
+  kind: 'shell' | 'logs';
+  /** Run as root, with the sudo the Containers panel holds for the host. */
+  sudo?: boolean;
 }
 
 export interface Codeprint {

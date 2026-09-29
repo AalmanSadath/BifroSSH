@@ -118,6 +118,8 @@ pub async fn close_vault(state: &AppState, app: &tauri::AppHandle) -> CmdResult<
     // it could save.
     *state.data.lock().await = crate::models::AppData::default();
     state.secret_key.clear();
+    // A sudo password is a secret too, and a locked app keeps none.
+    state.container_state.sudo.lock().await.clear();
     use tauri::Emitter;
     let _ = app.emit("vault-locked", ());
     Ok(())

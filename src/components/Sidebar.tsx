@@ -4,7 +4,7 @@ import { useAppStore } from '../store/appStore';
 import { useHint } from './shared/useHint';
 
 
-const PANELS = ['hosts', 'sftp', 'keychain', 'knownhosts', 'recordings', 'portforwarding', 'settings', 'theme-editor'];
+const PANELS = ['hosts', 'sftp', 'containers', 'keychain', 'knownhosts', 'recordings', 'portforwarding', 'settings', 'theme-editor'];
 
 export default function Sidebar() {
   const { activeTabId, setActiveTab, updateAvailable } = useAppStore();
@@ -63,6 +63,20 @@ export default function Sidebar() {
             </svg>
           </span>
           {!collapsed && 'SFTP'}
+        </button>
+        <button
+          className={`nav-btn ${activePanel === 'containers' ? 'active' : ''}`}
+          onClick={() => setActiveTab('containers')}
+          title={collapsed ? hint('Containers') : undefined}
+        >
+          <span className="nav-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 2l9 5v10l-9 5-9-5V7l9-5z"/>
+              <path d="M3 7l9 5 9-5"/>
+              <path d="M12 12v10"/>
+            </svg>
+          </span>
+          {!collapsed && 'Containers'}
         </button>
         <button
           className={`nav-btn ${activePanel === 'portforwarding' ? 'active' : ''}`}

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
+import { ImageAddon } from '@xterm/addon-image';
 import * as ipc from '../ipc';
 import { useAppStore } from '../store/appStore';
 import { THEMES } from '../styles/themes';
+import { IMAGE_OPTIONS } from '../terminalImages';
 import { clockTime, compressIdle, eventsBy, parseCast, parseSize, type Cast } from '../asciicast';
 
 interface Props {
@@ -72,6 +74,7 @@ export default function CastPlayer({ path }: Props) {
       cursorBlink: false,
     });
     term.open(boxRef.current);
+    if (settings.inline_images) term.loadAddon(new ImageAddon(IMAGE_OPTIONS));
     termRef.current = term;
     clock.current = { at: 0, next: 0 };
     return () => {

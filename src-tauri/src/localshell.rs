@@ -94,7 +94,7 @@ fn flatpak_spawn(program: String, args: Vec<String>) -> ShellCommand {
     ShellCommand { program: "flatpak-spawn".into(), args: all }
 }
 
-fn platform() -> Platform {
+pub(crate) fn platform() -> Platform {
     if cfg!(windows) {
         Platform::Windows
     } else if std::path::Path::new("/.flatpak-info").exists() {
@@ -242,6 +242,7 @@ pub async fn start(
                         out.flush().await;
                         out.recorder = next;
                     }
+                    SshCommand::TransferDone => out.transfer_done(),
                     SshCommand::Close => {
                         closed_by_user = true;
                         let _ = killer.kill();
@@ -280,7 +281,7 @@ pub async fn start(
         drop(master);
         ssh_state.sessions.lock().await.remove(&sid);
         let reason = if closed_by_user { CloseReason::Closed } else { CloseReason::Exited };
-        let _ = app.emit(&format!("ssh-closed:{sid}"), ClosedEvent { reason });
+        let _ = app.emit(&format!("ssh-closed:{sid}"), ClosedEvent { reason, exit_status: None });
     });
 
     Ok(session_id)

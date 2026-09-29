@@ -16,6 +16,7 @@ use super::resolve::{resolve_auth, resolve_jumps, JumpHopRequest};
 struct Prepared {
     auth: crate::ssh::SshAuth,
     jumps: Vec<crate::jump::JumpHop>,
+    proxy: Option<crate::proxycmd::ProxyCommand>,
     timeout_secs: u64,
     keepalive_secs: u32,
 }
@@ -30,11 +31,13 @@ fn prepare(
     auth_type: AuthMethod,
     auth_value: &str,
     jumps: &[JumpHopRequest],
+    target: Option<(&crate::models::Server, &str)>,
     host_timeout: Option<u32>,
 ) -> CmdResult<Prepared> {
     Ok(Prepared {
         auth: resolve_auth(data, key, auth_type, auth_value)?,
         jumps: resolve_jumps(data, key, jumps)?,
+        proxy: super::resolve::first_proxy(data, target, jumps)?,
         timeout_secs: host_timeout.unwrap_or(data.settings.connection_timeout_secs) as u64,
         keepalive_secs: data.settings.keepalive_interval_secs,
     })
@@ -106,6 +109,10 @@ pub struct ConnectRequest {
     pub connect_id: String,
     #[serde(default)]
     pub jumps: Vec<JumpHopRequest>,
+    /// A tab into a container on the host: its shell or its logs, run in
+    /// place of the login shell.
+    #[serde(default)]
+    pub container: Option<crate::containers::TabTarget>,
 }
 
 /// What the saved record contributes to a connection, read under one lock.
@@ -132,6 +139,26 @@ pub async fn ssh_connect(
     app: AppHandle,
     request: ConnectRequest,
 ) -> CmdResult<String> {
+    // Built from a checked id, before anything else, so a bad one is refused
+    // without a connection being made for it.
+    let command = request
+        .container
+        .as_ref()
+        .map(crate::containers::tab_command)
+        .transpose()
+        .map_err(CmdError::from)?;
+    // Through sudo when the tab asks, with what the Containers panel holds
+    // for the host, which is never sent from the frontend.
+    let (command, sudo_input) = match (command, &request.container) {
+        (Some(command), Some(target)) if target.sudo => {
+            let sudo = state.container_state.sudo.lock().await.get(&request.server_id).cloned().ok_or_else(|| {
+                CmdError::from("sudo is no longer on for this host. Turn it on in the Containers panel, then open the tab again.")
+            })?;
+            (Some(crate::containers::sudo_tab_command(&sudo, &command)), sudo.input())
+        }
+        (command, _) => (command, None),
+    };
+
     // One lock: the server, and everything the request names, come out together.
     let Saved { host, port, prep, forward_agent, log_to, label, run_on_connect, hide_run_on_connect, term, env } = {
         let data = state.data.lock().await;
@@ -145,6 +172,7 @@ pub async fn ssh_connect(
             request.auth_type,
             &request.auth_value,
             &request.jumps,
+            Some((server, &request.username)),
             host_timeout,
         )?;
         Saved {
@@ -182,12 +210,16 @@ pub async fn ssh_connect(
         initial_rows: request.rows,
         keepalive_secs: prep.keepalive_secs,
         jumps: prep.jumps,
+        proxy: prep.proxy,
         forward_agent,
         log,
-        run_on_connect,
+        // Typed into a login shell, which a container tab does not have.
+        run_on_connect: if command.is_some() { None } else { run_on_connect },
         hide_run_on_connect,
         term,
         env,
+        command,
+        sudo_input,
     };
 
     start_session(&state, &app, request.connect_id, params, prep.timeout_secs).await
@@ -222,6 +254,9 @@ pub async fn ssh_connect_quick(
             request.auth_type,
             &request.auth_value,
             &request.jumps,
+            // A quick connection can still be reached through a saved jump
+            // host, whose proxy command is then the one dialled.
+            None,
             None,
         )?
     };
@@ -235,6 +270,7 @@ pub async fn ssh_connect_quick(
         initial_rows: request.rows,
         keepalive_secs: prep.keepalive_secs,
         jumps: prep.jumps,
+        proxy: prep.proxy,
         // A quick connection has no host record to have said yes on.
         forward_agent: false,
         log: None,
@@ -242,6 +278,8 @@ pub async fn ssh_connect_quick(
         hide_run_on_connect: true,
         term: DEFAULT_TERM.to_string(),
         env: Vec::new(),
+        command: None,
+        sudo_input: None,
     };
 
     start_session(&state, &app, request.connect_id, params, prep.timeout_secs).await
@@ -391,6 +429,31 @@ pub async fn session_log_dir(state: State<'_, AppState>) -> CmdResult<String> {
     let data = state.data.lock().await;
     let dir = crate::sessionlog::session_log_dir(data.settings.session_log_dir.as_deref())?;
     Ok(dir.to_string_lossy().into_owned())
+}
+
+/// Raw bytes for the session, base64: a ZMODEM transfer's, which would
+/// be four times the size as the JSON number array typed input uses.
+#[tauri::command]
+pub async fn ssh_send_bytes(state: State<'_, AppState>, session_id: String, data: String) -> CmdResult<()> {
+    let bytes = BASE64.decode(data).map_err(|e| CmdError::from(e.to_string()))?;
+    let tx = {
+        let sessions = state.ssh_state.sessions.lock().await;
+        sessions.get(&session_id).ok_or("Session not found")?.cmd_tx.clone()
+    };
+    // Awaited outside the lock: a full queue is backpressure on the sender,
+    // and must not hold up every other session meanwhile.
+    tx.send(SshCommand::Data(bytes)).await.map_err(CmdError::from)
+}
+
+/// The terminal's ZMODEM transfer is over: the session's log and recording
+/// take output again.
+#[tauri::command]
+pub async fn ssh_transfer_done(state: State<'_, AppState>, session_id: String) -> CmdResult<()> {
+    let sessions = state.ssh_state.sessions.lock().await;
+    if let Some(handle) = sessions.get(&session_id) {
+        let _ = handle.cmd_tx.send(SshCommand::TransferDone).await;
+    }
+    Ok(())
 }
 
 #[tauri::command]

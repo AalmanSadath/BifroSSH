@@ -618,6 +618,7 @@ mod tests {
             connection_timeout: None,
             auth_kind: None,
             proxy_jump: None,
+            proxy_command: None,
             forward_agent: false, log_sessions: false, group: None, run_on_connect: None, hide_run_on_connect: true, notes: None, term: None, env: None, monitor: None, tags: Vec::new(),
         }
     }

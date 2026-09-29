@@ -3,6 +3,7 @@ mod appearance;
 mod clipboard;
 mod commands;
 mod connect;
+mod containers;
 mod crypto;
 mod hostkeys;
 mod hoststats;
@@ -14,6 +15,7 @@ mod keyring;
 mod keystore;
 mod models;
 mod ppk;
+mod proxycmd;
 mod prompts;
 mod recording;
 mod sessionlog;
@@ -155,6 +157,7 @@ fn start(
             ssh_state: Arc::new(SshState::new()),
             sftp_state: Arc::new(SftpClientState::new()),
             tunnel_state: Arc::new(TunnelState::new()),
+            container_state: Default::default(),
             prompts: Arc::new(PromptState::new()),
         })
         // Started before the window so the first paint already knows whether
@@ -250,6 +253,19 @@ fn start(
             commands::sftp_local_home,
             commands::sftp_list_local,
             commands::sftp_connect_remote,
+            commands::ssh_send_bytes,
+            commands::ssh_transfer_done,
+            commands::local_file_create,
+            commands::local_file_append,
+            commands::local_file_read_chunk,
+            commands::local_file_info,
+            commands::local_file_remove,
+            commands::containers_connect,
+            commands::containers_list,
+            commands::containers_action,
+            commands::containers_disconnect,
+            commands::containers_sudo_on,
+            commands::containers_sudo_off,
             commands::sftp_get_home,
             commands::sftp_list_remote,
             commands::sftp_disconnect_remote,

@@ -27,6 +27,7 @@ function host(id: string): Server {
     connection_timeout: null,
     auth_kind: null,
     proxy_jump: null,
+    proxy_command: null,
     forward_agent: false,
     log_sessions: false,
     group: null,
@@ -51,6 +52,14 @@ describe('tabsToSave', () => {
       { server_id: 's2' },
       { server_id: 's1' },
     ]);
+  });
+
+  it('drops container tabs, which would come back as the host shell', () => {
+    const sessions = [
+      tab({ tab_id: 'a', server_id: 's1' }),
+      tab({ tab_id: 'c', server_id: 's1', container: { engine: 'podman', id: 'abc', name: 'web', kind: 'shell' } }),
+    ];
+    expect(tabsToSave(sessions)).toEqual([{ server_id: 's1' }]);
   });
 
   it('drops quick connections, which have nothing saved to connect with', () => {
