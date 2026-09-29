@@ -421,7 +421,8 @@ export interface HostKeyPromptEvent {
   host: string;
   port: number;
   username: string | null;
-  status: 'unknown' | 'mismatch' | 'revoked';
+  /** `other-type`: known, but by a key of another type than the one offered. */
+  status: 'unknown' | 'mismatch' | 'other-type' | 'revoked';
   key_type: string;
   fingerprint: string;
   existing_key_type: string | null;

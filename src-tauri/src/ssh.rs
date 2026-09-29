@@ -320,7 +320,7 @@ pub(crate) fn host_key_error(verifier: &HostKeyVerifier, fallback: impl Into<any
 /// made, because two callers wrap it in something larger: a remote-forward
 /// handler carries its destination, and a jump hop marks itself as one first.
 pub(crate) async fn connect_verified<H>(
-    config: Arc<client::Config>,
+    mut config: client::Config,
     transport: jump::BoxedTransport,
     verifier: HostKeyVerifier,
     handler: impl FnOnce(HostKeyVerifier) -> H,
@@ -329,8 +329,12 @@ where
     H: client::Handler + Send + 'static,
     H::Error: Into<anyhow::Error>,
 {
+    // Key types already trusted for this host are asked for first, so a
+    // server that has one of them is checked against what is stored.
+    let known = crate::hostkeys::known_key_types(&verifier.host, verifier.port);
+    config.preferred.key = crate::hostkeys::key_order(&known).into();
     let handler = handler(verifier.clone());
-    client::connect_stream(config, transport, handler)
+    client::connect_stream(Arc::new(config), transport, handler)
         .await
         .map_err(|e| host_key_error(&verifier, e))
 }
@@ -350,7 +354,7 @@ pub(crate) async fn connect_authenticated(
     proxy: Option<&crate::proxycmd::ProxyCommand>,
     inactivity_timeout: Option<Duration>,
 ) -> Result<client::Handle<VerifyingHandler>> {
-    let config = Arc::new(client::Config { inactivity_timeout, ..Default::default() });
+    let config = client::Config { inactivity_timeout, ..Default::default() };
 
     // Resolution, the TCP connect, and every jump host in between.
     let transport = jump::open_transport(jumps, host, port, proxy, sec, None)
@@ -382,10 +386,10 @@ pub async fn exec_ssh_command(
     jumps: &[JumpHop],
     proxy: Option<&crate::proxycmd::ProxyCommand>,
 ) -> Result<String> {
-    let config = Arc::new(client::Config {
+    let config = client::Config {
         inactivity_timeout: Some(Duration::from_secs(15)),
         ..Default::default()
-    });
+    };
 
     let transport = jump::open_transport(jumps, host, port, proxy, &sec, None).await?;
 
@@ -424,12 +428,12 @@ pub async fn connect_ssh(
     ssh_state: Arc<SshState>,
     sec: ConnectSecurity,
 ) -> Result<()> {
-    let config = Arc::new(client::Config {
+    let config = client::Config {
         window_size: 4 * 1024 * 1024,
         maximum_packet_size: 64 * 1024,
         keepalive_interval: keepalive_interval(params.keepalive_secs),
         ..Default::default()
-    });
+    };
 
     emit_log(&app, &connect_id, "auth", &format!("Starting a new connection to: \"{}\" port \"{}\"", params.host, params.port));
 

@@ -105,42 +105,60 @@ impl HostKeyVerifier {
                 false
             }
 
-            KnownHostStatus::Mismatch {
-                source,
-                line,
-                existing_type,
-                existing_fp,
-            } => {
+            status @ (KnownHostStatus::Mismatch(_) | KnownHostStatus::OtherType(_)) => {
+                let (other_type, stored) = match status {
+                    KnownHostStatus::OtherType(stored) => (true, stored),
+                    KnownHostStatus::Mismatch(stored) => (false, stored),
+                    _ => unreachable!("matched above"),
+                };
+                let target = self.target();
+                let (stored_type, stored_fp) = (&stored.key_type, &stored.fingerprint);
+                let summary = if other_type {
+                    format!(
+                        "{target} is known by its {stored_type} key ({stored_fp}), but offered a \
+                         {offered_type} key ({offered_fp}) instead.\n\
+                         Someone could be intercepting this connection, or the server no longer \
+                         offers its {stored_type} key."
+                    )
+                } else {
+                    format!(
+                        "REMOTE HOST IDENTIFICATION HAS CHANGED for {target}.\n\
+                         The stored key ({stored_type} {stored_fp}) does not match the key the \
+                         server offered ({offered_type} {offered_fp}).\n\
+                         Someone could be eavesdropping right now (man-in-the-middle attack), or the \
+                         server's host key was changed."
+                    )
+                };
                 self.fail(format!(
-                    "REMOTE HOST IDENTIFICATION HAS CHANGED for {target}.\n\
-                     The stored key ({existing_type} {existing_fp}) does not match the key the \
-                     server offered ({offered_type} {offered_fp}).\n\
-                     Someone could be eavesdropping right now (man-in-the-middle attack), or the \
-                     server's host key was changed.\n\
-                     Stored in the {source} known_hosts file, line {line}.",
-                    target = self.target(),
-                    source = source.as_str(),
+                    "{summary}\nStored in the {} known_hosts file, line {}.",
+                    stored.source.as_str(),
+                    stored.line,
                 ));
 
+                // Never learned silently, whatever the policy: accept-new is
+                // for hosts that are new, and this one is not.
                 if self.sec.policy != HostKeyPolicy::Ask || !self.sec.interactive {
                     return false;
                 }
 
                 let decision = self
                     .ask(KeyOffer {
-                        status: "mismatch",
+                        status: if other_type { "other-type" } else { "mismatch" },
                         key_type: offered_type.clone(),
                         fingerprint: offered_fp.clone(),
-                        existing_key_type: Some(existing_type),
-                        existing_fingerprint: Some(existing_fp),
-                        source: Some(source.as_str().to_string()),
-                        line: Some(line),
+                        existing_key_type: Some(stored.key_type),
+                        existing_fingerprint: Some(stored.fingerprint),
+                        source: Some(stored.source.as_str().to_string()),
+                        line: Some(stored.line),
                     })
                     .await;
 
                 if decision != HostKeyDecision::Replace {
                     return false;
                 }
+                // Replaces a stored key of the offered type, of which a host
+                // known by another type has none: its other key is kept, as
+                // OpenSSH keeps every type it has learned for a host.
                 if let Err(e) = replace_host(&self.host, self.port, key) {
                     self.fail(format!("Could not update known_hosts: {}", e));
                     return false;
@@ -149,7 +167,7 @@ impl HostKeyVerifier {
                 if let Ok(mut guard) = self.outcome.lock() {
                     *guard = None;
                 }
-                self.log("auth", "Stored host key replaced by user");
+                self.log("auth", if other_type { "New host key type trusted by user" } else { "Stored host key replaced by user" });
                 true
             }
 
@@ -252,7 +270,7 @@ impl HostKeyVerifier {
 /// are exactly the `HostKeyPromptEvent` fields the verifier cannot supply from
 /// itself; the rest — host, port, username, connect id — it already knows.
 struct KeyOffer {
-    /// "unknown" | "mismatch" | "revoked"
+    /// "unknown" | "mismatch" | "other-type" | "revoked"
     status: &'static str,
     key_type: String,
     fingerprint: String,

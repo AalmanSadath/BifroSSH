@@ -172,10 +172,10 @@ where
 {
     // A tunnel can sit idle for hours between uses, so keepalives matter more
     // here than anywhere else.
-    let config = Arc::new(client::Config {
+    let config = client::Config {
         keepalive_interval: crate::ssh::keepalive_interval(base.keepalive_secs),
         ..Default::default()
-    });
+    };
     let transport = transport_for(base).await?;
     let mut handle =
         crate::ssh::connect_verified(config, transport, tunnel_verifier(base), handler).await?;

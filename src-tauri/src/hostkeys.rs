@@ -38,13 +38,23 @@ pub enum KnownHostStatus {
         source: HostKeySource,
     },
     Unknown,
-    Mismatch {
-        source: HostKeySource,
-        line: usize,
-        existing_type: String,
-        existing_fp: String,
-    },
+    /// A stored key of the offered type, and a different one.
+    Mismatch(StoredKey),
+    /// The host is known, but only by keys of other types than the one
+    /// offered. Not a new host: the offered key is as unverified as in a
+    /// mismatch, and a man in the middle that cannot present the stored key
+    /// type would offer exactly this.
+    OtherType(StoredKey),
     Revoked,
+}
+
+/// The stored key a mismatch is reported against, and where it is.
+#[derive(Debug)]
+pub struct StoredKey {
+    pub source: HostKeySource,
+    pub line: usize,
+    pub key_type: String,
+    pub fingerprint: String,
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -263,6 +273,8 @@ pub fn check_host(host: &str, port: u16, key: &PublicKey) -> KnownHostStatus {
     // A match anywhere outranks a mismatch seen earlier: a host mid key-rotation
     // can legitimately have a stale line above the current one.
     let mut mismatch: Option<KnownHostStatus> = None;
+    // Only reported when there is neither a match nor a mismatch.
+    let mut other_type: Option<KnownHostStatus> = None;
 
     for (source, path) in sources {
         let Some(path) = path else { continue };
@@ -279,6 +291,14 @@ pub fn check_host(host: &str, port: u16, key: &PublicKey) -> KnownHostStatus {
                 continue;
             };
             if line_algo != algo {
+                if line.marker.is_none() && other_type.is_none() {
+                    other_type = Some(KnownHostStatus::OtherType(StoredKey {
+                        source,
+                        line: line.line_no,
+                        fingerprint: fingerprint_from_blob(&line_blob),
+                        key_type: line_algo,
+                    }));
+                }
                 continue;
             }
 
@@ -297,17 +317,64 @@ pub fn check_host(host: &str, port: u16, key: &PublicKey) -> KnownHostStatus {
             }
 
             if line.marker.is_none() && mismatch.is_none() {
-                mismatch = Some(KnownHostStatus::Mismatch {
+                mismatch = Some(KnownHostStatus::Mismatch(StoredKey {
                     source,
                     line: line.line_no,
-                    existing_type: line_algo,
-                    existing_fp: fingerprint_from_blob(&line_blob),
-                });
+                    key_type: line_algo,
+                    fingerprint: fingerprint_from_blob(&line_blob),
+                }));
             }
         }
     }
 
-    mismatch.unwrap_or(KnownHostStatus::Unknown)
+    mismatch.or(other_type).unwrap_or(KnownHostStatus::Unknown)
+}
+
+/// The key types known_hosts already holds for a host, as the lines name
+/// them (`ssh-ed25519`, `ssh-rsa`, ...). Marked lines are not the host's
+/// own keys and are left out.
+pub fn known_key_types(host: &str, port: u16) -> Vec<String> {
+    let target = host_spec(host, port);
+    let mut types = Vec::new();
+    for (_, path) in sources() {
+        let Some(path) = path else { continue };
+        for line in scan(&path) {
+            if line.marker.is_some() || !host_matches(&line.hosts, &target) {
+                continue;
+            }
+            let algo = BASE64.decode(line.b64.as_bytes()).ok().and_then(|b| algo_from_blob(&b));
+            if let Some(algo) = algo.filter(|a| !types.contains(a)) {
+                types.push(algo);
+            }
+        }
+    }
+    types
+}
+
+/// The host key algorithms to ask a server for, those of `known` types
+/// first, each group in russh's own order.
+///
+/// What OpenSSH does too. Without it a server holding an ed25519 key and
+/// an ECDSA one, known here by the ECDSA one only (an older OpenSSH learned
+/// ECDSA by default), would be asked for ed25519 and look like a host whose
+/// key had changed type.
+pub fn key_order(known: &[String]) -> Vec<russh_keys::key::Name> {
+    let (mut first, rest): (Vec<_>, Vec<_>) = russh::Preferred::DEFAULT
+        .key
+        .iter()
+        .copied()
+        .partition(|name| known.iter().any(|k| k == line_type(name.0)));
+    first.extend(rest);
+    first
+}
+
+/// The key type a known_hosts line names for a host key algorithm: RSA is
+/// negotiated as a signature algorithm but stored as `ssh-rsa`.
+fn line_type(algorithm: &str) -> &str {
+    match algorithm {
+        "rsa-sha2-256" | "rsa-sha2-512" => "ssh-rsa",
+        other => other,
+    }
 }
 
 fn format_line(host: &str, port: u16, key: &PublicKey) -> Option<String> {
@@ -625,6 +692,26 @@ mod tests {
 
     // Fixtures produced by real `ssh-keygen`, so a drift from OpenSSH's own
     // hashing or host-spec rules fails the test rather than failing open.
+    const ECDSA_B64: &str = "AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBMaTayC4sNfnFZ2Ca4y5NvW7IjvP9f0gyHOz0uBvdz2bY9AhwmxVpuO4FrEsKWwD1F7/OCdEH05BGrAf8/Nfqbs=";
+
+    /// Asked for first: the types a host is already known by, so a server
+    /// with several keys shows the one that can be checked.
+    #[test]
+    fn known_key_types_are_asked_for_first() {
+        let names = |order: Vec<russh_keys::key::Name>| order.iter().map(|n| n.0).collect::<Vec<_>>();
+        let default = names(key_order(&[]));
+        assert_eq!(default, names(russh::Preferred::DEFAULT.key.to_vec()));
+
+        let ecdsa_first = names(key_order(&["ecdsa-sha2-nistp256".into()]));
+        assert_eq!(ecdsa_first[0], "ecdsa-sha2-nistp256");
+        assert_eq!(ecdsa_first.len(), default.len());
+
+        // Stored as ssh-rsa, negotiated as either SHA-2 signature.
+        let rsa_first = names(key_order(&["ssh-rsa".into()]));
+        assert_eq!(&rsa_first[..2], ["rsa-sha2-256", "rsa-sha2-512"]);
+        assert_eq!(rsa_first[2], "ssh-ed25519");
+    }
+
     const ED25519_B64: &str = "AAAAC3NzaC1lZDI1NTE5AAAAIJ4G1Q7fdnbtjJPJKG35nnBLpUBvsqJzvfaAcqWlZS5u";
     // `ssh-keygen -H` over the line `example.com <key>`
     const HASHED_22: &str = "|1|unPRxDhamqo3tS9rAHTxFiDZeoc=|xxvdP4lgIdPNXMdbWTRxoTcuDFA=";
@@ -844,8 +931,8 @@ mod tests {
 
         // A different key for the same host is a mismatch, not a silent accept.
         match check_host("example.com", 2222, &other) {
-            KnownHostStatus::Mismatch { existing_fp, .. } => {
-                assert_eq!(existing_fp, fingerprint(&key));
+            KnownHostStatus::Mismatch(stored) => {
+                assert_eq!(stored.fingerprint, fingerprint(&key));
             }
             s => panic!("expected mismatch, got {:?}", s),
         }
@@ -866,6 +953,24 @@ mod tests {
             1,
             "replace must not leave the old line behind"
         );
+
+        // A known host offering a key of another type is not a new host.
+        let ecdsa = russh_keys::parse_public_key_base64(ECDSA_B64).unwrap();
+        match check_host("example.com", 2222, &ecdsa) {
+            KnownHostStatus::OtherType(stored) => {
+                assert_eq!(stored.key_type, "ssh-ed25519");
+                assert_eq!(stored.fingerprint, fingerprint(&other));
+            }
+            s => panic!("expected other-type, got {:?}", s),
+        }
+        assert_eq!(known_key_types("example.com", 2222), vec!["ssh-ed25519".to_string()]);
+        assert!(known_key_types("example.com", 22).is_empty());
+        // Trusting it keeps the ed25519 key beside it; both then match.
+        replace_host("example.com", 2222, &ecdsa).unwrap();
+        assert!(matches!(check_host("example.com", 2222, &ecdsa), KnownHostStatus::Match { .. }));
+        assert!(matches!(check_host("example.com", 2222, &other), KnownHostStatus::Match { .. }));
+        assert_eq!(forget_host("example.com", 2222).unwrap(), 2);
+        learn_host("example.com", 2222, &other).unwrap();
 
         assert_eq!(forget_host("example.com", 2222).unwrap(), 1);
         assert!(matches!(
