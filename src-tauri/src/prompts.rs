@@ -127,7 +127,7 @@ pub struct PromptCancelEvent {
 #[derive(serde::Serialize, Clone)]
 pub struct AuthPromptField {
     pub prompt: String,
-    /// False for secrets — the server decides, and passwords must stay masked.
+    /// False for secrets: the server decides, and passwords must stay masked.
     pub echo: bool,
 }
 

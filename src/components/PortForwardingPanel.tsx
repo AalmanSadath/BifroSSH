@@ -324,15 +324,15 @@ function Firewall({ clipId }: { clipId: string }) {
       </defs>
       <rect x="0" y="0" width="64" height="60" rx="10" fill={FW} fillOpacity="0.145" stroke={FW} strokeWidth="1.5"/>
       <g clipPath={`url(#${clipId})`}>
-        {/* Row 0 — 2 full bricks */}
+        {/* Row 0: 2 full bricks */}
         {[0,1].map((col) => (
           <rect key={`r0-${col}`} x={evenX(col)} y={10} width={brickW} height={brickH} rx="2" fill={FW} fillOpacity="0.25" stroke={FW} strokeWidth="0.8"/>
         ))}
-        {/* Row 1 — 3 bricks staggered right: half | full | half (clipped) */}
+        {/* Row 1: 3 bricks staggered right: half | full | half (clipped) */}
         {[0,1,2].map((col) => (
           <rect key={`r1-${col}`} x={oddX(col)} y={25} width={brickW} height={brickH} rx="2" fill={FW} fillOpacity="0.25" stroke={FW} strokeWidth="0.8"/>
         ))}
-        {/* Row 2 — 2 full bricks */}
+        {/* Row 2: 2 full bricks */}
         {[0,1].map((col) => (
           <rect key={`r2-${col}`} x={evenX(col)} y={40} width={brickW} height={brickH} rx="2" fill={FW} fillOpacity="0.25" stroke={FW} strokeWidth="0.8"/>
         ))}
@@ -378,7 +378,7 @@ function PfDiagram({ pfType, step }: { pfType: PfType; step: number }) {
         {leftIsBifro ? <BifroLogo color={leftC} /> : <Server color={leftC} />}
       </g>
 
-      {/* Line Left → Center (always red — hits firewall) */}
+      {/* Line Left → Center (always red: hits firewall) */}
       <line x1="79" y1="54" x2="101" y2="54" stroke={FW} strokeWidth="1.8"/>
 
       {/* Center Firewall */}

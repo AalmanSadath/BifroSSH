@@ -239,7 +239,7 @@ pub(crate) async fn timeout_pausable<F: std::future::Future>(
 }
 
 /// Builds the per-connect host key context. Never call this while holding
-/// `state.data` across an await — see `ssh_connect`.
+/// `state.data` across an await; see `ssh_connect`.
 async fn connect_security(
     state: &State<'_, AppState>,
     app: &AppHandle,

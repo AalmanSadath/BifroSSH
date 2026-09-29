@@ -172,10 +172,10 @@ where
 {
     // A tunnel can sit idle for hours between uses, so keepalives matter more
     // here than anywhere else.
-    let config = Arc::new(client::Config {
+    let config = client::Config {
         keepalive_interval: crate::ssh::keepalive_interval(base.keepalive_secs),
         ..Default::default()
-    });
+    };
     let transport = transport_for(base).await?;
     let mut handle =
         crate::ssh::connect_verified(config, transport, tunnel_verifier(base), handler).await?;
@@ -368,6 +368,9 @@ async fn dynamic_tunnel(
             .await
             .channel_open_direct_tcpip(&host, port as u32, "127.0.0.1", 0)
             .await;
+        if crate::socks5::reply(&mut stream, ch.is_ok()).await.is_err() {
+            return;
+        }
         if let Ok(ch) = ch {
             proxy_tcp_channel(stream, ch).await;
         }

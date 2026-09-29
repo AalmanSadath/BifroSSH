@@ -81,7 +81,7 @@ impl AuthContext {
     /// nobody answered in time.
     ///
     /// The channel carries `Option<Vec<String>>`, so a delivered "cancel" and a
-    /// missing answer both arrive as `None` and flatten together — which is
+    /// missing answer both arrive as `None` and flatten together, which is
     /// right, because the caller treats them the same.
     async fn ask(
         &self,

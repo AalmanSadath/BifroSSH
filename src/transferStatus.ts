@@ -98,6 +98,10 @@ export function describeTransfer(s: TransferSummary): string | null {
     const n = s.skipped_symlinks;
     parts.push(`${n} ${n === 1 ? 'symlink was' : 'symlinks were'} not copied.`);
   }
+  if (s.skipped_names > 0) {
+    const n = s.skipped_names;
+    parts.push(`${n} ${n === 1 ? 'item was' : 'items were'} not copied: ${n === 1 ? 'its name' : 'their names'} cannot be used on this computer.`);
+  }
   if (s.skipped_existing > 0) {
     parts.push(`Skipped ${s.skipped_existing} that already existed.`);
   }

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import * as ipc from '../ipc';
 import { listen } from '@tauri-apps/api/event';
+import { withConnectLog } from '../connectLog';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useAppStore, buildJumpChain, resolveServerAuth } from '../store/appStore';
 import OsIcon from './OsIcon';
@@ -1110,18 +1111,19 @@ function usePane(initialMode: PaneMode) {
     // Narrate the connect the same way a terminal session does, so a stall or
     // rejection is visible instead of leaving a bare spinner.
     const connectId = crypto.randomUUID();
-    const unlisten = await listen<LogEntry>(`ssh-connect-log:${connectId}`, (event) => {
-      setConnectLogs((prev) => [...prev, event.payload]);
-    });
 
     try {
-      const newSid = await ipc.sftpConnectRemote(
-        server.id,
-        username,
-        authType,
-        authValue,
+      const newSid = await withConnectLog(
         connectId,
-        await buildJumpChain(server, servers, identities),
+        (entry) => setConnectLogs((prev) => [...prev, entry]),
+        async () => ipc.sftpConnectRemote(
+          server.id,
+          username,
+          authType,
+          authValue,
+          connectId,
+          await buildJumpChain(server, servers, identities),
+        ),
       );
       setSid(newSid);
       setServerId(server.id);
@@ -1141,8 +1143,6 @@ function usePane(initialMode: PaneMode) {
       setConnectError(String(e));
       return null;
     } finally {
-      // Trailing log lines race the invoke response over the same bridge.
-      setTimeout(unlisten, 1000);
       setConnectingId(null);
       setRemote((r) => ({ ...r, loading: false }));
     }
@@ -1730,7 +1730,7 @@ export default function SftpPanel() {
         run: async (id, conflict) => {
           if (!collides) return send(id, null);
           if (conflict === 'skip') {
-            return { files: 0, directories: 0, skipped_symlinks: 0, skipped_existing: 1, renamed: 0, cancelled: false, resumed: 0, mismatched: [], resumable: 0, landed: null, verified: 0, failed: null };
+            return { files: 0, directories: 0, skipped_symlinks: 0, skipped_names: 0, skipped_existing: 1, renamed: 0, cancelled: false, resumed: 0, mismatched: [], resumable: 0, landed: null, verified: 0, failed: null };
           }
           return send(id, conflict === 'keep_both' ? freeName(taken, entry.name) : null);
         },
@@ -1788,7 +1788,7 @@ export default function SftpPanel() {
               const answer = await askConflict({ name: next.name, files, more });
               if (answer === null) {
                 // The rest of the batch leaves with it.
-                const cancelledSummary: TransferSummary = { files: 0, directories: 0, skipped_symlinks: 0, skipped_existing: 0, renamed: 0, cancelled: true, resumed: 0, mismatched: [], resumable: 0, landed: null, verified: 0, failed: null };
+                const cancelledSummary: TransferSummary = { files: 0, directories: 0, skipped_symlinks: 0, skipped_names: 0, skipped_existing: 0, renamed: 0, cancelled: true, resumed: 0, mismatched: [], resumable: 0, landed: null, verified: 0, failed: null };
                 updateQueue((q) => finished(q, next.id, { summary: cancelledSummary }, Date.now()));
                 for (const row of queueRef.current) {
                   if (row.status === 'queued' && jobsRef.current.get(row.id)?.batch === job.batch) {

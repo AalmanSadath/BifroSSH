@@ -102,6 +102,13 @@ pub(super) trait FileSide {
     /// way, so it is one shape whichever side produced it, and only the local
     /// implementation has any translating to do.
     fn join(&self, dir: &str, rel: &str) -> String;
+
+    /// Whether a name from the other side may be written here as one file
+    /// or directory. Names a server sent are checked as they arrive; what
+    /// this adds is what this side's own filesystem refuses or misreads.
+    fn allows(&self, name: &str) -> bool {
+        super::is_safe_name(name)
+    }
 }
 
 pub(super) struct Local;
@@ -215,6 +222,10 @@ impl FileSide for Local {
     /// that `C:` alone is not a directory.
     fn join(&self, dir: &str, rel: &str) -> String {
         Path::new(dir).join(native(rel)).to_string_lossy().into_owned()
+    }
+
+    fn allows(&self, name: &str) -> bool {
+        super::local_name_ok(name)
     }
 }
 

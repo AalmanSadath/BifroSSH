@@ -78,7 +78,13 @@ fn rename_top(path: &Path, name: &str) -> PathBuf {
 /// a Windows prefix is refused. The check is on the path as the archive
 /// gives it, before it is joined onto anything.
 pub(super) fn safe_entry_path(path: &Path) -> bool {
-    !path.components().any(|c| !matches!(c, Component::Normal(_) | Component::CurDir))
+    path.components().all(|c| match c {
+        Component::CurDir => true,
+        // On Windows a part can still be a device or an NTFS stream, `nul`
+        // or `notes.txt:hidden`, which `components` passes as normal.
+        Component::Normal(part) => !cfg!(windows) || part.to_str().is_some_and(super::windows_name_ok),
+        _ => false,
+    })
 }
 
 /// Downloads `remote_path` as a tar stream and unpacks it into `local_dir`.

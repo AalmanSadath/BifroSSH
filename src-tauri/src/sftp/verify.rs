@@ -259,6 +259,7 @@ pub fn comparable(summary: &TransferSummary) -> bool {
         && summary.resumable == 0
         && summary.skipped_existing == 0
         && summary.skipped_symlinks == 0
+        && summary.skipped_names == 0
         && summary.renamed == 0
         && summary.landed.is_some()
 }

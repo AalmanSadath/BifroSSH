@@ -454,7 +454,7 @@ export default function KeychainPanel() {
               {genResult && (
                 <>
                   <div className="form-group">
-                    <label>Public key — add this to your server's authorized_keys</label>
+                    <label>Public key: add this to your server's authorized_keys</label>
                     <div className="key-pub-box">
                       <code>{genResult.public_openssh}</code>
                       <button type="button" className="btn-secondary btn-sm" onClick={() => void copy(genResult!.public_openssh, 'gen-pub')}>{copied === 'gen-pub' ? 'Copied' : 'Copy'}</button>

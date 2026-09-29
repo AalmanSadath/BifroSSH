@@ -7,7 +7,6 @@
 //! that a chain was involved.
 
 use std::net::SocketAddr;
-use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use russh::client::{self, Msg};
@@ -135,10 +134,10 @@ pub async fn open_transport(
             &format!("Jumping through \"{}\" port \"{}\"", hop.host, hop.port),
         );
 
-        let config = Arc::new(client::Config {
+        let config = client::Config {
             keepalive_interval: keepalive,
             ..Default::default()
-        });
+        };
 
         let verifier =
             HostKeyVerifier::new(sec.clone(), &hop.host, hop.port, Some(hop.username.clone()))

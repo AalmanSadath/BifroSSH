@@ -315,7 +315,7 @@
   color: var(--text-primary);
 }
 
-/* Save row — sits at bottom of right column */
+/* Save row: sits at bottom of right column */
 .te-save-row {
   display: flex;
   align-items: center;

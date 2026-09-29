@@ -165,7 +165,7 @@ export default function KnownHostsPanel() {
                   </button>
                 ) : (
                   // ~/.ssh/known_hosts belongs to OpenSSH and is mounted
-                  // read-only under Flatpak — never written by this app.
+                  // read-only under Flatpak, never written by this app.
                   <span className="kh-readonly" title={hint('Managed by OpenSSH, not editable here')}>
                     read-only
                   </span>

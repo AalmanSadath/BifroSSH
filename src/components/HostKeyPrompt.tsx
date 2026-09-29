@@ -14,6 +14,7 @@ export default function HostKeyPrompt({ event, onResolved }: Props) {
   /// standing in the way. Clears itself so pressing again flashes again.
   const [nudge, setNudge] = useState(false);
   const changed = event.status !== 'unknown';
+  const otherType = event.status === 'other-type';
   const target = event.username
     ? `${event.username}@${event.host}:${event.port}`
     : `${event.host}:${event.port}`;
@@ -53,9 +54,11 @@ export default function HostKeyPrompt({ event, onResolved }: Props) {
         <>
           {event.status === 'revoked'
             ? 'Revoked host key'
-            : changed
-              ? 'Host key has changed'
-              : 'Unknown host key'}
+            : otherType
+              ? 'Different kind of host key'
+              : changed
+                ? 'Host key has changed'
+                : 'Unknown host key'}
           {event.is_jump && ' on a jump host'}
         </>
       }
@@ -70,7 +73,9 @@ export default function HostKeyPrompt({ event, onResolved }: Props) {
           <div className="hostkey-warn">
             {event.status === 'revoked'
               ? 'This key is marked revoked. It must not be trusted.'
-              : 'Someone may be intercepting this connection, or the key was changed legitimately. Check with whoever runs the server.'}
+              : otherType
+                ? `This host is known by its ${event.existing_key_type} key, but offered a ${event.key_type} key instead. Someone may be intercepting this connection, or the server stopped offering its ${event.existing_key_type} key. Check with whoever runs the server.`
+                : 'Someone may be intercepting this connection, or the key was changed legitimately. Check with whoever runs the server.'}
           </div>
 
           <div className="hostkey-compare">
@@ -96,7 +101,7 @@ export default function HostKeyPrompt({ event, onResolved }: Props) {
               {/* Replacing a stored key is the one action here that can write
                   an attacker's key into known_hosts, so it takes a deliberate
                   tick rather than one click from arriving at the dialog. */}
-              I confirm replacing the host key
+              {otherType ? 'I confirm trusting this key as well' : 'I confirm replacing the host key'}
             </label>
           )}
 
@@ -137,7 +142,7 @@ export default function HostKeyPrompt({ event, onResolved }: Props) {
                 aria-disabled={!acknowledged}
                 onClick={() => (acknowledged ? respond('replace') : setNudge(true))}
               >
-                Replace stored key
+                {otherType ? 'Trust this key too' : 'Replace stored key'}
               </button>
             )}
           </>

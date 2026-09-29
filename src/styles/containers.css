@@ -89,7 +89,22 @@
   margin-right: auto;
 }
 
-.containers-toolbar .containers-search { flex: 0 1 240px; }
+.containers-toolbar .containers-search { flex: 0 1 240px; min-width: 120px; }
+
+/* The buttons keep their one line when the panel is narrow; the host name
+   and the engines give way instead. */
+.containers-toolbar button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.containers-toolbar-host,
+.containers-engines {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .containers-problem { margin: 0 0 8px; }
 

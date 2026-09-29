@@ -283,9 +283,8 @@ pub struct SshConnectParams {
     /// Run this instead of the login shell, as `ssh -t host command` does:
     /// a shell in a container, or its logs. The tab closes when it exits.
     pub command: Option<String>,
-    /// The sudo password and its newline, sent when the command prints
-    /// `containers::SUDO_MARKER` with echo off. Wiped when dropped.
-    pub sudo_input: Option<zeroize::Zeroizing<Vec<u8>>>,
+    /// The sudo password, sent when sudo prompts with its marker.
+    pub sudo: Option<crate::containers::SudoAnswer>,
     /// The terminal type the PTY is asked for.
     pub term: String,
     /// Variables to ask the server to set before the shell starts.
@@ -321,7 +320,7 @@ pub(crate) fn host_key_error(verifier: &HostKeyVerifier, fallback: impl Into<any
 /// made, because two callers wrap it in something larger: a remote-forward
 /// handler carries its destination, and a jump hop marks itself as one first.
 pub(crate) async fn connect_verified<H>(
-    config: Arc<client::Config>,
+    mut config: client::Config,
     transport: jump::BoxedTransport,
     verifier: HostKeyVerifier,
     handler: impl FnOnce(HostKeyVerifier) -> H,
@@ -330,8 +329,12 @@ where
     H: client::Handler + Send + 'static,
     H::Error: Into<anyhow::Error>,
 {
+    // Key types already trusted for this host are asked for first, so a
+    // server that has one of them is checked against what is stored.
+    let known = crate::hostkeys::known_key_types(&verifier.host, verifier.port);
+    config.preferred.key = crate::hostkeys::key_order(&known).into();
     let handler = handler(verifier.clone());
-    client::connect_stream(config, transport, handler)
+    client::connect_stream(Arc::new(config), transport, handler)
         .await
         .map_err(|e| host_key_error(&verifier, e))
 }
@@ -351,7 +354,7 @@ pub(crate) async fn connect_authenticated(
     proxy: Option<&crate::proxycmd::ProxyCommand>,
     inactivity_timeout: Option<Duration>,
 ) -> Result<client::Handle<VerifyingHandler>> {
-    let config = Arc::new(client::Config { inactivity_timeout, ..Default::default() });
+    let config = client::Config { inactivity_timeout, ..Default::default() };
 
     // Resolution, the TCP connect, and every jump host in between.
     let transport = jump::open_transport(jumps, host, port, proxy, sec, None)
@@ -383,10 +386,10 @@ pub async fn exec_ssh_command(
     jumps: &[JumpHop],
     proxy: Option<&crate::proxycmd::ProxyCommand>,
 ) -> Result<String> {
-    let config = Arc::new(client::Config {
+    let config = client::Config {
         inactivity_timeout: Some(Duration::from_secs(15)),
         ..Default::default()
-    });
+    };
 
     let transport = jump::open_transport(jumps, host, port, proxy, &sec, None).await?;
 
@@ -425,12 +428,12 @@ pub async fn connect_ssh(
     ssh_state: Arc<SshState>,
     sec: ConnectSecurity,
 ) -> Result<()> {
-    let config = Arc::new(client::Config {
+    let config = client::Config {
         window_size: 4 * 1024 * 1024,
         maximum_packet_size: 64 * 1024,
         keepalive_interval: keepalive_interval(params.keepalive_secs),
         ..Default::default()
-    });
+    };
 
     emit_log(&app, &connect_id, "auth", &format!("Starting a new connection to: \"{}\" port \"{}\"", params.host, params.port));
 
@@ -528,7 +531,7 @@ pub async fn connect_ssh(
         }
     }
 
-    emit_log(&app, &connect_id, "auth", "Shell ready — connected");
+    emit_log(&app, &connect_id, "auth", "Shell ready, connected");
 
     // The startup command is not written here. Sent the moment the shell was
     // requested, it queued in the tty and was echoed once in the middle of
@@ -536,7 +539,7 @@ pub async fn connect_ssh(
     // drawn, which reads as the app having typed it twice. It goes below
     // instead, once the shell has finished saying hello.
     let mut startup = params.run_on_connect.clone();
-    let mut sudo_input = params.sudo_input.clone();
+    let mut sudo = params.sudo.clone();
     let hide_startup = params.hide_run_on_connect;
     let startup_log = startup.is_some().then(|| (app.clone(), connect_id.clone()));
 
@@ -630,11 +633,11 @@ pub async fn connect_ssh(
                             // The sudo prompt of a container tab, with echo
                             // already off: answered, and taken out of what
                             // the terminal is shown.
-                            if sudo_input.is_some() {
-                                if let Some(at) = find(&out.buf, crate::containers::SUDO_MARKER) {
-                                    out.buf.drain(at..at + crate::containers::SUDO_MARKER.len());
-                                    let input = sudo_input.take().unwrap_or_default();
-                                    if channel.data(input.as_slice()).await.is_err() {
+                            let at = sudo.as_ref().and_then(|s| find(&out.buf, &s.marker).map(|at| (at, s.marker.len())));
+                            if let Some((at, len)) = at {
+                                out.buf.drain(at..at + len);
+                                if let Some(answer) = sudo.take() {
+                                    if channel.data(answer.input.as_slice()).await.is_err() {
                                         break;
                                     }
                                 }

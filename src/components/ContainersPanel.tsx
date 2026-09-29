@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { listen } from '@tauri-apps/api/event';
+import { withConnectLog } from '../connectLog';
 import * as ipc from '../ipc';
 import { useAppStore, buildJumpChain, resolveServerAuth, reportFailure } from '../store/appStore';
 import { matchesHost } from '../hosts';
@@ -97,25 +97,23 @@ export default function ContainersPanel() {
     }
     setConnecting({ server: target, logs: [] });
     const connectId = crypto.randomUUID();
-    const unlisten = await listen<LogEntry>(`ssh-connect-log:${connectId}`, (event) => {
-      setConnecting((c) => (c && c.server.id === target.id ? { ...c, logs: [...c.logs, event.payload] } : c));
-    });
     try {
-      const connId = await ipc.containersConnect(
-        target.id,
-        resolved.username,
-        resolved.authType,
-        resolved.authValue,
+      const connId = await withConnectLog(
         connectId,
-        await buildJumpChain(target, servers, identities),
+        (entry) => setConnecting((c) => (c && c.server.id === target.id ? { ...c, logs: [...c.logs, entry] } : c)),
+        async () => ipc.containersConnect(
+          target.id,
+          resolved.username,
+          resolved.authType,
+          resolved.authValue,
+          connectId,
+          await buildJumpChain(target, servers, identities),
+        ),
       );
       setContainersConn({ serverId: target.id, connId, sudo: false });
       setConnecting(null);
     } catch (e) {
       setConnecting((c) => (c ? { ...c, error: String(e) } : c));
-    } finally {
-      // Trailing log lines race the invoke response over the same bridge.
-      setTimeout(unlisten, 1000);
     }
   }
 

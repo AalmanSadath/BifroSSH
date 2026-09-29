@@ -47,6 +47,12 @@ pub enum AuthMethod {
     KeyboardInteractive,
     /// `auth_value` optionally pins one agent key by fingerprint.
     Agent,
+    /// The password saved on the server `auth_value` names, read and
+    /// decrypted here: the stored password never has to pass through the
+    /// webview to be used.
+    ServerPassword,
+    /// The password saved on the identity `auth_value` names.
+    IdentityPassword,
 }
 
 /// Which app palette is in force.

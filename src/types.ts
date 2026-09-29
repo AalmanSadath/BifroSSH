@@ -27,7 +27,11 @@ export const UNKNOWN_OS = 'server';
 export const STORED = '[stored]';
 
 /** How a connection proves who it is. Spelled `auth_type` on the wire. */
-export type AuthType = 'key' | 'password' | 'keyboard-interactive' | 'agent';
+/**
+ * `server-password` and `identity-password` carry the record's id: the
+ * backend decrypts the saved password itself, so it never enters the page.
+ */
+export type AuthType = 'key' | 'password' | 'keyboard-interactive' | 'agent' | 'server-password' | 'identity-password';
 
 export interface Server {
   id: string;
@@ -111,6 +115,8 @@ export interface TransferSummary {
   directories: number;
   /** Symlinks are never copied; following one risks a loop. */
   skipped_symlinks: number;
+  /** Left out because this computer cannot use the name (Windows: `C:x`, `nul`). */
+  skipped_names: number;
   /** Left alone because one was already there and the answer was skip. */
   skipped_existing: number;
   /** Files written under a name of their own because one was already there. */
@@ -419,7 +425,8 @@ export interface HostKeyPromptEvent {
   host: string;
   port: number;
   username: string | null;
-  status: 'unknown' | 'mismatch' | 'revoked';
+  /** `other-type`: known, but by a key of another type than the one offered. */
+  status: 'unknown' | 'mismatch' | 'other-type' | 'revoked';
   key_type: string;
   fingerprint: string;
   existing_key_type: string | null;
@@ -504,7 +511,7 @@ export interface AgentKeyInfo {
 
 export interface AuthPromptField {
   prompt: string;
-  /** False for secrets — the server decides, and those stay masked. */
+  /** False for secrets: the server decides, and those stay masked. */
   echo: boolean;
 }
 
@@ -776,6 +783,10 @@ export interface MergePlan {
   missing_key_paths: string[];
   host_key_conflicts: string[];
   has_settings: boolean;
+  /** New hosts that connect through a proxy command run on this computer. */
+  proxy_command_hosts: string[];
+  /** The local shell the file's settings would put in place, if changed. */
+  local_shell: string | null;
 }
 
 export interface ImportOptions {

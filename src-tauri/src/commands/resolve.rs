@@ -42,7 +42,7 @@ pub(super) fn server_target(
     Ok(ServerTarget {
         host: server.host.clone(),
         port: server.port,
-        auth: resolve_auth(data, secret_key, auth_type, auth_value)?,
+        auth: resolve_auth(data, secret_key, auth_type, auth_value, Some(server_id))?,
         jumps: resolve_jumps(data, secret_key, jumps)?,
         proxy: first_proxy(data, Some((server, username)), jumps)?,
     })
@@ -86,15 +86,32 @@ pub(super) fn first_proxy(
 ///
 /// The frontend decides *which* credential applies (identity or per-host,
 /// agent or key or password); this decides what that credential means, which
-/// for a key means going to the keychain for the material. Shared by sessions,
-/// SFTP, tunnels and jump hosts so all four agree.
+/// for a key means going to the keychain for the material, and for a saved
+/// password decrypting it. Shared by sessions, SFTP, tunnels and jump hosts
+/// so all four agree.
+///
+/// `for_server` is the saved server being signed in to, if there is one. A
+/// server's own password is only ever used for that server, so no request
+/// can send one host's password to another.
 pub(super) fn resolve_auth(
     data: &AppData,
     secret_key: &[u8; 32],
     auth_type: AuthMethod,
     auth_value: &str,
+    for_server: Option<&str>,
 ) -> CmdResult<SshAuth> {
     match auth_type {
+        AuthMethod::ServerPassword => {
+            if for_server != Some(auth_value) {
+                return Err("A host's saved password can only be used to sign in to that host".into());
+            }
+            let server = super::records::find_by_id(&data.servers, auth_value).ok_or("Server not found")?;
+            saved_password(server.encrypted_password.as_deref(), secret_key)
+        }
+        AuthMethod::IdentityPassword => {
+            let identity = super::records::find_by_id(&data.identities, auth_value).ok_or("Identity not found")?;
+            saved_password(identity.encrypted_password.as_deref(), secret_key)
+        }
         // Nothing is stored: the server asks and the user answers at connect time.
         AuthMethod::KeyboardInteractive => Ok(SshAuth::KeyboardInteractive),
         AuthMethod::Agent => Ok(SshAuth::Agent {
@@ -130,6 +147,13 @@ pub(super) fn resolve_auth(
     }
 }
 
+/// A saved password, decrypted.
+fn saved_password(encrypted: Option<&str>, secret_key: &[u8; 32]) -> CmdResult<SshAuth> {
+    let encrypted = encrypted.ok_or("No password is saved for it")?;
+    let password = String::from_utf8(decrypt(encrypted, secret_key)?)?;
+    Ok(SshAuth::Password(password))
+}
+
 /// One jump host as the frontend sends it, outermost first. The chain is
 /// walked and its credentials picked on the frontend, which is where the
 /// identity and per-host rules already live; only the key material is
@@ -153,7 +177,7 @@ pub(super) fn resolve_jumps(
 ) -> CmdResult<Vec<JumpHop>> {
     hops.iter()
         .map(|hop| {
-            let auth = resolve_auth(data, secret_key, hop.auth_type, &hop.auth_value)
+            let auth = resolve_auth(data, secret_key, hop.auth_type, &hop.auth_value, hop.server_id.as_deref())
                 .map_err(|e| format!("Jump host {}: {}", hop.host, e))?;
             Ok(JumpHop {
                 host: hop.host.clone(),
@@ -225,6 +249,34 @@ mod tests {
 
         let plain = AppData { servers: vec![server("t", "target", Some("never")), server("j", "bastion", None)], ..Default::default() };
         assert_eq!(first_proxy(&plain, Some((&plain.servers[0], "alice")), &[hop("j", "ops")]).unwrap(), None);
+    }
+
+    /// A saved password is decrypted here, and a host's own only for that
+    /// host: a request naming another server, or none, gets nothing.
+    #[test]
+    fn a_saved_password_is_read_here_and_only_for_its_own_host() {
+        let key = [7u8; 32];
+        let mut a = server("a", "alpha", None);
+        a.encrypted_password = Some(crate::crypto::encrypt(b"hunter2", &key).unwrap());
+        let identity = Identity {
+            id: "i".into(),
+            name: "deploy".into(),
+            username: "deploy".into(),
+            key_id: None,
+            encrypted_password: Some(crate::crypto::encrypt(b"s3cret", &key).unwrap()),
+            auth_kind: None,
+            agent_fingerprint: None,
+        };
+        let data = AppData { servers: vec![a, server("b", "beta", None)], identities: vec![identity], ..Default::default() };
+
+        let got = resolve_auth(&data, &key, AuthMethod::ServerPassword, "a", Some("a")).unwrap();
+        assert!(matches!(got, SshAuth::Password(ref p) if p == "hunter2"));
+        assert!(resolve_auth(&data, &key, AuthMethod::ServerPassword, "a", Some("b")).is_err());
+        assert!(resolve_auth(&data, &key, AuthMethod::ServerPassword, "a", None).is_err());
+        assert!(resolve_auth(&data, &key, AuthMethod::ServerPassword, "b", Some("b")).is_err(), "b has none saved");
+
+        let got = resolve_auth(&data, &key, AuthMethod::IdentityPassword, "i", Some("b")).unwrap();
+        assert!(matches!(got, SshAuth::Password(ref p) if p == "s3cret"));
     }
 
     #[test]

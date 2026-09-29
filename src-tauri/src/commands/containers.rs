@@ -63,22 +63,29 @@ pub async fn containers_connect(
     // A new connection starts without sudo, whatever an earlier one had.
     state.container_state.sudo.lock().await.remove(&server_id);
     let id = Uuid::new_v4().to_string();
-    state
-        .container_state
-        .connections
-        .lock()
-        .await
-        .insert(id.clone(), Connection { handle: Arc::new(handle), server_id });
+    let mut conns = state.container_state.connections.lock().await;
+    // Connections that closed without the panel saying so go now, rather
+    // than piling up for as long as the app runs.
+    conns.retain(|_, c| !c.handle.is_closed());
+    conns.insert(id.clone(), Connection { handle: Arc::new(handle), server_id });
     Ok(id)
 }
 
 type Handle = Arc<russh::client::Handle<crate::hostverify::VerifyingHandler>>;
 
 /// The connection, and the server it is to.
+///
+/// One found closed is let go here, and sudo with it: the panel offers to
+/// connect again, and the password is not kept for a connection that has
+/// gone.
 async fn connection(state: &State<'_, AppState>, conn_id: &str) -> CmdResult<(Handle, String)> {
-    let conns = state.container_state.connections.lock().await;
+    let mut conns = state.container_state.connections.lock().await;
     let conn = conns.get(conn_id).ok_or("Not connected")?;
     if conn.handle.is_closed() {
+        if let Some(gone) = conns.remove(conn_id) {
+            drop(conns);
+            state.container_state.sudo.lock().await.remove(&gone.server_id);
+        }
         return Err("The connection to the host has closed".into());
     }
     Ok((Arc::clone(&conn.handle), conn.server_id.clone()))
@@ -145,8 +152,12 @@ fn sudo_refusal(error: &str) -> String {
 
 #[tauri::command]
 pub async fn containers_sudo_off(state: State<'_, AppState>, conn_id: String) -> CmdResult<()> {
-    let (_, server_id) = connection(&state, &conn_id).await?;
-    state.container_state.sudo.lock().await.remove(&server_id);
+    // Whether or not the connection is still up: turning sudo off must
+    // never fail and leave the password held.
+    let server_id = state.container_state.connections.lock().await.get(&conn_id).map(|c| c.server_id.clone());
+    if let Some(server_id) = server_id {
+        state.container_state.sudo.lock().await.remove(&server_id);
+    }
     Ok(())
 }
 

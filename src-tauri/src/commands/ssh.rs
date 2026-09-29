@@ -35,7 +35,7 @@ fn prepare(
     host_timeout: Option<u32>,
 ) -> CmdResult<Prepared> {
     Ok(Prepared {
-        auth: resolve_auth(data, key, auth_type, auth_value)?,
+        auth: resolve_auth(data, key, auth_type, auth_value, target.map(|(server, _)| server.id.as_str()))?,
         jumps: resolve_jumps(data, key, jumps)?,
         proxy: super::resolve::first_proxy(data, target, jumps)?,
         timeout_secs: host_timeout.unwrap_or(data.settings.connection_timeout_secs) as u64,
@@ -149,12 +149,13 @@ pub async fn ssh_connect(
         .map_err(CmdError::from)?;
     // Through sudo when the tab asks, with what the Containers panel holds
     // for the host, which is never sent from the frontend.
-    let (command, sudo_input) = match (command, &request.container) {
+    let (command, sudo) = match (command, &request.container) {
         (Some(command), Some(target)) if target.sudo => {
             let sudo = state.container_state.sudo.lock().await.get(&request.server_id).cloned().ok_or_else(|| {
                 CmdError::from("sudo is no longer on for this host. Turn it on in the Containers panel, then open the tab again.")
             })?;
-            (Some(crate::containers::sudo_tab_command(&sudo, &command)), sudo.input())
+            let (line, answer) = crate::containers::sudo_tab_command(&sudo, &command);
+            (Some(line), answer)
         }
         (command, _) => (command, None),
     };
@@ -219,7 +220,7 @@ pub async fn ssh_connect(
         term,
         env,
         command,
-        sudo_input,
+        sudo,
     };
 
     start_session(&state, &app, request.connect_id, params, prep.timeout_secs).await
@@ -279,7 +280,7 @@ pub async fn ssh_connect_quick(
         term: DEFAULT_TERM.to_string(),
         env: Vec::new(),
         command: None,
-        sudo_input: None,
+        sudo: None,
     };
 
     start_session(&state, &app, request.connect_id, params, prep.timeout_secs).await

@@ -4,7 +4,7 @@ import type { QueueItem } from './transferQueue';
 import type { TransferProgress, TransferSummary } from './types';
 
 const summary = (over: Partial<TransferSummary> = {}): TransferSummary =>
-  ({ files: 1, directories: 0, skipped_symlinks: 0, skipped_existing: 0, renamed: 0, cancelled: false, resumed: 0, mismatched: [], resumable: 0, landed: null, verified: 0, failed: null, ...over });
+  ({ files: 1, directories: 0, skipped_symlinks: 0, skipped_names: 0, skipped_existing: 0, renamed: 0, cancelled: false, resumed: 0, mismatched: [], resumable: 0, landed: null, verified: 0, failed: null, ...over });
 
 const progress = (over: Partial<TransferProgress> = {}) =>
   ({ transfer_id: 'a', file_name: 'big.bin', transferred: 0, total: 1000, resumed_from: 0, file_index: 1, file_count: 1, ...over });
@@ -57,6 +57,13 @@ describe('statusLine', () => {
 describe('describeTransfer', () => {
   it('says nothing about a transfer that did what was asked', () => {
     expect(describeTransfer(summary())).toBeNull();
+  });
+
+  it('says why files with names this computer cannot use were left out', () => {
+    expect(describeTransfer(summary({ skipped_names: 1 })))
+      .toBe('1 item was not copied: its name cannot be used on this computer.');
+    expect(describeTransfer(summary({ skipped_names: 2 })))
+      .toBe('2 items were not copied: their names cannot be used on this computer.');
   });
 
   it('counts resumed files that were read back, and the ones that did not match', () => {

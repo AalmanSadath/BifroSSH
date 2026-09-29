@@ -189,7 +189,6 @@ fn start(
             commands::list_identities,
             commands::save_identity,
             commands::delete_identity,
-            commands::get_identity_password,
             commands::system_appearance,
             commands::platform,
             commands::data_dir,

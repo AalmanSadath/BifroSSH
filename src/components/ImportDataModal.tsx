@@ -185,6 +185,29 @@ export default function ImportDataModal({ onClose }: Props) {
             </p>
           )}
 
+          {/* Named before the import rather than after: both run a program on
+              this computer, which is fine from the user's own backup and worth
+              a second look in a file from anyone else. */}
+          {((chosen.servers && plan.proxy_command_hosts.length > 0) || (chosen.settings && plan.local_shell)) && (
+            <div className="hostkey-warn">
+              <strong>Runs programs on this computer</strong>
+              <ul className="transfer-conflicts">
+                {chosen.servers && plan.proxy_command_hosts.length > 0 && (
+                  <li>
+                    {plan.proxy_command_hosts.length === 1 ? 'A host connects' : `${plan.proxy_command_hosts.length} hosts connect`}{' '}
+                    through a proxy command, run here on every connect: {plan.proxy_command_hosts.join(', ')}.
+                  </li>
+                )}
+                {chosen.settings && plan.local_shell && (
+                  <li>
+                    Local shell tabs would run <code>{plan.local_shell}</code>.
+                  </li>
+                )}
+              </ul>
+              <p>Import these only from a file you trust.</p>
+            </div>
+          )}
+
           {error && <p className="form-hint form-hint-error">{error}</p>}
 
           <div className="modal-actions">

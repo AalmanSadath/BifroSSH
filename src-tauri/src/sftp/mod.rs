@@ -3,7 +3,7 @@
 //! Split four ways after the transfer engine was collapsed onto `FileSide`
 //! and left the rest of an 859 line file around it. What sits here is the
 //! vocabulary the other three share: the payload types that cross to the
-//! webview, the session registry, and the two functions that decide whether a
+//! webview, the session registry, and the functions that decide whether a
 //! name a server sent may be joined onto a path.
 
 use std::collections::HashMap;
@@ -73,6 +73,9 @@ pub struct TransferSummary {
     /// until the disk fills, and recreating them is not something SFTP does
     /// portably.
     pub skipped_symlinks: u32,
+    /// Files and directories left out because this side cannot hold them
+    /// under their name: on Windows, a name such as `C:x` or `nul`.
+    pub skipped_names: u32,
     /// Files left alone because one was already there and the policy was
     /// to skip.
     pub skipped_existing: u32,
@@ -152,6 +155,39 @@ fn is_safe_name(name: &str) -> bool {
         && !name.contains('/')
         && !name.contains('\\')
         && !name.contains('\0')
+}
+
+/// Whether a name can be written as one file in a folder on this computer.
+///
+/// `is_safe_name`, and on Windows more besides. There a name such as
+/// `C:evil.bat` is a path of its own: `Path::join` onto the chosen folder
+/// gives back `C:evil.bat`, which is drive C's current directory rather than
+/// anywhere under the folder. `name:stream` writes an NTFS stream beside a
+/// file, and `CON` or `nul.txt` is a device.
+pub(crate) fn local_name_ok(name: &str) -> bool {
+    is_safe_name(name) && (!cfg!(windows) || windows_name_ok(name))
+}
+
+/// The characters Windows refuses in a file name, beside the separators.
+pub(crate) const WINDOWS_FORBIDDEN: &[char] = &['<', '>', ':', '"', '|', '?', '*'];
+
+/// Whether Windows takes `name` as a plain file name. Separate from
+/// `local_name_ok` so the rules are tested on every platform.
+fn windows_name_ok(name: &str) -> bool {
+    !name.chars().any(|c| c.is_control() || WINDOWS_FORBIDDEN.contains(&c))
+        && !name.ends_with(['.', ' '])
+        && !is_windows_device(name)
+}
+
+/// `CON`, `nul.txt`, `COM1.log` and the like: a device whatever follows the
+/// first dot, in any case.
+pub(crate) fn is_windows_device(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or("").trim_end().to_ascii_uppercase();
+    matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || ((stem.starts_with("COM") || stem.starts_with("LPT"))
+            && stem.len() == 4
+            && stem.as_bytes()[3].is_ascii_digit()
+            && stem.as_bytes()[3] != b'0')
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -299,6 +335,30 @@ mod tests {
         for name in ["f.txt", "..hidden", "a..b", "...", " ", "naïve.txt"] {
             assert!(is_safe_name(name), "{name:?} is a legitimate filename");
         }
+    }
+
+    /// Checked on Linux as well, since a Windows build is where they matter
+    /// and it has no test run of its own.
+    #[test]
+    fn a_name_windows_would_read_as_a_path_or_a_device_is_refused_there() {
+        for name in ["C:evil.bat", "notes.txt:hidden", "a<b", "a|b", "what?", "x.", "x ", "CON", "nul.txt", "Com1.log", "lpt9", "tab\tname"] {
+            assert!(!windows_name_ok(name), "{name:?} should have been refused");
+        }
+        for name in ["f.txt", "console.log", "COM0", "COM10", "lpt", ".bashrc", "a b.txt", "naïve.txt"] {
+            assert!(windows_name_ok(name), "{name:?} is a legitimate filename");
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn on_windows_a_drive_relative_name_is_not_a_local_name() {
+        assert!(!local_name_ok("C:evil.bat"));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn elsewhere_a_colon_is_an_ordinary_character() {
+        assert!(local_name_ok("10:30.log"));
     }
 
     /// What the refusal buys, spelled out against the path that gets built.

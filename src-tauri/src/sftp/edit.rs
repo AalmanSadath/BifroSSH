@@ -1,7 +1,7 @@
 //! Opening a file in whatever the desktop would open it with, and for a
 //! remote file, sending every save back.
 //!
-//! A remote file comes down to a directory of its own under the system temp
+//! A remote file comes down to a directory of its own under the user's cache
 //! dir, keeping its name so the application sees the real extension. From
 //! then on a task watches the copy: when its size or mtime changes and then
 //! holds still for one more tick, that is a save, and the file goes back up
@@ -15,7 +15,7 @@ use super::*;
 use super::listing::parent_remote;
 use super::session::get_session;
 use super::transfer::{download_path, upload_quiet, Conflict, Silent};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use anyhow::{anyhow, Context, Result};
@@ -58,12 +58,13 @@ pub async fn open_remote(
         .filter(|n| !n.is_empty())
         .ok_or_else(|| anyhow!("Not a file: {remote_path}"))?
         .to_string();
+    // Joined onto the folder below, so it has to be a plain name here.
+    if !super::local_name_ok(&name) {
+        return Err(anyhow!("{name:?} cannot be opened on this computer under that name"));
+    }
     let remote_dir = parent_remote(&remote_path);
 
-    let dir = std::env::temp_dir()
-        .join("bifrossh-edit")
-        .join(uuid::Uuid::new_v4().to_string());
-    std::fs::create_dir_all(&dir).with_context(|| dir.display().to_string())?;
+    let dir = private_dir_in(&edit_base()?)?;
 
     let summary = download_path(&Silent, &sftp_state, "edit", &session_id, &remote_path, &dir.to_string_lossy(), Conflict::Overwrite).await?;
     if summary.cancelled {
@@ -89,6 +90,59 @@ pub async fn open_remote(
         let _ = std::fs::remove_dir_all(&dir);
     });
     Ok(())
+}
+
+/// Where files opened for editing are kept: the user's own cache dir.
+///
+/// It was a shared `bifrossh-edit` in the system temp dir, made with the
+/// default mode. On a machine with other users one of them could make that
+/// directory first and own it, and then read each file as it came down, or
+/// swap it for their own between two ticks, to be uploaded to the server as
+/// if it had been saved.
+fn edit_base() -> Result<PathBuf> {
+    let base = dirs::cache_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("bifrossh")
+        .join("edit");
+    std::fs::create_dir_all(&base).with_context(|| base.display().to_string())?;
+    check_own_dir(&base)?;
+    Ok(base)
+}
+
+/// Refuses a directory that is a symlink or that belongs to someone else,
+/// and makes it private to the user.
+#[cfg(unix)]
+fn check_own_dir(dir: &Path) -> Result<()> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let meta = std::fs::symlink_metadata(dir).with_context(|| dir.display().to_string())?;
+    // SAFETY: getuid cannot fail and touches no memory.
+    let uid = unsafe { libc::getuid() };
+    if !meta.is_dir() || meta.uid() != uid {
+        anyhow::bail!("{} is not a directory of this user's, so files are not opened for editing there", dir.display());
+    }
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+        .with_context(|| dir.display().to_string())
+}
+
+/// The profile directory is the user's own on Windows.
+#[cfg(not(unix))]
+fn check_own_dir(_dir: &Path) -> Result<()> {
+    Ok(())
+}
+
+/// A new directory under `base` that nobody else can read, made here and
+/// not found already made.
+fn private_dir_in(base: &Path) -> Result<PathBuf> {
+    let dir = base.join(uuid::Uuid::new_v4().to_string());
+    #[cfg_attr(not(unix), allow(unused_mut))]
+    let mut builder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder.create(&dir).with_context(|| dir.display().to_string())?;
+    Ok(dir)
 }
 
 type Stamp = (SystemTime, u64);
@@ -145,5 +199,34 @@ pub(super) async fn watch(
         notify(EditEvent { remote_path: remote_path.to_string(), name: name.clone(), error });
         last = now;
         pending = None;
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    /// Nobody else can list or read what is being edited, and a directory
+    /// someone else planted, or a link to one, is not used.
+    #[test]
+    fn a_file_being_edited_is_kept_where_only_the_user_can_see_it() {
+        let base = std::env::temp_dir().join(format!("bifrossh-edit-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        std::fs::set_permissions(&base, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        check_own_dir(&base).unwrap();
+        assert_eq!(std::fs::metadata(&base).unwrap().permissions().mode() & 0o777, 0o700);
+        let dir = private_dir_in(&base).unwrap();
+        assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
+
+        let link = base.with_extension("link");
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(&base, &link).unwrap();
+        assert!(check_own_dir(&link).is_err(), "a symlink must not be followed");
+
+        let _ = std::fs::remove_file(&link);
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

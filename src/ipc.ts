@@ -136,9 +136,6 @@ export const saveIdentity = (identity: IdentityInput, password: string | null) =
 export const deleteIdentity = (identityId: string) =>
   invoke<void>('delete_identity', { identityId });
 
-export const getIdentityPassword = (identityId: string) =>
-  invoke<string>('get_identity_password', { identityId });
-
 // ── settings ─────────────────────────────────────────────────────────────
 
 export const getSettings = () => invoke<Settings>('get_settings');

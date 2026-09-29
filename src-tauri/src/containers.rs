@@ -327,19 +327,37 @@ impl Sudo {
     }
 }
 
-/// Printed by a sudo tab once terminal echo is off; the session answers it
-/// with the password, and takes it out of the output. An OSC sequence, so a
-/// terminal that ever saw it would print nothing.
-pub const SUDO_MARKER: &[u8] = b"\x1b]7770;bifrossh-sudo\x07";
+/// What the session of a sudo tab listens for, and what it answers with.
+#[derive(Clone)]
+pub struct SudoAnswer {
+    /// sudo's own password prompt, so it only ever appears when sudo is
+    /// really asking. An OSC sequence, which a terminal that ever saw it
+    /// would print nothing for, carrying a nonce made for this tab alone: a
+    /// program in the container that printed a fixed marker would otherwise
+    /// be handed the password.
+    pub marker: Vec<u8>,
+    /// The password and its newline. Wiped when dropped.
+    pub input: zeroize::Zeroizing<Vec<u8>>,
+}
 
-/// A container tab's command run through sudo. With a password, echo goes
-/// off before the marker, so the password the session sends on seeing it is
-/// never echoed back onto the screen.
-pub fn sudo_tab_command(sudo: &Sudo, command: &str) -> String {
+/// A container tab's command run through sudo, and with a password, what
+/// the session answers sudo's prompt with.
+///
+/// The prompt is the marker rather than something printed ahead of sudo.
+/// Printed ahead, it went out whether sudo went on to ask or not, and a rule
+/// such as `NOPASSWD: /usr/bin/docker` meant it did not: the password was
+/// then typed into the container's shell instead, echoed there, and kept in
+/// the session log and the shell's history. Echo goes off first, so the
+/// answer is not shown either.
+pub fn sudo_tab_command(sudo: &Sudo, command: &str) -> (String, Option<SudoAnswer>) {
     match sudo {
-        Sudo::NoPassword => format!("exec sudo -n {command}"),
+        Sudo::NoPassword => (format!("exec sudo -n {command}"), None),
         Sudo::Password(_) => {
-            format!("stty -echo; printf '\\033]7770;bifrossh-sudo\\007'; exec sudo -S -p '' -k {command}")
+            let nonce = uuid::Uuid::new_v4().simple();
+            let marker = format!("\x1b]7770;bifrossh-sudo-{nonce}\x07");
+            let line = format!("stty -echo; exec sudo -S -p '{marker}' -k {command}");
+            let input = sudo.input().unwrap_or_default();
+            (line, Some(SudoAnswer { marker: marker.into_bytes(), input }))
         }
     }
 }
@@ -500,15 +518,25 @@ mod tests {
         assert!(Sudo::NoPassword.input().is_none());
     }
 
-    /// A tab turns echo off before it asks for the password, and the marker
-    /// it prints is the one the session looks for.
+    /// sudo prints the marker itself, so nothing is answered unless sudo
+    /// asks, and each tab's marker is its own.
     #[test]
-    fn a_sudo_tab_asks_with_echo_off() {
+    fn a_sudo_tab_is_answered_only_at_its_own_prompt() {
         let sudo = Sudo::Password(zeroize::Zeroizing::new("x".into()));
-        let cmd = sudo_tab_command(&sudo, "docker logs -f web");
-        assert!(cmd.starts_with("stty -echo; printf '\\033]7770;bifrossh-sudo\\007'"), "{cmd}");
-        assert!(cmd.ends_with("exec sudo -S -p '' -k docker logs -f web"), "{cmd}");
-        assert_eq!(sudo_tab_command(&Sudo::NoPassword, "docker logs web"), "exec sudo -n docker logs web");
+        let (cmd, answer) = sudo_tab_command(&sudo, "docker logs -f web");
+        let answer = answer.unwrap();
+        let marker = String::from_utf8(answer.marker.clone()).unwrap();
+        assert!(marker.starts_with("\x1b]7770;bifrossh-sudo-") && marker.ends_with('\x07'), "{marker:?}");
+        assert_eq!(cmd, format!("stty -echo; exec sudo -S -p '{marker}' -k docker logs -f web"));
+        assert!(!cmd.contains("printf"), "the marker must not be printed ahead of sudo: {cmd}");
+        assert_eq!(answer.input.as_slice(), b"x\n");
+
+        let (_, again) = sudo_tab_command(&sudo, "docker logs -f web");
+        assert_ne!(again.unwrap().marker, answer.marker);
+
+        let (cmd, answer) = sudo_tab_command(&Sudo::NoPassword, "docker logs web");
+        assert_eq!(cmd, "exec sudo -n docker logs web");
+        assert!(answer.is_none());
     }
 
     #[test]
