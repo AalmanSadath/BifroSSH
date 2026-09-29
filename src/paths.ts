@@ -70,7 +70,7 @@ export const posix: PathStyle = {
  * one. Everything written out uses a backslash.
  *
  * A root is a drive (`C:\`) or a UNC share (`\\server\share\`), and neither has
- * a parent — walking up from `C:\` would otherwise land on `` and list nothing.
+ * a parent: walking up from `C:\` would otherwise land on `` and list nothing.
  */
 export const windows: PathStyle = {
   sep: '\\',

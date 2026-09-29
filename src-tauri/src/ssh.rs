@@ -531,7 +531,7 @@ pub async fn connect_ssh(
         }
     }
 
-    emit_log(&app, &connect_id, "auth", "Shell ready — connected");
+    emit_log(&app, &connect_id, "auth", "Shell ready, connected");
 
     // The startup command is not written here. Sent the moment the shell was
     // requested, it queued in the tty and was echoed once in the middle of

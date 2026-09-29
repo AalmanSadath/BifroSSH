@@ -511,7 +511,7 @@ export interface AgentKeyInfo {
 
 export interface AuthPromptField {
   prompt: string;
-  /** False for secrets — the server decides, and those stay masked. */
+  /** False for secrets: the server decides, and those stay masked. */
   echo: boolean;
 }
 

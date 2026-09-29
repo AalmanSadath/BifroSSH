@@ -44,8 +44,8 @@ impl Progress for Silent {
 ///
 /// A server that goes away without closing the socket does not fail the
 /// transfer: the SSH channel simply stops answering, and the await never
-/// completes and never errors. Generous enough that no real link trips it —
-/// a 128 KB chunk needs a link slower than 2 KB/s to take this long — and
+/// completes and never errors. Generous enough that no real link trips it
+/// (a 128 KB chunk needs a link slower than 2 KB/s to take this long), and
 /// short enough that a host that has gone is reported within the minute
 /// rather than never.
 const STALL: Duration = Duration::from_secs(60);

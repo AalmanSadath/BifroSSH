@@ -349,7 +349,7 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         fitAddon.fit();
-        // Explicitly push the real PTY size to the server — onResize alone
+        // Explicitly push the real PTY size to the server; onResize alone
         // can miss this if the cols/rows match the xterm default (80×24).
         const { cols, rows } = term;
         const sid = sessionIdRef.current;

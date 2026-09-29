@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { listen } from '@tauri-apps/api/event';
+import { withConnectLog } from '../connectLog';
 import * as ipc from '../ipc';
 import { getVersion } from '@tauri-apps/api/app';
 import { CHECK_INTERVAL_SECS, fetchLatestRelease, newerVersion, type Release } from '../updates';
@@ -1637,15 +1637,10 @@ export function reportFailure(e: unknown) {
 /**
  * Opens a session tab, runs a connect, and narrates it.
  *
- * The same six steps were written three times, twice here and once in the
- * SFTP panel: mint an id, listen on the log channel it names, put a
- * connecting tab on screen, invoke, stop listening a moment later, and turn
- * the tab into a connected one or a failed one.
- *
- * The delay before unlistening is the part worth keeping in one place. The
- * backend emits its last log lines just before the command returns, and those
- * race the response over the same bridge, so unlistening on the response
- * itself loses the end of the transcript.
+ * The same steps were written three times, twice here and once in the SFTP
+ * panel: listen on the log channel the id names, put a connecting tab on
+ * screen, invoke, and turn the tab into a connected one or a failed one.
+ * The listening is `withConnectLog`'s, which the panels share.
  *
  * Returns the backend's session id, or null if the connect failed; the tab has
  * already been told either way.
@@ -1655,23 +1650,22 @@ async function startSession(
   tab: SessionTab,
   connect: () => Promise<string>,
 ): Promise<string | null> {
-  const unlisten = await listen<LogEntry>(`ssh-connect-log:${connectId}`, (event) => {
-    useAppStore.getState().appendSessionLog(connectId, event.payload);
-  });
-
-  useAppStore.setState((s) => {
-    const sessions = [...s.sessions, tab];
-    saveOpenTabs(sessions);
-    return { sessions, activeTabId: connectId };
-  });
-
   try {
-    const sessionId = await connect();
-    setTimeout(unlisten, 1000);
+    const sessionId = await withConnectLog(
+      connectId,
+      (entry) => useAppStore.getState().appendSessionLog(connectId, entry),
+      () => {
+        useAppStore.setState((s) => {
+          const sessions = [...s.sessions, tab];
+          saveOpenTabs(sessions);
+          return { sessions, activeTabId: connectId };
+        });
+        return connect();
+      },
+    );
     useAppStore.getState().updateSessionConnected(connectId, sessionId);
     return sessionId;
   } catch (err) {
-    unlisten();
     useAppStore.getState().updateSessionError(connectId, String(err));
     return null;
   }

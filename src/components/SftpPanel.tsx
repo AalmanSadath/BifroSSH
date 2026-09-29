@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import * as ipc from '../ipc';
 import { listen } from '@tauri-apps/api/event';
+import { withConnectLog } from '../connectLog';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useAppStore, buildJumpChain, resolveServerAuth } from '../store/appStore';
 import OsIcon from './OsIcon';
@@ -1110,18 +1111,19 @@ function usePane(initialMode: PaneMode) {
     // Narrate the connect the same way a terminal session does, so a stall or
     // rejection is visible instead of leaving a bare spinner.
     const connectId = crypto.randomUUID();
-    const unlisten = await listen<LogEntry>(`ssh-connect-log:${connectId}`, (event) => {
-      setConnectLogs((prev) => [...prev, event.payload]);
-    });
 
     try {
-      const newSid = await ipc.sftpConnectRemote(
-        server.id,
-        username,
-        authType,
-        authValue,
+      const newSid = await withConnectLog(
         connectId,
-        await buildJumpChain(server, servers, identities),
+        (entry) => setConnectLogs((prev) => [...prev, entry]),
+        async () => ipc.sftpConnectRemote(
+          server.id,
+          username,
+          authType,
+          authValue,
+          connectId,
+          await buildJumpChain(server, servers, identities),
+        ),
       );
       setSid(newSid);
       setServerId(server.id);
@@ -1141,8 +1143,6 @@ function usePane(initialMode: PaneMode) {
       setConnectError(String(e));
       return null;
     } finally {
-      // Trailing log lines race the invoke response over the same bridge.
-      setTimeout(unlisten, 1000);
       setConnectingId(null);
       setRemote((r) => ({ ...r, loading: false }));
     }

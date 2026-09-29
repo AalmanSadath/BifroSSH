@@ -26,7 +26,7 @@ interface Props {
 /**
  * The centred dialog shell: backdrop, panel, header.
  *
- * Six copies of this existed, and they had already drifted — four dismissed on
+ * Six copies of this existed, and they had already drifted: four dismissed on
  * a backdrop click and two did not, with nothing to say which was intended.
  * Here the presence of `onClose` says it.
  */

@@ -79,7 +79,7 @@ function PresetDropdown({ allThemes, customThemes, onSelect }: {
   customThemes: Record<string, NamedTheme>;
   onSelect: (id: string) => void;
 }) {
-  const [label, setLabel] = useState('— Select a theme —');
+  const [label, setLabel] = useState('Select a theme');
   const builtIn = Object.entries(allThemes).filter(([id]) => !customThemes[id]);
   const custom = Object.entries(customThemes);
 
@@ -119,7 +119,7 @@ function TerminalPreview({ colors }: { colors: ThemeColors }) {
         <span className="te-dot te-dot-red" />
         <span className="te-dot te-dot-amber" />
         <span className="te-dot te-dot-green" />
-        <span className="te-preview-title-text">bifrossh — bash</span>
+        <span className="te-preview-title-text">bifrossh: bash</span>
       </div>
       <div className="te-preview-terminal" style={{ background, color: foreground }}>
         <div>

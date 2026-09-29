@@ -283,7 +283,7 @@ pub fn check_host(host: &str, port: u16, key: &PublicKey) -> KnownHostStatus {
                 continue;
             }
             // Unparseable or unsupported (sk-*, ssh-dss) entries are skipped, never
-            // fatal — one bad line must not make the host permanently unverifiable.
+            // fatal: one bad line must not make the host permanently unverifiable.
             let Ok(line_blob) = BASE64.decode(line.b64.as_bytes()) else {
                 continue;
             };
@@ -441,7 +441,7 @@ pub fn forget_host(host: &str, port: u16) -> Result<usize> {
     remove_lines(host, port, None)
 }
 
-/// Rewrites BifroSSH's file only — `~/.ssh/known_hosts` is never modified.
+/// Rewrites BifroSSH's file only; `~/.ssh/known_hosts` is never modified.
 fn remove_lines(host: &str, port: u16, algo: Option<&str>) -> Result<usize> {
     let path = bifrossh_known_hosts_path()?;
     let _guard = WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -1004,7 +1004,7 @@ mod tests {
             "an unsupported ssh-dss line above must not block the match"
         );
 
-        // Mirrored, so it now exists in both files — but the list must show it
+        // Mirrored, so it now exists in both files, but the list must show it
         // once, attributed to the file the user can edit.
         let listed: Vec<_> = list_known_hosts()
             .unwrap()

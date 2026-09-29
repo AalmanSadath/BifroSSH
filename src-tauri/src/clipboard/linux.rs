@@ -18,8 +18,8 @@ pub(super) fn read_text(app: &AppHandle) -> Result<String, String> {
 
     app.run_on_main_thread(move || {
         // wait_for_text runs a nested main loop until the owning application
-        // hands the text over. That is re-entrant by design — it is how GTK
-        // has always done a synchronous clipboard read — and this callback is
+        // hands the text over. That is re-entrant by design (it is how GTK
+        // has always done a synchronous clipboard read), and this callback is
         // already on the main loop, which is where it has to be.
         let text = gtk::gdk::Display::default()
             .and_then(|display| gtk::Clipboard::default(&display))

@@ -42,7 +42,7 @@ pub fn parse_os_release(output: &str) -> String {
         if let Some(v) = line.strip_prefix("PRETTY_NAME=") { pretty_name = v.trim_matches('"').to_lowercase(); }
     }
 
-    // Raspberry Pi detection — hardware marker or name/pretty_name
+    // Raspberry Pi detection: hardware marker or name/pretty_name
     for line in output.lines() {
         let l = line.trim().to_lowercase();
         if l.contains("raspberry pi") { return "raspberrypi".to_string(); }

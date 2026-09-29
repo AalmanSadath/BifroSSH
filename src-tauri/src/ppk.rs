@@ -424,7 +424,7 @@ fn build_openssh_pem(public_blob: &[u8], private_key_data: &[u8], comment: &str)
 
 fn build_ed25519(public_data: &[u8], private_blob: &[u8], comment: &str) -> Result<String> {
     // PPK public blob:  string("ssh-ed25519") + string(pub[32])
-    // PPK private blob: string(seed[32])  — PuTTY stores only the 32-byte seed
+    // PPK private blob: string(seed[32]); PuTTY stores only the 32-byte seed
     let mut pos = 0;
     let _algo = ssh_read_bytes(public_data, &mut pos)?;
     let pub_bytes = ssh_read_bytes(public_data, &mut pos)?;

@@ -268,7 +268,7 @@ impl HostKeyVerifier {
 
 /// The half of a host key prompt that varies between the two call sites. These
 /// are exactly the `HostKeyPromptEvent` fields the verifier cannot supply from
-/// itself; the rest — host, port, username, connect id — it already knows.
+/// itself; the rest (host, port, username, connect id) it already knows.
 struct KeyOffer {
     /// "unknown" | "mismatch" | "other-type" | "revoked"
     status: &'static str,
