@@ -20,11 +20,11 @@ concurrency:
 jobs:
   build:
     name: Build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -59,8 +59,10 @@ jobs:
       # downloads its runtime mid-build and is a third artefact nobody asked
       # for.
       #
-      # Built on ubuntu-latest, so these carry its glibc floor. Anything older
-      # wants the Flatpak, which is what the README tells people.
+      # Built on Ubuntu 24.04, so these carry its glibc floor (2.39). Anything
+      # older wants the Flatpak, which is what the README tells people. The
+      # runner is pinned rather than ubuntu-latest so that floor only moves
+      # when it is chosen to.
       - name: Build the packages
         run: npm run tauri -- build --bundles deb,rpm
 
@@ -88,7 +90,7 @@ jobs:
           ls -lh packages
 
       - name: Upload the packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bifrossh-linux-packages
           path: packages/

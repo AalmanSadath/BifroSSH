@@ -33,7 +33,7 @@ env:
 jobs:
   build:
     name: Build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container:
       # gnome-50 matches `runtime-version: '50'` in the manifest. Bumping one
       # without the other means the SDK that builds the app is not the runtime
@@ -43,7 +43,7 @@ jobs:
 
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # The ostree repo is assembled at the workspace root, so the source
           # tree gets its own directory. The manifest's `type: dir, path: ..`
@@ -231,14 +231,14 @@ jobs:
           ls -lh ostree-repo.tar
 
       - name: Upload the bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bifrossh-flatpak-bundle
           path: bifrossh.flatpak
           if-no-files-found: error
 
       - name: Upload the ostree repo
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bifrossh-ostree-repo
           path: ostree-repo.tar
