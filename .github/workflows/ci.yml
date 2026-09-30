@@ -30,11 +30,11 @@ jobs:
   # job existed: the failure direction is a wasted run, never a skipped check.
   decide:
     name: Decide
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       run: ${{ steps.check.outputs.run }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -58,9 +58,9 @@ jobs:
     name: Vendored sources
     needs: decide
     if: needs.decide.outputs.run == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The Flatpak build runs with no network, so a dependency added since the
       # vendor manifests were last generated fails deep inside the sandbox with
@@ -127,11 +127,11 @@ jobs:
     name: Frontend
     needs: decide
     if: needs.decide.outputs.run == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -159,9 +159,9 @@ jobs:
     name: Packaging metadata
     needs: decide
     if: needs.decide.outputs.run == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install validators
         run: |
@@ -233,9 +233,9 @@ jobs:
     name: Backend
     needs: decide
     if: needs.decide.outputs.run == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Tauri needs these to build at all. Kept in step with the Fedora list in
       # the README, which is the other supported build path.
@@ -303,7 +303,7 @@ jobs:
     if: needs.decide.outputs.run == 'true'
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
 

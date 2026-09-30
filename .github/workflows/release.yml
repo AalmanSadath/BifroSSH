@@ -34,9 +34,9 @@ jobs:
   # Flatpak build or an NSIS package.
   versions:
     name: Versions agree
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check versions agree
         # Runs before the expensive steps so a mistake costs seconds, not a full
@@ -129,21 +129,21 @@ jobs:
     name: Publish release
     needs: [flatpak, windows, linux]
     if: github.ref_type == 'tag'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: bifrossh-flatpak-bundle
           path: artefacts
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: bifrossh-windows-installer
           path: artefacts
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: bifrossh-linux-packages
           path: artefacts
@@ -153,7 +153,7 @@ jobs:
       # The Windows installer is unsigned, so SmartScreen warns on first run
       # until the download builds reputation. Said in the README rather than
       # left as a surprise.
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: |
             artefacts/bifrossh.flatpak
@@ -183,11 +183,11 @@ jobs:
       && needs.flatpak.result == 'success'
       && needs.publish-release.result != 'failure'
       && needs.publish-release.result != 'cancelled'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: bifrossh-ostree-repo
 
