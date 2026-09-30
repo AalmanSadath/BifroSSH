@@ -10,13 +10,15 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use russh::client::{self, Prompt};
-use russh::keys::{Algorithm, PrivateKey, PublicKey, PublicKeyOrCertificate};
+use russh::keys::{Algorithm, PrivateKey, PublicKeyOrCertificate};
 use russh::server::{self, Auth, Response};
 use russh::{MethodKind, MethodSet};
 use tokio::sync::Mutex;
 
 #[cfg(unix)]
 use base64::Engine as _;
+#[cfg(unix)]
+use russh::keys::PublicKey;
 
 use super::auth::{keyboard_interactive, AuthPrompter};
 #[cfg(unix)]
