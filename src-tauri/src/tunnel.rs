@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use anyhow::{anyhow, Result};
-use async_trait::async_trait;
 use russh::*;
 use russh::client::{self, Msg};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -98,14 +97,16 @@ struct RemoteForwardHandler {
     dest_port: u32,
 }
 
-#[async_trait]
 impl client::Handler for RemoteForwardHandler {
     type Error = russh::Error;
 
-    async fn check_server_key(&mut self, key: &russh_keys::key::PublicKey) -> Result<bool, Self::Error> {
-        Ok(self.v.verify(key).await)
+    async fn check_server_key(&mut self, key: &russh::keys::PublicKeyOrCertificate) -> Result<bool, Self::Error> {
+        Ok(self.v.verify_offer(key).await)
     }
 
+    /// Someone connected to the port the server listens on for us. Only
+    /// accepted once the local end is reached, so a destination that is not
+    /// up is a refusal the far side sees, not a channel that closes at once.
     async fn server_channel_open_forwarded_tcpip(
         &mut self,
         channel: Channel<Msg>,
@@ -113,17 +114,34 @@ impl client::Handler for RemoteForwardHandler {
         _connected_port: u32,
         _originator_address: &str,
         _originator_port: u32,
+        reply: client::ChannelOpenHandle,
         _session: &mut client::Session,
     ) -> Result<(), Self::Error> {
         let dh = self.dest_host.clone();
         let dp = self.dest_port;
         tokio::spawn(async move {
-            if let Ok(stream) = TcpStream::connect(format!("{}:{}", dh, dp)).await {
-                proxy_tcp_channel(stream, channel).await;
+            match TcpStream::connect(format!("{}:{}", dh, dp)).await {
+                Ok(stream) => {
+                    reply.accept().await;
+                    proxy_tcp_channel(stream, channel).await;
+                }
+                Err(_) => reply.reject(russh::ChannelOpenFailure::ConnectFailed).await,
             }
         });
         Ok(())
     }
+
+    /// A tunnel's connection never forwards the agent.
+    async fn server_channel_open_agent_forward(
+        &mut self,
+        _channel: Channel<Msg>,
+        reply: client::ChannelOpenHandle,
+        _session: &mut client::Session,
+    ) -> Result<(), Self::Error> {
+        crate::hostverify::refuse(reply).await
+    }
+
+    crate::refuse_unasked_channels!();
 }
 
 // ── SSH connect helpers ───────────────────────────────────────────────────────
@@ -319,7 +337,7 @@ async fn remote_tunnel(
     dest_port: u32,
     state: Arc<TunnelState>,
 ) -> Result<()> {
-    let mut handle = connect_tunnel(&base, |v| RemoteForwardHandler { v, dest_host, dest_port }).await?;
+    let handle = connect_tunnel(&base, |v| RemoteForwardHandler { v, dest_host, dest_port }).await?;
     handle.tcpip_forward(base.bind_address.clone(), remote_port).await
         .map_err(|e| anyhow!("tcpip_forward failed: {:?}", e))?;
 

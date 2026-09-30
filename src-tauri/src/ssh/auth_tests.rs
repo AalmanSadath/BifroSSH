@@ -10,9 +10,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use russh::client::{self, Prompt};
-use russh::server::{self, Auth, Msg, Response, Session};
-use russh::{Channel, MethodSet};
-use russh_keys::key::{KeyPair, PublicKey};
+use russh::keys::{Algorithm, PrivateKey, PublicKey, PublicKeyOrCertificate};
+use russh::server::{self, Auth, Response};
+use russh::{MethodKind, MethodSet};
 use tokio::sync::Mutex;
 
 #[cfg(unix)]
@@ -51,26 +51,28 @@ impl server::Server for TestServer {
     }
 }
 
-#[async_trait]
 impl server::Handler for TestServer {
     type Error = russh::Error;
 
-    async fn auth_keyboard_interactive(
+    async fn auth_keyboard_interactive<'a>(
         &mut self,
         _user: &str,
         _submethods: &str,
-        response: Option<Response<'async_trait>>,
+        response: Option<Response<'a>>,
     ) -> Result<Auth, Self::Error> {
         // Record what the client answered for the round just completed.
         if let Some(response) = response {
             let answers: Vec<String> = response
-                .map(|b| String::from_utf8_lossy(b).into_owned())
+                .map(|b| String::from_utf8_lossy(&b).into_owned())
                 .collect();
 
             let index = *self.issued.lock().await;
             if let Some(round) = index.checked_sub(1).and_then(|i| self.rounds.get(i)) {
                 if !round.expect.is_empty() && answers != round.expect {
-                    return Ok(Auth::Reject { proceed_with_methods: Some(MethodSet::KEYBOARD_INTERACTIVE) });
+                    return Ok(Auth::Reject {
+                        proceed_with_methods: Some(MethodSet::from(&[MethodKind::KeyboardInteractive][..])),
+                        partial_success: false,
+                    });
                 }
             }
             self.received.lock().await.push(answers);
@@ -95,14 +97,6 @@ impl server::Handler for TestServer {
             None => Ok(Auth::Accept),
         }
     }
-
-    async fn channel_open_session(
-        &mut self,
-        _channel: Channel<Msg>,
-        _session: &mut Session,
-    ) -> Result<bool, Self::Error> {
-        Ok(true)
-    }
 }
 
 /// Boots the scripted server on an ephemeral port. Returns the port plus the
@@ -116,8 +110,8 @@ async fn spawn_server(rounds: Vec<Round>) -> (u16, Arc<Mutex<Vec<Vec<String>>>>)
     };
 
     let config = Arc::new(server::Config {
-        keys: vec![KeyPair::generate_ed25519().unwrap()],
-        methods: MethodSet::KEYBOARD_INTERACTIVE,
+        keys: vec![host_key()],
+        methods: MethodSet::from(&[MethodKind::KeyboardInteractive][..]),
         ..Default::default()
     });
 
@@ -135,14 +129,18 @@ async fn spawn_server(rounds: Vec<Round>) -> (u16, Arc<Mutex<Vec<Vec<String>>>>)
     (port, received)
 }
 
+/// A throwaway host key for a test server.
+fn host_key() -> PrivateKey {
+    PrivateKey::random(&mut russh::keys::key::safe_rng(), Algorithm::Ed25519).unwrap()
+}
+
 // ── Test client ──────────────────────────────────────────────────────────────
 
 struct AcceptAnyKey;
 
-#[async_trait]
 impl client::Handler for AcceptAnyKey {
     type Error = russh::Error;
-    async fn check_server_key(&mut self, _: &PublicKey) -> Result<bool, Self::Error> {
+    async fn check_server_key(&mut self, _: &PublicKeyOrCertificate) -> Result<bool, Self::Error> {
         Ok(true) // host key verification is covered by the hostkeys tests
     }
 }
@@ -399,7 +397,6 @@ impl server::Server for PubkeyServer {
 }
 
 #[cfg(unix)]
-#[async_trait]
 impl server::Handler for PubkeyServer {
     type Error = russh::Error;
 
@@ -408,22 +405,13 @@ impl server::Handler for PubkeyServer {
         _user: &str,
         key: &PublicKey,
     ) -> Result<Auth, Self::Error> {
-        use russh_keys::PublicKeyBase64;
-        let blob = key.public_key_bytes();
+        let blob = crate::hostkeys::blob(key);
         self.offered.lock().await.push(hex(&blob));
         if blob == *self.accepted {
             Ok(Auth::Accept)
         } else {
-            Ok(Auth::Reject { proceed_with_methods: None })
+            Ok(Auth::reject())
         }
-    }
-
-    async fn channel_open_session(
-        &mut self,
-        _channel: Channel<Msg>,
-        _session: &mut Session,
-    ) -> Result<bool, Self::Error> {
-        Ok(true)
     }
 }
 
@@ -441,8 +429,8 @@ async fn spawn_pubkey_server(accepted: Vec<u8>) -> (u16, Arc<Mutex<Vec<String>>>
     };
 
     let config = Arc::new(server::Config {
-        keys: vec![KeyPair::generate_ed25519().unwrap()],
-        methods: MethodSet::PUBLICKEY,
+        keys: vec![host_key()],
+        methods: MethodSet::from(&[MethodKind::PublicKey][..]),
         ..Default::default()
     });
 
@@ -589,7 +577,7 @@ async fn agent_authentication() {
         let ok = agent_auth(&mut handle, "tester", None, &SilentPrompter)
             .await
             .unwrap();
-        assert!(ok, "one of the agent's keys is authorised, so auth must succeed");
+        assert!(ok.success(), "one of the agent's keys is authorised, so auth must succeed");
         assert!(!offered.lock().await.is_empty(), "the server saw keys offered");
     }
 

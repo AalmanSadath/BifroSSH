@@ -2,8 +2,8 @@
 //!
 //! Written here rather than taken from a crate: the whole of what is needed is
 //! below, and a new dependency has to be mirrored into the two offline
-//! dependency manifests the Flatpak build reads (see `patches/README.md`),
-//! which is a larger cost than the code.
+//! dependency manifests the Flatpak build reads (`flatpak/cargo-sources.json`
+//! and `flatpak/node-sources.json`), which is a larger cost than the code.
 //!
 //! RFC 4180 as the world actually writes it: quoted fields may hold commas,
 //! newlines and doubled quotes; rows may end with CRLF or LF; a UTF-8 BOM at

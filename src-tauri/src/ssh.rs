@@ -14,7 +14,7 @@ mod echo;
 mod auth_tests;
 
 pub(crate) use auth::{
-    agent_identities, agent_stream, authenticate, AgentStream, AuthContext, SshAuth,
+    agent_identities, agent_stream, authenticate, identity_key, AgentStream, AuthContext, SshAuth,
 };
 use echo::EchoFilter;
 

@@ -208,8 +208,8 @@ pub(super) fn detect_algorithm(pem: &str) -> Option<String> {
             other => other.to_string(),
         });
     }
-    if let Ok(kp) = russh_keys::decode_secret_key(pem, None) {
-        return Some(match kp.name() {
+    if let Ok(key) = russh::keys::decode_secret_key(pem, None) {
+        return Some(match key.algorithm().as_str() {
             "ssh-ed25519" => "ED25519".to_string(),
             "ssh-rsa" | "rsa-sha2-256" | "rsa-sha2-512" => "RSA".to_string(),
             "ecdsa-sha2-nistp256" => "ECDSA P-256".to_string(),
@@ -236,14 +236,9 @@ fn pem_to_public_openssh(pem: &str, passphrase: Option<&str>) -> Option<String> 
     {
         return Some(s);
     }
-    russh_keys::decode_secret_key(pem, passphrase)
+    russh::keys::decode_secret_key(pem, passphrase)
         .ok()
-        .and_then(|kp| kp.clone_public_key().ok())
-        .and_then(|pub_key| {
-            let mut buf = Vec::new();
-            russh_keys::write_public_key_base64(&mut buf, &pub_key).ok()?;
-            String::from_utf8(buf).ok()
-        })
+        .and_then(|key| key.public_key().to_openssh().ok())
 }
 
 // ── Key content view ─────────────────────────────────────────────────────────
@@ -324,9 +319,9 @@ pub struct GeneratedKey {
 pub async fn generate_key(algorithm: String, passphrase: Option<String>) -> CmdResult<GeneratedKey> {
     use ssh_key::{Algorithm, EcdsaCurve, LineEnding, PrivateKey};
     use ssh_key::private::{KeypairData, RsaKeypair};
-    use rand::rngs::OsRng;
-
-    let mut rng = OsRng;
+    // The generator russh uses for its own keys, of the rand version
+    // ssh-key is built against.
+    let mut rng = russh::keys::key::safe_rng();
 
     let key = match algorithm.as_str() {
         "ed25519" => PrivateKey::random(&mut rng, Algorithm::Ed25519)
