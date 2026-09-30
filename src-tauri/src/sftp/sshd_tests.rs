@@ -23,16 +23,15 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use russh::client;
-use russh_keys::key::PublicKey;
+use russh::keys::{PrivateKeyWithHashAlg, PublicKeyOrCertificate};
 use russh_sftp::client::SftpSession;
 use tokio::sync::Mutex;
 
 /// The server is a key this test made a moment ago; there is nothing to verify.
 struct TrustEverything;
-#[async_trait::async_trait]
 impl client::Handler for TrustEverything {
     type Error = russh::Error;
-    async fn check_server_key(&mut self, _: &PublicKey) -> Result<bool, Self::Error> {
+    async fn check_server_key(&mut self, _: &PublicKeyOrCertificate) -> Result<bool, Self::Error> {
         Ok(true)
     }
 }
@@ -149,8 +148,9 @@ async fn connect(server: &Server, state: &SftpClientState, id: &str) {
     let mut handle = client::connect_stream(config, stream, TrustEverything).await.unwrap();
 
     let user = std::env::var("USER").unwrap_or_else(|_| "test".into());
-    let key = russh_keys::load_secret_key(&server.client_key, None).unwrap();
-    assert!(handle.authenticate_publickey(&user, Arc::new(key)).await.unwrap(), "key auth");
+    let key = russh::keys::load_secret_key(&server.client_key, None).unwrap();
+    let key = PrivateKeyWithHashAlg::new(Arc::new(key), None);
+    assert!(handle.authenticate_publickey(&user, key).await.unwrap().success(), "key auth");
 
     let channel = handle.channel_open_session().await.unwrap();
     channel.request_subsystem(true, "sftp").await.unwrap();

@@ -73,9 +73,8 @@ fn public_key_of(key_pem: &str, passphrase: Option<&str>) -> Result<KeyData> {
     if let Ok(key) = ssh_key::PrivateKey::from_openssh(key_pem) {
         return Ok(key.public_key().key_data().clone());
     }
-    let pair = russh_keys::decode_secret_key(key_pem, passphrase).context("The key could not be read")?;
-    let blob = russh_keys::PublicKeyBase64::public_key_bytes(&pair.clone_public_key()?);
-    Ok(ssh_key::PublicKey::from_bytes(&blob)?.key_data().clone())
+    let key = russh::keys::decode_secret_key(key_pem, passphrase).context("The key could not be read")?;
+    Ok(key.public_key().key_data().clone())
 }
 
 /// A certificate beside a key file, where `ssh-keygen -s` puts it and where
@@ -106,11 +105,10 @@ pub const SECURITY_KEY_REFUSED: &str =
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::rngs::OsRng;
     use ssh_key::{certificate::Builder, LineEnding, PrivateKey};
 
     fn ed25519() -> PrivateKey {
-        PrivateKey::random(&mut OsRng, Algorithm::Ed25519).unwrap()
+        PrivateKey::random(&mut russh::keys::key::safe_rng(), Algorithm::Ed25519).unwrap()
     }
 
     fn certify(ca: &PrivateKey, key: &PrivateKey, cert_type: CertType, until: u64) -> String {
@@ -137,7 +135,7 @@ mod tests {
     #[test]
     fn an_encrypted_key_is_matched_without_its_passphrase() {
         let (ca, key) = (ed25519(), ed25519());
-        let pem = key.encrypt(&mut OsRng, "hunter2").unwrap().to_openssh(LineEnding::LF).unwrap();
+        let pem = key.encrypt(&mut russh::keys::key::safe_rng(), "hunter2").unwrap().to_openssh(LineEnding::LF).unwrap();
         assert!(check_for_key(&certify(&ca, &key, CertType::User, u64::MAX), &pem, None).is_ok());
     }
 

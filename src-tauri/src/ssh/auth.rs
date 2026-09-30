@@ -9,8 +9,11 @@
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
-use russh::client::{self, KeyboardInteractiveAuthResponse, Prompt};
-use russh_keys::key::KeyPair;
+use russh::client::{self, AuthResult, KeyboardInteractiveAuthResponse, Prompt};
+use russh::keys::agent::client::AgentClient;
+use russh::keys::agent::AgentIdentity;
+use russh::keys::{HashAlg, PrivateKey, PrivateKeyWithHashAlg};
+use russh::MethodKind;
 
 use crate::connect::ConnectSecurity;
 use crate::prompts::{self, AuthPromptEvent, AuthPromptField};
@@ -165,13 +168,11 @@ pub(crate) async fn agent_stream() -> Result<AgentStream> {
 /// only. The client comes back too, because authenticating means going to the
 /// same agent again to have it sign.
 ///
-/// Identities this build cannot parse are skipped rather than aborting the
-/// listing; see the russh-keys patch under patches/.
+/// An agent's FIDO (sk-*) keys and certificates are identities like any
+/// other; a type ssh-key does not know is listed as an opaque key rather than
+/// failing the whole listing.
 #[cfg(any(unix, windows))]
-pub(crate) async fn agent_identities(
-) -> Result<(russh_keys::agent::client::AgentClient<AgentStream>, Vec<russh_keys::key::PublicKey>)> {
-    use russh_keys::agent::client::AgentClient;
-
+pub(crate) async fn agent_identities() -> Result<(AgentClient<AgentStream>, Vec<AgentIdentity>)> {
     let mut agent = AgentClient::connect(agent_stream().await?);
 
     let identities = agent
@@ -180,6 +181,25 @@ pub(crate) async fn agent_identities(
         .map_err(|e| anyhow!("Could not list ssh-agent keys: {}", e))?;
 
     Ok((agent, identities))
+}
+
+/// The public key an agent identity signs with, and its fingerprint.
+pub(crate) fn identity_key(identity: &AgentIdentity) -> russh::keys::PublicKey {
+    match identity {
+        AgentIdentity::PublicKey { key, .. } => key.clone(),
+        AgentIdentity::Certificate { certificate, .. } => {
+            russh::keys::PublicKey::new(certificate.public_key().clone(), "")
+        }
+    }
+}
+
+/// The RSA signature the server will take: SHA-2 where it says so, and the
+/// SHA-1 `ssh-rsa` a server that says nothing has always taken.
+async fn rsa_hash<H: client::Handler>(handle: &client::Handle<H>, key: &russh::keys::PublicKey) -> Option<HashAlg> {
+    if !key.algorithm().is_rsa() {
+        return None;
+    }
+    handle.best_supported_rsa_hash().await.ok().flatten().flatten()
 }
 
 /// Authenticates with keys held by a running ssh-agent.
@@ -192,7 +212,7 @@ pub(crate) async fn agent_auth<H: client::Handler>(
     username: &str,
     want_fingerprint: Option<&str>,
     ctx: &dyn AuthPrompter,
-) -> Result<bool> {
+) -> Result<AuthResult> {
     let (mut agent, identities) = agent_identities().await?;
 
     if identities.is_empty() {
@@ -203,7 +223,9 @@ pub(crate) async fn agent_auth<H: client::Handler>(
     ctx.log("auth", &format!("ssh-agent offered {} key(s)", identities.len()));
 
     let mut tried = 0usize;
-    for key in identities {
+    let mut last = None;
+    for identity in identities {
+        let key = identity_key(&identity);
         let fingerprint = crate::hostkeys::fingerprint(&key);
         if let Some(want) = want_fingerprint {
             if fingerprint != want {
@@ -211,16 +233,20 @@ pub(crate) async fn agent_auth<H: client::Handler>(
             }
         }
         tried += 1;
-        ctx.log("auth", &format!("Trying agent key {} {}", key.name(), fingerprint));
-
-        // Returns a tuple rather than a Result, and hands the signer back --
-        // it must be reassigned or the next key cannot be attempted.
-        let (returned, result) = handle.authenticate_future(username, key, agent).await;
-        agent = returned;
-
+        let hash = rsa_hash(handle, &key).await;
+        let result = match identity {
+            AgentIdentity::PublicKey { key, .. } => {
+                ctx.log("auth", &format!("Trying agent key {} {}", key.algorithm().as_str(), fingerprint));
+                handle.authenticate_publickey_with(username, key, hash, &mut agent).await
+            }
+            AgentIdentity::Certificate { certificate, .. } => {
+                ctx.log("auth", &format!("Trying agent certificate {} {}", certificate.algorithm().as_str(), fingerprint));
+                handle.authenticate_certificate_with(username, certificate, hash, &mut agent).await
+            }
+        };
         match result {
-            Ok(true) => return Ok(true),
-            Ok(false) => {}
+            Ok(result) if result.success() => return Ok(result),
+            Ok(result) => last = Some(result),
             Err(e) => ctx.log("auth", &format!("Agent key rejected: {}", e)),
         }
     }
@@ -230,7 +256,7 @@ pub(crate) async fn agent_auth<H: client::Handler>(
             "The selected key is no longer in ssh-agent. Add it back with `ssh-add`, or choose a different key."
         ));
     }
-    Ok(false)
+    Ok(last.unwrap_or(AuthResult::Failure { remaining_methods: russh::MethodSet::empty(), partial_success: false }))
 }
 
 /// Server-driven challenge/response. Each round may carry any number of
@@ -249,7 +275,7 @@ pub(crate) async fn keyboard_interactive<H: client::Handler>(
     for _ in 0..20 {
         match response {
             KeyboardInteractiveAuthResponse::Success => return Ok(true),
-            KeyboardInteractiveAuthResponse::Failure => return Ok(false),
+            KeyboardInteractiveAuthResponse::Failure { .. } => return Ok(false),
             KeyboardInteractiveAuthResponse::InfoRequest { name, instructions, prompts } => {
                 if !instructions.trim().is_empty() {
                     ctx.log("auth", instructions.trim());
@@ -289,7 +315,7 @@ pub(crate) async fn keyboard_interactive<H: client::Handler>(
 async fn certificate_auth<H: client::Handler>(
     handle: &mut client::Handle<H>,
     username: &str,
-    key_pair: &Arc<KeyPair>,
+    key_pair: &Arc<PrivateKey>,
     text: &str,
     ctx: &AuthContext,
 ) -> Result<bool> {
@@ -302,7 +328,7 @@ async fn certificate_auth<H: client::Handler>(
     };
     let expired = crate::sshcert::expired(&cert);
     ctx.log("network", "Authenticating using publickey method with a certificate");
-    if handle.authenticate_openssh_cert(username, Arc::clone(key_pair), cert).await? {
+    if handle.authenticate_openssh_cert(username, Arc::clone(key_pair), cert).await?.success() {
         return Ok(true);
     }
     ctx.log(
@@ -323,7 +349,7 @@ pub async fn authenticate<H: client::Handler>(
     auth: &SshAuth,
     ctx: &AuthContext,
 ) -> Result<()> {
-    let authenticated = match auth {
+    let result = match auth {
         SshAuth::Password(password) => {
             handle.authenticate_password(&ctx.username, password).await?
         }
@@ -331,14 +357,17 @@ pub async fn authenticate<H: client::Handler>(
             if crate::sshcert::is_security_key(key_pem) {
                 return Err(anyhow!(crate::sshcert::SECURITY_KEY_REFUSED));
             }
-            let key_pair = Arc::new(russh_keys::decode_secret_key(key_pem, passphrase.as_deref())?);
+            let key_pair = Arc::new(russh::keys::decode_secret_key(key_pem, passphrase.as_deref())?);
             if let Some(text) = cert {
                 if certificate_auth(handle, &ctx.username, &key_pair, text, ctx).await? {
                     return Ok(());
                 }
             }
             ctx.log("network", "Authenticating using publickey method");
-            handle.authenticate_publickey(&ctx.username, key_pair).await?
+            let hash = rsa_hash(handle, key_pair.public_key()).await;
+            handle
+                .authenticate_publickey(&ctx.username, PrivateKeyWithHashAlg::new(key_pair, hash))
+                .await?
         }
         SshAuth::KeyboardInteractive => {
             ctx.log("network", "Authenticating using keyboard-interactive method");
@@ -358,19 +387,22 @@ pub async fn authenticate<H: client::Handler>(
         }
     };
 
-    if authenticated {
+    if result.success() {
         return Ok(());
     }
 
-    // russh 0.44's client API never surfaces the server's accepted-method list
-    // (Reply::AuthFailure carries no payload), so there is no way to ask what
-    // to try next -- fall back blind. This is the common case of a server with
-    // PasswordAuthentication off that offers PAM keyboard-interactive instead,
-    // and of any 2FA setup.
+    // What the server will still take. The common case this serves is a
+    // server with PasswordAuthentication off that offers PAM
+    // keyboard-interactive instead, and any 2FA setup. A server that does
+    // not offer it is not asked; russh 0.44 could not tell, and asked blind.
     //
     // The stored password is deliberately not replayed into these prompts: the
     // server picks the prompt text and could ask for anything at all.
-    if ctx.sec.interactive {
+    let offers_prompts = match &result {
+        AuthResult::Failure { remaining_methods, .. } => remaining_methods.contains(&MethodKind::KeyboardInteractive),
+        AuthResult::Success => false,
+    };
+    if ctx.sec.interactive && offers_prompts {
         ctx.log("auth", "Retrying with keyboard-interactive");
         if keyboard_interactive(handle, &ctx.username, ctx).await? {
             return Ok(());

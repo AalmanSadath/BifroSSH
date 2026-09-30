@@ -2,27 +2,25 @@
 //!
 //! ssh's `-A`. The session asks with `auth-agent-req@openssh.com`, and from
 //! then on the remote opens an `auth-agent@openssh.com` channel every time a
-//! program there wants the agent. russh confirms that channel and hands over
-//! its id; the bytes arrive at the handler's `data` callback and go back
-//! with `session.data`. Nothing here is a task or a thread.
+//! program there wants the agent. russh hands the handler that channel and
+//! the choice to accept it; an accepted one is served by a task of its own
+//! for as long as the remote keeps it open.
 //!
-//! That is enough because the agent protocol is one length-prefixed request
-//! and one length-prefixed reply, in turn. A request is buffered until a
-//! whole frame is in hand, written to the agent, and the one reply read
-//! back and sent, all inside the callback. The session loop waits while the
-//! agent answers, which is milliseconds, or the seconds a hardware key
-//! takes to be touched; the timeout is set for the second.
+//! The agent protocol is one length-prefixed request and one length-prefixed
+//! reply, in turn. A request is buffered until a whole frame is in hand,
+//! written to the agent, and the one reply read back and sent. Frames are
+//! checked for size both ways, since the remote is not trusted to be
+//! speaking the protocol.
 //!
 //! Off unless the host asked for it. A channel the remote opens on a
-//! connection that did not ask is closed at once: a bastion, or a jump hop,
-//! does not get the agent because it wants it.
+//! connection that did not ask is refused: a bastion, or a jump hop, does
+//! not get the agent because it wants it.
 
-use std::collections::HashMap;
 use std::time::Duration;
 
 use anyhow::Result;
-use russh::client::Session;
-use russh::{ChannelId, CryptoVec};
+use russh::client::{ChannelOpenHandle, Msg};
+use russh::{Channel, ChannelMsg, ChannelOpenFailure};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::connect::ConnectSecurity;
@@ -37,15 +35,8 @@ const MAX_FRAME: usize = 256 * 1024;
 
 pub struct AgentForwarding {
     allowed: bool,
-    channels: HashMap<ChannelId, Forwarded>,
     /// Where to say what happened, when there is somewhere.
     sec: Option<ConnectSecurity>,
-}
-
-struct Forwarded {
-    stream: AgentStream,
-    /// Bytes from the remote not yet making up a whole request.
-    pending: Vec<u8>,
 }
 
 impl Default for AgentForwarding {
@@ -55,73 +46,75 @@ impl Default for AgentForwarding {
 }
 
 impl AgentForwarding {
-    /// Any agent channel the remote opens is closed unanswered.
+    /// Any agent channel the remote opens is refused.
     pub fn disallowed() -> Self {
-        AgentForwarding { allowed: false, channels: HashMap::new(), sec: None }
+        AgentForwarding { allowed: false, sec: None }
     }
 
     /// Agent channels are answered from the local agent.
     pub fn allowed(sec: ConnectSecurity) -> Self {
-        AgentForwarding { allowed: true, channels: HashMap::new(), sec: Some(sec) }
+        AgentForwarding { allowed: true, sec: Some(sec) }
     }
 
-    fn log(&self, kind: &str, message: &str) {
-        if let Some(sec) = &self.sec {
-            sec.log(kind, message);
-        }
-    }
-
-    /// The remote opened an agent channel. russh has already confirmed it.
-    pub async fn open(&mut self, id: ChannelId, session: &mut Session) {
+    /// The remote asked to open an agent channel.
+    pub async fn open(&self, channel: Channel<Msg>, reply: ChannelOpenHandle) {
         if !self.allowed {
-            // Not asked for, so not answered. Closing rather than ignoring:
+            // Not asked for, so not answered. Refused rather than ignored:
             // an ignored channel leaves the program on the far side waiting.
-            session.close(id);
+            reply.reject(ChannelOpenFailure::AdministrativelyProhibited).await;
             return;
         }
         match crate::ssh::agent_stream().await {
             Ok(stream) => {
-                self.channels.insert(id, Forwarded { stream, pending: Vec::new() });
+                reply.accept().await;
+                tokio::spawn(serve(channel, stream, self.sec.clone()));
             }
             Err(e) => {
-                self.log("error", &format!("Agent forwarding: {e:#}"));
-                session.close(id);
+                log(&self.sec, "error", &format!("Agent forwarding: {e:#}"));
+                reply.reject(ChannelOpenFailure::ConnectFailed).await;
             }
         }
     }
+}
 
-    /// Bytes from the remote on some channel. Only an agent channel's are
-    /// this module's business; the terminal's own go past untouched.
-    pub async fn data(&mut self, id: ChannelId, bytes: &[u8], session: &mut Session) {
-        let Some(fwd) = self.channels.get_mut(&id) else { return };
-        fwd.pending.extend_from_slice(bytes);
+fn log(sec: &Option<ConnectSecurity>, kind: &str, message: &str) {
+    if let Some(sec) = sec {
+        sec.log(kind, message);
+    }
+}
 
+/// Relays one agent channel until the remote closes it, or it stops
+/// speaking the protocol.
+async fn serve(mut channel: Channel<Msg>, mut stream: AgentStream, sec: Option<ConnectSecurity>) {
+    let mut pending = Vec::new();
+    while let Some(msg) = channel.wait().await {
+        let ChannelMsg::Data { data } = msg else {
+            if matches!(msg, ChannelMsg::Eof | ChannelMsg::Close) {
+                break;
+            }
+            continue;
+        };
+        pending.extend_from_slice(&data);
         loop {
-            let frame = match take_frame(&mut fwd.pending) {
+            let frame = match take_frame(&mut pending) {
                 Ok(Some(frame)) => frame,
-                Ok(None) => return,
+                Ok(None) => break,
                 Err(e) => {
-                    self.log("error", &format!("Agent forwarding: {e}"));
-                    self.channels.remove(&id);
-                    session.close(id);
+                    log(&sec, "error", &format!("Agent forwarding: {e}"));
+                    let _ = channel.close().await;
                     return;
                 }
             };
-            match exchange(&mut fwd.stream, &frame).await {
-                Ok(reply) => session.data(id, CryptoVec::from(reply)),
-                Err(e) => {
-                    self.log("error", &format!("Agent forwarding: {e:#}"));
-                    self.channels.remove(&id);
-                    session.close(id);
-                    return;
-                }
+            let sent = match exchange(&mut stream, &frame).await {
+                Ok(reply) => channel.data_bytes(reply).await.map_err(anyhow::Error::from),
+                Err(e) => Err(e),
+            };
+            if let Err(e) = sent {
+                log(&sec, "error", &format!("Agent forwarding: {e:#}"));
+                let _ = channel.close().await;
+                return;
             }
         }
-    }
-
-    /// The remote is done with the channel, one way or another.
-    pub fn closed(&mut self, id: ChannelId) {
-        self.channels.remove(&id);
     }
 }
 

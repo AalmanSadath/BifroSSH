@@ -24,8 +24,8 @@ mod sftp;
 mod socks5;
 mod sshconfig;
 mod ssh;
-// The patched russh-keys agent listing is driven over a real Unix socket, so
-// the whole module is Unix only.
+// The agent listing tests drive a fake agent over a real Unix socket, so the
+// whole module is Unix only.
 #[cfg(all(test, unix))]
 mod agent_tests;
 mod store;

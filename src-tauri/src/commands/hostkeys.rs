@@ -49,10 +49,8 @@ pub struct AgentKeyInfo {
     pub fingerprint: String,
 }
 
-/// Keys currently held by the running ssh-agent.
-///
-/// No comment field: the agent protocol carries one, but russh-keys discards it
-/// while parsing, so there is no `user@host` label to show.
+/// Keys currently held by the running ssh-agent, each by type and
+/// fingerprint; a certificate by the key it certifies.
 #[tauri::command]
 pub async fn list_agent_keys() -> CmdResult<Vec<AgentKeyInfo>> {
     #[cfg(any(unix, windows))]
@@ -61,9 +59,9 @@ pub async fn list_agent_keys() -> CmdResult<Vec<AgentKeyInfo>> {
 
         Ok(identities
             .iter()
-            .map(|key| AgentKeyInfo {
-                algorithm: key.name().to_string(),
-                fingerprint: hostkeys::fingerprint(key),
+            .map(|identity| {
+                let key = crate::ssh::identity_key(identity);
+                AgentKeyInfo { algorithm: key.algorithm().as_str().to_string(), fingerprint: hostkeys::fingerprint(&key) }
             })
             .collect())
     }

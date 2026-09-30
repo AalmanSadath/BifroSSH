@@ -1,16 +1,17 @@
-//! Tests for the local russh-keys patch that makes ssh-agent listings tolerate
-//! identities the crate cannot parse.
+//! ssh-agent listings with identities of every kind.
 //!
-//! Upstream `request_identities` does `parse_public_key(..)?`, so one
-//! unsupported key aborts the entire listing. Agents commonly hold FIDO
-//! security-key identities (`sk-ssh-ed25519@openssh.com`), which russh-keys
-//! 0.44 has no support for, and one of those would otherwise make every other
-//! key in the agent unusable.
+//! Agents commonly hold FIDO security-key identities
+//! (`sk-ssh-ed25519@openssh.com`) beside ordinary keys, and russh 0.44 could
+//! not parse them: one aborted the whole listing, and a vendored patch made it
+//! skip them. The ssh-key russh now uses reads them, and reads a type it does
+//! not know as an opaque key, so every identity is listed and none hides the
+//! others. These pin that down.
 //!
-//! These drive a fake agent over a real Unix socket, so they exercise the
-//! patched parsing path rather than mocking it.
+//! They drive a fake agent over a real Unix socket, so they exercise the real
+//! parsing path rather than mocking it.
 
-use russh_keys::agent::client::AgentClient;
+use russh::keys::agent::client::AgentClient;
+use russh::keys::agent::AgentIdentity;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 const REQUEST_IDENTITIES: u8 = 11;
@@ -27,13 +28,28 @@ fn push_string(out: &mut Vec<u8>, bytes: &[u8]) {
 /// real curve point, so arbitrary bytes would be rejected as unparseable and
 /// the test would pass for the wrong reason.
 fn ed25519_blob() -> Vec<u8> {
-    use russh_keys::PublicKeyBase64;
-    russh_keys::key::KeyPair::generate_ed25519()
+    use russh::keys::{Algorithm, PrivateKey};
+    PrivateKey::random(&mut russh::keys::key::safe_rng(), Algorithm::Ed25519)
         .unwrap()
-        .public_key_bytes()
+        .public_key()
+        .to_bytes()
+        .unwrap()
 }
 
-/// A FIDO security-key blob, which russh-keys cannot parse:
+/// A key type no library knows: string(algorithm) + string(opaque key).
+fn unknown_blob() -> Vec<u8> {
+    let mut blob = Vec::new();
+    push_string(&mut blob, b"ssh-future@example.com");
+    push_string(&mut blob, &[0x42; 16]);
+    blob
+}
+
+/// The algorithm an identity lists as.
+fn algorithm(identity: &AgentIdentity) -> String {
+    crate::ssh::identity_key(identity).algorithm().as_str().to_string()
+}
+
+/// A FIDO security-key blob:
 /// string(algorithm) + string(key) + string(application).
 fn sk_ed25519_blob() -> Vec<u8> {
     let mut blob = Vec::new();
@@ -106,7 +122,7 @@ async fn spawn_agent(
 }
 
 #[tokio::test]
-async fn parseable_identities_are_returned() {
+async fn ordinary_identities_are_returned() {
     let (path, _guard) = spawn_agent(vec![
         (ed25519_blob(), "one@host"),
         (ed25519_blob(), "two@host"),
@@ -117,13 +133,13 @@ async fn parseable_identities_are_returned() {
     let keys = agent.request_identities().await.unwrap();
 
     assert_eq!(keys.len(), 2);
-    assert!(keys.iter().all(|k| k.name() == "ssh-ed25519"));
+    assert!(keys.iter().all(|k| algorithm(k) == "ssh-ed25519"));
 }
 
-/// The whole point of the patch: upstream returns Err here and the user loses
-/// access to every key in their agent.
+/// What the old patch was for: a FIDO key must not cost the user every other
+/// key in their agent. It is now listed too, as what it is.
 #[tokio::test]
-async fn a_fido_key_does_not_hide_the_others() {
+async fn a_fido_key_is_listed_beside_the_others() {
     let (path, _guard) = spawn_agent(vec![
         (sk_ed25519_blob(), "yubikey"),
         (ed25519_blob(), "usable@host"),
@@ -134,19 +150,20 @@ async fn a_fido_key_does_not_hide_the_others() {
     let keys = agent
         .request_identities()
         .await
-        .expect("an unsupported identity must not fail the listing");
+        .expect("a FIDO identity must not fail the listing");
 
-    assert_eq!(keys.len(), 1, "the FIDO key is skipped, the other survives");
-    assert_eq!(keys[0].name(), "ssh-ed25519");
+    assert_eq!(keys.len(), 2);
+    assert_eq!(algorithm(&keys[0]), "sk-ssh-ed25519@openssh.com");
+    assert_eq!(algorithm(&keys[1]), "ssh-ed25519");
 }
 
-/// A FIDO key listed last must not truncate the ones before it either, which
-/// only holds if the reader stays in sync across the skipped entry.
+/// A type nothing here knows is listed rather than failing the listing, and
+/// the reader stays in step across it.
 #[tokio::test]
-async fn skipping_keeps_the_reader_aligned() {
+async fn an_unknown_key_type_does_not_hide_the_others() {
     let (path, _guard) = spawn_agent(vec![
         (ed25519_blob(), "first"),
-        (sk_ed25519_blob(), "yubikey"),
+        (unknown_blob(), "future"),
         (ed25519_blob(), "third"),
     ])
     .await;
@@ -154,7 +171,8 @@ async fn skipping_keeps_the_reader_aligned() {
     let mut agent = AgentClient::connect_uds(&path).await.unwrap();
     let keys = agent.request_identities().await.unwrap();
 
-    assert_eq!(keys.len(), 2, "both ordinary keys decode around the skip");
+    assert_eq!(keys.len(), 3);
+    assert_eq!(algorithm(&keys[2]), "ssh-ed25519");
 }
 
 #[tokio::test]

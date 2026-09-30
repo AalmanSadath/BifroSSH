@@ -7,8 +7,7 @@ use anyhow::Result;
 use base64::engine::general_purpose::{STANDARD as BASE64, STANDARD_NO_PAD as BASE64_NOPAD};
 use base64::Engine as _;
 use hmac::{Hmac, Mac};
-use russh_keys::key::PublicKey;
-use russh_keys::PublicKeyBase64;
+use russh::keys::PublicKey;
 use sha1::Sha1;
 use sha2::{Digest, Sha256};
 
@@ -105,9 +104,9 @@ pub fn openssh_known_hosts_path() -> Option<PathBuf> {
 
 /// The algorithm name embedded in the key blob itself.
 ///
-/// This is the authoritative name, and deliberately not `PublicKey::name()`:
-/// for RSA that method reports the *negotiated signature* algorithm
-/// (`rsa-sha2-512`, ...) while `public_key_bytes()` always embeds `ssh-rsa`.
+/// This is the authoritative name, and deliberately not the negotiated
+/// algorithm: for RSA that is the *signature* algorithm (`rsa-sha2-512`,
+/// ...) while the key blob always embeds `ssh-rsa`.
 /// Writing the former next to the latter produces a known_hosts line OpenSSH
 /// rejects, and comparing on it reports a false mismatch for the same key.
 fn algo_from_blob(blob: &[u8]) -> Option<String> {
@@ -127,12 +126,18 @@ fn fingerprint_from_blob(blob: &[u8]) -> String {
     format!("SHA256:{}", BASE64_NOPAD.encode(hasher.finalize()))
 }
 
+/// The key as it goes over the wire and into known_hosts.
+pub fn blob(key: &PublicKey) -> Vec<u8> {
+    // Encoding a key that was itself decoded from the wire does not fail.
+    key.to_bytes().unwrap_or_default()
+}
+
 pub fn fingerprint(key: &PublicKey) -> String {
-    fingerprint_from_blob(&key.public_key_bytes())
+    fingerprint_from_blob(&blob(key))
 }
 
 pub fn key_type(key: &PublicKey) -> String {
-    algo_from_blob(&key.public_key_bytes()).unwrap_or_else(|| key.name().to_string())
+    algo_from_blob(&blob(key)).unwrap_or_else(|| key.algorithm().as_str().to_string())
 }
 
 /// The form OpenSSH matches and hashes against: bare host on 22, `[host]:port` otherwise.
@@ -264,7 +269,7 @@ fn host_matches(field: &str, target: &str) -> bool {
 }
 
 pub fn check_host(host: &str, port: u16, key: &PublicKey) -> KnownHostStatus {
-    let blob = key.public_key_bytes();
+    let blob = blob(key);
     let algo = algo_from_blob(&blob).unwrap_or_default();
     let target = host_spec(host, port);
 
@@ -358,12 +363,17 @@ pub fn known_key_types(host: &str, port: u16) -> Vec<String> {
 /// an ECDSA one, known here by the ECDSA one only (an older OpenSSH learned
 /// ECDSA by default), would be asked for ed25519 and look like a host whose
 /// key had changed type.
-pub fn key_order(known: &[String]) -> Vec<russh_keys::key::Name> {
+///
+/// `ssh-rsa`, RSA signed with SHA-1, is left out, as OpenSSH has left it
+/// out by default since 8.8: an RSA host is asked for a SHA-2 signature.
+pub fn key_order(known: &[String]) -> Vec<russh::keys::Algorithm> {
+    use russh::keys::Algorithm;
     let (mut first, rest): (Vec<_>, Vec<_>) = russh::Preferred::DEFAULT
         .key
         .iter()
-        .copied()
-        .partition(|name| known.iter().any(|k| k == line_type(name.0)));
+        .filter(|alg| !matches!(alg, Algorithm::Rsa { hash: None }))
+        .cloned()
+        .partition(|alg| known.iter().any(|k| k == line_type(alg.as_str())));
     first.extend(rest);
     first
 }
@@ -378,7 +388,7 @@ fn line_type(algorithm: &str) -> &str {
 }
 
 fn format_line(host: &str, port: u16, key: &PublicKey) -> Option<String> {
-    let blob = key.public_key_bytes();
+    let blob = blob(key);
     let algo = algo_from_blob(&blob)?;
     Some(format!(
         "{} {} {}",
@@ -399,7 +409,7 @@ pub fn learn_host(host: &str, port: u16, key: &PublicKey) -> Result<()> {
     if scan(&path).iter().any(|l| {
         l.marker.is_none()
             && host_matches(&l.hosts, &host_spec(host, port))
-            && l.b64 == BASE64.encode(key.public_key_bytes())
+            && l.b64 == BASE64.encode(blob(key))
     }) {
         return Ok(());
     }
@@ -432,7 +442,7 @@ fn append_lines(path: &Path, lines: &[String]) -> Result<()> {
 
 /// Drop every non-marker line for this host/algorithm, then record `key`.
 pub fn replace_host(host: &str, port: u16, key: &PublicKey) -> Result<()> {
-    let algo = algo_from_blob(&key.public_key_bytes());
+    let algo = algo_from_blob(&blob(key));
     remove_lines(host, port, algo.as_deref())?;
     learn_host(host, port, key)
 }
@@ -698,9 +708,10 @@ mod tests {
     /// with several keys shows the one that can be checked.
     #[test]
     fn known_key_types_are_asked_for_first() {
-        let names = |order: Vec<russh_keys::key::Name>| order.iter().map(|n| n.0).collect::<Vec<_>>();
+        let names = |order: Vec<russh::keys::Algorithm>| order.iter().map(|a| a.as_str().to_string()).collect::<Vec<_>>();
         let default = names(key_order(&[]));
-        assert_eq!(default, names(russh::Preferred::DEFAULT.key.to_vec()));
+        assert_eq!(default[0], "ssh-ed25519");
+        assert!(!default.iter().any(|n| n == "ssh-rsa"), "SHA-1 RSA is never asked for: {default:?}");
 
         let ecdsa_first = names(key_order(&["ecdsa-sha2-nistp256".into()]));
         assert_eq!(ecdsa_first[0], "ecdsa-sha2-nistp256");
@@ -708,7 +719,7 @@ mod tests {
 
         // Stored as ssh-rsa, negotiated as either SHA-2 signature.
         let rsa_first = names(key_order(&["ssh-rsa".into()]));
-        assert_eq!(&rsa_first[..2], ["rsa-sha2-256", "rsa-sha2-512"]);
+        assert_eq!(&rsa_first[..2], ["rsa-sha2-512", "rsa-sha2-256"]);
         assert_eq!(rsa_first[2], "ssh-ed25519");
     }
 
@@ -885,8 +896,8 @@ mod tests {
         fs::create_dir_all(&home).unwrap();
         *SCRATCH_HOME.lock().unwrap() = Some(home.clone());
 
-        let key = russh_keys::parse_public_key_base64(ED25519_B64).unwrap();
-        let other = russh_keys::parse_public_key_base64(
+        let key = russh::keys::parse_public_key_base64(ED25519_B64).unwrap();
+        let other = russh::keys::parse_public_key_base64(
             "AAAAC3NzaC1lZDI1NTE5AAAAIKVzUtT1FbaJVeq0mNJlJEZlLmJPYcbFPUZDzKgHLQvE",
         )
         .unwrap();
@@ -955,7 +966,7 @@ mod tests {
         );
 
         // A known host offering a key of another type is not a new host.
-        let ecdsa = russh_keys::parse_public_key_base64(ECDSA_B64).unwrap();
+        let ecdsa = russh::keys::parse_public_key_base64(ECDSA_B64).unwrap();
         match check_host("example.com", 2222, &ecdsa) {
             KnownHostStatus::OtherType(stored) => {
                 assert_eq!(stored.key_type, "ssh-ed25519");

@@ -12,9 +12,9 @@
 
 use std::sync::{Arc, Mutex as StdMutex};
 
-use async_trait::async_trait;
-use russh::client;
-use russh_keys::key::PublicKey;
+use russh::client::{self, ChannelOpenHandle, Msg};
+use russh::keys::{PublicKey, PublicKeyOrCertificate};
+use russh::Channel;
 
 use crate::connect::ConnectSecurity;
 use crate::models::HostKeyPolicy;
@@ -77,6 +77,22 @@ impl HostKeyVerifier {
         match &self.username {
             Some(u) => format!("{}@{}:{}", u, self.host, self.port),
             None => format!("{}:{}", self.host, self.port),
+        }
+    }
+
+    /// What `check_server_key` is handed. Only plain host keys are asked
+    /// for (see `hostkeys::key_order`), so a certificate is a server
+    /// answering something it was not asked, and is refused.
+    pub async fn verify_offer(&self, offer: &PublicKeyOrCertificate) -> bool {
+        match offer {
+            PublicKeyOrCertificate::PublicKey { key, .. } => self.verify(key).await,
+            PublicKeyOrCertificate::Certificate(_) => {
+                self.fail(format!(
+                    "{} offered a host certificate, which was not asked for. Refusing to connect.",
+                    self.target()
+                ));
+                false
+            }
         }
     }
 
@@ -298,51 +314,96 @@ impl VerifyingHandler {
     }
 }
 
-#[async_trait]
 impl client::Handler for VerifyingHandler {
     type Error = russh::Error;
 
-    async fn check_server_key(&mut self, key: &PublicKey) -> Result<bool, Self::Error> {
-        Ok(self.v.verify(key).await)
+    async fn check_server_key(&mut self, key: &PublicKeyOrCertificate) -> Result<bool, Self::Error> {
+        Ok(self.v.verify_offer(key).await)
     }
 
     async fn server_channel_open_agent_forward(
         &mut self,
-        channel: russh::ChannelId,
-        session: &mut client::Session,
-    ) -> Result<(), Self::Error> {
-        self.agent.open(channel, session).await;
-        Ok(())
-    }
-
-    // Every channel's bytes come through here as well as through the
-    // channel's own receiver; only an agent channel's are acted on.
-    async fn data(
-        &mut self,
-        channel: russh::ChannelId,
-        data: &[u8],
-        session: &mut client::Session,
-    ) -> Result<(), Self::Error> {
-        self.agent.data(channel, data, session).await;
-        Ok(())
-    }
-
-    async fn channel_eof(
-        &mut self,
-        channel: russh::ChannelId,
+        channel: Channel<Msg>,
+        reply: ChannelOpenHandle,
         _session: &mut client::Session,
     ) -> Result<(), Self::Error> {
-        self.agent.closed(channel);
+        self.agent.open(channel, reply).await;
         Ok(())
     }
 
-    async fn channel_close(
+    async fn server_channel_open_forwarded_tcpip(
         &mut self,
-        channel: russh::ChannelId,
+        _channel: Channel<Msg>,
+        _connected_address: &str,
+        _connected_port: u32,
+        _originator_address: &str,
+        _originator_port: u32,
+        reply: ChannelOpenHandle,
         _session: &mut client::Session,
     ) -> Result<(), Self::Error> {
-        self.agent.closed(channel);
-        Ok(())
+        refuse(reply).await
     }
+
+    crate::refuse_unasked_channels!();
 }
 
+/// The `client::Handler` methods that turn down channels a server opens on
+/// its own: a session, a direct-tcpip, an X11 and a streamlocal channel.
+///
+/// russh accepts every channel a server opens unless the handler says
+/// otherwise, and none of these is ever asked for, so each is refused rather
+/// than left open with nothing reading it. A macro because each handler has
+/// to spell the methods out in its own impl.
+#[macro_export]
+macro_rules! refuse_unasked_channels {
+    () => {
+        async fn server_channel_open_session(
+            &mut self,
+            _channel: russh::Channel<russh::client::Msg>,
+            reply: russh::client::ChannelOpenHandle,
+            _session: &mut russh::client::Session,
+        ) -> Result<(), Self::Error> {
+            $crate::hostverify::refuse(reply).await
+        }
+
+        async fn server_channel_open_direct_tcpip(
+            &mut self,
+            _channel: russh::Channel<russh::client::Msg>,
+            _host_to_connect: &str,
+            _port_to_connect: u32,
+            _originator_address: &str,
+            _originator_port: u32,
+            reply: russh::client::ChannelOpenHandle,
+            _session: &mut russh::client::Session,
+        ) -> Result<(), Self::Error> {
+            $crate::hostverify::refuse(reply).await
+        }
+
+        async fn server_channel_open_x11(
+            &mut self,
+            _channel: russh::Channel<russh::client::Msg>,
+            _originator_address: &str,
+            _originator_port: u32,
+            reply: russh::client::ChannelOpenHandle,
+            _session: &mut russh::client::Session,
+        ) -> Result<(), Self::Error> {
+            $crate::hostverify::refuse(reply).await
+        }
+
+        async fn server_channel_open_forwarded_streamlocal(
+            &mut self,
+            _channel: russh::Channel<russh::client::Msg>,
+            _socket_path: &str,
+            reply: russh::client::ChannelOpenHandle,
+            _session: &mut russh::client::Session,
+        ) -> Result<(), Self::Error> {
+            $crate::hostverify::refuse(reply).await
+        }
+    };
+}
+
+/// Turns down a channel the server opened that nothing here asked for.
+pub(crate) async fn refuse(reply: ChannelOpenHandle) -> Result<(), russh::Error> {
+    reply.reject(russh::ChannelOpenFailure::AdministrativelyProhibited).await;
+    Ok(())
+}
