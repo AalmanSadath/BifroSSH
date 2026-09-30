@@ -85,6 +85,31 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.16.0" date="2026-09-30">
+      <description>
+        <p>
+          The SSH library moves to a current release, which fixes two ways a
+          malicious server could make the app run out of memory and close.
+          Host keys are no longer asked for with SHA-1 RSA signatures, channels
+          a server opens that were never asked for are refused, and security
+          key (FIDO) entries in ssh-agent are listed beside the other keys.
+        </p>
+        <p>
+          A host that is known by one kind of host key and offers another now
+          gets the changed-key warning instead of being treated as new, and is
+          never accepted silently. Saved passwords are read where they are
+          used and no longer pass through the window. A sudo password is only
+          sent to a container tab when sudo actually asks for it.
+        </p>
+        <p>
+          On Windows, a file a server names such as C:x or nul is no longer
+          written outside the folder you chose. Files opened for editing are
+          kept where only you can read them, proxy commands refuse host and
+          user names the shell would read into, and importing a backup warns
+          about anything in it that would run on this computer.
+        </p>
+      </description>
+    </release>
     <release version="0.15.2" date="2026-09-29">
       <description>
         <p>

@@ -346,7 +346,7 @@ dependencies = [
 
 [[package]]
 name = "bifrossh"
-version = "0.15.2"
+version = "0.16.0"
 dependencies = [
  "aes 0.8.4",
  "aes-gcm 0.10.3",
