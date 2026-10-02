@@ -1,0 +1,123 @@
+name: Publish to R2
+
+# Called by the release and rollback workflows, never run on its own. Takes
+# the site a stage job built (the `bifrossh-site` artifact), uploads it to the
+# bucket, evicts what changed from Cloudflare's edge, and reads it back over
+# the public URL.
+#
+# This job holds the bucket credentials and nothing else. The signing key
+# stays with the stage job, which has no write access to the bucket.
+#
+# Needs, in the repository's Actions settings:
+#   secrets    R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
+#              (an R2 token with Object Read & Write on this bucket only),
+#              CLOUDFLARE_API_TOKEN (Zone, Cache Purge) and CLOUDFLARE_ZONE_ID
+#   variables  R2_BUCKET, R2_PUBLIC_BASE (https://bifrossh.aalman.dev, no
+#              trailing slash), and optionally RETENTION (default 10)
+#
+# The zone's cache rules match the paths described in
+# .github/scripts/repo/upload.sh, and the headers it uploads with.
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: The version the site serves, checked after upload
+        type: string
+        required: true
+      allow_shrink:
+        description: Let the package pools shrink, as only a rollback should
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish
+    runs-on: ubuntu-24.04
+    steps:
+      # For the scripts, not the source.
+      - uses: actions/checkout@v7
+
+      # Fails rather than skips. A release that went out with the repositories
+      # quietly left behind is worse than one that stops here, because nobody
+      # would notice the missing half.
+      - name: Check the bucket is configured
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_PUBLIC_BASE: ${{ vars.R2_PUBLIC_BASE }}
+        run: |
+          missing=""
+          for v in R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_BUCKET R2_PUBLIC_BASE; do
+            [ -n "${!v}" ] || missing="$missing $v"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::not configured:$missing"
+            exit 1
+          fi
+
+      - name: Install ostree and rclone
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ostree jq
+          # A shell variable, deliberately not an environment one. rclone maps
+          # every RCLONE_* variable onto the flag of the same name, so
+          # RCLONE_VERSION would be read as --version and every call would die
+          # parsing it as a boolean.
+          version=v1.75.0
+          # Pinned rather than apt's: an rclone whose defaults moved under us
+          # is indistinguishable from a bug here when the bucket starts
+          # refusing uploads.
+          curl -fsSL -o /tmp/rclone.zip \
+            "https://downloads.rclone.org/${version}/rclone-${version}-linux-amd64.zip"
+          unzip -q /tmp/rclone.zip -d /tmp
+          sudo install -m755 "/tmp/rclone-${version}-linux-amd64/rclone" /usr/local/bin/rclone
+          rclone version
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: bifrossh-site
+
+      - name: Unpack the site
+        run: |
+          mkdir site
+          tar -xf site.tar -C site
+          test -f site/published-version || { echo "::error::the site has no published-version"; exit 1; }
+          test -f site/flatpak/config || { echo "::error::the site has no Flatpak repository"; exit 1; }
+          ls -la site
+
+      - name: Upload
+        env:
+          RCLONE_CONFIG_R2_TYPE: s3
+          RCLONE_CONFIG_R2_PROVIDER: Cloudflare
+          RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          RCLONE_CONFIG_R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          RCLONE_CONFIG_R2_NO_CHECK_BUCKET: 'true'
+          # R2 implements no ACLs, and answers an x-amz-acl it does not expect
+          # with 501 NotImplemented on every upload.
+          RCLONE_CONFIG_R2_ACL: private
+          BUCKET: ${{ vars.R2_BUCKET }}
+          R2_PUBLIC_BASE: ${{ vars.R2_PUBLIC_BASE }}
+          RETENTION: ${{ vars.RETENTION }}
+          ALLOW_SHRINK: ${{ inputs.allow_shrink && '1' || '' }}
+        run: .github/scripts/repo/upload.sh site
+
+      - name: Purge what changed from the edge
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+          R2_PUBLIC_BASE: ${{ vars.R2_PUBLIC_BASE }}
+          RETENTION: ${{ vars.RETENTION }}
+        run: .github/scripts/repo/purge.sh site
+
+      - name: Verify over the public URL
+        env:
+          R2_PUBLIC_BASE: ${{ vars.R2_PUBLIC_BASE }}
+          RETENTION: ${{ vars.RETENTION }}
+        run: .github/scripts/repo/verify.sh "${{ inputs.version }}"
