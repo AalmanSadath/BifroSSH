@@ -14,7 +14,7 @@ export default function AboutSection() {
   const patch = usePatch();
   const [version, setVersion] = useState('');
   useEffect(() => { getVersion().then(setVersion).catch(() => {}); }, []);
-  // The result of a check asked for by hand, which the daily one never
+  // The result of a check asked for by hand, which the launch check never
   // reports since nobody was waiting on it.
   const [checking, setChecking] = useState(false);
   const [checkResult, setCheckResult] = useState<'up-to-date' | 'failed' | null>(null);
@@ -38,10 +38,11 @@ export default function AboutSection() {
           checked={settings.check_for_updates}
           onChange={(e) => patch({ check_for_updates: e.target.checked })}
         />
-        <span>Check for updates once a day</span>
+        <span>Check for updates on launch</span>
       </label>
       <p className="form-hint">
-        One anonymous request to GitHub for the latest release. Nothing is downloaded or installed.
+        One anonymous request to GitHub for the latest release each time BifroSSH starts. Nothing
+        is downloaded or installed.
       </p>
       <div className="settings-inline-row">
         <button className="btn-secondary btn-sm" onClick={checkNow} disabled={checking}>

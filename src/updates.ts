@@ -11,9 +11,6 @@
 export const RELEASES_URL = 'https://github.com/AalmanSadath/BifroSSH/releases';
 const LATEST_API = 'https://api.github.com/repos/AalmanSadath/BifroSSH/releases/latest';
 
-/** How long a check is good for. */
-export const CHECK_INTERVAL_SECS = 24 * 60 * 60;
-
 export interface Release {
   /** Without the leading `v`. */
   version: string;

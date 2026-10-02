@@ -336,7 +336,7 @@ export interface Settings {
   session_log_dir: string | null;
   /** Where session recordings go; null is the app's own data folder. */
   recording_dir: string | null;
-  /** Ask GitHub once a day whether a newer release exists. */
+  /** Ask GitHub at launch whether a newer release exists. */
   check_for_updates: boolean;
   /** When the last check ran, epoch seconds; 0 for never. */
   last_update_check: number;

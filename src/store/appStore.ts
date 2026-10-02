@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { withConnectLog } from '../connectLog';
 import * as ipc from '../ipc';
 import { getVersion } from '@tauri-apps/api/app';
-import { CHECK_INTERVAL_SECS, fetchLatestRelease, newerVersion, type Release } from '../updates';
+import { fetchLatestRelease, newerVersion, type Release } from '../updates';
 import { STORED, UNDETECTED_OS, UNKNOWN_OS } from '../types';
 import { restoreOrder, tabsToSave } from '../sessionRestore';
 import { cleanTitle } from '../tabName';
@@ -346,9 +346,9 @@ interface AppStore {
   /** A release newer than this build, once a check has found one. */
   updateAvailable: Release | null;
   /**
-   * Asks GitHub for the latest release. Once a day and only when the
-   * setting allows, unless forced from the Settings page. Resolves to
-   * whether the check ran; never throws.
+   * Asks GitHub for the latest release. At launch only when the setting
+   * allows, and whenever forced from the Settings page. Resolves to whether
+   * the check ran; never throws.
    */
   checkForUpdates: (force?: boolean) => Promise<boolean>;
   /**
@@ -946,15 +946,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
   checkForUpdates: async (force = false) => {
     const { settings } = get();
     const now = Math.floor(Date.now() / 1000);
-    if (!force) {
-      if (!settings.check_for_updates) return false;
-      if (now - settings.last_update_check < CHECK_INTERVAL_SECS) return false;
-    }
+    // Every launch rather than once a day: what a check finds is not kept,
+    // so a skipped one would leave a known newer release unannounced.
+    if (!force && !settings.check_for_updates) return false;
     const [latest, current] = await Promise.all([fetchLatestRelease(), getVersion().catch(() => '')]);
     if (!latest) return false;
     set({ updateAvailable: newerVersion(current, latest.version) ? latest : null });
-    // The stamp is written through saveSettings so it survives a restart;
-    // a failure to write it only means one extra check tomorrow.
+    // The stamp is written through saveSettings so About can say when the
+    // last check ran; a failure to write it costs nothing else.
     await get().saveSettings({ ...get().settings, last_update_check: now }).catch(() => {});
     return true;
   },

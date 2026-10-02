@@ -352,7 +352,7 @@ pub struct Settings {
     pub session_log_dir: Option<String>,
     /// Where session recordings go; None is `<data dir>/recordings`.
     pub recording_dir: Option<String>,
-    /// Ask GitHub once a day whether a newer release exists. On by default;
+    /// Ask GitHub at launch whether a newer release exists. On by default;
     /// the check is one anonymous GET of the releases endpoint.
     pub check_for_updates: bool,
     /// When the last check ran, epoch seconds; 0 for never.
