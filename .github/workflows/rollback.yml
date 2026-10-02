@@ -1,0 +1,121 @@
+name: Rollback
+
+# Makes an earlier release the current one in the Flatpak, apt and dnf
+# repositories, for pulling a release that turned out bad. Run by hand from
+# the Actions tab; the version has to be one the repositories still keep (the
+# last RETENTION, 10 unless the variable says otherwise).
+#
+# What each kind of install does next:
+#   Flatpak  the next update moves back, because the old tree arrives as a
+#            new commit on top.
+#   dnf      `dnf distro-sync` moves back; a plain `dnf upgrade` stays put.
+#   apt      nothing on its own, since apt never downgrades: a machine that
+#            already took the bad release needs `apt install bifrossh=VERSION`.
+#
+# Shipping a fixed release afterwards needs nothing special: the next tag
+# publishes on top as usual.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to make current, e.g. 0.16.0 (no leading v)
+        type: string
+        required: true
+      demote:
+        description: Mark newer GitHub releases as pre-releases, so the in-app update check stops offering them
+        type: boolean
+        default: true
+
+concurrency:
+  group: linux-repos
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  stage:
+    name: Stage the rollback
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check the version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+            || { echo "::error::'$VERSION' is not a version like 0.16.0"; exit 1; }
+
+      # For the scripts, not the source.
+      - uses: actions/checkout@v7
+
+      - name: Install the repository tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            flatpak ostree apt-utils createrepo-c rpm
+
+      - name: Import the signing key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.FLATPAK_GPG_PASSPHRASE }}
+        run: .github/scripts/repo/import-key.sh
+
+      - name: Roll back
+        env:
+          R2_PUBLIC_BASE: ${{ vars.R2_PUBLIC_BASE }}
+          RETENTION: ${{ vars.RETENTION }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          .github/scripts/repo/rollback.sh "$VERSION" site
+          .github/scripts/repo/descriptors.sh site "$VERSION"
+          tar -cf site.tar -C site .
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bifrossh-site
+          path: site.tar
+          if-no-files-found: error
+
+  publish-r2:
+    name: Publish to R2
+    needs: stage
+    uses: ./.github/workflows/publish-r2.yml
+    permissions:
+      contents: read
+    with:
+      version: ${{ inputs.version }}
+      # The pools lose every package newer than the version, by design.
+      allow_shrink: true
+    secrets: inherit
+
+  # After the repositories, so a failed publish leaves the releases as they
+  # were. The update check reads /releases/latest, which skips pre-releases.
+  demote:
+    name: Demote newer releases
+    needs: publish-r2
+    if: inputs.demote
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Mark newer releases as pre-releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          gh release list --limit 200 --exclude-pre-releases --exclude-drafts \
+            --json tagName --jq '.[].tagName' > tags
+          # -V, not a plain sort: v0.16.10 is above v0.16.9 as a version and
+          # below it as a string.
+          while read -r tag; do
+            v="${tag#v}"
+            [ "$v" != "$VERSION" ] || continue
+            if [ "$(printf '%s\n%s\n' "$v" "$VERSION" | sort -V | tail -1)" = "$v" ]; then
+              echo "demoting $tag"
+              gh release edit "$tag" --prerelease
+            fi
+          done < tags
+          gh release edit "v$VERSION" --latest

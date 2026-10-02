@@ -26,11 +26,14 @@ Linux, NSIS installer on Windows. macOS is not supported.
 
 ### Linux
 
-Install using Flatpak.
+All three are served from [bifrossh.aalman.dev](https://bifrossh.aalman.dev), signed with
+one key, and update with the rest of your system.
+
+#### Flatpak
 
 ```bash
-flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-flatpak remote-add bifrossh https://aalmansadath.github.io/BifroSSH/bifrossh.flatpakrepo
+flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+flatpak remote-add --if-not-exists bifrossh https://bifrossh.aalman.dev/bifrossh.flatpakrepo
 flatpak install bifrossh io.github.aalmansadath.bifrossh
 flatpak run io.github.aalmansadath.bifrossh
 ```
@@ -43,27 +46,60 @@ flatpak uninstall io.github.aalmansadath.bifrossh  # remove
 flatpak remote-delete bifrossh                     # and drop the remote
 ```
 
-#### Or a .deb or .rpm
-
-Both are on the [latest release](https://github.com/AalmanSadath/BifroSSH/releases/latest).
+#### Debian, Ubuntu
 
 ```bash
-sudo dnf install ./BifroSSH*.rpm   # Fedora, RHEL, openSUSE
-sudo apt install ./BifroSSH*.deb      # Debian, Ubuntu
+curl -fsSL https://bifrossh.aalman.dev/bifrossh.sources | sudo tee /etc/apt/sources.list.d/bifrossh.sources
+sudo apt update
+sudo apt install bifrossh
 ```
 
-Both install the binary as `/usr/bin/bifrossh` and the package is named
-`bifro-ssh`, so removal is `sudo dnf remove bifro-ssh` or
-`sudo apt remove bifro-ssh`. Neither touches `~/.local/share/bifrossh`, which
-is where your hosts and keys live.
+The `.sources` file carries the signing key itself, so there is nothing to put
+in `/etc/apt/keyrings` first, and the key is trusted for this repository only.
+
+#### Fedora, RHEL
+
+```bash
+sudo dnf config-manager addrepo --from-repofile=https://bifrossh.aalman.dev/bifrossh.repo
+sudo dnf install bifrossh
+```
+
+On dnf 4 (RHEL 9, Fedora 40 and older) the first line is
+`sudo dnf config-manager --add-repo https://bifrossh.aalman.dev/bifrossh.repo`.
+dnf asks once to trust the key; its fingerprint is
+`5B97 1E88 CAAA EDBB 0358 6DD1 49EF F0E4 91C7 7412`.
+
+Both install the binary as `/usr/bin/bifrossh`, and removal is
+`sudo apt remove bifrossh` or `sudo dnf remove bifrossh`. Neither touches
+`~/.local/share/bifrossh`, which is where your hosts and keys live.
 
 They are built on Ubuntu 24.04, so they need glibc 2.39 or newer. An older
 distribution will refuse to install them and should use the Flatpak, which
 carries its own runtime and does not care.
 
-Neither package is signed, and neither comes from a repository, so nothing
-updates them: a new version means downloading the file again. The Flatpak
-updates itself from the remote above, which is the reason to prefer it.
+The `.deb` and `.rpm` are also on the
+[latest release](https://github.com/AalmanSadath/BifroSSH/releases/latest),
+for a machine you would rather not add a repository to. Installed that way they
+do not update.
+
+#### Going back a version
+
+The last ten releases stay in each repository.
+
+```bash
+# Flatpak: list them, then install one by its commit
+flatpak remote-info --log bifrossh io.github.aalmansadath.bifrossh
+flatpak update --commit=COMMIT io.github.aalmansadath.bifrossh
+flatpak mask io.github.aalmansadath.bifrossh     # optional: stay there until `flatpak mask --remove`
+
+# apt
+apt list -a bifrossh
+sudo apt install bifrossh=VERSION
+sudo apt-mark hold bifrossh                     # optional: stay there until `apt-mark unhold`
+
+# dnf
+sudo dnf downgrade bifrossh
+```
 
 ### Windows
 

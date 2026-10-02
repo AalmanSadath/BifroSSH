@@ -5,14 +5,15 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
-# Only one publish at a time: the ostree repo on the Pages branch is mutable
-# shared state, and concurrent writers would corrupt it.
+# Only one publish at a time, shared with the rollback workflow: each run
+# seeds from what the bucket serves and replaces it, so two at once would
+# each delete what the other added.
 concurrency:
-  group: flatpak-repo
+  group: linux-repos
   cancel-in-progress: false
 
-# Only the two publish jobs write anything. The builds, and the CI run they
-# depend on, get read and nothing more.
+# Only the publish jobs write anything. The builds, and the CI run they depend
+# on, get read and nothing more.
 permissions:
   contents: read
 
@@ -35,10 +36,13 @@ jobs:
   versions:
     name: Versions agree
     runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.check.outputs.version }}
     steps:
       - uses: actions/checkout@v7
 
       - name: Check versions agree
+        id: check
         # Runs before the expensive steps so a mistake costs seconds, not a full
         # build. AppStream takes the version from the metainfo, not the git tag,
         # so tagging without adding a <release> entry ships an app that updates
@@ -89,6 +93,7 @@ jobs:
           fi
 
           [ "$fail" -eq 0 ] && echo "versions agree"
+          echo "version=$meta_ver" >> "$GITHUB_OUTPUT"
           exit $fail
 
 
@@ -110,14 +115,83 @@ jobs:
       contents: read
 
   flatpak:
-    name: Flatpak bundle
+    name: Flatpak build
     needs: [check, versions]
     uses: ./.github/workflows/flatpak-bundle.yml
     permissions:
       contents: read
-    secrets:
-      FLATPAK_GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
-      FLATPAK_GPG_PASSPHRASE: ${{ secrets.FLATPAK_GPG_PASSPHRASE }}
+
+  # Lands the Linux builds in the three repositories bifrossh.aalman.dev
+  # serves, signed, without uploading anything. The site it builds goes to
+  # publish-r2, and the files the release carries come from here rather than
+  # from the builds: the signed .rpm, and the .flatpak bundled from the
+  # signed store, so the download and what the repository serves are the
+  # same bytes.
+  #
+  # Holds the signing key and no bucket credential; publish-r2 holds the
+  # reverse. Reading what is already published needs neither, since it goes
+  # through the public URL.
+  stage:
+    name: Stage the Linux repositories
+    needs: [versions, linux, flatpak]
+    runs-on: ubuntu-24.04
+    steps:
+      # For the scripts, not the source.
+      - uses: actions/checkout@v7
+
+      - name: Install the repository tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            flatpak ostree apt-utils createrepo-c rpm
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: bifrossh-ostree-repo
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: bifrossh-linux-packages
+          path: packages
+
+      - name: Import the signing key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.FLATPAK_GPG_PASSPHRASE }}
+        run: .github/scripts/repo/import-key.sh
+
+      - name: Stage Flatpak, apt and dnf
+        env:
+          R2_PUBLIC_BASE: ${{ vars.R2_PUBLIC_BASE }}
+          RETENTION: ${{ vars.RETENTION }}
+          VERSION: ${{ needs.versions.outputs.version }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mkdir built
+          tar -xf ostree-repo.tar -C built
+          deb=(packages/*.deb) rpm=(packages/*.rpm)
+          [ "${#deb[@]}" -eq 1 ] && [ "${#rpm[@]}" -eq 1 ] \
+            || { echo "::error::expected one .deb and one .rpm, got: $(ls packages)"; exit 1; }
+          s=.github/scripts/repo
+          "$s/stage-flatpak.sh" built site "$VERSION" release
+          "$s/stage-apt.sh" "${deb[0]}" site release
+          "$s/stage-rpm.sh" "${rpm[0]}" site release
+          "$s/descriptors.sh" site "$VERSION"
+          tar -cf site.tar -C site .
+          ls -lh site.tar release
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bifrossh-site
+          path: site.tar
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bifrossh-linux-release
+          path: release/
+          if-no-files-found: error
 
   # One release carrying every artefact, rather than each build attaching its
   # own. A release holding half of what it should is worse than one that fails
@@ -127,25 +201,22 @@ jobs:
   # privileged container that produced one of them.
   publish-release:
     name: Publish release
-    needs: [flatpak, windows, linux]
+    needs: [stage, windows]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
+      # The .flatpak, the signed .rpm and the .deb, as the repositories serve
+      # them.
       - uses: actions/download-artifact@v8
         with:
-          name: bifrossh-flatpak-bundle
+          name: bifrossh-linux-release
           path: artefacts
 
       - uses: actions/download-artifact@v8
         with:
           name: bifrossh-windows-installer
-          path: artefacts
-
-      - uses: actions/download-artifact@v8
-        with:
-          name: bifrossh-linux-packages
           path: artefacts
 
       - run: ls -lh artefacts
@@ -167,51 +238,25 @@ jobs:
           fail_on_unmatched_files: true
           generate_release_notes: true
 
-  # Last, because publishing here is what hands the update to everyone already
-  # installed. Doing it before the release exists would leave the repo offering
-  # a version with nothing behind it.
+  # Last, because publishing the repositories is what hands the update to
+  # everyone already installed. Doing it before the release exists would leave
+  # them offering a version with nothing behind it.
   #
   # always() with an explicit result check rather than a bare needs: a
   # workflow_dispatch run has no tag, so publish-release is skipped, and this
   # still has to run or the manual re-publish path disappears. A skipped
   # release is fine here; a failed one is not.
-  publish-pages:
-    name: Publish GitHub Pages
-    needs: [flatpak, publish-release]
+  publish-r2:
+    name: Publish to R2
+    needs: [versions, stage, publish-release]
     if: |
       always()
-      && needs.flatpak.result == 'success'
+      && needs.stage.result == 'success'
       && needs.publish-release.result != 'failure'
       && needs.publish-release.result != 'cancelled'
-    runs-on: ubuntu-24.04
+    uses: ./.github/workflows/publish-r2.yml
     permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v8
-        with:
-          name: bifrossh-ostree-repo
-
-      - name: Unpack the ostree repo
-        run: |
-          mkdir -p pages
-          tar -xf ostree-repo.tar -C pages
-          # A partial or wrong tree here would be published over the live repo
-          # and break updates for everyone installed, so it is checked before
-          # anything is pushed rather than after.
-          test -f pages/config || {
-            echo "::error::the unpacked repo has no ostree config"; exit 1; }
-          rm -rf pages/.git
-          ls -la pages | head
-
-      - name: Publish to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: pages
-          publish_branch: gh-pages
-          # Deliberately NOT keep_files. The existing repo was cloned into
-          # pages/ at the start of the build, so nothing is lost, and mirroring
-          # the directory exactly is what lets --prune actually remove objects
-          # instead of leaving them in git history forever.
-          force_orphan: false
-          commit_message: "Publish ${{ github.ref_name }}"
+      contents: read
+    with:
+      version: ${{ needs.versions.outputs.version }}
+    secrets: inherit
