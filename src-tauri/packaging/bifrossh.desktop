@@ -1,7 +1,11 @@
 # Installed by the .deb and .rpm. The handlebars variables are filled in by
 # the Tauri bundler; see src-tauri/tauri.conf.json.
+#
+# Name is written out rather than {{name}}: that is the product name, which
+# tauri.linux.conf.json lowers to "bifrossh" so the packages are called that,
+# and the menu should still say BifroSSH.
 [Desktop Entry]
-Name={{name}}
+Name=BifroSSH
 GenericName=SSH Client
 Comment={{comment}}
 Exec={{exec}}{{exec_arg}}
