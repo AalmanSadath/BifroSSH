@@ -55,6 +55,15 @@ case "$RETENTION" in
 esac
 [ "$RETENTION" -ge 1 ] || die "RETENTION must be at least 1, got $RETENTION"
 
+# ostree counts parents, not commits: depth N keeps the head and N more. The
+# seed and the prune both use this, so the Flatpak history holds RETENTION
+# releases like the apt and rpm pools do. They also have to agree with each
+# other; see seed_flatpak.
+FLATPAK_DEPTH=$((RETENTION - 1))
+
+# Whether version $1 is newer than $2.
+version_gt() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -1)" = "$1" ]; }
+
 # Whether a published file exists. Only a 404 means "not yet"; any other
 # failure stops the run. Reading a network error as "nothing published"
 # would build a fresh repository, and the upload would then delete the real
@@ -119,8 +128,8 @@ keep_newest() {
 
 # ── Flatpak ──────────────────────────────────────────────────────────────
 
-# Creates the store at $1 and seeds it with what is already published, to
-# $RETENTION parents per ref.
+# Creates the store at $1 and seeds it with what is already published,
+# $RETENTION commits deep per ref.
 #
 # Keeping parents is what makes rollback possible, for a user with
 # `flatpak update --commit` and for the rollback workflow, and it gives the
@@ -146,7 +155,7 @@ seed_flatpak() {
   # two commits whatever --prune-depth says. Seeding shallower than the
   # prune depth does not retain less: it deletes the difference, because the
   # upload removes whatever the bucket has and this store does not.
-  ostree --repo="$store" pull --mirror --depth="$RETENTION" published
+  ostree --repo="$store" pull --mirror --depth="$FLATPAK_DEPTH" published
   # The remote is only how the seed was fetched. Left in, it would be
   # published as part of the repository's own config.
   ostree --repo="$store" remote delete published
@@ -161,7 +170,7 @@ seed_flatpak() {
   done <<< "$(ostree --repo="$store" refs)"
 }
 
-# Regenerates the summary and deltas, prunes to $RETENTION parents, and
+# Regenerates the summary and deltas, prunes to $RETENTION commits, and
 # refuses a store that is not fit to publish.
 finish_flatpak() {
   local store="$1" app_refs ref
@@ -172,7 +181,7 @@ finish_flatpak() {
   flatpak build-update-repo "${FLATPAK_SIGN[@]}" \
     --title=BifroSSH \
     --generate-static-deltas \
-    --prune --prune-depth="$RETENTION" \
+    --prune --prune-depth="$FLATPAK_DEPTH" \
     "$store"
 
   # A summary without the app ref is the failure that looks fine

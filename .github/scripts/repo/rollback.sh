@@ -25,8 +25,6 @@ dropped="$site/.purge"
 mkdir -p "$site"
 : > "$dropped"
 
-newer_than() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -1)" = "$1" ]; }
-
 # ── Flatpak
 store="$site/flatpak"
 seed_flatpak "$store"
@@ -64,7 +62,7 @@ for f in "$apt"/pool/*/*/*/*.deb; do
   v="$(dpkg-deb -f "$f" Version)"
   if [ "$v" = "$version" ]; then
     found=1
-  elif newer_than "$v" "$version"; then
+  elif version_gt "$v" "$version"; then
     echo "  apt: dropping $v"
     echo "apt/${f#"$apt"/}" >> "$dropped"
     rm -f "$f"
@@ -81,7 +79,7 @@ for f in "$rpm"/Packages/*.rpm; do
   v="$(rpm -qp --qf '%{VERSION}' "$f" 2>/dev/null)"
   if [ "$v" = "$version" ]; then
     found=1
-  elif newer_than "$v" "$version"; then
+  elif version_gt "$v" "$version"; then
     echo "  rpm: dropping $v"
     echo "rpm/${f#"$rpm"/}" >> "$dropped"
     rm -f "$f"

@@ -1,0 +1,120 @@
+name: Backfill
+
+# Fills the Flatpak, apt and dnf repositories with earlier releases, taken
+# from the files attached to their GitHub releases, so a user can go back to
+# them. Run by hand from the Actions tab. Needed once, because the
+# repositories started with the first release published to them, and again
+# after raising RETENTION.
+#
+# The version the repositories serve now stays the newest: the Flatpak
+# history is rebuilt oldest first with the live commit's tree on top, and the
+# package pools only gain older versions. Releases packaged as bifro-ssh are
+# repackaged as bifrossh with their files unchanged; see
+# .github/scripts/repo/backfill.sh.
+on:
+  workflow_dispatch:
+    inputs:
+      versions:
+        description: Versions to add, space separated (blank = the releases before the current one, up to RETENTION in all)
+        type: string
+        default: ""
+
+concurrency:
+  group: linux-repos
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  stage:
+    name: Stage the backfill
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.pick.outputs.current }}
+    steps:
+      # For the scripts, not the source.
+      - uses: actions/checkout@v7
+
+      - name: Pick the releases
+        id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          R2_PUBLIC_BASE: ${{ vars.R2_PUBLIC_BASE }}
+          RETENTION: ${{ vars.RETENTION }}
+          VERSIONS: ${{ inputs.versions }}
+        run: |
+          set -euo pipefail
+          current="$(curl -fsS "${R2_PUBLIC_BASE%/}/published-version?fresh=$(date +%s)")"
+          echo "the repositories serve $current"
+          if [ -n "$VERSIONS" ]; then
+            tr -s ' ' '\n' <<< "$VERSIONS" | grep . > versions
+          else
+            # -V, not a plain sort: 0.14.10 is above 0.14.9 as a version and
+            # below it as a string.
+            gh release list --limit 200 --exclude-pre-releases --exclude-drafts \
+              --json tagName --jq '.[].tagName' | sed 's/^v//' \
+              | while read -r v; do
+                  if [ "$v" != "$current" ] && \
+                     [ "$(printf '%s\n%s\n' "$v" "$current" | sort -V | tail -1)" = "$current" ]; then
+                    echo "$v"
+                  fi
+                done | sort -V | tail -n "$(( ${RETENTION:-10} - 1 ))" > versions
+          fi
+          [ -s versions ] || { echo "::error::no earlier releases to add"; exit 1; }
+          echo "adding: $(tr '\n' ' ' < versions)"
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+
+      - name: Download their files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          while read -r v; do
+            gh release download "v$v" -D "assets/$v" \
+              -p bifrossh.flatpak -p '*.deb' -p '*.rpm'
+            # The commit date in `flatpak remote-info --log`.
+            gh release view "v$v" --json publishedAt --jq .publishedAt > "assets/$v/date"
+          done < versions
+          ls -R assets
+
+      - name: Install the repository tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            flatpak ostree apt-utils createrepo-c rpm cpio
+
+      - name: Import the signing key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.FLATPAK_GPG_PASSPHRASE }}
+        run: .github/scripts/repo/import-key.sh
+
+      - name: Backfill
+        env:
+          R2_PUBLIC_BASE: ${{ vars.R2_PUBLIC_BASE }}
+          RETENTION: ${{ vars.RETENTION }}
+          CURRENT: ${{ steps.pick.outputs.current }}
+        run: |
+          set -euo pipefail
+          .github/scripts/repo/backfill.sh assets site "$CURRENT"
+          .github/scripts/repo/descriptors.sh site "$CURRENT"
+          tar -cf site.tar -C site .
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bifrossh-site
+          path: site.tar
+          if-no-files-found: error
+
+  publish-r2:
+    name: Publish to R2
+    needs: stage
+    uses: ./.github/workflows/publish-r2.yml
+    permissions:
+      contents: read
+    with:
+      version: ${{ needs.stage.outputs.version }}
+    secrets: inherit
