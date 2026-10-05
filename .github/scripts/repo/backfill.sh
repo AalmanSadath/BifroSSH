@@ -16,7 +16,9 @@
 # Run descriptors.sh with CURRENT afterwards, as a release does.
 source "$(dirname "$0")/common.sh"
 
-assets="$1" site="$2" current="$3"
+# Absolute, because repackaging works from inside scratch directories and a
+# relative path would point nowhere from there.
+assets="$(realpath "$1")" site="$2" current="$3"
 need GPG_FINGERPRINT
 work="$(mktemp -d)"
 ref="app/$APP_ID/x86_64/$FLATPAK_BRANCH"
@@ -98,7 +100,9 @@ rename_rpm() {
   top="$work/rpmbuild-$v"
   payload="$work/rpm-old-$v"
   mkdir -p "$top"/{BUILD,RPMS,SOURCES,SPECS,SRPMS} "$payload"
-  ( cd "$payload" && rpm2cpio "$in" | cpio -idm --quiet )
+  # rpm2archive rather than rpm2cpio, which exits 1 on Ubuntu after a
+  # complete extraction and so cannot be told apart from a failed one.
+  rpm2archive - < "$in" | tar -xzf - -C "$payload"
 
   spec="$top/SPECS/bifrossh.spec"
   {
@@ -111,7 +115,7 @@ rename_rpm() {
     # The requirements are copied, not worked out again on a machine that
     # is not the one the package was built for.
     echo "AutoReqProv: no"
-    rpm -qp --requires "$in" 2>/dev/null | grep -v '^rpmlib(' | sed 's/^/Requires: /'
+    rpm -qp --requires "$in" 2>/dev/null | { grep -v '^rpmlib(' || true; } | sed 's/^/Requires: /'
     echo "Obsoletes: bifro-ssh"
     echo
     echo "%description"
@@ -142,7 +146,7 @@ rename_rpm() {
   new="$top/RPMS/$arch/bifrossh-$ver-$rel.$arch.rpm"
   [ -f "$new" ] || die "rpmbuild did not produce $(basename "$new")"
   mkdir -p "$work/rpm-new-$v"
-  ( cd "$work/rpm-new-$v" && rpm2cpio "$new" | cpio -idm --quiet )
+  rpm2archive - < "$new" | tar -xzf - -C "$work/rpm-new-$v"
   diff -r "$payload" "$work/rpm-new-$v" > /dev/null || die "repackaging $ver changed its files"
   diff <(rpm -qp --requires "$in" 2>/dev/null | grep -v '^rpmlib(' | sort) \
        <(rpm -qp --requires "$new" 2>/dev/null | grep -v '^rpmlib(' | sort) > /dev/null \
@@ -173,7 +177,7 @@ for v in "${versions[@]}"; do
   ostree --repo="$built" refs | grep -qx "$ref" || die "the $v bundle does not hold $ref"
   # The newest release the app's own metadata lists is the version it is.
   inside="$(ostree --repo="$built" cat "$ref" "/files/share/metainfo/$APP_ID.metainfo.xml" \
-    | grep -o '<release version="[^"]*"' | head -1 | sed 's/.*"\(.*\)"/\1/')"
+    | { grep -o '<release version="[^"]*"' || true; } | head -1 | sed 's/.*"\(.*\)"/\1/')"
   [ "$inside" = "$v" ] || die "the bundle filed under $v is version ${inside:-unknown}"
   # The release's own date, so `flatpak remote-info --log` reads as history.
   stamp=NOW
@@ -205,7 +209,10 @@ apt="$site/apt"
 seed_apt "$apt"
 for v in "${versions[@]}"; do
   debs=("$assets/$v"/*.deb)
-  add_deb "$apt" "$(rename_deb "${debs[0]}" "$work/debs" "$v")" > /dev/null
+  # Into a variable first: as an argument, a failed substitution would hand
+  # add_deb an empty path instead of stopping here.
+  renamed="$(rename_deb "${debs[0]}" "$work/debs" "$v")"
+  add_deb "$apt" "$renamed" > /dev/null
 done
 prune_debs "$apt"
 index_apt "$apt"
@@ -219,7 +226,8 @@ rpm="$site/rpm"
 seed_rpm "$rpm"
 for v in "${versions[@]}"; do
   rpms=("$assets/$v"/*.rpm)
-  add_rpm "$rpm" "$(rename_rpm "${rpms[0]}" "$work/rpms" "$v")" > /dev/null
+  renamed="$(rename_rpm "${rpms[0]}" "$work/rpms" "$v")"
+  add_rpm "$rpm" "$renamed" > /dev/null
 done
 prune_rpms "$rpm"
 index_rpm "$rpm"

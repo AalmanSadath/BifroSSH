@@ -22,6 +22,10 @@ set -euo pipefail
 # A glob that matches nothing iterates nothing, rather than once over the
 # pattern itself.
 shopt -s nullglob
+# Without this, set -e stops at the edge of every $( ): a failure inside one,
+# a die included, only ends the substitution, and the script carries on with
+# whatever it printed, usually nothing.
+shopt -s inherit_errexit
 
 # shellcheck disable=SC2034 # used by the scripts that source this
 APP_ID=io.github.aalmansadath.bifrossh
