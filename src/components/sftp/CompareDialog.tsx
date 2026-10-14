@@ -1,6 +1,6 @@
-import { diffGroups, differenceCount, isIdentical } from '../compare';
-import SftpDialog from './shared/SftpDialog';
-import type { TreeDiff } from '../types';
+import { diffGroups, differenceCount, isIdentical } from '../../compare';
+import SftpDialog from '../shared/SftpDialog';
+import type { TreeDiff } from '../../types';
 
 interface Props {
   /** What is being compared, as the two paths read on screen. */

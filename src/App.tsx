@@ -33,7 +33,7 @@ import KeychainPanel from './components/KeychainPanel';
 import KnownHostsPanel from './components/KnownHostsPanel';
 import SettingsPanel from './components/SettingsPanel';
 import ThemeEditorPanel from './components/ThemeEditorPanel';
-import SftpPanel from './components/SftpPanel';
+import SftpPanel from './components/sftp/SftpPanel';
 import ServerForm from './components/ServerForm';
 import TerminalSidebar from './components/TerminalSidebar';
 import ContainersPanel from './components/ContainersPanel';

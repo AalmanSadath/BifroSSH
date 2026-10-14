@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import type { FileEntry } from '../types';
-import SftpDialog from './shared/SftpDialog';
-import { useHint } from './shared/useHint';
+import type { FileEntry } from '../../types';
+import SftpDialog from '../shared/SftpDialog';
+import { useHint } from '../shared/useHint';
 
 /** An octal string typed by hand, or null when it names no valid mode. */
 export function parseOctal(s: string): number | null {

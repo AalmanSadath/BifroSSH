@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import type { Conflict } from '../types';
-import SftpDialog from './shared/SftpDialog';
+import type { Conflict } from '../../types';
+import SftpDialog from '../shared/SftpDialog';
 
 /** What the user decided, and whether it holds for the rest of the batch. */
 export interface ConflictAnswer {
