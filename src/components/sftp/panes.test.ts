@@ -79,15 +79,18 @@ describe('list selection', () => {
     expect(rangePaths(rows, 3, 1)).toEqual(['/d/a', '/d/b', '/d/c']);
   });
 
-  it('moves the cursor onto real rows only', () => {
+  it('moves the cursor within the rows, `..` included', () => {
     // No cursor yet: onto the first real row, whichever way.
     expect(nextCursor(rows, -1, 1)).toBe(1);
+    expect(nextCursor(rows, -1, -1)).toBe(1);
     expect(nextCursor(rows, 1, 1)).toBe(2);
-    // Up from the first real row would land on `..`, which is skipped, and
-    // there is nothing above it.
-    expect(nextCursor(rows, 1, -1)).toBeNull();
+    // Up from the first file is `..`, so a level up is one Enter away.
+    expect(nextCursor(rows, 1, -1)).toBe(0);
+    expect(nextCursor(rows, 0, -1)).toBeNull();
     expect(nextCursor(rows, 3, 1)).toBeNull();
-    expect(nextCursor([entry('..')], -1, 1)).toBeNull();
+    // A folder with nothing in it but the way out lands on the way out.
+    expect(nextCursor([entry('..')], -1, 1)).toBe(0);
+    expect(nextCursor([], -1, 1)).toBeNull();
   });
 
   it('acts on the whole selection only when the row is part of it', () => {

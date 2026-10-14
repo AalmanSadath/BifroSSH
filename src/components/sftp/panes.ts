@@ -93,13 +93,17 @@ export function rangePaths(rows: FileEntry[], a: number, b: number): string[] {
 
 /**
  * The row an arrow key moves the cursor onto, or null when there is none to
- * move to. From the cursor if there is one, else onto the first real row;
- * `..` is not a row the cursor stops on.
+ * move to. From the cursor if there is one, else onto the first real row,
+ * or onto `..` in a folder with nothing else in it.
+ *
+ * `..` is a row the cursor can reach, so going up a level works from the
+ * keyboard: Up from the first file lands on it and Enter opens it. Nothing
+ * else treats it as a file; delete, copy and drag all leave it out.
  */
 export function nextCursor(rows: FileEntry[], cursor: number, step: 1 | -1): number | null {
-  let next = cursor >= 0 ? cursor + step : rows.findIndex((en) => en.name !== '..');
-  if (next >= 0 && next < rows.length && rows[next].name === '..') next += step;
-  return next >= 0 && next < rows.length && rows[next].name !== '..' ? next : null;
+  const first = Math.max(0, rows.findIndex((en) => en.name !== '..'));
+  const next = cursor >= 0 ? cursor + step : first;
+  return next >= 0 && next < rows.length ? next : null;
 }
 
 /**
