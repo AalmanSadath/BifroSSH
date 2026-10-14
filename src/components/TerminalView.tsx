@@ -738,16 +738,23 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
   // Ctrl+wheel zooms this tab. Not passive, because without preventDefault
   // the webview zooms the whole window underneath, which moves every panel
   // and cannot be undone from the terminal.
+  //
+  // In the capture phase, and stopped there. xterm's own wheel handler sits
+  // on an element inside this one, so heard on the way back up it had
+  // already scrolled: a terminal with scrollback above or below scrolled
+  // instead of zooming, and only one at the very top or bottom, with nothing
+  // left to scroll, zoomed at all.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
     const onWheel = (e: WheelEvent) => {
       if (!e.ctrlKey) return;
       e.preventDefault();
+      e.stopPropagation();
       zoomSession(tabId, e.deltaY < 0 ? 1 : -1);
     };
-    container.addEventListener('wheel', onWheel, { passive: false });
-    return () => container.removeEventListener('wheel', onWheel);
+    container.addEventListener('wheel', onWheel, { passive: false, capture: true });
+    return () => container.removeEventListener('wheel', onWheel, { capture: true });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabId]);
 
