@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { STORED } from '../types';
-import type { Identity, Server, SessionTab } from '../types';
+import type { SessionTab } from '../types';
+import { identity, server } from './fixtures';
 
 // The store's credential resolution goes to the keychain for a stored
 // password, which is the one thing here that has to cross to Rust. Mocked so
@@ -15,46 +16,6 @@ vi.mock('../ipc', () => ({
 
 const { broadcastTargets, buildJumpChain, resolveServerAuth, useAppStore } = await import('./appStore');
 const ipc = await import('../ipc');
-
-function server(over: Partial<Server> & { id: string }): Server {
-  return {
-    name: over.id,
-    host: `${over.id}.example.com`,
-    port: 22,
-    identity_id: null,
-    username: 'root',
-    encrypted_password: null,
-    key_id: null,
-    theme: null,
-    os: '',
-    connection_timeout: null,
-    auth_kind: null,
-    proxy_jump: null,
-    proxy_command: null,
-    forward_agent: false,
-    log_sessions: false,
-    group: null,
-    run_on_connect: null,
-    hide_run_on_connect: true,
-    notes: null,
-    term: null,
-    env: null,
-    tags: [],
-    ...over,
-  };
-}
-
-function identity(over: Partial<Identity> & { id: string }): Identity {
-  return {
-    name: over.id,
-    username: 'ident-user',
-    key_id: null,
-    encrypted_password: null,
-    auth_kind: null,
-    agent_fingerprint: null,
-    ...over,
-  };
-}
 
 beforeEach(() => {
   vi.clearAllMocks();
