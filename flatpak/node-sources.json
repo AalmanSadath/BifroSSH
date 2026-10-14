@@ -1014,6 +1014,13 @@
     },
     {
         "type": "file",
+        "url": "https://registry.npmjs.org/@xterm/addon-serialize/-/addon-serialize-0.14.0.tgz",
+        "sha512": "bad7b24d4d4492b41ad94c7a3ffb859767f3997238ea3cb9ba840c28438cd1f293ca25bb7129f45ab15e9c79b9bcee6e1175ff1a9c16fc58082efbf7af459b90",
+        "dest-filename": "b24d4d4492b41ad94c7a3ffb859767f3997238ea3cb9ba840c28438cd1f293ca25bb7129f45ab15e9c79b9bcee6e1175ff1a9c16fc58082efbf7af459b90",
+        "dest": "flatpak-node/npm-cache/_cacache/content-v2/sha512/ba/d7"
+    },
+    {
+        "type": "file",
         "url": "https://registry.npmjs.org/@xterm/addon-web-links/-/addon-web-links-0.12.0.tgz",
         "sha512": "e129a89b744fc95a7b64c60e603a02ffd78624926a6219cf2c61aa27ac0e05f07c5713d588935229d81161bf0da5a33a6127a510a6c0d924ad0fb946caa6a86f",
         "dest-filename": "a89b744fc95a7b64c60e603a02ffd78624926a6219cf2c61aa27ac0e05f07c5713d588935229d81161bf0da5a33a6127a510a6c0d924ad0fb946caa6a86f",
@@ -2247,6 +2254,12 @@
         "contents": "28985d61bd4a882a1a7861c931e0fffbda065b6c\t{\"key\": \"make-fetch-happen:request-cache:https://registry.npmjs.org/type-check/-/type-check-0.4.0.tgz\", \"integrity\": \"sha512-XleUoc9uwGXqjWwXaUTZAmzMcFZ5858QA2vvx1Ur5xIcixXIP+8LnFDgRplU30us6teqdlskFfu+ae4K79Ooew==\", \"time\": 0, \"size\": 6779, \"metadata\": {\"url\": \"https://registry.npmjs.org/type-check/-/type-check-0.4.0.tgz\", \"reqHeaders\": {}, \"resHeaders\": {}}}",
         "dest-filename": "fefef5c06cc570a726f66b226d6abde231b9f5de2ae35354240c598b5518",
         "dest": "flatpak-node/npm-cache/_cacache/index-v5/75/17"
+    },
+    {
+        "type": "inline",
+        "contents": "28b4ae48e4d0c6ec4aa51b333355d042074b227e\t{\"key\": \"make-fetch-happen:request-cache:https://registry.npmjs.org/@xterm/addon-serialize/-/addon-serialize-0.14.0.tgz\", \"integrity\": \"sha512-uteyTU1EkrQa2Ux6P/uFl2fzmXI46jy5uoQMKEOM0fKTyiW7cSn0WrFenHm5vO5uEXX/GpwW/FgILvv3r0WbkA==\", \"time\": 0, \"size\": 54965, \"metadata\": {\"url\": \"https://registry.npmjs.org/@xterm/addon-serialize/-/addon-serialize-0.14.0.tgz\", \"reqHeaders\": {}, \"resHeaders\": {}}}",
+        "dest-filename": "aa3f8e4b11801d7aa0a51d2da05570a80e1e733974271e1cc9abb0021ce5",
+        "dest": "flatpak-node/npm-cache/_cacache/index-v5/e7/15"
     },
     {
         "type": "inline",

@@ -281,6 +281,7 @@ mod containers;
 mod localfiles;
 mod records;
 mod resolve;
+mod window;
 
 pub use servers::*;
 pub use keys::*;
@@ -300,6 +301,7 @@ pub use vault::*;
 pub use clipboard::*;
 pub use containers::*;
 pub use localfiles::*;
+pub use window::*;
 
 #[cfg(test)]
 mod error_tests {

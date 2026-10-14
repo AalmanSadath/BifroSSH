@@ -339,6 +339,31 @@ pub async fn ssh_attach(
     Ok(BASE64.encode(pending))
 }
 
+/// Stops emitting a session's output and holds it instead, until the next
+/// `ssh_attach`. For a terminal moving between windows: the one letting go
+/// calls this, the one taking over attaches, and nothing printed in between
+/// is lost or shown twice.
+///
+/// Emits `ssh-held:<id>` once holding. It is emitted after every output
+/// event sent before the hold, since both go out under the same lock, so a
+/// terminal that has seen it has seen everything that will reach it.
+/// Returns false, emitting nothing, for a session that has already gone.
+#[tauri::command]
+pub async fn ssh_hold(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    session_id: String,
+) -> CmdResult<bool> {
+    let sessions = state.ssh_state.sessions.lock().await;
+    let Some(handle) = sessions.get(&session_id) else {
+        return Ok(false);
+    };
+    let mut attach = handle.attach.lock().await;
+    attach.release();
+    let _ = app.emit(&format!("ssh-held:{session_id}"), ());
+    Ok(true)
+}
+
 /// Starts or stops logging a session, and says where the file is.
 ///
 /// `label` names the file; the frontend passes the tab's name, which is

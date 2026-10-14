@@ -1,5 +1,8 @@
 import ReactDOM from 'react-dom/client';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import App from './App';
+import DetachedTerminal from './components/DetachedTerminal';
+import { detachedTabId } from './detach';
 import ErrorBoundary from './components/ErrorBoundary';
 import { useAppStore } from './store/appStore';
 import './index.css';
@@ -17,8 +20,12 @@ window.addEventListener('unhandledrejection', (e) => {
   useAppStore.getState().recordError('unhandled promise', reason instanceof Error ? reason.message : String(reason));
 });
 
+// Every window loads this page. One opened for a single terminal tab says so
+// in its label, and shows that tab rather than the app.
+const detached = detachedTabId(getCurrentWindow().label);
+
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <ErrorBoundary>
-    <App />
+    {detached ? <DetachedTerminal tabId={detached} /> : <App />}
   </ErrorBoundary>,
 );

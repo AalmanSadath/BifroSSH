@@ -36,6 +36,7 @@ mod tunnel;
 mod wordlist;
 
 use std::sync::Arc;
+use tauri::Manager;
 use commands::AppState;
 use prompts::PromptState;
 use sftp::SftpClientState;
@@ -160,6 +161,12 @@ fn start(
             container_state: Default::default(),
             prompts: Arc::new(PromptState::new()),
         })
+        .manage(commands::DetachedTabs::default())
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                commands::window_destroyed(window.app_handle(), window.label());
+            }
+        })
         // Started before the window so the first paint already knows whether
         // the desktop wants light or dark, rather than flashing the default.
         .setup(|app| {
@@ -241,6 +248,11 @@ fn start(
             commands::ssh_send_input,
             commands::ssh_resize,
             commands::ssh_attach,
+            commands::ssh_hold,
+            commands::window_detach,
+            commands::window_take,
+            commands::window_stash,
+            commands::window_focus,
             commands::ssh_disconnect,
             commands::ssh_host_stats,
             commands::ssh_set_log,

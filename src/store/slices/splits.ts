@@ -38,7 +38,8 @@ export const createSplitsSlice: Slice<SplitsSlice> = (set) => ({
   splitWith: (anchorTabId, droppedTabId) =>
     set((s) => {
       if (anchorTabId === droppedTabId) return {};
-      const ids = new Set(s.sessions.map((t) => t.tab_id));
+      // A tab in a window of its own has no terminal here to put beside another.
+      const ids = new Set(s.sessions.filter((t) => !t.detached).map((t) => t.tab_id));
       if (!ids.has(anchorTabId) || !ids.has(droppedTabId)) return {};
       const base = s.splitGroup.includes(anchorTabId) ? s.splitGroup : [anchorTabId];
       if (base.includes(droppedTabId) || base.length >= MAX_SPLIT) return {};

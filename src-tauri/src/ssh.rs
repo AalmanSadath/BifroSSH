@@ -120,6 +120,13 @@ impl Attach {
         self.attached = true;
         std::mem::take(&mut self.pending)
     }
+
+    /// Holds output again, for a terminal that is moving to another window:
+    /// what arrives between the old terminal letting go and the new one
+    /// attaching waits here, and the new one's `take` collects it.
+    pub fn release(&mut self) {
+        self.attached = false;
+    }
 }
 
 /// Where a session's output goes: batched, into the log and the recording
@@ -760,6 +767,20 @@ mod tests {
             "once attached, output belongs to the event stream"
         );
         assert!(a.take().is_empty(), "and is not also buffered");
+    }
+
+    #[test]
+    fn a_terminal_changing_windows_misses_nothing() {
+        let mut a = Attach::default();
+        a.take();
+        assert!(!a.hold(b"seen by the old window"));
+
+        a.release();
+        assert!(a.hold(b"printed "), "between the two terminals");
+        assert!(a.hold(b"during the move"));
+
+        assert_eq!(a.take(), b"printed during the move", "in order, for the new one");
+        assert!(!a.hold(b"live again"));
     }
 
     #[test]

@@ -69,6 +69,12 @@ export interface SessionsSlice {
    * keys, pastes and codeprints all take.
    */
   sendInput: (tabId: string, bytes: number[]) => void;
+  /**
+   * Marks a tab as shown in a window of its own, or back in this one. A tab
+   * going out leaves any split, since its terminal is no longer here to sit
+   * in one.
+   */
+  setDetached: (tabId: string, detached: boolean) => void;
 }
 
 export const createSessionsSlice: Slice<SessionsSlice> = (set, get) => ({
@@ -236,4 +242,12 @@ export const createSessionsSlice: Slice<SessionsSlice> = (set, get) => ({
       ipc.sshSendInput(sid, bytes).catch(() => {});
     }
   },
+
+  setDetached: (tabId, detached) =>
+    set((s) => ({
+      sessions: s.sessions.map((t) => (t.tab_id === tabId ? { ...t, detached: detached || undefined } : t)),
+      ...(detached && s.splitGroup.includes(tabId)
+        ? { splitGroup: pruneSplit(s.splitGroup, tabId), splitWidths: [] }
+        : null),
+    })),
 });

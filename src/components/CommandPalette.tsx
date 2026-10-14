@@ -15,6 +15,10 @@ interface Props {
   onLock: () => void;
   /** The active tab's scrollback, copied or written to a file; App owns both. */
   onTranscript: (tabId: string, to: 'clipboard' | 'file') => void;
+  /** Moves a tab into a window of its own. */
+  onDetach: (tabId: string) => void;
+  /** Brings a detached tab's window to the front. */
+  onShowWindow: (tabId: string) => void;
 }
 
 // SFTP is not here: the panel and the hosts that open in it share a
@@ -47,7 +51,7 @@ const SETTINGS_SECTIONS: { id: SettingsSection; label: string }[] = [
  * is something the app could already do somewhere else; what it saves is
  * knowing where that somewhere is.
  */
-export default function CommandPalette({ onClose, onCodeprint, onAddHost, onLock, onTranscript }: Props) {
+export default function CommandPalette({ onClose, onCodeprint, onAddHost, onLock, onTranscript, onDetach, onShowWindow }: Props) {
   const {
     servers, sessions, activeTabId, codeprints, setActiveTab, openSession, openInSftp,
     removeSession, toggleBroadcast, toggleLogging, toggleRecording, openLocalShell, checkForUpdates, openSettings,
@@ -164,20 +168,40 @@ export default function CommandPalette({ onClose, onCodeprint, onAddHost, onLock
           run: done(() => { void toggleRecording(active.tab_id); }),
         });
       }
-      items.push({
-        id: 'action:transcript-copy',
-        title: 'Copy this tab as text',
-        subtitle: tabLabel(active),
-        group: 'Actions',
-        run: done(() => onTranscript(active.tab_id, 'clipboard')),
-      });
-      items.push({
-        id: 'action:transcript-save',
-        title: 'Save this tab as a text file',
-        subtitle: tabLabel(active),
-        group: 'Actions',
-        run: done(() => onTranscript(active.tab_id, 'file')),
-      });
+      // The screen to copy is in the other window while the tab is out.
+      if (!active.detached) {
+        items.push({
+          id: 'action:transcript-copy',
+          title: 'Copy this tab as text',
+          subtitle: tabLabel(active),
+          group: 'Actions',
+          run: done(() => onTranscript(active.tab_id, 'clipboard')),
+        });
+        items.push({
+          id: 'action:transcript-save',
+          title: 'Save this tab as a text file',
+          subtitle: tabLabel(active),
+          group: 'Actions',
+          run: done(() => onTranscript(active.tab_id, 'file')),
+        });
+      }
+      if (active.detached) {
+        items.push({
+          id: 'action:show-window',
+          title: "Show this tab's window",
+          subtitle: tabLabel(active),
+          group: 'Actions',
+          run: done(() => onShowWindow(active.tab_id)),
+        });
+      } else if (active.status === 'connected' && active.session_id) {
+        items.push({
+          id: 'action:detach',
+          title: 'Move this tab to a new window',
+          subtitle: tabLabel(active),
+          group: 'Actions',
+          run: done(() => onDetach(active.tab_id)),
+        });
+      }
       items.push({
         id: 'action:close',
         title: 'Close this tab',

@@ -597,6 +597,11 @@ export interface SessionTab {
   ended_with?: number;
   /** The recording this tab's output is going to, while one is. */
   recording?: string;
+  /**
+   * Shown in a window of its own rather than in the strip's terminal area.
+   * The tab stays here, and this window still owns its session.
+   */
+  detached?: boolean;
   connect_id?: string;
   error?: string;
   logs?: LogEntry[];

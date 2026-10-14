@@ -13,7 +13,7 @@ import { listen } from '@tauri-apps/api/event';
 import { useAppStore } from '../store/appStore';
 import { parseMark } from '../activity';
 import { useHint } from './shared/useHint';
-import { registerTerminal, unregisterTerminal } from '../terminalRegistry';
+import { registerTerminal, takeScreen, unregisterTerminal } from '../terminalRegistry';
 import { attachHighlighter, type HighlightState, type Highlighter } from '../terminalHighlighter';
 import { HIGHLIGHT_COLORS, compileRules } from '../highlight';
 import { attachCommandTracker, type CommandTracker } from '../terminalCommands';
@@ -334,6 +334,12 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
 
     term.open(container);
     fitAddon.fit();
+
+    // A tab arriving from another window brings what it showed there. Written
+    // before the session is bound below, so the screen comes first and what
+    // was printed during the move follows it.
+    const screen = takeScreen(tabId);
+    if (screen) term.write(screen);
 
     termRef.current = term;
     fitRef.current = fitAddon;

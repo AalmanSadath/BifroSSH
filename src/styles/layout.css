@@ -607,3 +607,66 @@
   opacity: 0.5;
   font-size: 12px;
 }
+
+/* ── Detached tabs ─────────────────────────────────────────── */
+
+/* A tab whose terminal is in a window of its own: still in the strip, but
+   quieter, since what it shows is elsewhere. */
+.tab-detached {
+  opacity: 0.7;
+}
+
+.tab-detached-mark {
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1;
+  margin-right: 4px;
+  flex-shrink: 0;
+}
+
+/* What the main window shows in the place of a detached tab's terminal. */
+.term-detached {
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.term-detached-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* A tab's own window: a thin bar over the terminal, and nothing else. */
+.detached-window {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.detached-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 8px;
+  font-size: 12px;
+  background: var(--bg-dark);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.detached-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-right: 6px;
+}
+
+.detached-spacer {
+  flex: 1;
+}
