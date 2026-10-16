@@ -85,6 +85,26 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.16.1" date="2026-10-17">
+      <description>
+        <p>
+          A terminal tab can move into a window of its own, from its
+          right-click menu or the command palette, and come back with its
+          scrollback intact; closing that window returns it too.
+        </p>
+        <p>
+          Hosts can be set to forward X11, the same as ssh -X, so graphical
+          programs started there open their windows here. The server is given
+          a cookie made for the session rather than the real one. It is off
+          unless turned on for a host, and on Windows needs an X server such
+          as VcXsrv running.
+        </p>
+        <p>
+          Ctrl+wheel now zooms a terminal wherever its scrollback is, and the
+          arrow keys in the SFTP list reach the parent folder row.
+        </p>
+      </description>
+    </release>
     <release version="0.16.0" date="2026-09-30">
       <description>
         <p>
