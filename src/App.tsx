@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import * as ipc from './ipc';
-import { listen } from '@tauri-apps/api/event';
-import { useAppStore, resolveAccent, resolveAppTheme } from './store/appStore';
-import { accentTokens } from './styles/accent';
+import { emitTo, listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { useAppStore } from './store/appStore';
+import { useAppChrome } from './useAppChrome';
+import { detachTab, mirrorOf, runDetachedAction, takeBack, windowLabel, type DetachedAction } from './detach';
 import { setLocalPlatform } from './paths';
 import { useIdleLock } from './hooks/useIdleLock';
-import type { AuthPromptEvent, Codeprint, HostKeyPromptEvent, SessionTab, SystemAppearance, TunnelClosed, VaultStatus } from './types';
+import type { AuthPromptEvent, Codeprint, HostKeyPromptEvent, SessionTab, TunnelClosed, VaultStatus } from './types';
 import { fill } from './snippets';
 import { zoomPercent } from './zoom';
 import { activityChip, anyBusy } from './activity';
@@ -33,7 +35,7 @@ import KeychainPanel from './components/KeychainPanel';
 import KnownHostsPanel from './components/KnownHostsPanel';
 import SettingsPanel from './components/SettingsPanel';
 import ThemeEditorPanel from './components/ThemeEditorPanel';
-import SftpPanel from './components/SftpPanel';
+import SftpPanel from './components/sftp/SftpPanel';
 import ServerForm from './components/ServerForm';
 import TerminalSidebar from './components/TerminalSidebar';
 import ContainersPanel from './components/ContainersPanel';
@@ -49,11 +51,10 @@ export default function App() {
     loadAll, loadError, actionError, setActionError, sessions, activeTabId, setActiveTab, removeSession,
     renameSession, toggleBroadcast, openInSftp, sendInput, toggleLogging, toggleRecording, savedRecording, setSavedRecording, playRecording, openLocalShell, splitGroup, splitWith, unsplit, openSession, quickConnect, servers, settings, keys,
     zoomSession, resetZoom, sessionZoom, splitWidths, setSplitWidths, sessionActivity,
-    systemAppearance, setSystemAppearance, clearForLock,
+    clearForLock,
   } = useAppStore();
 
-  const resolvedTheme = resolveAppTheme(settings.app_theme, systemAppearance);
-  const accent = resolveAccent(settings, systemAppearance);
+  const chrome = useAppChrome();
 
   // 'new' is the Add Host drawer: no record to find, so the form opens empty.
   const [editServerId, setEditServerId] = useState<string | null>(null);
@@ -72,6 +73,7 @@ export default function App() {
   const startDrag = useDragResize();
   const hint = useHint();
   const activeIsSession = sessions.some((s) => s.tab_id === activeTabId);
+  const activeDetached = sessions.some((s) => s.tab_id === activeTabId && s.detached);
 
   // A running command's chip counts up, so the strip re-renders while
   // anything is running and stops the moment nothing is. Nothing ticks on an
@@ -230,63 +232,46 @@ export default function App() {
     ipc.platform().then(setLocalPlatform).catch(() => {});
   }, []);
 
-  // Asked once at startup, then followed: the system reports a desktop that
-  // changes its mind, so a theme set to system switches without a restart.
+  // A tab's window has gone, however it went: its tab comes back here.
   useEffect(() => {
-    ipc.systemAppearance().then(setSystemAppearance).catch(() => {});
-    const unlisten = listen<SystemAppearance>(
-      'system-appearance-changed',
-      (e) => setSystemAppearance(e.payload),
-    );
-    return () => { unlisten.then((fn) => fn()); };
-  }, [setSystemAppearance]);
+    const unlisten = listen<string>('detached-gone', (e) => { void takeBack(e.payload); });
+    return () => { unlisten.then((f) => f()); };
+  }, []);
 
+  // What a tab's window asks for that only this one can do.
   useEffect(() => {
-    const body = document.body;
-    body.classList.remove('app-light', 'app-amoled');
-    if (resolvedTheme === 'light') body.classList.add('app-light');
-    else if (resolvedTheme === 'amoled') body.classList.add('app-amoled');
-  }, [resolvedTheme]);
+    const unlisten = listen<DetachedAction>('detached-action', (e) => {
+      runDetachedAction(e.payload);
+      // The SFTP panel is in this window, so this window is where to look.
+      if (e.payload.action === 'openInSftp') getCurrentWindow().setFocus().catch(() => {});
+    });
+    return () => { unlisten.then((f) => f()); };
+  }, []);
 
-  /**
-   * The accent overrides the palette's own, as three properties rather than
-   * one. A colour needs a foreground that stays legible on it and a hover a
-   * shade along, and both were hand-picked per theme against a known accent.
-   *
-   * Written onto the same elements that carry the theme class, not onto
-   * <html>. Custom properties inherit, so the nearest declaration wins, and
-   * the light and amoled palettes redeclare --accent on body and on .app
-   * below it: an override on the root was shadowed by both, which is why only
-   * the dark theme, the one declared on bare :root, appeared to follow.
-   *
-   * Portals render into body rather than into .app, so both need it.
-   */
-  // Memoised on the colour itself: a fresh object each render would restyle
-  // the body on every one.
-  const accentVars = useMemo(() => {
-    const tokens = accent ? accentTokens(accent) : null;
-    return tokens
-      ? ({
-          '--accent': tokens.accent,
-          '--accent-hover': tokens.accentHover,
-          '--on-accent': tokens.onAccent,
-        } as React.CSSProperties)
-      : undefined;
-  }, [accent]);
-
-  useEffect(() => {
-    const { style } = document.body;
-    // Removed rather than set to a default when there is nothing to apply, so
-    // whichever palette is in force goes back to the values it ships with.
-    for (const [name, value] of Object.entries(accentVars ?? {})) {
-      style.setProperty(name, value as string);
+  // Keeps each tab's window drawing what this one would: its tab, the
+  // settings, the hosts and the themes, sent whenever any of them changes.
+  // A tab that has only just gone out is skipped; it took all of this with it.
+  useEffect(() => useAppStore.subscribe((s, prev) => {
+    for (const tab of s.sessions) {
+      if (!tab.detached) continue;
+      const before = prev.sessions.find((t) => t.tab_id === tab.tab_id);
+      if (!before?.detached) continue;
+      const same = before === tab && s.settings === prev.settings && s.servers === prev.servers
+        && s.customThemes === prev.customThemes
+        && s.sessionThemeOverrides[tab.tab_id] === prev.sessionThemeOverrides[tab.tab_id];
+      if (!same) void emitTo(windowLabel(tab.tab_id), 'detached-sync', mirrorOf(s, tab)).catch(() => {});
     }
-    if (!accentVars) {
-      for (const name of ['--accent', '--accent-hover', '--on-accent']) {
-        style.removeProperty(name);
-      }
-    }
-  }, [accentVars]);
+  }), []);
+
+  /** Moves a tab into a window of its own; the banner says why when it could not. */
+  function moveToWindow(tabId: string) {
+    detachTab(tabId).catch((e) => setActionError(`Could not move the tab to a new window: ${String(e)}`));
+  }
+
+  /** Asks a tab's window to give its tab back, the same as closing it. */
+  function bringBack(tabId: string) {
+    void emitTo(windowLabel(tabId), 'detached-reattach', tabId).catch(() => {});
+  }
 
   function handleCloseTab(tabId: string, e: React.MouseEvent) {
     e.stopPropagation();
@@ -474,10 +459,7 @@ export default function App() {
   // is all there is.
   if (vault.error || vault.setup_required || (vault.locked && sessions.length === 0)) {
     return (
-      <div
-        className={`app${resolvedTheme === 'light' ? ' app-light' : resolvedTheme === 'amoled' ? ' app-amoled' : ''}`}
-        style={accentVars}
-      >
+      <div className={chrome.className} style={chrome.style}>
         {vault.setup_required ? (
           <FirstRunSetup keyringAvailable={vault.keyring_available} onReady={opened} />
         ) : (
@@ -488,10 +470,7 @@ export default function App() {
   }
 
   return (
-    <div
-      className={`app${resolvedTheme === 'light' ? ' app-light' : resolvedTheme === 'amoled' ? ' app-amoled' : ''}`}
-      style={accentVars}
-    >
+    <div className={chrome.className} style={chrome.style}>
       {/* A lock with sessions open covers the app rather than replacing it,
           so the terminals stay mounted: unmounting one disposes its xterm and
           the scrollback with it, and drops its output listener, so nothing
@@ -579,7 +558,7 @@ export default function App() {
           {sessions.map((s) => (
               <div
                 key={s.tab_id}
-                className={`tab ${activeTabId === s.tab_id ? 'tab-active' : ''}`}
+                className={`tab ${activeTabId === s.tab_id ? 'tab-active' : ''}${s.detached ? ' tab-detached' : ''}`}
                 onClick={() => setActiveTab(s.tab_id)}
                 onContextMenu={(e) => handleTabContextMenu(e, s)}
                 draggable
@@ -588,6 +567,7 @@ export default function App() {
                   e.dataTransfer.effectAllowed = 'move';
                 }}
               >
+                {s.detached && <span className="tab-detached-mark" title={hint('In a window of its own')}>↗</span>}
                 {splitGroup.includes(s.tab_id) && <span className="tab-split" title={hint('Shown in a split')}>⊟</span>}
                 {s.logging === 'tab' && <span className="tab-logging" title={hint('Output is being logged to a file')}>●</span>}
                 {s.container?.sudo && <span className="tab-sudo" title="Running as root with sudo">SUDO</span>}
@@ -628,7 +608,7 @@ export default function App() {
                 <button className="tab-close" onClick={(e) => handleCloseTab(s.tab_id, e)}>&#10005;</button>
               </div>
             ))}
-            {sessions.some((s) => s.tab_id === activeTabId) && (
+            {activeIsSession && !activeDetached && (
               <button
                 className={`tab-sidebar-toggle${termSidebarOpen ? ' active' : ''}`}
                 onClick={() => setTermSidebarOpen((v) => !v)}
@@ -676,15 +656,33 @@ export default function App() {
                 id: '', name: s.server_name, host: 'this computer', port: 0,
                 identity_id: null, theme: null, connection_timeout: null, os: 'local',
                 username: null, encrypted_password: null, key_id: null,
-                auth_kind: null, proxy_jump: null, proxy_command: null, forward_agent: false, log_sessions: false, group: null, run_on_connect: null, hide_run_on_connect: true, notes: null, term: null, env: null, monitor: null, tags: [],
+                auth_kind: null, proxy_jump: null, proxy_command: null, forward_agent: false, forward_x11: false, log_sessions: false, group: null, run_on_connect: null, hide_run_on_connect: true, notes: null, term: null, env: null, monitor: null, tags: [],
               } : undefined)
               ?? (s.quick_info ? {
                 id: '', name: s.server_name,
                 host: s.quick_info.host, port: s.quick_info.port,
                 identity_id: null, theme: null, connection_timeout: null, os: '',
                 username: s.quick_info.username, encrypted_password: null, key_id: null,
-                auth_kind: null, proxy_jump: null, proxy_command: null, forward_agent: false, log_sessions: false, group: null, run_on_connect: null, hide_run_on_connect: true, notes: null, term: null, env: null, monitor: null, tags: [],
+                auth_kind: null, proxy_jump: null, proxy_command: null, forward_agent: false, forward_x11: false, log_sessions: false, group: null, run_on_connect: null, hide_run_on_connect: true, notes: null, term: null, env: null, monitor: null, tags: [],
               } : undefined);
+
+            if (s.detached) {
+              // The terminal is in its own window. The tab stays here, so it
+              // can be found, closed, or brought back.
+              return (
+                <div key={s.tab_id} className="term-detached" style={{ display: visible ? 'flex' : 'none' }}>
+                  <p>{tabLabel(s)} is in a window of its own.</p>
+                  <div className="term-detached-actions">
+                    <button className="btn-primary btn-sm" onClick={() => { ipc.windowFocus(s.tab_id).catch(() => {}); }}>
+                      Show window
+                    </button>
+                    <button className="btn-secondary btn-sm" onClick={() => bringBack(s.tab_id)}>
+                      Bring back here
+                    </button>
+                  </div>
+                </div>
+              );
+            }
 
             if (s.status === 'connecting' || s.status === 'error') {
               if (!server) return null;
@@ -737,7 +735,7 @@ export default function App() {
           {activeTabId === 'settings' && <SettingsPanel />}
           {activeTabId === 'theme-editor' && <ThemeEditorPanel />}
           </div>
-          {termSidebarOpen && sessions.some((s) => s.tab_id === activeTabId) && (
+          {termSidebarOpen && activeIsSession && !activeDetached && (
             <TerminalSidebar activeSessionId={activeTabId} />
           )}
         </div>
@@ -751,6 +749,8 @@ export default function App() {
           onCodeprint={setSnippet}
           onAddHost={() => { setActiveTab('hosts'); setEditServerId('new'); }}
           onLock={() => { void lockNow(); }}
+          onDetach={moveToWindow}
+          onShowWindow={(tabId) => { ipc.windowFocus(tabId).catch(() => {}); }}
           onTranscript={(tabId, to) => {
             const session = sessions.find((t) => t.tab_id === tabId);
             if (!session) return;
@@ -888,13 +888,36 @@ export default function App() {
                 {tabCtx.session.recording ? 'Stop recording' : 'Record session'}
               </button>
               {/* Logging starts at connect; this is what is already on
-                  screen, scrollback included. */}
-              <button className="menu-item" onClick={() => { void transcript.copy(tabCtx.session); setTabCtx(null); }}>
-                Copy transcript
-              </button>
-              <button className="menu-item" onClick={() => { void transcript.save(tabCtx.session); setTabCtx(null); }}>
-                Save transcript…
-              </button>
+                  screen, scrollback included. That screen is in the other
+                  window while the tab is out. */}
+              {!tabCtx.session.detached && (
+                <>
+                  <button className="menu-item" onClick={() => { void transcript.copy(tabCtx.session); setTabCtx(null); }}>
+                    Copy transcript
+                  </button>
+                  <button className="menu-item" onClick={() => { void transcript.save(tabCtx.session); setTabCtx(null); }}>
+                    Save transcript…
+                  </button>
+                </>
+              )}
+              {tabCtx.session.detached ? (
+                <>
+                  <button className="menu-item" onClick={() => { ipc.windowFocus(tabCtx.session.tab_id).catch(() => {}); setTabCtx(null); }}>
+                    Show its window
+                  </button>
+                  <button className="menu-item" onClick={() => { bringBack(tabCtx.session.tab_id); setTabCtx(null); }}>
+                    Bring back to this window
+                  </button>
+                </>
+              ) : (
+                <button
+                  className="menu-item"
+                  disabled={tabCtx.session.status !== 'connected' || !tabCtx.session.session_id}
+                  onClick={() => { moveToWindow(tabCtx.session.tab_id); setTabCtx(null); }}
+                >
+                  Move to new window
+                </button>
+              )}
               {splitGroup.includes(tabCtx.session.tab_id) && (
                 <button className="menu-item" onClick={() => { unsplit(tabCtx.session.tab_id); setTabCtx(null); }}>
                   Remove from split

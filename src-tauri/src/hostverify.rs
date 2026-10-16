@@ -298,19 +298,24 @@ struct KeyOffer {
 
 /// The single `client::Handler` used by every connect path in the app.
 ///
-/// Host key verification for every connection, and agent forwarding for the
-/// one kind that asked for it: a terminal session on a host with the box
-/// ticked. Everything else, jump hops, SFTP and tunnels included, is built
-/// with forwarding disallowed and closes any agent channel the far side
-/// opens.
+/// Host key verification for every connection, and agent and X11
+/// forwarding for the one kind that asked for them: a terminal session on a
+/// host with the box ticked. Everything else, jump hops, SFTP and tunnels
+/// included, is built with forwarding disallowed and closes any agent or X11
+/// channel the far side opens.
 pub struct VerifyingHandler {
     pub v: HostKeyVerifier,
     pub agent: crate::agent_forward::AgentForwarding,
+    pub x11: crate::x11_forward::X11Forwarding,
 }
 
 impl VerifyingHandler {
     pub fn new(v: HostKeyVerifier) -> Self {
-        VerifyingHandler { v, agent: crate::agent_forward::AgentForwarding::disallowed() }
+        VerifyingHandler {
+            v,
+            agent: crate::agent_forward::AgentForwarding::disallowed(),
+            x11: crate::x11_forward::X11Forwarding::disallowed(),
+        }
     }
 }
 
@@ -331,6 +336,18 @@ impl client::Handler for VerifyingHandler {
         Ok(())
     }
 
+    async fn server_channel_open_x11(
+        &mut self,
+        channel: Channel<Msg>,
+        _originator_address: &str,
+        _originator_port: u32,
+        reply: ChannelOpenHandle,
+        _session: &mut client::Session,
+    ) -> Result<(), Self::Error> {
+        self.x11.open(channel, reply).await;
+        Ok(())
+    }
+
     async fn server_channel_open_forwarded_tcpip(
         &mut self,
         _channel: Channel<Msg>,
@@ -348,12 +365,16 @@ impl client::Handler for VerifyingHandler {
 }
 
 /// The `client::Handler` methods that turn down channels a server opens on
-/// its own: a session, a direct-tcpip, an X11 and a streamlocal channel.
+/// its own: a session, a direct-tcpip and a streamlocal channel.
 ///
 /// russh accepts every channel a server opens unless the handler says
 /// otherwise, and none of these is ever asked for, so each is refused rather
 /// than left open with nothing reading it. A macro because each handler has
 /// to spell the methods out in its own impl.
+///
+/// X11 is not here: one handler answers it and the other refuses it, so each
+/// says which in its own impl. A new handler has to say too, since russh's
+/// default accepts the channel.
 #[macro_export]
 macro_rules! refuse_unasked_channels {
     () => {
@@ -371,17 +392,6 @@ macro_rules! refuse_unasked_channels {
             _channel: russh::Channel<russh::client::Msg>,
             _host_to_connect: &str,
             _port_to_connect: u32,
-            _originator_address: &str,
-            _originator_port: u32,
-            reply: russh::client::ChannelOpenHandle,
-            _session: &mut russh::client::Session,
-        ) -> Result<(), Self::Error> {
-            $crate::hostverify::refuse(reply).await
-        }
-
-        async fn server_channel_open_x11(
-            &mut self,
-            _channel: russh::Channel<russh::client::Msg>,
             _originator_address: &str,
             _originator_port: u32,
             reply: russh::client::ChannelOpenHandle,

@@ -1,5 +1,5 @@
-import { countOf, shownPath, type Mismatch } from '../mismatches';
-import SftpDialog from './shared/SftpDialog';
+import { countOf, shownPath, type Mismatch } from '../../mismatches';
+import SftpDialog from '../shared/SftpDialog';
 
 /** How many names are listed before "and N more". */
 const SHOWN = 6;

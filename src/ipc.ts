@@ -354,6 +354,14 @@ export const sshResize = (sessionId: string, cols: number, rows: number) =>
 export const sshAttach = (sessionId: string) =>
   invoke<string>('ssh_attach', { sessionId });
 
+/**
+ * Holds the session's output until the next `sshAttach`, for a terminal
+ * moving between windows. `ssh-held:<id>` follows once it is holding; false
+ * means the session has already gone and nothing will.
+ */
+export const sshHold = (sessionId: string) =>
+  invoke<boolean>('ssh_hold', { sessionId });
+
 export const sshDisconnect = (sessionId: string) =>
   invoke<void>('ssh_disconnect', { sessionId });
 
@@ -620,3 +628,21 @@ export const tunnelStart = (args: {
 }) => invoke<void>('tunnel_start', args);
 
 export const tunnelStop = (pfId: string) => invoke<void>('tunnel_stop', { pfId });
+
+// ── detached tabs ────────────────────────────────────────────────────────
+
+/** Opens a window for one terminal tab, leaving `payload` for it to collect. */
+export const windowDetach = (tabId: string, title: string, payload: string) =>
+  invoke<void>('window_detach', { tabId, title, payload });
+
+/** What was left for this tab's next window, once; null when nothing was. */
+export const windowTake = (tabId: string) =>
+  invoke<string | null>('window_take', { tabId });
+
+/** Leaves `payload` for whoever takes this tab next. */
+export const windowStash = (tabId: string, payload: string) =>
+  invoke<void>('window_stash', { tabId, payload });
+
+/** Brings a tab's window to the front. */
+export const windowFocus = (tabId: string) =>
+  invoke<void>('window_focus', { tabId });

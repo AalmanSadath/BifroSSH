@@ -116,7 +116,7 @@ pub async fn import_ssh_config_hosts(
                 .proxy_command
                 .clone()
                 .filter(|c| !c.eq_ignore_ascii_case("none") && entry.proxy_jump.is_none()),
-            forward_agent: false, log_sessions: false, group: None, run_on_connect: None, hide_run_on_connect: true, notes: None, term: None, env: None, monitor: None, tags: Vec::new(),
+            forward_agent: false, forward_x11: false, log_sessions: false, group: None, run_on_connect: None, hide_run_on_connect: true, notes: None, term: None, env: None, monitor: None, tags: Vec::new(),
         });
         result.imported += 1;
     }

@@ -69,6 +69,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
   const [proxyJump, setProxyJump] = useState(server?.proxy_jump ?? '');
   const [proxyCommand, setProxyCommand] = useState(server?.proxy_command ?? '');
   const [forwardAgent, setForwardAgent] = useState(server?.forward_agent ?? false);
+  const [forwardX11, setForwardX11] = useState(server?.forward_x11 ?? false);
   const [logSessions, setLogSessions] = useState(server?.log_sessions ?? false);
   const [group, setGroup] = useState(server?.group ?? '');
   const [tags, setTags] = useState<string[]>(server?.tags ?? []);
@@ -145,6 +146,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
           // through it, and its own command would never run.
           proxy_command: proxyJump ? null : proxyCommand.trim() || null,
           forward_agent: forwardAgent,
+          forward_x11: forwardX11,
           log_sessions: logSessions,
           group: group.trim() || null,
           run_on_connect: runOnConnect.trim() || null,
@@ -385,6 +387,17 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
               onChange={(e) => setForwardAgent(e.target.checked)}
             />
             <span>Forward ssh-agent to this host</span>
+          </label>
+          <label
+            className="checkbox-row"
+            title={hint("The same as ssh -X. Programs on this host can open windows here, and while the session is open they can also read this display's keyboard and screen. The host needs X11Forwarding yes and xauth installed.")}
+          >
+            <input
+              type="checkbox"
+              checked={forwardX11}
+              onChange={(e) => setForwardX11(e.target.checked)}
+            />
+            <span>Forward X11 to this host</span>
           </label>
           <label
             className="checkbox-row"
