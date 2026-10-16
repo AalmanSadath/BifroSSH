@@ -62,6 +62,11 @@ export interface Server {
    * local agent's keys, and so can anyone with root there. Off by default.
    */
   forward_agent: boolean;
+  /**
+   * ssh's -X. While a session is open, programs on this host can open
+   * windows here, and read this display's keyboard and screen. Off by default.
+   */
+  forward_x11: boolean;
   /** Every session to this host is logged to a file from its first byte. */
   log_sessions: boolean;
   /** Hosts are sectioned by this on the hosts page. Null or empty: no group. */

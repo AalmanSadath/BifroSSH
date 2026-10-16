@@ -148,6 +148,11 @@ pub struct Server {
     /// the user turned it on for this host.
     #[serde(default)]
     pub forward_agent: bool,
+    /// ssh's -X. While a session to this host is open, programs there can
+    /// open windows here, and like any X client can read the keyboard and
+    /// the screen of this display. Off unless the user turned it on.
+    #[serde(default)]
+    pub forward_x11: bool,
     /// Every session to this host is written to a log file from its
     /// first byte. Off by default.
     #[serde(default)]

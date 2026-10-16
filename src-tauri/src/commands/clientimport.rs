@@ -139,6 +139,7 @@ pub async fn import_client_hosts(
             proxy_jump: None,
             proxy_command: None,
             forward_agent: false,
+            forward_x11: false,
             log_sessions: false,
             group: host.group.clone(),
             run_on_connect: None,

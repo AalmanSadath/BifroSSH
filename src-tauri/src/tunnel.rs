@@ -4,7 +4,7 @@ use std::time::Duration;
 use anyhow::{anyhow, Result};
 use russh::*;
 use russh::client::{self, Msg};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{oneshot, Mutex};
 
@@ -123,7 +123,7 @@ impl client::Handler for RemoteForwardHandler {
             match TcpStream::connect(format!("{}:{}", dh, dp)).await {
                 Ok(stream) => {
                     reply.accept().await;
-                    proxy_tcp_channel(stream, channel).await;
+                    proxy_channel(stream, channel).await;
                 }
                 Err(_) => reply.reject(russh::ChannelOpenFailure::ConnectFailed).await,
             }
@@ -135,6 +135,18 @@ impl client::Handler for RemoteForwardHandler {
     async fn server_channel_open_agent_forward(
         &mut self,
         _channel: Channel<Msg>,
+        reply: client::ChannelOpenHandle,
+        _session: &mut client::Session,
+    ) -> Result<(), Self::Error> {
+        crate::hostverify::refuse(reply).await
+    }
+
+    /// Nor X11.
+    async fn server_channel_open_x11(
+        &mut self,
+        _channel: Channel<Msg>,
+        _originator_address: &str,
+        _originator_port: u32,
         reply: client::ChannelOpenHandle,
         _session: &mut client::Session,
     ) -> Result<(), Self::Error> {
@@ -203,8 +215,10 @@ where
 
 // ── Proxy ─────────────────────────────────────────────────────────────────────
 
-async fn proxy_tcp_channel(stream: TcpStream, mut channel: Channel<Msg>) {
-    let (mut r, mut w) = stream.into_split();
+/// Relays a channel to a local stream, both ways, until either side is done.
+/// A TCP connection for a tunnel; X11 forwarding hands it a display's socket.
+pub(crate) async fn proxy_channel<S: AsyncRead + AsyncWrite + Unpin>(stream: S, mut channel: Channel<Msg>) {
+    let (mut r, mut w) = tokio::io::split(stream);
     let mut buf = vec![0u8; 32768];
     loop {
         tokio::select! {
@@ -320,7 +334,7 @@ async fn local_tunnel(
                 .channel_open_direct_tcpip(&dest_host, dest_port, "127.0.0.1", 0)
                 .await;
             if let Ok(ch) = ch {
-                proxy_tcp_channel(stream, ch).await;
+                proxy_channel(stream, ch).await;
             }
         }
     })
@@ -390,7 +404,7 @@ async fn dynamic_tunnel(
             return;
         }
         if let Ok(ch) = ch {
-            proxy_tcp_channel(stream, ch).await;
+            proxy_channel(stream, ch).await;
         }
     })
     .await

@@ -15,8 +15,12 @@ finish-args:
   - --share=ipc
   # Wayland display (preferred)
   - --socket=wayland
-  # X11 fallback
-  - --socket=fallback-x11
+  # The X server, under Wayland as well as on X11: X11 forwarding relays
+  # the windows of programs on a remote host to it. fallback-x11 grants it
+  # only when there is no Wayland, and on Wayland the sandbox then has no
+  # DISPLAY and no Xauthority, so Xwayland refuses every forwarded window.
+  # The app itself still draws through Wayland.
+  - --socket=x11
   # GPU/DRI for WebKitGTK rendering, and the host's /dev/pts: a local
   # shell tab's terminal must be a host pty, or the shell running on the
   # host cannot name it (tty, GPG_TTY) since the sandbox's own /dev/pts

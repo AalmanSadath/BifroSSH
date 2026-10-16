@@ -281,6 +281,9 @@ pub struct SshConnectParams {
     /// ssh's -A: the remote may use the local agent for as long as the
     /// session lasts. Per host and off by default; see agent_forward.
     pub forward_agent: bool,
+    /// ssh's -X: windows opened on the remote show on the local display.
+    /// Per host and off by default; see x11_forward.
+    pub forward_x11: bool,
     /// A log already open, so the banner and motd are in it too.
     pub log: Option<std::fs::File>,
     /// One line typed into the shell for the user as soon as it is up.
@@ -462,6 +465,14 @@ pub async fn connect_ssh(
     // against a handler that does not allow it gets that channel closed.
     let forward_agent = params.forward_agent;
     let agent_sec = sec.clone();
+    // X11 likewise, with the cookie for this session made now: the handler
+    // checks for it on every channel, and the request below hands it out.
+    let (x11, x11_request) = if params.forward_x11 {
+        let (x11, request) = crate::x11_forward::X11Forwarding::allowed(sec.clone());
+        (x11, Some(request))
+    } else {
+        (crate::x11_forward::X11Forwarding::disallowed(), None)
+    };
     let mut handle = connect_verified(config, transport, verifier, move |v| VerifyingHandler {
         v,
         agent: if forward_agent {
@@ -469,6 +480,7 @@ pub async fn connect_ssh(
         } else {
             crate::agent_forward::AgentForwarding::disallowed()
         },
+        x11,
     })
     .await?;
 
@@ -504,6 +516,19 @@ pub async fn connect_ssh(
         }
         if let Err(e) = channel.agent_forward(true).await {
             emit_log(&app, &connect_id, "error", &format!("Agent forwarding request failed: {e}"));
+        }
+    }
+
+    if let Some(request) = &x11_request {
+        // No reply asked for, as with the variables below: a server that
+        // will not forward X11 leaves DISPLAY unset on its side, which is
+        // where the user will look, and is no reason to fail the connection.
+        emit_log(&app, &connect_id, "network", &request.described);
+        if let Err(e) = channel
+            .request_x11(false, false, crate::x11_forward::PROTOCOL, request.cookie_hex.as_str(), request.screen)
+            .await
+        {
+            emit_log(&app, &connect_id, "error", &format!("X11 forwarding request failed: {e}"));
         }
     }
 

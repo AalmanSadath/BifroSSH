@@ -18,6 +18,7 @@ function server(over: Partial<Server> & { id: string }): Server {
     proxy_jump: null,
     proxy_command: null,
     forward_agent: false,
+    forward_x11: false,
     log_sessions: false,
     group: null,
     run_on_connect: null,

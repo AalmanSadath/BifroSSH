@@ -133,6 +133,8 @@ Windows 10 1803 or later. WebView2 is already present on Windows 11 and on curre
 
 **Port forwarding.** Local (`-L`), remote (`-R`) and dynamic SOCKS5 (`-D`) tunnels, created with a wizard and started from a card. Several can run at once.
 
+**X11 forwarding.** A host can be set to forward X11, the same as `ssh -X`, so graphical programs started there open their windows here. The host needs `X11Forwarding yes` and `xauth` installed. The server is handed a cookie made for the session rather than your real one, but while the session is open a program there can read your display's keyboard and screen like any other X client, so it is off unless you turn it on for that host. On Windows, run an X server such as VcXsrv first.
+
 ![Port forwarding rules](screenshots/PortForwarding.png)
 
 **Codeprints.** Named commands you keep around, pasted into the prompt to edit or run outright, shared across every session.

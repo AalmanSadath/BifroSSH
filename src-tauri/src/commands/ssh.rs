@@ -125,6 +125,7 @@ struct Saved {
     port: u16,
     prep: Prepared,
     forward_agent: bool,
+    forward_x11: bool,
     log_to: Option<Option<String>>,
     label: String,
     run_on_connect: Option<String>,
@@ -161,7 +162,7 @@ pub async fn ssh_connect(
     };
 
     // One lock: the server, and everything the request names, come out together.
-    let Saved { host, port, prep, forward_agent, log_to, label, run_on_connect, hide_run_on_connect, term, env } = {
+    let Saved { host, port, prep, forward_agent, forward_x11, log_to, label, run_on_connect, hide_run_on_connect, term, env } = {
         let data = state.data.lock().await;
         let server = super::records::find_by_id(&data.servers, &request.server_id)
             .ok_or("Server not found")?;
@@ -181,6 +182,7 @@ pub async fn ssh_connect(
             port: server.port,
             prep,
             forward_agent: server.forward_agent,
+            forward_x11: server.forward_x11,
             log_to,
             label: server.name.clone(),
             run_on_connect: server.run_on_connect.clone().filter(|c| !c.trim().is_empty()),
@@ -213,6 +215,7 @@ pub async fn ssh_connect(
         jumps: prep.jumps,
         proxy: prep.proxy,
         forward_agent,
+        forward_x11,
         log,
         // Typed into a login shell, which a container tab does not have.
         run_on_connect: if command.is_some() { None } else { run_on_connect },
@@ -274,6 +277,7 @@ pub async fn ssh_connect_quick(
         proxy: prep.proxy,
         // A quick connection has no host record to have said yes on.
         forward_agent: false,
+        forward_x11: false,
         log: None,
         run_on_connect: None,
         hide_run_on_connect: true,
