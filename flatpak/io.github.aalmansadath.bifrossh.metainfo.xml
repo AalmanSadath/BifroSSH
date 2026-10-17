@@ -9,14 +9,33 @@
     <name>Aalman Sadath</name>
   </developer>
   <description>
-    <p>BifroSSH is a modern SSH client with a full terminal emulator, SFTP file browser, SSH key management, per-server theming, and codeprints for quick command access.</p>
+    <p>
+      BifroSSH keeps terminals, SFTP, tunnels and keys in one window, and
+      encrypts everything it saves, hostnames and jump chains included, under a
+      master key held in the system keyring or behind a passphrase.
+    </p>
+    <p>
+      Host keys are checked before logging in, the same way OpenSSH does it.
+      Keys can stay in ssh-agent and never enter the app, which is how
+      YubiKeys and smartcards work here.
+    </p>
     <ul>
-      <li>Full terminal emulator via xterm.js</li>
-      <li>SFTP file browser with upload, download, and folder navigation</li>
-      <li>SSH key management with encrypted local keychain</li>
-      <li>Multiple sessions in tabs</li>
-      <li>Customisable themes including a built-in theme editor</li>
-      <li>Codeprints: named commands that can be pasted or run in any session</li>
+      <li>Tabbed terminal with search, split panes, broadcast input, and tabs that move into a window of their own</li>
+      <li>Command palette, rebindable shortcuts and suggestions from each host's command history</li>
+      <li>Clickable links and paths, inline images, ZMODEM, keyword highlighting and a host monitor bar</li>
+      <li>SFTP between this computer and a server or between two servers, with resumable transfers, compressed folder copy, folder compare, permissions and edit in place</li>
+      <li>Jump hosts and ProxyCommand, with every hop's host key verified</li>
+      <li>Local, remote and SOCKS port forwarding, started on launch or on connect</li>
+      <li>Key generation and import, including PuTTY keys and OpenSSH certificates</li>
+      <li>ssh-agent, agent forwarding and X11 forwarding</li>
+      <li>Two-factor and keyboard-interactive logins</li>
+      <li>Hosts in groups with tags and notes, imported from ssh config, PuTTY, MobaXterm or Termius</li>
+      <li>Docker and Podman containers on a host: shell, logs, start and stop</li>
+      <li>Session recording with playback, and session logs</li>
+      <li>Codeprints: saved commands with placeholders, pasted or run in any session</li>
+      <li>Themes with an editor for every colour, set per host or per session</li>
+      <li>Encrypted export and import of a whole setup</li>
+      <li>Auto-reconnect, keepalives, and a vault that locks when idle or before sleep</li>
     </ul>
   </description>
   <launchable type="desktop-id">io.github.aalmansadath.bifrossh.desktop</launchable>
