@@ -6,10 +6,19 @@ import { useAppStore, reportFailure } from '../store/appStore';
 import type { HostKeyPolicy, KnownHostEntry } from '../types';
 import ConfirmModal from './shared/ConfirmModal';
 
+// What each does with a server whose key differs from the stored one, as
+// hostverify.rs has it: only Ask offers to replace the key, and only after
+// the user confirms it in the warning.
+const REFUSED = 'A server whose key does not match the one stored here is refused.';
 const POLICIES: { value: HostKeyPolicy; label: string; hint: string }[] = [
-  { value: 'ask', label: 'Ask', hint: 'Prompts you to confirm a server the first time you connect to it.' },
-  { value: 'accept-new', label: 'Accept new', hint: 'Trusts a server the first time you connect, without asking.' },
-  { value: 'strict', label: 'Strict', hint: 'Refuses any server that is not already listed below.' },
+  {
+    value: 'ask',
+    label: 'Ask',
+    hint: 'Prompts you to confirm a server the first time you connect to it. A server whose key does not '
+      + 'match the one stored here gets a warning, and connects only if you confirm replacing the stored key.',
+  },
+  { value: 'accept-new', label: 'Accept new', hint: `Trusts a server the first time you connect, without asking. ${REFUSED}` },
+  { value: 'strict', label: 'Strict', hint: `Refuses any server that is not already listed below. ${REFUSED}` },
 ];
 
 function label(entry: KnownHostEntry) {
@@ -72,10 +81,10 @@ export default function KnownHostsPanel() {
   }
 
   return (
-    <div className="panel">
+    <div className="panel kh-panel">
       <div className="panel-title">Known Hosts</div>
 
-      <section className="panel-section">
+      <section className="panel-section kh-policy">
         <h3>When connecting to a new server</h3>
         <div className="toggle-row">
           {POLICIES.map((p) => (
@@ -90,9 +99,7 @@ export default function KnownHostsPanel() {
           ))}
         </div>
         <p className="form-hint">
-          {POLICIES.find((p) => p.value === settings.host_key_policy)?.hint}{' '}
-          A server whose key does not match the one stored here is always refused, whichever
-          option is selected.
+          {POLICIES.find((p) => p.value === settings.host_key_policy)?.hint}
         </p>
       </section>
 
