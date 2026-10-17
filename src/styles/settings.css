@@ -4,10 +4,17 @@
 
 /* ── Category rail ─────────────────────────────────────────── */
 
-/* Wider than the 680px every other panel is capped at: the rail takes a
-   column of its own, and the controls should not lose one. */
-.settings-panel {
-  max-width: 900px;
+/* Fills the page like the other panels. What fills it is the lists, the
+   shortcut table and the highlight rules; everything else keeps the width a
+   form reads well at, rather than inputs, button groups and hints becoming
+   bars across a wide window. The section header goes with the lists, so
+   Reset all stays above the right-hand end of the shortcut table. */
+.panel.settings-panel {
+  max-width: 100%;
+}
+
+.settings-body .panel-section > :not(.shortcut-group):not(.highlight-rules):not(.panel-section-header) {
+  max-width: 680px;
 }
 
 .settings-layout {

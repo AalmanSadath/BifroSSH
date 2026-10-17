@@ -4,6 +4,18 @@
 
 /* ── Known Hosts panel ─────────────────────────────────────── */
 
+/* A list page like Hosts and Keychain, so it fills the page rather than the
+   narrow column the settings-like panels keep to. The policy choice above it
+   stays that narrow: three buttons stretched across a wide window read as
+   one bar rather than a choice. */
+.panel.kh-panel {
+  max-width: 100%;
+}
+
+.kh-policy {
+  max-width: 680px;
+}
+
 .kh-count {
   font-size: 11px;
   font-weight: 500;
@@ -68,9 +80,13 @@
   color: var(--text-muted);
 }
 
+/* As wide as the fingerprint rather than the row, so every row's box is the
+   same width whatever the key type beside it, and a wide page does not
+   stretch them into bars. */
 .kh-fp {
   display: block;
-  width: 100%;
+  width: fit-content;
+  max-width: 100%;
   text-align: left;
   font-size: 11px;
   padding: 4px 7px;

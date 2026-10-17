@@ -397,14 +397,27 @@
 .host-probe-ok { color: var(--success); }
 .host-probe-bad { color: var(--danger); }
 
-/* Tags in the name row: small, and never pushing the name out entirely. */
+/* Tags in the name row: small, and giving way before the name does. The
+   shrink weight makes them take all of a narrow card's squeeze until they
+   are gone. Wrapping into a one-line box hides a tag that does not fit
+   whole on a second line, rather than cutting it off part way through. */
 .host-card-tags {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 3px;
-  flex-shrink: 1;
+  flex: 0 1000 auto;
   min-width: 0;
+  height: 16px;
   overflow: hidden;
+}
+
+/* The first item on a line never wraps, so without this the first tag would
+   still be cut. An empty first item lets every real tag wrap away; the
+   negative margin takes back the gap it would add. */
+.host-card-tags::before {
+  content: '';
+  margin-right: -3px;
 }
 
 .host-tag {
