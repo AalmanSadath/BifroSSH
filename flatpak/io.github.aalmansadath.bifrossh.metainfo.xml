@@ -124,6 +124,22 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.16.2" date="2026-10-17">
+      <description>
+        <p>
+          The Known Hosts and Settings pages use the whole window instead of
+          a narrow column, with Settings keeping its controls at a readable
+          width. Tags on a narrow host card are hidden whole rather than cut
+          off, and give way before the host name does.
+        </p>
+        <p>
+          The Known Hosts page now says what each policy does with a server
+          whose key has changed: under Ask it warns and connects only if you
+          confirm replacing the stored key. The screenshots and description
+          here are updated to show the current app.
+        </p>
+      </description>
+    </release>
     <release version="0.16.1" date="2026-10-17">
       <description>
         <p>
