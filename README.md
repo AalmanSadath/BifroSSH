@@ -123,9 +123,13 @@ Windows 10 1803 or later. WebView2 is already present on Windows 11 and on curre
 
 **Tabs and windows.** Any number of sessions in tabs, each independent. Rename a tab, duplicate it, or drag it onto the terminal to show up to four side by side. A tab can move into a window of its own and come back; closing that window brings it back too. Mark tabs for broadcast and what you type goes to all of them at once. A tab's scrollback can be copied or saved as text. A local shell opens in a tab as well: your login shell on Linux, PowerShell on Windows, or whatever program you set. Tabs open at exit reopen and reconnect at the next launch, under the names you gave them, unless that is turned off.
 
+![Two sessions side by side](screenshots/SplitPanes.png)
+
 **Keyboard.** Ctrl+Tab and Ctrl+Shift+Tab (or Ctrl+PageDown and Ctrl+PageUp) move between tabs, Ctrl+1 to Ctrl+8 pick one and Ctrl+9 picks the last. Ctrl+Shift+T duplicates a tab, Ctrl+Shift+W closes it, Ctrl+Shift+N opens a local shell and Ctrl+Shift+B toggles broadcast. Ctrl+Shift+C and Ctrl+Shift+V copy and paste. Every shortcut can be rebound or turned off in Settings, which says when a key is already taken.
 
 **Command palette.** **Ctrl+K** searches open tabs, hosts, SFTP to any host, codeprints, every panel and settings page, and actions such as broadcast, recording, moving a tab to its own window and locking the vault.
+
+![The command palette](screenshots/CommandPalette.png)
 
 **SFTP.** Browse, upload, download, rename and delete, including whole folders in either direction or directly between two remote servers, with per-file progress. A folder can also be copied as one compressed stream rather than file by file; between two servers it never passes through this computer's disk. Two folders can be compared by size and SHA-256 before anything is copied. Change permissions and owner, bookmark folders, or open a remote file in its usual application and have every save uploaded back. A file already at the destination asks whether to overwrite, skip or keep both. A transfer that stops can be resumed from where it got to, and the resumed file is checked against the original afterwards; Settings can have every transfer checked that way, which needs `sha256sum` on the server. Files dragged in from the file manager upload (Linux only), and the lists work from the keyboard, with a filter that starts as you type.
 
@@ -145,7 +149,11 @@ Windows 10 1803 or later. WebView2 is already present on Windows 11 and on curre
 
 **Containers.** Pick a host to list its Docker and Podman containers, start, stop or restart them, and open a shell in one or follow its logs in a tab. With sudo, root's containers are listed too.
 
+![Containers on a host](screenshots/Containers.png)
+
 **Recording and logging.** Record a session as an asciicast and play it back in the app at 1×, 2× or 4× with a seek bar, or in any asciinema player. Or log a session's raw output to a file, from the tab's menu or for every session to a host.
+
+![Playing back a recorded session](screenshots/Recordings.png)
 
 **Codeprints.** Named commands you keep around, pasted into the prompt to edit or run outright, shared across every session. A codeprint can hold `{{name}}` or `{{name:default}}` placeholders, filled in each time it is used.
 

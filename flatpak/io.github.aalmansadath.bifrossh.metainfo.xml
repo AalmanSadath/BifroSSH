@@ -33,7 +33,19 @@
       <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/TerminalSearch.png</image>
     </screenshot>
     <screenshot>
-      <caption>Hosts, with an icon per operating system</caption>
+      <caption>Several sessions side by side</caption>
+      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/SplitPanes.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>The command palette, on Ctrl+K</caption>
+      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/CommandPalette.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>A tab moved into a window of its own</caption>
+      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/DetachedWindow.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Hosts in groups, with tags and an icon per operating system</caption>
       <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/HostList.png</image>
     </screenshot>
     <screenshot>
@@ -49,8 +61,16 @@
       <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/SessionwithCodePrints.png</image>
     </screenshot>
     <screenshot>
+      <caption>Playing back a recorded session</caption>
+      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/Recordings.png</image>
+    </screenshot>
+    <screenshot>
       <caption>Local, remote and SOCKS port forwarding</caption>
       <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/PortForwarding.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Docker and Podman containers on a host</caption>
+      <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/Containers.png</image>
     </screenshot>
     <screenshot>
       <caption>SSH keys and identities</caption>
@@ -65,7 +85,7 @@
       <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/KnownHosts.png</image>
     </screenshot>
     <screenshot>
-      <caption>Editing a host, including its jump host</caption>
+      <caption>Editing a host: group, tags, proxy command and forwarding</caption>
       <image>https://raw.githubusercontent.com/AalmanSadath/BifroSSH/main/screenshots/AddHost.png</image>
     </screenshot>
     <screenshot>
