@@ -7,11 +7,13 @@ import SecuritySection from './settings/SecuritySection';
 import DataSection from './settings/DataSection';
 import AboutSection from './settings/AboutSection';
 import type { SettingsSection } from '../types';
+import { isAndroid } from '../platform';
 
 const CATEGORIES: { id: SettingsSection; label: string }[] = [
   { id: 'appearance', label: 'Appearance' },
   { id: 'terminal', label: 'Terminal' },
-  { id: 'shortcuts', label: 'Shortcuts' },
+  // A touch screen has no keys to bind.
+  ...(isAndroid ? [] : [{ id: 'shortcuts' as const, label: 'Shortcuts' }]),
   { id: 'connection', label: 'Connection' },
   { id: 'security', label: 'Security' },
   { id: 'data', label: 'Data' },

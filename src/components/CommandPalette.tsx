@@ -40,7 +40,7 @@ const PANELS: { id: string; label: string }[] = [
 const SETTINGS_SECTIONS: { id: SettingsSection; label: string }[] = [
   { id: 'appearance', label: 'Appearance' },
   { id: 'terminal', label: 'Terminal' },
-  { id: 'shortcuts', label: 'Keyboard shortcuts' },
+  ...(isAndroid ? [] : [{ id: 'shortcuts' as const, label: 'Keyboard shortcuts' }]),
   { id: 'connection', label: 'Connection' },
   { id: 'security', label: 'Security' },
   { id: 'data', label: 'Backup and transfer' },
