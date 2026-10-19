@@ -1,4 +1,6 @@
 mod agent_forward;
+#[cfg(target_os = "android")]
+mod android;
 mod x11_forward;
 mod appearance;
 mod clipboard;
@@ -188,6 +190,8 @@ fn app_state(profile: Profile) -> AppState {
 /// state is in place, so the page cannot call a command that has none.
 fn start(profile: Option<Profile>) {
     let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(android::init());
     let builder = match profile {
         Some(profile) => builder.manage(app_state(profile)),
         None => builder,

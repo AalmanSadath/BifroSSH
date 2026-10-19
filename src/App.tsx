@@ -47,6 +47,7 @@ import { tabLabel } from './tabName';
 import PortalDropdown from './components/shared/PortalDropdown';
 import { isAndroid } from './platform';
 import { setBackFallback, useBackClose } from './backStack';
+import TerminalKeyBar from './components/TerminalKeyBar';
 
 export default function App() {
   const {
@@ -755,6 +756,7 @@ export default function App() {
             );
           })}
           </div>
+          {isAndroid && activeIsSession && !activeDetached && <TerminalKeyBar />}
 
           {(activeTabId === 'hosts' || activeTabId === null) && <HostsPanel />}
           {activeTabId === 'containers' && <ContainersPanel />}

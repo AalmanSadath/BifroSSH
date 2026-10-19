@@ -25,6 +25,9 @@ import { attachZmodem, toBase64, type TransferProgress, type ZmodemHandle } from
 import { formatSize } from '../transferStatus';
 import type { SessionTab, SshClosed } from '../types';
 import { THEMES } from '../styles/themes';
+import { isAndroid } from '../platform';
+import { applyLatch } from '../keyLatch';
+import { KEYBAR_EVENT, type KeyBarKey } from './TerminalKeyBar';
 import '@xterm/xterm/css/xterm.css';
 
 interface Props {
@@ -68,6 +71,8 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
   const inContainer = !!tab.container;
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
+  // The paste the extra-key bar asks for, which needs the open terminal.
+  const pasteRef = useRef<(() => void) | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const searchRef = useRef<SearchAddon | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -388,14 +393,17 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
         })
         .catch((e) => console.error('Could not read the clipboard', e));
     };
+    pasteRef.current = pasteFromClipboard;
 
     // Right-click pastes, the way a terminal is expected to. main.tsx already
     // suppresses the context menu everywhere, so nothing is being taken away.
     // Capture phase: xterm registers its own contextmenu handler on the
     // element inside this container.
+    // Not on Android, where a long press is the context menu: holding a
+    // finger down to stop a fling would paste. The key bar has Paste.
     const onContextMenu = (ev: MouseEvent) => {
       ev.preventDefault();
-      pasteFromClipboard();
+      if (!isAndroid) pasteFromClipboard();
     };
     container.addEventListener('contextmenu', onContextMenu, true);
 
@@ -466,7 +474,9 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
       return true;
     });
 
-    term.onData((data) => {
+    term.onData((typed) => {
+      // Ctrl or Alt latched on the extra-key bar applies to this.
+      const data = applyLatch(typed);
       // A transfer owns the session while it runs: anything typed would land
       // in the middle of the protocol. Ctrl+C is the way out.
       if (zmodemRef.current?.active()) {
@@ -758,6 +768,33 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabId]);
 
+  // Keys from the extra-key bar, taken by whichever terminal has focus.
+  // Arrows, Home and End follow the cursor key mode the program set, as the
+  // keyboard's own would. Sent through term.input so they pass the same way
+  // as typing: through a latched Ctrl or Alt, broadcast and the rest.
+  useEffect(() => {
+    if (!focused) return;
+    const onKey = (e: Event) => {
+      const term = termRef.current;
+      if (!term) return;
+      const key = (e as CustomEvent<KeyBarKey>).detail;
+      if (key === 'paste') {
+        pasteRef.current?.();
+        return;
+      }
+      const app = term.modes.applicationCursorKeysMode;
+      const csi = (final: string) => (app ? `\x1bO${final}` : `\x1b[${final}`);
+      const seq = typeof key === 'object' ? key.text : {
+        esc: '\x1b', tab: '\t',
+        up: csi('A'), down: csi('B'), right: csi('C'), left: csi('D'),
+        home: csi('H'), end: csi('F'), pgup: '\x1b[5~', pgdn: '\x1b[6~',
+      }[key];
+      term.input(seq, true);
+    };
+    window.addEventListener(KEYBAR_EVENT, onKey);
+    return () => window.removeEventListener(KEYBAR_EVENT, onKey);
+  }, [focused]);
+
   // A finger dragged over the terminal scrolls it, which xterm does not do
   // by itself: it reads only the wheel, and a wheel it did not see from the
   // browser it ignores. So a drag does what xterm does for a wheel: moves
@@ -775,6 +812,11 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
     // Recent finger positions, for the speed it was moving at when it lifted.
     let samples: { y: number; t: number }[] = [];
     let fling = 0;
+    // Two fingers pinch the text bigger or smaller, a step at a time, as
+    // Ctrl+wheel does: the distance between them when the last step was taken.
+    let pinchFrom: number | null = null;
+    const spread = (e: TouchEvent) =>
+      Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
 
     const scrollBy = (px: number) => {
       const term = termRef.current;
@@ -800,11 +842,21 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
 
     const onStart = (e: TouchEvent) => {
       stopFling();
+      pinchFrom = e.touches.length === 2 ? spread(e) : null;
       lastY = e.touches.length === 1 ? e.touches[0].clientY : null;
       pending = 0;
       samples = lastY === null ? [] : [{ y: lastY, t: e.timeStamp }];
     };
     const onMove = (e: TouchEvent) => {
+      if (pinchFrom !== null && e.touches.length === 2) {
+        e.preventDefault();
+        const now = spread(e);
+        if (Math.abs(now / pinchFrom - 1) > 0.15) {
+          zoomSession(tabId, now > pinchFrom ? 1 : -1);
+          pinchFrom = now;
+        }
+        return;
+      }
       if (lastY === null || e.touches.length !== 1) return;
       const y = e.touches[0].clientY;
       e.preventDefault();
@@ -843,7 +895,8 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
       container.removeEventListener('touchend', onEnd);
       container.removeEventListener('touchcancel', onEnd);
     };
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabId]);
 
   // Re-runs as the query or the toggles change, so the count and highlights
   // track what is in the box rather than waiting for Enter.
