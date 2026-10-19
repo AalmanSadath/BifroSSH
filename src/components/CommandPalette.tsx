@@ -4,6 +4,7 @@ import { useAppStore } from '../store/appStore';
 import { bySection, rankCommands, type Command } from '../palette';
 import type { Codeprint, SettingsSection } from '../types';
 import { tabLabel } from '../tabName';
+import { isAndroid } from '../platform';
 
 interface Props {
   onClose: () => void;
@@ -193,7 +194,7 @@ export default function CommandPalette({ onClose, onCodeprint, onAddHost, onLock
           group: 'Actions',
           run: done(() => onShowWindow(active.tab_id)),
         });
-      } else if (active.status === 'connected' && active.session_id) {
+      } else if (active.status === 'connected' && active.session_id && !isAndroid) {
         items.push({
           id: 'action:detach',
           title: 'Move this tab to a new window',
@@ -214,13 +215,15 @@ export default function CommandPalette({ onClose, onCodeprint, onAddHost, onLock
       });
     }
     items.push({ id: 'action:lock', title: 'Lock the vault', group: 'Actions', run: done(onLock) });
-    items.push({
-      id: 'action:local-shell',
-      title: 'Open a local shell',
-      subtitle: 'A shell on this computer, in a tab',
-      group: 'Actions',
-      run: done(() => { void openLocalShell(); }),
-    });
+    if (!isAndroid) {
+      items.push({
+        id: 'action:local-shell',
+        title: 'Open a local shell',
+        subtitle: 'A shell on this computer, in a tab',
+        group: 'Actions',
+        run: done(() => { void openLocalShell(); }),
+      });
+    }
     items.push({
       id: 'action:updates',
       title: 'Check for updates',

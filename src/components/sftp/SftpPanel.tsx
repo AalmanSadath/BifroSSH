@@ -17,6 +17,7 @@ import { useCompare } from './useCompare';
 import { useExternalDrop } from './useExternalDrop';
 import { usePane, type Pane } from './usePane';
 import { useTransferQueue } from './useTransferQueue';
+import { isAndroid } from '../../platform';
 
 const closeConnectionActions = (onClose: () => void) => (
   <>
@@ -217,7 +218,7 @@ export default function SftpPanel() {
         onDelete={pane.removeMany}
         onSetMode={pane.setPerms}
         onMove={pane.moveInto}
-        onOpen={pane.open}
+        onOpen={isAndroid ? undefined : pane.open}
         onLocalBtn={() => pane.setMode('idle')}
         extraActions={closeConnectionActions(
           pane.mode === 'local' ? () => pane.setMode('idle') : pane.disconnect,

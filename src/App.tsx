@@ -45,6 +45,7 @@ import Modal from './components/shared/Modal';
 import PassphraseInput from './components/shared/PassphraseInput';
 import { tabLabel } from './tabName';
 import PortalDropdown from './components/shared/PortalDropdown';
+import { isAndroid } from './platform';
 
 export default function App() {
   const {
@@ -348,7 +349,7 @@ export default function App() {
           else if (current && current.server_id) openSession(current.server_id, undefined, current.container);
           return;
         case 'local-shell':
-          void openLocalShell();
+          if (!isAndroid) void openLocalShell();
           return;
         case 'toggle-broadcast':
           if (current) toggleBroadcast(current.tab_id);
@@ -544,13 +545,13 @@ export default function App() {
           >
             Quick Connect
           </button>
-          <button
+          {!isAndroid && <button
             className="btn-secondary btn-sm quick-local-shell"
             onClick={() => void openLocalShell()}
             title={hint('Open a shell on this computer')}
           >
             <span className="quick-local-shell-glyph">&gt;_</span> Local Shell
-          </button>
+          </button>}
         </div>}
         {/* Always rendered, empty or not. Appearing on the first connect, it
             pushed everything below it down the page. */}
@@ -909,7 +910,7 @@ export default function App() {
                     Bring back to this window
                   </button>
                 </>
-              ) : (
+              ) : !isAndroid && (
                 <button
                   className="menu-item"
                   disabled={tabCtx.session.status !== 'connected' || !tabCtx.session.session_id}

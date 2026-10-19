@@ -10,6 +10,7 @@ import ConfirmModal from './shared/ConfirmModal';
 import ContextMenu from './shared/ContextMenu';
 import FilePickerModal from './FilePickerModal';
 import { cardKeys } from './shared/cardKeys';
+import { isAndroid } from '../platform';
 
 function FolderIcon() {
   return (
@@ -94,14 +95,14 @@ export default function RecordingsPanel() {
           spellCheck={false}
         />
         <button className="btn-secondary btn-sm" onClick={() => setPicking(true)}>Open file…</button>
-        <button
+        {!isAndroid && <button
           className="btn-secondary btn-sm"
           disabled={!dir}
           onClick={() => { if (dir) ipc.sftpOpenLocal(dir).catch(reportFailure); }}
           title={hint(dir ?? '')}
         >
           Open folder
-        </button>
+        </button>}
         <button className="btn-secondary btn-sm" onClick={() => void refresh()}>Refresh</button>
       </div>
 
@@ -137,7 +138,7 @@ export default function RecordingsPanel() {
                     {formatSize(f.size)}
                   </span>
                 </div>
-                <button
+                {!isAndroid && <button
                   type="button"
                   className="recordings-row-btn"
                   onClick={(e) => { e.stopPropagation(); ipc.revealFile(f.path).catch(reportFailure); }}
@@ -145,7 +146,7 @@ export default function RecordingsPanel() {
                   aria-label="Show in folder"
                 >
                   <FolderIcon />
-                </button>
+                </button>}
                 <button
                   type="button"
                   className="recordings-row-btn recordings-row-btn-danger"
@@ -172,12 +173,12 @@ export default function RecordingsPanel() {
       {menu && (
         <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
           <button className="menu-item" onClick={() => { playRecording(menu.file.path); setMenu(null); }}>Play</button>
-          <button
+          {!isAndroid && <button
             className="menu-item"
             onClick={() => { ipc.revealFile(menu.file.path).catch(reportFailure); setMenu(null); }}
           >
             Show in folder
-          </button>
+          </button>}
           <div className="menu-divider" />
           <button className="menu-item menu-item-danger" onClick={() => { setConfirmDelete(menu.file); setMenu(null); }}>
             Delete

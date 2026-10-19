@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAppStore, reportFailure } from '../../store/appStore';
+import { isAndroid } from '../../platform';
 import {
   ACTIONS,
   TERMINAL_ACTIONS,
@@ -114,7 +115,7 @@ export default function ShortcutsSection() {
       {GROUPS.map((group) => (
         <div key={group} className="shortcut-group">
           <div className="shortcut-group-title">{group}</div>
-          {ACTIONS.filter((a) => a.group === group).map((action) => {
+          {ACTIONS.filter((a) => a.group === group && !(isAndroid && a.id === 'local-shell')).map((action) => {
             const chords = map[action.id];
             const shared = chords
               .flatMap((c) => conflicts.get(c) ?? [])

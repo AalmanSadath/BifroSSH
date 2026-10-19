@@ -22,6 +22,7 @@ import PortalDropdown, { PortalMenu, anchorBelow, type AnchorRect } from './shar
 import PassphraseInput from './shared/PassphraseInput';
 import TagInput from './TagInput';
 import { tagNames } from '../hosts';
+import { isAndroid } from '../platform';
 
 interface Props {
   server: Server | null;
@@ -377,6 +378,8 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
               and the group's on top of it put twice the gap below the box that
               there was above it. The tradeoff of ssh -A lives in the tooltip
               and the README rather than under the box. */}
+          {/* Android has no ssh-agent to forward and no X server to draw on. */}
+          {!isAndroid && <>
           <label
             className="checkbox-row"
             title={hint("The same as ssh -A. Anyone with root on this host can use your agent's keys while the session is open.")}
@@ -399,6 +402,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
             />
             <span>Forward X11 to this host</span>
           </label>
+          </>}
           <label
             className="checkbox-row"
             title={hint('Everything the session prints is written to a file in the session logs folder, set in Settings.')}

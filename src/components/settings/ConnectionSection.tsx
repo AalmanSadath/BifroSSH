@@ -3,6 +3,7 @@ import * as ipc from '../../ipc';
 import { useAppStore, reportFailure } from '../../store/appStore';
 import NumberSetting from '../shared/NumberSetting';
 import { usePatch } from './Picker';
+import { isAndroid } from '../../platform';
 
 /** Timeouts, what comes back on its own, and where a session's log goes. */
 export default function ConnectionSection() {
@@ -121,9 +122,9 @@ export default function ConnectionSection() {
               onBlur={() => patch({ session_log_dir: logDirDraft.trim() || null })}
               onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
             />
-            <button className="btn-secondary btn-sm" onClick={() => { if (logDir) ipc.sftpOpenLocal(logDir).catch(reportFailure); }}>
+            {!isAndroid && <button className="btn-secondary btn-sm" onClick={() => { if (logDir) ipc.sftpOpenLocal(logDir).catch(reportFailure); }}>
               Open folder
-            </button>
+            </button>}
           </div>
         </div>
         <p className="form-hint">
@@ -142,9 +143,9 @@ export default function ConnectionSection() {
               onBlur={() => patch({ recording_dir: recDirDraft.trim() || null })}
               onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
             />
-            <button className="btn-secondary btn-sm" onClick={() => { if (recDir) ipc.sftpOpenLocal(recDir).catch(reportFailure); }}>
+            {!isAndroid && <button className="btn-secondary btn-sm" onClick={() => { if (recDir) ipc.sftpOpenLocal(recDir).catch(reportFailure); }}>
               Open folder
-            </button>
+            </button>}
           </div>
         </div>
         <p className="form-hint">
