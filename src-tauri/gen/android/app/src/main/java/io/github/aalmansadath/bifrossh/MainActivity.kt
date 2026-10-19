@@ -2,6 +2,8 @@ package io.github.aalmansadath.bifrossh
 
 import android.os.Bundle
 import android.view.View
+import android.webkit.WebView
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -27,5 +29,23 @@ class MainActivity : TauriActivity() {
       view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
       WindowInsetsCompat.CONSUMED
     }
+  }
+
+  // Back goes to the page first: it closes whatever is open there, or steps
+  // back to the Hosts page (src/backStack.ts). Only when the page has
+  // nothing to undo does Back leave the app. Added after the WebView's own
+  // callback, so it is asked first.
+  override fun onWebViewCreate(webView: WebView) {
+    onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+      override fun handleOnBackPressed() {
+        webView.evaluateJavascript("window.__bifrosshBack ? window.__bifrosshBack() : false") { spent ->
+          if (spent != "true") {
+            isEnabled = false
+            onBackPressedDispatcher.onBackPressed()
+            isEnabled = true
+          }
+        }
+      }
+    })
   }
 }

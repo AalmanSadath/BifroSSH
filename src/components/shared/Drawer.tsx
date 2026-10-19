@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { useBackClose } from '../../backStack';
 
 /**
  * The right-hand slide-over panel, with its backdrop and header.
@@ -20,6 +21,7 @@ export default function Drawer({
   onClose: () => void;
   children: ReactNode;
 }) {
+  useBackClose(onClose);
   return (
     <>
       <div className="drawer-backdrop" onClick={onClose} />

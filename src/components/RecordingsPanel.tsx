@@ -112,7 +112,7 @@ export default function RecordingsPanel() {
             <p className="form-error">{error}</p>
           ) : files.length === 0 ? (
             <p className="list-empty">
-              No recordings yet. Right-click a session tab and choose Record session to make one.
+              No recordings yet. {isAndroid ? 'Long-press' : 'Right-click'} a session tab and choose Record session to make one.
             </p>
           ) : shown.length === 0 ? (
             <p className="list-empty">No recordings match.</p>

@@ -3,6 +3,7 @@ import * as ipc from '../ipc';
 import { localStyle } from '../paths';
 import type { FileEntry } from '../types';
 import Modal from './shared/Modal';
+import { isAndroid } from '../platform';
 
 interface Props {
   /**
@@ -202,7 +203,7 @@ export default function FilePickerModal({
               ]
                 .filter(Boolean)
                 .join(' ')}
-              onClick={() => click(entry)}
+              onClick={() => (isAndroid && entry.is_dir ? activate(entry) : click(entry))}
               onDoubleClick={() => activate(entry)}
             >
               <span className="picker-icon">{entry.is_dir ? '📁' : picked.includes(entry.path) ? '☑' : '📄'}</span>

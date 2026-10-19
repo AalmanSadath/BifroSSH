@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useDismissOnOutside } from './useDismissOnOutside';
+import { useBackClose } from '../../backStack';
 
 /**
  * A menu placed at a point, dismissed by any mousedown outside it.
@@ -27,6 +28,7 @@ export default function ContextMenu({
   onClose: () => void;
   children: ReactNode;
 }) {
+  useBackClose(onClose);
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ top: y, left: x });
 

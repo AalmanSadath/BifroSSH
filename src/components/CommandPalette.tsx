@@ -5,6 +5,7 @@ import { bySection, rankCommands, type Command } from '../palette';
 import type { Codeprint, SettingsSection } from '../types';
 import { tabLabel } from '../tabName';
 import { isAndroid } from '../platform';
+import { useBackClose } from '../backStack';
 
 interface Props {
   onClose: () => void;
@@ -57,6 +58,7 @@ export default function CommandPalette({ onClose, onCodeprint, onAddHost, onLock
     servers, sessions, activeTabId, codeprints, setActiveTab, openSession, openInSftp,
     removeSession, toggleBroadcast, toggleLogging, toggleRecording, openLocalShell, checkForUpdates, openSettings,
   } = useAppStore();
+  useBackClose(onClose);
   const [query, setQuery] = useState('');
   const [cursor, setCursor] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);

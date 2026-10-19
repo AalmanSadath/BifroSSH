@@ -7,6 +7,7 @@ import ContextMenu from './shared/ContextMenu';
 import Drawer from './shared/Drawer';
 import { cardKeys } from './shared/cardKeys';
 import { EditIcon } from './shared/icons';
+import { isAndroid } from '../platform';
 
 type PfType = 'local' | 'remote' | 'dynamic';
 
@@ -805,6 +806,7 @@ export default function PortForwardingPanel() {
                   key={pf.id}
                   className={`pf-card${active ? ' pf-card-active' : ''}`}
                   {...cardKeys(() => handleCardDoubleClick(pf))}
+                  onClick={isAndroid ? () => handleCardDoubleClick(pf) : undefined}
                   onDoubleClick={() => handleCardDoubleClick(pf)}
                   onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, pf }); }}
                   title={hint('Double-click to activate · Right-click for options')}

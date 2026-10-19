@@ -1,5 +1,6 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { useBackClose } from '../../backStack';
 
 export interface AnchorRect {
   top: number;
@@ -83,6 +84,7 @@ export default function PortalDropdown({
   const [rect, setRect] = useState<AnchorRect | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const close = () => setRect(null);
+  useBackClose(rect ? close : undefined);
 
   return (
     <>

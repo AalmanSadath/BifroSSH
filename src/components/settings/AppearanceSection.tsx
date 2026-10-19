@@ -2,6 +2,7 @@ import { useAppStore, resolveAccent } from '../../store/appStore';
 import { ColorPickerField } from '../ColorPicker';
 import { usePatch } from './Picker';
 import type { AppTheme } from '../../types';
+import { isAndroid } from '../../platform';
 
 /** System first: it is the one that defers rather than decides. */
 const APP_THEMES: { value: AppTheme; label: string }[] = [
@@ -71,6 +72,8 @@ export default function AppearanceSection() {
         </p>
       </div>
 
+      {/* Nothing hovers on a touch screen. */}
+      {!isAndroid && <>
       <label className="checkbox-row">
         <input
           type="checkbox"
@@ -80,6 +83,7 @@ export default function AppearanceSection() {
         <span>Show hover hints</span>
       </label>
       <p className="form-hint">Toggles the tooltips that explain what a control does.</p>
+      </>}
     </section>
   );
 }

@@ -758,6 +758,93 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabId]);
 
+  // A finger dragged over the terminal scrolls it, which xterm does not do
+  // by itself: it reads only the wheel, and a wheel it did not see from the
+  // browser it ignores. So a drag does what xterm does for a wheel: moves
+  // through the scrollback in a shell, and in a full-screen program such as
+  // less or vim, which has no scrollback, presses the arrow keys. A tap still
+  // reaches xterm untouched, so it focuses and opens the keyboard.
+  //
+  // A flick carries on after the finger lifts and slows to a stop, as any
+  // other list on the phone does, and a finger put down stops it there.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    let lastY: number | null = null;
+    let pending = 0;
+    // Recent finger positions, for the speed it was moving at when it lifted.
+    let samples: { y: number; t: number }[] = [];
+    let fling = 0;
+
+    const scrollBy = (px: number) => {
+      const term = termRef.current;
+      if (!term) return;
+      pending += px;
+      const rowHeight = container.clientHeight / term.rows;
+      const lines = Math.trunc(pending / rowHeight);
+      if (lines === 0) return;
+      pending -= lines * rowHeight;
+      if (term.buffer.active.type === 'normal') {
+        term.scrollLines(lines);
+      } else {
+        const app = term.modes.applicationCursorKeysMode;
+        const key = lines < 0 ? (app ? '\x1bOA' : '\x1b[A') : (app ? '\x1bOB' : '\x1b[B');
+        term.input(key.repeat(Math.abs(lines)), true);
+      }
+    };
+
+    const stopFling = () => {
+      if (fling) cancelAnimationFrame(fling);
+      fling = 0;
+    };
+
+    const onStart = (e: TouchEvent) => {
+      stopFling();
+      lastY = e.touches.length === 1 ? e.touches[0].clientY : null;
+      pending = 0;
+      samples = lastY === null ? [] : [{ y: lastY, t: e.timeStamp }];
+    };
+    const onMove = (e: TouchEvent) => {
+      if (lastY === null || e.touches.length !== 1) return;
+      const y = e.touches[0].clientY;
+      e.preventDefault();
+      scrollBy(lastY - y);
+      lastY = y;
+      samples.push({ y, t: e.timeStamp });
+      while (samples.length > 2 && e.timeStamp - samples[0].t > 100) samples.shift();
+    };
+    const onEnd = (e: TouchEvent) => {
+      if (lastY === null) return;
+      lastY = null;
+      const first = samples[0];
+      const last = samples[samples.length - 1];
+      // A finger held still before it lifted is a stop, not a flick.
+      if (!first || !last || last.t - first.t < 10 || e.timeStamp - last.t > 80) return;
+      let velocity = (first.y - last.y) / (last.t - first.t); // px per ms
+      let then = performance.now();
+      const step = (now: number) => {
+        const dt = now - then;
+        then = now;
+        scrollBy(velocity * dt);
+        // About what Android's own lists lose to friction.
+        velocity *= Math.exp(-dt / 325);
+        fling = Math.abs(velocity) > 0.02 ? requestAnimationFrame(step) : 0;
+      };
+      fling = requestAnimationFrame(step);
+    };
+    container.addEventListener('touchstart', onStart, { passive: true });
+    container.addEventListener('touchmove', onMove, { passive: false });
+    container.addEventListener('touchend', onEnd);
+    container.addEventListener('touchcancel', onEnd);
+    return () => {
+      stopFling();
+      container.removeEventListener('touchstart', onStart);
+      container.removeEventListener('touchmove', onMove);
+      container.removeEventListener('touchend', onEnd);
+      container.removeEventListener('touchcancel', onEnd);
+    };
+  }, []);
+
   // Re-runs as the query or the toggles change, so the count and highlights
   // track what is in the box rather than waiting for Enter.
   useEffect(() => {

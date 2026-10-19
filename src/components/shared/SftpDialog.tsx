@@ -1,3 +1,4 @@
+import { useBackClose } from '../../backStack';
 interface Props {
   /** The line at the top, in the panel's dialog voice: a statement or a question. */
   title: string;
@@ -23,6 +24,7 @@ interface Props {
  * given by clicking past the question is not an answer.
  */
 export default function SftpDialog({ title, onEscape, className, children }: Props) {
+  useBackClose(onEscape);
   return (
     <div
       className="sftp-confirm-overlay"

@@ -199,7 +199,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
         <form id="host-form" className="inline-form" onSubmit={handleSubmit}>
           <div className="form-group">
             <label>Name</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Production Web" autoFocus />
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Production Web" autoFocus={!isAndroid} />
           </div>
           <div className="form-row">
             <div className="form-group flex-1">

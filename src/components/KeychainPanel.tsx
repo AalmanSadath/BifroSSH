@@ -683,7 +683,7 @@ export default function KeychainPanel() {
                 <form id="edit-key-form" className="inline-form" onSubmit={handleSaveEditKey}>
                   <div className="form-group">
                     <label>Name</label>
-                    <input value={editKeyName} onChange={(e) => setEditKeyName(e.target.value)} placeholder="Key name" autoFocus />
+                    <input value={editKeyName} onChange={(e) => setEditKeyName(e.target.value)} placeholder="Key name" autoFocus={!isAndroid} />
                   </div>
                   <div className="form-group">
                     <label>Passphrase</label>

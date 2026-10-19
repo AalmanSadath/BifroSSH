@@ -12,6 +12,7 @@ import BookmarksMenu from './BookmarksMenu';
 import FileContextMenu from './FileContextMenu';
 import { FileIcon, FolderIcon } from './icons';
 import { batchFor, nextCursor, rangePaths, type Notice } from './panes';
+import { isAndroid } from '../../platform';
 
 const DEFAULT_COL_WIDTHS = [38, 22, 10, 14, 16];
 
@@ -569,7 +570,8 @@ export default function FileBrowser({ title, icon, path, home, entries, loading,
                 data-idx={idx}
                 className={`sftp-row${selectedPaths.has(entry.path) ? ' sftp-row-selected' : ''}${rowDropPath === entry.path ? ' sftp-row-drop-target' : ''}`}
                 draggable={entry.name !== '..'}
-                onClick={(e) => handleRowClick(e, entry, idx)}
+                // A tap opens a folder on a phone, which has no double-click.
+                onClick={(e) => (isAndroid && entry.is_dir ? onNavigate(entry.path) : handleRowClick(e, entry, idx))}
                 onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, entry }); }}
                 onDragStart={(e) => entry.name !== '..' && handleDragStart(e, entry)}
                 onDragEnd={handleDragEnd}

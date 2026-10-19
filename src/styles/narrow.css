@@ -1,0 +1,269 @@
+/*
+ * Phone screens, either way up, and a tablet held upright.
+ *
+ * A desktop window cannot get this narrow or this short (tauri.conf.json holds
+ * it to 800 by 500), so everything here is for Android in practice. The
+ * sidebar becomes a drawer opened from the tab bar, side columns stack or lay
+ * over the page, and fixed widths that assumed a desktop window give way to
+ * the screen.
+ */
+
+.tab-bar-narrow,
+.nav-backdrop,
+.sftp-pane-switch {
+  display: none;
+}
+
+@media (max-width: 720px), (max-height: 480px) {
+  /* ── Drawer ──────────────────────────────────────────────── */
+
+  .tab-bar-narrow {
+    display: flex;
+    flex-shrink: 0;
+    /* Stays put while the tabs beside it scroll. */
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: var(--bg-dark);
+    border-right: 1px solid var(--border);
+  }
+
+  .tab-bar-empty .tab-bar-narrow {
+    background: none;
+    border-right-color: transparent;
+  }
+
+  .tab-bar-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+
+  .tab-bar-icon:active {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .sidebar,
+  .sidebar.sidebar-collapsed {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 150;
+    width: min(280px, 85vw);
+    min-width: 0;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+  }
+
+  /* Scrolls rather than cutting off the last entries on a phone held
+     sideways, where the drawer is only a few entries tall. */
+  .sidebar,
+  .sidebar.sidebar-collapsed {
+    overflow-y: auto;
+  }
+
+  .sidebar-nav {
+    flex: 1 0 auto;
+  }
+
+  .sidebar-open,
+  .sidebar.sidebar-collapsed.sidebar-open {
+    transform: none;
+    box-shadow: 0 0 24px rgba(0, 0, 0, 0.5);
+  }
+
+  .sidebar-collapse-btn {
+    display: none;
+  }
+
+  .nav-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 149;
+    background: rgba(0, 0, 0, 0.5);
+  }
+
+  /* ── Pages ───────────────────────────────────────────────── */
+
+  .panel {
+    padding: 16px 14px;
+    max-width: 100%;
+  }
+
+  .hosts-panel {
+    padding-top: 12px;
+  }
+
+  .quick-connect-input {
+    min-width: 0;
+  }
+
+  .hosts-search {
+    min-width: 0;
+    max-width: none;
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+
+  .panel-toolbar {
+    flex-wrap: wrap;
+  }
+
+  /* Over the terminal rather than beside it: beside it, the terminal would
+     be left a few columns wide. */
+  .term-sidebar {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 5;
+    width: 100%;
+    min-width: 0;
+  }
+
+  /* Splits stack: side by side, each pane would be too narrow to use. */
+  .term-area {
+    flex-direction: column;
+  }
+
+  .te-preview-col {
+    width: 100%;
+  }
+
+  .te-controls-col {
+    min-width: 0;
+  }
+
+  .cp-panel {
+    width: 100%;
+  }
+
+  .shortcut-chord {
+    min-width: 0;
+  }
+
+  /* A list and what it opens, one above the other. The list keeps to a
+     third of the screen so what it opens has room. */
+  .containers-body,
+  .recordings-body {
+    flex-direction: column;
+  }
+
+  .containers-hosts,
+  .recordings-list {
+    flex: 0 0 auto;
+    max-height: 35vh;
+  }
+
+  .recordings-toolbar,
+  .containers-toolbar,
+  .containers-row {
+    flex-wrap: wrap;
+  }
+
+  /* The host gets a line of its own, the search the next, the buttons the
+     one after; squeezed onto one line the host name lost every letter. */
+  .containers-toolbar .containers-search {
+    flex: 1 1 100%;
+  }
+
+  /* A row's buttons drop below the name instead of cutting it short. */
+  .containers-actions {
+    flex-basis: 100%;
+  }
+
+  .recordings-toolbar .recordings-search {
+    flex: 1 1 100%;
+  }
+
+  /* ── SFTP: one pane at a time ────────────────────────────── */
+
+  .sftp-pane-switch {
+    display: flex;
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-dark);
+  }
+
+  .sftp-pane-switch-btn {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 10px;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-muted);
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sftp-pane-switch-btn.active {
+    color: var(--text-primary);
+    border-bottom-color: var(--accent);
+  }
+
+  /* Name and size only. With the date, owner, type and permissions beside
+     it as well, a name had room for one letter. */
+  .sftp-table col:nth-child(2),
+  .sftp-table col:nth-child(4),
+  .sftp-table col:nth-child(5),
+  .sftp-table th:nth-child(2),
+  .sftp-table th:nth-child(4),
+  .sftp-table th:nth-child(5),
+  .sftp-table td:nth-child(2):not([colspan]),
+  .sftp-table td:nth-child(4),
+  .sftp-table td:nth-child(5),
+  .sftp-perms {
+    display: none;
+  }
+
+  .sftp-panels-row[data-shown='left'] > [data-side='right'],
+  .sftp-panels-row[data-shown='right'] > [data-side='left'],
+  .sftp-panels-row > .sftp-divider {
+    display: none;
+  }
+
+  /* ── Dialogs and drawers ─────────────────────────────────── */
+
+  .modal,
+  .connecting-card,
+  .setup-card,
+  .authprompt-modal,
+  .drawer,
+  .pf-drawer {
+    width: auto;
+    max-width: calc(100vw - 24px);
+  }
+
+  .drawer,
+  .pf-drawer {
+    width: 100vw;
+    max-width: 100vw;
+  }
+
+  .sftp-compare-dialog,
+  .sftp-perms-dialog,
+  .sftp-confirm-dialog,
+  .kc-confirm-modal {
+    min-width: 0;
+    max-width: calc(100vw - 24px);
+  }
+}
+
+/* Touch: nothing hovers, so what hover reveals is shown from the start. */
+@media (hover: none) {
+  .host-card-edit-btn,
+  .card-edit-btn {
+    opacity: 1;
+  }
+}
