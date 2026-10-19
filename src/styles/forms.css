@@ -549,10 +549,16 @@ button { cursor: pointer; font-family: inherit; }
 }
 
 /* The accent picker and the button that gives it back to the desktop. */
+/* Stretched, so the reset button stands as tall as the colour field beside
+   it rather than as a small button floating in the middle of the row. */
 .accent-row {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 10px;
+}
+
+.accent-row .btn-secondary {
+  white-space: nowrap;
 }
 
 /* A text field with a button beside it, on one line. */
