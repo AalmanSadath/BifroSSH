@@ -30,3 +30,22 @@ pub fn read_clipboard(app: &AppHandle) -> Result<String, String> {
         .map(|t| t.text)
         .map_err(|e| e.to_string())
 }
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Appearance {
+    color_scheme: String,
+    accent: Option<String>,
+}
+
+/// Night mode, and the Material You accent from Android 12 on. No preference
+/// and no accent if the Activity cannot be asked.
+pub fn system_appearance(app: &AppHandle) -> crate::appearance::SystemAppearance {
+    match app.state::<Android>().0.run_mobile_plugin::<Appearance>("systemAppearance", ()) {
+        Ok(a) => crate::appearance::SystemAppearance { color_scheme: a.color_scheme, accent: a.accent },
+        Err(_) => crate::appearance::SystemAppearance {
+            color_scheme: "no-preference".into(),
+            accent: None,
+        },
+    }
+}

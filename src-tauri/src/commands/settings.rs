@@ -15,11 +15,17 @@ use super::AppState;
 /// own executor, and calling it straight from a command panics with "Cannot
 /// start a runtime from within a runtime". `keyring` uses the same API without
 /// this only because it runs at startup, before the runtime exists.
+///
+/// Android answers from the Activity, by way of the app's own plugin.
 #[tauri::command]
-pub async fn system_appearance() -> crate::appearance::SystemAppearance {
-    tokio::task::spawn_blocking(crate::appearance::read)
-        .await
-        .unwrap_or_default()
+pub async fn system_appearance(
+    #[cfg_attr(not(target_os = "android"), allow(unused_variables))] app: tauri::AppHandle,
+) -> crate::appearance::SystemAppearance {
+    #[cfg(target_os = "android")]
+    let read = move || crate::android::system_appearance(&app);
+    #[cfg(not(target_os = "android"))]
+    let read = crate::appearance::read;
+    tokio::task::spawn_blocking(read).await.unwrap_or_default()
 }
 
 /// Which platform the app is running on.

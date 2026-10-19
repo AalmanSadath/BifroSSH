@@ -22,7 +22,10 @@ mod windows;
 #[cfg(windows)]
 use windows as backend;
 
+// Android answers through the app's plugin instead (android.rs), which needs
+// the app handle this has no way to be given.
 #[cfg(any(target_os = "android", not(any(unix, windows))))]
+#[cfg_attr(target_os = "android", allow(dead_code))]
 mod backend {
     pub(super) fn read() -> super::SystemAppearance {
         super::SystemAppearance::default()
@@ -45,6 +48,7 @@ pub struct SystemAppearance {
 ///
 /// Never fails: a desktop that cannot be asked is reported as having no
 /// preference and no accent, which the frontend already has to handle.
+#[cfg_attr(target_os = "android", allow(dead_code))]
 pub fn read() -> SystemAppearance {
     backend::read()
 }
