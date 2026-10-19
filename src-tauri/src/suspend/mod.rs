@@ -34,6 +34,7 @@ pub fn watch(app: AppHandle) {
 
 /// The machine is about to sleep. Locks if the setting says to and there is
 /// anything to lock; a vault that is already closed is left alone.
+#[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
 pub(crate) fn on_suspend(app: &AppHandle) {
     use tauri::Manager;
     let state = app.state::<crate::commands::AppState>();

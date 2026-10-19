@@ -82,6 +82,33 @@ pub fn run() {
     #[cfg(target_os = "linux")]
     migrate_webview_data_dir();
 
+    // Android tells the app where its own directory is only once the app is
+    // running, so there the profile is opened from setup instead.
+    #[cfg(not(target_os = "android"))]
+    start(Some(open_profile()));
+    #[cfg(target_os = "android")]
+    start(None);
+}
+
+/// The key, the document and anything that went wrong getting them, which is
+/// everything the window needs to start.
+struct Profile {
+    secret_key: commands::KeyCell,
+    app_data: models::AppData,
+    startup_error: Option<String>,
+}
+
+impl Profile {
+    fn failed(message: String) -> Self {
+        Profile {
+            secret_key: commands::KeyCell::default(),
+            app_data: Default::default(),
+            startup_error: Some(message),
+        }
+    }
+}
+
+fn open_profile() -> Profile {
     // Keyring first, .secret second, and a new key only when there is nothing
     // to lose. See keystore::unlock_or_init for why that last part matters.
     // Three ways this can go, and all of them start the window. A master
@@ -91,9 +118,7 @@ pub fn run() {
     // argument: not being able to open it is exactly the thing worth saying.
     let data_dir = match store::get_data_dir() {
         Ok(dir) => dir,
-        Err(e) => {
-            return start(commands::KeyCell::default(), Default::default(), Some(format!("{e:#}")))
-        }
+        Err(e) => return Profile::failed(format!("{e:#}")),
     };
 
     let (secret_key, startup_error) = if keystore::is_first_run(&data_dir) {
@@ -123,21 +148,33 @@ pub fn run() {
 
     // Stays empty while locked. Nothing can overwrite the real file from here,
     // because every save needs the key and the key is not there yet.
-    let (secret_key, app_data, startup_error) = match secret_key.get() {
-        None => (secret_key, Default::default(), startup_error),
+    match secret_key.get() {
+        None => Profile { secret_key, app_data: Default::default(), startup_error },
         Some(key) => match load_app_data(&key) {
-            Ok(data) => (secret_key, data, startup_error),
+            Ok(app_data) => Profile { secret_key, app_data, startup_error },
             // store::load_app_data_in falls back to the backup on its own, so
             // getting here means neither copy could be read. Starting with an
             // empty document and a usable key would let the next save write
             // that emptiness over a file somebody may still be able to
             // recover, so the key is dropped along with the data: the window
             // opens, says what happened, and can do nothing else.
-            Err(e) => (commands::KeyCell::default(), Default::default(), Some(format!("{e:#}"))),
+            Err(e) => Profile::failed(format!("{e:#}")),
         },
-    };
+    }
+}
 
-    start(secret_key, app_data, startup_error)
+/// The state every command reads, around an opened profile.
+fn app_state(profile: Profile) -> AppState {
+    AppState {
+        data: tokio::sync::Mutex::new(profile.app_data),
+        secret_key: profile.secret_key,
+        startup_error: profile.startup_error,
+        ssh_state: Arc::new(SshState::new()),
+        sftp_state: Arc::new(SftpClientState::new()),
+        tunnel_state: Arc::new(TunnelState::new()),
+        container_state: Default::default(),
+        prompts: Arc::new(PromptState::new()),
+    }
 }
 
 /// Builds and runs the app.
@@ -145,23 +182,17 @@ pub fn run() {
 /// Split out so every way of failing before this point can still reach it:
 /// there is nowhere else to report a startup failure, since the only thing
 /// that can show the user anything is the window this opens.
-fn start(
-    secret_key: commands::KeyCell,
-    app_data: models::AppData,
-    startup_error: Option<String>,
-) {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
-        .manage(AppState {
-            data: tokio::sync::Mutex::new(app_data),
-            secret_key,
-            startup_error,
-            ssh_state: Arc::new(SshState::new()),
-            sftp_state: Arc::new(SftpClientState::new()),
-            tunnel_state: Arc::new(TunnelState::new()),
-            container_state: Default::default(),
-            prompts: Arc::new(PromptState::new()),
-        })
+///
+/// `profile` is None on Android, where it is opened in setup. The window is
+/// not created from the config there (tauri.android.conf.json), but after the
+/// state is in place, so the page cannot call a command that has none.
+fn start(profile: Option<Profile>) {
+    let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+    let builder = match profile {
+        Some(profile) => builder.manage(app_state(profile)),
+        None => builder,
+    };
+    builder
         .manage(commands::DetachedTabs::default())
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
@@ -171,6 +202,17 @@ fn start(
         // Started before the window so the first paint already knows whether
         // the desktop wants light or dark, rather than flashing the default.
         .setup(|app| {
+            #[cfg(target_os = "android")]
+            {
+                match app.path().app_data_dir() {
+                    Ok(dir) => store::set_android_data_root(dir),
+                    Err(e) => eprintln!("No app data directory: {e}"),
+                }
+                app.manage(app_state(open_profile()));
+                if let Some(config) = app.config().app.windows.first() {
+                    tauri::WebviewWindowBuilder::from_config(app.handle(), config)?.build()?;
+                }
+            }
             appearance::watch(app.handle().clone());
             suspend::watch(app.handle().clone());
             Ok(())

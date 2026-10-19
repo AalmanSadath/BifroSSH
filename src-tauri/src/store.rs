@@ -95,19 +95,36 @@ pub fn write_new_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     file.sync_all()
 }
 
+/// The app's private directory on Android. Only the running app can be asked
+/// for it, so setup puts it here before anything reads the data directory.
+#[cfg(target_os = "android")]
+static ANDROID_DATA_ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+#[cfg(target_os = "android")]
+pub fn set_android_data_root(dir: PathBuf) {
+    let _ = ANDROID_DATA_ROOT.set(dir);
+}
+
 /// Where everything this app owns lives.
 ///
 /// The Unix arm spells out `~/.local/share/bifrossh` rather than asking
 /// `dirs::data_dir()` because that would follow a set `XDG_DATA_HOME` and move
 /// the vault out from under every existing install. Windows has no such
-/// history, so it takes the platform answer.
+/// history, so it takes the platform answer. Android has no home directory at
+/// all; the app's own directory is the only place no other app can read.
 pub fn get_data_dir() -> Result<PathBuf> {
     #[cfg(windows)]
     let dir = dirs::data_dir()
         .ok_or_else(|| anyhow::anyhow!("No application data directory found"))?
         .join("BifroSSH");
 
-    #[cfg(not(windows))]
+    #[cfg(target_os = "android")]
+    let dir = ANDROID_DATA_ROOT
+        .get()
+        .ok_or_else(|| anyhow::anyhow!("The app's data directory is not known yet"))?
+        .join("bifrossh");
+
+    #[cfg(not(any(windows, target_os = "android")))]
     let dir = dirs::home_dir()
         .ok_or_else(|| anyhow::anyhow!("No home directory found"))?
         .join(".local")

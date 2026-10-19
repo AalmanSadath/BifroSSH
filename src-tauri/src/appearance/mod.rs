@@ -12,9 +12,9 @@
 
 use serde::Serialize;
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "android")))]
 mod unix;
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "android")))]
 use unix as backend;
 
 #[cfg(windows)]
@@ -22,7 +22,7 @@ mod windows;
 #[cfg(windows)]
 use windows as backend;
 
-#[cfg(not(any(unix, windows)))]
+#[cfg(any(target_os = "android", not(any(unix, windows))))]
 mod backend {
     pub(super) fn read() -> super::SystemAppearance {
         super::SystemAppearance::default()
@@ -51,6 +51,7 @@ pub fn read() -> SystemAppearance {
 
 /// Name of the event the frontend listens on for a desktop that changed its
 /// mind. Payload is a [`SystemAppearance`].
+#[cfg_attr(target_os = "android", allow(dead_code))]
 pub const CHANGED_EVENT: &str = "system-appearance-changed";
 
 /// Watches for changes and reports every one for as long as the app runs.

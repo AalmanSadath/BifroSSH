@@ -80,6 +80,7 @@ pub async fn list_fonts() -> CmdResult<Vec<String>> {
 
 /// Emoji fonts are fixed advance and so count as monospace on both platforms,
 /// but nobody wants a terminal rendered in one.
+#[cfg(not(target_os = "android"))]
 fn wanted(family: &str) -> bool {
     !family.is_empty() && !family.to_lowercase().contains("emoji")
 }
@@ -87,7 +88,7 @@ fn wanted(family: &str) -> bool {
 /// Shelling out to `fc-list` rather than linking fontconfig: the binary is
 /// present both on a normal desktop and in the Flatpak runtime, and this runs
 /// once when Settings opens rather than on any hot path.
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "android")))]
 async fn monospace_families() -> CmdResult<Vec<String>> {
     let out = tokio::process::Command::new("fc-list")
         .args([":mono", "family"])
@@ -114,6 +115,14 @@ async fn monospace_families() -> CmdResult<Vec<String>> {
 /// would give filenames and no monospace flag.
 ///
 /// On a blocking thread because it is COM, and this is an async command.
+/// Android has no fontconfig, and the WebView offers its own monospace face
+/// and nothing a user installed. The list stays empty and the setting keeps
+/// what it holds.
+#[cfg(target_os = "android")]
+async fn monospace_families() -> CmdResult<Vec<String>> {
+    Ok(Vec::new())
+}
+
 #[cfg(windows)]
 async fn monospace_families() -> CmdResult<Vec<String>> {
     tokio::task::spawn_blocking(directwrite_families)
