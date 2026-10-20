@@ -60,6 +60,15 @@ jobs:
               exit 1
             fi
           fi
+          # GitHub has no link to the newest release of one tag prefix, so the
+          # README links the Android release by its tag. A release that
+          # forgets to move it would leave the badge and the download link
+          # on the previous version.
+          links=$(grep -o 'releases/tag/android-v[0-9.]*' README.md | sort -u)
+          if [ "$links" != "releases/tag/android-v$version" ]; then
+            echo "::error::README.md must link releases/tag/android-v$version, and only that; it links: $(echo $links)"
+            exit 1
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "desktop=$desktop" >> "$GITHUB_OUTPUT"
 

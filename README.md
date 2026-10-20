@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/AalmanSadath/BifroSSH/actions/workflows/ci.yml/badge.svg)](https://github.com/AalmanSadath/BifroSSH/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/AalmanSadath/BifroSSH)](https://github.com/AalmanSadath/BifroSSH/releases/latest)
+[![Android](https://img.shields.io/github/v/release/AalmanSadath/BifroSSH?display_name=release&filter=Android*&label=release)](https://github.com/AalmanSadath/BifroSSH/releases/tag/android-v0.1.0)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 
 An SSH client for Linux, Windows and Android. Tabbed terminal, SFTP, jump-host
@@ -114,7 +115,7 @@ Windows 10 1803 or later. WebView2 is already present on Windows 11 and on curre
 
 ### Android
 
-The Android app has its own releases, tagged `android-vX.Y.Z` and numbered apart from the desktop versions. Download `BifroSSH_android_x.y.z_arm64.apk` from the newest **Android vX.Y.Z** release on the [releases page](https://github.com/AalmanSadath/BifroSSH/releases); the one marked Latest is the desktop release. Open it on the phone and allow your browser or file manager to install unknown apps when Android asks.
+The Android app has its own releases, tagged `android-vX.Y.Z` and numbered apart from the desktop versions. Download `BifroSSH_android_x.y.z_arm64.apk` from the [latest Android release](https://github.com/AalmanSadath/BifroSSH/releases/tag/android-v0.1.0); the one GitHub marks Latest is the desktop release. Open it on the phone and allow your browser or file manager to install unknown apps when Android asks.
 
 The first time you open the local side of SFTP, the file picker or an export, the app asks for access to all files, which Android grants from a settings screen. Without it they cannot read or write the phone's files.
 
