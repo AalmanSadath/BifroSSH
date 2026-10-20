@@ -114,7 +114,7 @@ Windows 10 1803 or later. WebView2 is already present on Windows 11 and on curre
 
 ### Android
 
-The Android app has its own releases, tagged `android-vX.Y.Z` and numbered apart from the desktop versions. Download `BifroSSH_android_x.y.z_arm64.apk` from the newest **BifroSSH for Android** release on the [releases page](https://github.com/AalmanSadath/BifroSSH/releases); the one marked Latest is the desktop release. Open it on the phone and allow your browser or file manager to install unknown apps when Android asks.
+The Android app has its own releases, tagged `android-vX.Y.Z` and numbered apart from the desktop versions. Download `BifroSSH_android_x.y.z_arm64.apk` from the newest **Android vX.Y.Z** release on the [releases page](https://github.com/AalmanSadath/BifroSSH/releases); the one marked Latest is the desktop release. Open it on the phone and allow your browser or file manager to install unknown apps when Android asks.
 
 The first time you open the local side of SFTP, the file picker or an export, the app asks for access to all files, which Android grants from a settings screen. Without it they cannot read or write the phone's files.
 

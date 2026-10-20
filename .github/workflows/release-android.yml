@@ -97,7 +97,7 @@ jobs:
       # before, desktop or Android. What the build contains is said instead.
       - uses: softprops/action-gh-release@v3
         with:
-          name: BifroSSH for Android ${{ needs.version.outputs.version }}
+          name: Android v${{ needs.version.outputs.version }}
           files: artefacts/BifroSSH_android_${{ needs.version.outputs.version }}_arm64.apk
           fail_on_unmatched_files: true
           make_latest: false
