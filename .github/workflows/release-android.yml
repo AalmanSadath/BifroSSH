@@ -20,13 +20,16 @@ permissions:
   contents: read
 
 jobs:
-  # The same checks as an ordinary push, so a tag cannot ship code that CI
-  # would have failed.
+  # The checks an ordinary push runs on the code the APK is built from, so a
+  # tag cannot ship code that CI would have failed. Not the desktop packaging
+  # checks: a stale Flatpak vendor manifest should not hold up an APK.
   check:
     name: CI
     uses: ./.github/workflows/ci.yml
     permissions:
       contents: read
+    with:
+      scope: android
 
   version:
     name: Version agrees
