@@ -256,11 +256,14 @@ fn export_kdf(passphrase: &str) -> ExportKdf {
 
 /// Builds the finished file contents from a snapshot of the vault, with a
 /// tally of what went in so the caller does not have to open it again to say.
+/// `app_version` is the one the app reports, which on Android is its own
+/// line rather than the crate's.
 pub fn build_export(
     data: &AppData,
     master: &[u8; 32],
     passphrase: &str,
     include_secrets: bool,
+    app_version: &str,
 ) -> Result<(String, Counts)> {
     if passphrase.is_empty() {
         return Err(anyhow!("An export needs a passphrase"));
@@ -291,7 +294,7 @@ pub fn build_export(
         format: FORMAT.to_string(),
         version: VERSION,
         created: now_secs(),
-        app_version: env!("CARGO_PKG_VERSION").to_string(),
+        app_version: app_version.to_string(),
         kdf,
         ciphertext: crypto::encrypt(&serde_json::to_vec(&payload)?, &export_key)?,
     };

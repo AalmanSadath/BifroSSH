@@ -13,8 +13,29 @@ val tauriProperties = Properties().apply {
     }
 }
 
+// The release key, when this machine has it. CI writes the file from the
+// repository secrets; without it a release build comes out unsigned rather
+// than signed with some other key, which Android would treat as a different
+// app for every update after.
+val keystoreProperties = Properties().apply {
+    val propFile = rootProject.file("keystore.properties")
+    if (propFile.exists()) {
+        propFile.inputStream().use { load(it) }
+    }
+}
+
 android {
     compileSdk = 36
+    if (!keystoreProperties.isEmpty) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("password")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
     // Pinned so Gradle can find the NDK's strip and drop the Rust library's
     // debug info, which is over 200 MB. CI installs the same version.
     ndkVersion = "29.0.14206865"
@@ -43,6 +64,9 @@ android {
             isMinifyEnabled = false
         }
         getByName("release") {
+            if (!keystoreProperties.isEmpty) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = true
             proguardFiles(
                 *fileTree(".") { include("**/*.pro") }

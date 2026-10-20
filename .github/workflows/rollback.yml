@@ -111,6 +111,10 @@ jobs:
           # -V, not a plain sort: v0.16.10 is above v0.16.9 as a version and
           # below it as a string.
           while read -r tag; do
+            # Android releases (android-vX.Y.Z) have their own numbering and
+            # are not part of a desktop rollback. Read as versions they would
+            # all sort above this one and be demoted.
+            case "$tag" in v*) ;; *) continue ;; esac
             v="${tag#v}"
             [ "$v" != "$VERSION" ] || continue
             if [ "$(printf '%s\n%s\n' "$v" "$VERSION" | sort -V | tail -1)" = "$v" ]; then

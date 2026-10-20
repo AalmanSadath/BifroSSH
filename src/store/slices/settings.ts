@@ -81,7 +81,7 @@ export const createSettingsSlice: Slice<SettingsSlice> = (set, get) => ({
     if (!force && !settings.check_for_updates) return false;
     const [latest, current] = await Promise.all([fetchLatestRelease(), getVersion().catch(() => '')]);
     if (!latest) return false;
-    set({ updateAvailable: newerVersion(current, latest.version) ? latest : null });
+    set({ updateAvailable: latest !== 'none' && newerVersion(current, latest.version) ? latest : null });
     // The stamp is written through saveSettings so About can say when the
     // last check ran; a failure to write it costs nothing else.
     await get().saveSettings({ ...get().settings, last_update_check: now }).catch(() => {});

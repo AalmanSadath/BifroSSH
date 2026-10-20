@@ -1,4 +1,4 @@
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::store::save_app_data;
 
@@ -64,6 +64,7 @@ pub async fn read_text_file(path: String) -> CmdResult<String> {
 
 #[tauri::command]
 pub async fn export_data(
+    app: AppHandle,
     state: State<'_, AppState>,
     path: String,
     passphrase: String,
@@ -73,8 +74,8 @@ pub async fn export_data(
     let key = state.key()?;
     let (content, counts) = {
         let data = state.data.lock().await;
-        crate::backup::build_export(&data, &key, &passphrase, include_secrets)
-            ?
+        let version = app.package_info().version.to_string();
+        crate::backup::build_export(&data, &key, &passphrase, include_secrets, &version)?
     };
 
     // Private from the moment it exists, rather than after a chmod a reader
