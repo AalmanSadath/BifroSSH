@@ -569,7 +569,9 @@ export default function FileBrowser({ title, icon, path, home, entries, loading,
                 key={entry.path}
                 data-idx={idx}
                 className={`sftp-row${selectedPaths.has(entry.path) ? ' sftp-row-selected' : ''}${rowDropPath === entry.path ? ' sftp-row-drop-target' : ''}`}
-                draggable={entry.name !== '..'}
+                // Not on Android, where a long press would start a drag rather
+                // than open the menu, and the other pane is never in view.
+                draggable={!isAndroid && entry.name !== '..'}
                 // A tap opens a folder on a phone, which has no double-click.
                 onClick={(e) => (isAndroid && entry.is_dir ? onNavigate(entry.path) : handleRowClick(e, entry, idx))}
                 onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, entry }); }}

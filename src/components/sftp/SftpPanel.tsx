@@ -18,6 +18,7 @@ import { useExternalDrop } from './useExternalDrop';
 import { usePane, type Pane } from './usePane';
 import { useTransferQueue } from './useTransferQueue';
 import { isAndroid } from '../../platform';
+import { StorageAccessNotice, useStorageAccess } from '../../storageAccess';
 
 const closeConnectionActions = (onClose: () => void) => (
   <>
@@ -81,6 +82,17 @@ export default function SftpPanel() {
   }, [sftpRequest]);
 
   const [dropTarget, setDropTarget] = useState<'left' | 'right' | null>(null);
+  // Granted while a pane was showing local files: list them again, now that
+  // they can be.
+  const storage = useStorageAccess();
+  useEffect(() => {
+    if (!storage) return;
+    for (const pane of [panesRef.current.left, panesRef.current.right]) {
+      // A pane still on its way to its home folder will list it itself.
+      if (pane.mode === 'local' && pane.listing.path) void pane.refresh();
+    }
+  }, [storage]);
+
   // Which pane a narrow screen shows. The right one is where a server opens.
   const [shownSide, setShownSide] = useState<'left' | 'right'>('right');
   const transfers = useTransferQueue(panesRef, () => setDropTarget(null));
@@ -241,6 +253,12 @@ export default function SftpPanel() {
 
     switch (pane.mode) {
       case 'local':
+        return storage ? browser : (
+          <>
+            <StorageAccessNotice what="show and transfer the files on this phone" />
+            {browser}
+          </>
+        );
       case 'connected':
         return browser;
       case 'idle':

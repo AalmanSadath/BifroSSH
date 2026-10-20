@@ -28,6 +28,34 @@ pub async fn system_appearance(
     tokio::task::spawn_blocking(read).await.unwrap_or_default()
 }
 
+/// Whether the user's files can be read and written by path. Always on a
+/// desktop; on Android only once All files access is granted.
+#[tauri::command]
+pub async fn storage_access(
+    #[cfg_attr(not(target_os = "android"), allow(unused_variables))] app: tauri::AppHandle,
+) -> bool {
+    #[cfg(target_os = "android")]
+    return tokio::task::spawn_blocking(move || crate::android::storage_access(&app))
+        .await
+        .unwrap_or(false);
+    #[cfg(not(target_os = "android"))]
+    true
+}
+
+/// Asks Android for All files access. Nothing to ask for anywhere else.
+#[tauri::command]
+pub async fn request_storage_access(
+    #[cfg_attr(not(target_os = "android"), allow(unused_variables))] app: tauri::AppHandle,
+) -> CmdResult<()> {
+    #[cfg(target_os = "android")]
+    return tokio::task::spawn_blocking(move || crate::android::request_storage_access(&app))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(Into::into);
+    #[cfg(not(target_os = "android"))]
+    Ok(())
+}
+
 /// Which platform the app is running on.
 ///
 /// The frontend needs it for exactly one thing: local paths are separated by

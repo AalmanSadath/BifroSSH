@@ -49,3 +49,26 @@ pub fn system_appearance(app: &AppHandle) -> crate::appearance::SystemAppearance
         },
     }
 }
+
+#[derive(Deserialize)]
+struct Granted {
+    granted: bool,
+}
+
+/// Whether shared storage can be used by path. False if it cannot be asked.
+pub fn storage_access(app: &AppHandle) -> bool {
+    app.state::<Android>()
+        .0
+        .run_mobile_plugin::<Granted>("storageAccess", ())
+        .map(|g| g.granted)
+        .unwrap_or(false)
+}
+
+/// Opens the system page that grants it. The answer is read again later,
+/// when the app comes back to the front.
+pub fn request_storage_access(app: &AppHandle) -> Result<(), String> {
+    app.state::<Android>()
+        .0
+        .run_mobile_plugin::<()>("requestStorageAccess", ())
+        .map_err(|e| e.to_string())
+}

@@ -29,7 +29,7 @@ mod sshd_tests;
 
 pub use archive::{copy_archive, download_archive, upload_archive};
 pub use edit::{open_local, open_remote};
-pub use listing::{get_local_home, get_remote_home, list_local, list_remote};
+pub use listing::{get_local_home, get_remote_home, list_local, list_remote, user_files_dir};
 pub use ops::{
     create_local_dir, delete_local, delete_remote, mkdir, rename_local, rename_remote,
     set_mode_local, set_mode_remote, set_owner_local, set_owner_remote,

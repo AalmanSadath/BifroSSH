@@ -245,6 +245,8 @@ fn start(profile: Option<Profile>) {
             commands::delete_identity,
             commands::system_appearance,
             commands::platform,
+            commands::storage_access,
+            commands::request_storage_access,
             commands::data_dir,
             commands::clipboard_read_text,
             commands::get_settings,

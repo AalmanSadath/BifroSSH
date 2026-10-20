@@ -593,7 +593,7 @@ export default function App() {
                 className={`tab ${activeTabId === s.tab_id ? 'tab-active' : ''}${s.detached ? ' tab-detached' : ''}`}
                 onClick={() => setActiveTab(s.tab_id)}
                 onContextMenu={(e) => handleTabContextMenu(e, s)}
-                draggable
+                draggable={!isAndroid}
                 onDragStart={(e) => {
                   e.dataTransfer.setData('text/plain', tabDragPayload(s.tab_id));
                   e.dataTransfer.effectAllowed = 'move';
