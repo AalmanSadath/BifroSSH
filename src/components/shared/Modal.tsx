@@ -1,4 +1,5 @@
 import type { FormEvent, ReactNode } from 'react';
+import { useBackClose } from '../../backStack';
 
 interface Props {
   title: ReactNode;
@@ -39,6 +40,7 @@ export default function Modal({
   zIndex,
   children,
 }: Props) {
+  useBackClose(onClose);
   const subtitles = (Array.isArray(subtitle) ? subtitle : [subtitle]).filter(Boolean);
 
   const body = (

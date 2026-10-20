@@ -56,6 +56,10 @@ shell-words = "1.1.1"
 # getpwuid_r and friends, for the owner column of a local listing. Already
 # in the tree several times over.
 libc = "0.2"
+
+# The keyring, the appearance portal and logind are all on the session bus,
+# which Android does not have.
+[target.'cfg(all(unix, not(target_os = "android")))'.dependencies]
 zbus = { version = "5", default-features = false, features = ["blocking-api", "tokio"] }
 
 # DPAPI for the wrapping key, the registry for the system theme and accent,

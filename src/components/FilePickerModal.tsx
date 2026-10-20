@@ -3,6 +3,8 @@ import * as ipc from '../ipc';
 import { localStyle } from '../paths';
 import type { FileEntry } from '../types';
 import Modal from './shared/Modal';
+import { isAndroid } from '../platform';
+import { StorageAccessNotice, useStorageAccess } from '../storageAccess';
 
 interface Props {
   /**
@@ -106,6 +108,14 @@ export default function FilePickerModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Granted while the picker was open: what failed to list can list now.
+  const storage = useStorageAccess();
+  useEffect(() => {
+    if (storage && typedPath) void navigate(typedPath);
+    // Only on the change; navigate and the path are read as they stand then.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storage]);
+
   // On the window rather than the overlay: the overlay never takes focus, so a
   // handler on it only fires once something inside it happens to be focused.
   useEffect(() => {
@@ -175,6 +185,7 @@ export default function FilePickerModal({
 
   return (
     <Modal title={title} onClose={onCancel}>
+      {!storage && <StorageAccessNotice what="open and save files on this phone" />}
       <input
         className="picker-path"
         value={typedPath}
@@ -202,7 +213,7 @@ export default function FilePickerModal({
               ]
                 .filter(Boolean)
                 .join(' ')}
-              onClick={() => click(entry)}
+              onClick={() => (isAndroid && entry.is_dir ? activate(entry) : click(entry))}
               onDoubleClick={() => activate(entry)}
             >
               <span className="picker-icon">{entry.is_dir ? '📁' : picked.includes(entry.path) ? '☑' : '📄'}</span>

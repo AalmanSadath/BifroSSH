@@ -181,8 +181,11 @@ pub async fn ssh_connect(
             host: server.host.clone(),
             port: server.port,
             prep,
-            forward_agent: server.forward_agent,
-            forward_x11: server.forward_x11,
+            // Android has no agent to forward and no X server to draw on. A
+            // host set up on a desktop and imported keeps its settings, and
+            // still connects, rather than failing on what cannot work here.
+            forward_agent: server.forward_agent && !cfg!(target_os = "android"),
+            forward_x11: server.forward_x11 && !cfg!(target_os = "android"),
             log_to,
             label: server.name.clone(),
             run_on_connect: server.run_on_connect.clone().filter(|c| !c.trim().is_empty()),
@@ -536,6 +539,9 @@ pub async fn local_shell_connect(
     cols: u16,
     rows: u16,
 ) -> CmdResult<String> {
+    if cfg!(target_os = "android") {
+        return Err("A local shell is not available on Android".into());
+    }
     let setting = state.data.lock().await.settings.local_shell.clone();
     let ssh_state = Arc::clone(&state.ssh_state);
     crate::localshell::start(app, ssh_state, &setting, cols.max(1), rows.max(1))

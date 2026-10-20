@@ -21,9 +21,9 @@ use std::time::Duration;
 
 use sha2::{Digest, Sha256};
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "android")))]
 mod unix;
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "android")))]
 use unix as backend;
 
 #[cfg(windows)]
@@ -31,7 +31,7 @@ mod windows;
 #[cfg(windows)]
 use windows as backend;
 
-#[cfg(not(any(unix, windows)))]
+#[cfg(any(target_os = "android", not(any(unix, windows))))]
 mod backend {
     use anyhow::{anyhow, Result};
     pub(super) fn secret() -> Result<super::Outcome> {
@@ -103,8 +103,8 @@ pub fn keyring_status() -> KeyringStatus {
 ///
 /// `Locked` is dead code on Windows rather than absent from the enum: DPAPI
 /// has no locked state, but the shape of the answer should not change with the
-/// platform.
-#[cfg_attr(not(unix), allow(dead_code))]
+/// platform. Android has no keyring, so neither variant is built there.
+#[cfg_attr(any(not(unix), target_os = "android"), allow(dead_code))]
 pub(crate) enum Outcome {
     Secret(Vec<u8>),
     Locked,

@@ -4,6 +4,7 @@ import * as ipc from './ipc';
 import { useAppStore, resolveAccent, resolveAppTheme } from './store/appStore';
 import { accentTokens } from './styles/accent';
 import type { SystemAppearance } from './types';
+import { isAndroid } from './platform';
 
 /**
  * The app's palette and accent, followed live and applied to the page.
@@ -29,6 +30,23 @@ export function useAppChrome(): { className: string; style: React.CSSProperties 
       (e) => setSystemAppearance(e.payload),
     );
     return () => { unlisten.then((fn) => fn()); };
+  }, [setSystemAppearance]);
+
+  // Android sends no event when it changes its mind, so it is asked again
+  // whenever the WebView sees the colour scheme flip, and whenever the app
+  // comes back to the front, which is where a new wallpaper and its accent
+  // would have been picked.
+  useEffect(() => {
+    if (!isAndroid) return;
+    const ask = () => { ipc.systemAppearance().then(setSystemAppearance).catch(() => {}); };
+    const scheme = window.matchMedia('(prefers-color-scheme: dark)');
+    const onVisible = () => { if (document.visibilityState === 'visible') ask(); };
+    scheme.addEventListener('change', ask);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      scheme.removeEventListener('change', ask);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [setSystemAppearance]);
 
   useEffect(() => {

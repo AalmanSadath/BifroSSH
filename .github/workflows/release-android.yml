@@ -1,0 +1,106 @@
+name: Release Android
+
+# The Android app is released on its own: tagged android-vX.Y.Z and numbered
+# in src-tauri/tauri.android.conf.json, apart from the desktop line, so a fix
+# on one side does not make the other ship. release.yml's `v*` does not match
+# these tags.
+#
+# A workflow_dispatch run is the dry run: it builds and signs the APK as a
+# tag would, and publishes nothing.
+on:
+  push:
+    tags: ['android-v*']
+  workflow_dispatch:
+
+concurrency:
+  group: android-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # The same checks as an ordinary push, so a tag cannot ship code that CI
+  # would have failed.
+  check:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  version:
+    name: Version agrees
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      desktop: ${{ steps.check.outputs.desktop }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check the tag matches the Android version
+        id: check
+        run: |
+          set -euo pipefail
+          version=$(jq -r .version src-tauri/tauri.android.conf.json)
+          desktop=$(jq -r .version src-tauri/tauri.conf.json)
+          echo "tauri.android.conf.json: $version"
+          echo "desktop (tauri.conf.json): $desktop"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::tauri.android.conf.json has no X.Y.Z version (got '$version')"
+            exit 1
+          fi
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            tag_ver="${GITHUB_REF_NAME#android-v}"
+            echo "git tag: $tag_ver"
+            if [ "$tag_ver" != "$version" ]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match version $version in src-tauri/tauri.android.conf.json"
+              exit 1
+            fi
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "desktop=$desktop" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Android APK
+    needs: [check, version]
+    uses: ./.github/workflows/android-apk.yml
+    permissions:
+      contents: read
+    with:
+      release: true
+    secrets: inherit
+
+  publish:
+    name: Publish release
+    needs: [version, build]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: bifrossh-android-apk
+          path: artefacts
+
+      - run: ls -lh artefacts
+
+      # Never marked latest: the desktop update check, and the README's
+      # download link, read /releases/latest and must keep finding the
+      # desktop release. The Android app looks through the list instead
+      # (src/updates.ts).
+      #
+      # No generated notes, since GitHub would diff against whichever tag came
+      # before, desktop or Android. What the build contains is said instead.
+      - uses: softprops/action-gh-release@v3
+        with:
+          name: BifroSSH for Android ${{ needs.version.outputs.version }}
+          files: artefacts/BifroSSH_android_${{ needs.version.outputs.version }}_arm64.apk
+          fail_on_unmatched_files: true
+          make_latest: false
+          body: |
+            BifroSSH for Android ${{ needs.version.outputs.version }}, arm64.
+
+            Built from ${{ github.sha }}, the same code as desktop ${{ needs.version.outputs.desktop }} plus anything merged since.
+
+            Install by opening the APK on the phone and allowing the install when Android asks. See the README for details.

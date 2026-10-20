@@ -88,8 +88,27 @@ pub(super) fn parent_remote(path: &str) -> String {
     }
 }
 
+/// Where the user's own files are: the home directory, or on Android the
+/// shared storage that a file manager opens on. Android has no home for an
+/// app, and its own directory is private, so it was "/", which the app is
+/// not allowed to list.
+pub fn user_files_dir() -> Option<std::path::PathBuf> {
+    #[cfg(target_os = "android")]
+    {
+        // Each Android user has their own; the user is the uid's hundred
+        // thousands, as Android numbers them.
+        // SAFETY: getuid cannot fail and touches no memory of ours.
+        let user = unsafe { libc::getuid() } / 100_000;
+        Some(std::path::PathBuf::from(format!("/storage/emulated/{user}")))
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        dirs::home_dir()
+    }
+}
+
 pub fn get_local_home() -> String {
-    dirs::home_dir()
+    user_files_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("/"))
         .to_string_lossy()
         .into_owned()
@@ -97,7 +116,7 @@ pub fn get_local_home() -> String {
 
 pub fn list_local(path: &str) -> Result<Vec<FileEntry>> {
     let path_obj = if path.is_empty() || path == "~" {
-        dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/"))
+        user_files_dir().unwrap_or_else(|| std::path::PathBuf::from("/"))
     } else {
         std::path::PathBuf::from(path)
     };

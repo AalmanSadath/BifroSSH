@@ -1,7 +1,8 @@
-import { useAppStore, resolveAccent } from '../../store/appStore';
+import { useAppStore, resolveAccent, resolveAppTheme } from '../../store/appStore';
 import { ColorPickerField } from '../ColorPicker';
 import { usePatch } from './Picker';
 import type { AppTheme } from '../../types';
+import { isAndroid } from '../../platform';
 
 /** System first: it is the one that defers rather than decides. */
 const APP_THEMES: { value: AppTheme; label: string }[] = [
@@ -11,13 +12,24 @@ const APP_THEMES: { value: AppTheme; label: string }[] = [
   { value: 'amoled', label: 'AMOLED' },
 ];
 
+/**
+ * Each palette's own accent, as tokens.css declares it. The picker shows this
+ * when nothing overrides it; it showed the dark one whatever the theme.
+ */
+const THEME_ACCENTS: Record<'dark' | 'light' | 'amoled', string> = {
+  dark: '#58a6ff',
+  light: '#155397',
+  amoled: '#a78bfa',
+};
+
 /** How the app itself looks; the terminal's own colours are next door. */
 export default function AppearanceSection() {
   const { settings, systemAppearance } = useAppStore();
   const patch = usePatch();
   // What the picker should show: the user's colour, else the desktop's,
-  // else the dark palette's own, which is what an unthemed picker opens on.
-  const accent = resolveAccent(settings, systemAppearance);
+  // else the one the theme in use has of its own.
+  const accent = resolveAccent(settings, systemAppearance)
+    ?? THEME_ACCENTS[resolveAppTheme(settings.app_theme, systemAppearance)];
 
   return (
     <section className="panel-section">
@@ -49,7 +61,7 @@ export default function AppearanceSection() {
         <label>Accent Colour</label>
         <div className="accent-row">
           <ColorPickerField
-            value={accent ?? '#58a6ff'}
+            value={accent}
             onChange={(v) => patch({ accent_color: v })}
           />
           {settings.accent_color !== null && (
@@ -71,6 +83,8 @@ export default function AppearanceSection() {
         </p>
       </div>
 
+      {/* Nothing hovers on a touch screen. */}
+      {!isAndroid && <>
       <label className="checkbox-row">
         <input
           type="checkbox"
@@ -80,6 +94,7 @@ export default function AppearanceSection() {
         <span>Show hover hints</span>
       </label>
       <p className="form-hint">Toggles the tooltips that explain what a control does.</p>
+      </>}
     </section>
   );
 }

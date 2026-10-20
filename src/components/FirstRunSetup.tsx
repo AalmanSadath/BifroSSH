@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import * as ipc from '../ipc';
 import GeneratedPassphraseField from './shared/GeneratedPassphraseField';
+import { isAndroid } from '../platform';
 
 type Mode = 'secret-file' | 'passphrase-only' | 'keyring-and-passphrase';
 
@@ -89,7 +90,7 @@ export default function FirstRunSetup({ keyringAvailable, onReady }: Props) {
           should be kept.
         </p>
 
-        {!keyringAvailable && (
+        {!keyringAvailable && !isAndroid && (
           <p className="form-hint">
             No desktop keyring answered on this system, so that option is not available here.
           </p>

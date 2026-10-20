@@ -4,6 +4,7 @@ import { matchesHost } from '../../hosts';
 import type { Server } from '../../types';
 import OsIcon from '../OsIcon';
 import { useHint } from '../shared/useHint';
+import { isAndroid } from '../../platform';
 
 /** An idle pane: browse this computer, or pick a host. */
 export function ConnectPrompt({ onSelectHost, onGoLocal }: { onSelectHost: () => void; onGoLocal?: () => void }) {
@@ -101,6 +102,7 @@ export default function HostPicker({ servers, connectingId, activeServerId, erro
           <div
             key={s.id}
             className={`sftp-picker-item${connectingId === s.id ? ' sftp-picker-connecting' : ''}${activeServerId === s.id ? ' sftp-picker-has-session' : ''}`}
+            onClick={isAndroid ? () => !connectingId && onConnect(s) : undefined}
             onDoubleClick={() => !connectingId && onConnect(s)}
             title={hint(activeServerId === s.id ? 'Double-click to resume' : 'Double-click to connect via SFTP')}
           >

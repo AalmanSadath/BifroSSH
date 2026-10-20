@@ -2,19 +2,32 @@ import { useState } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { useAppStore } from '../store/appStore';
 import { useHint } from './shared/useHint';
+import { useBackClose } from '../backStack';
 
 
 const PANELS = ['hosts', 'sftp', 'containers', 'keychain', 'knownhosts', 'recordings', 'portforwarding', 'settings', 'theme-editor'];
 
-export default function Sidebar() {
+interface Props {
+  /** The drawer is showing, on a narrow screen. */
+  open: boolean;
+  onClose: () => void;
+}
+
+export default function Sidebar({ open, onClose }: Props) {
   const { activeTabId, setActiveTab, updateAvailable } = useAppStore();
   const [collapsed, setCollapsed] = useState(false);
+  useBackClose(open ? onClose : undefined);
   const hint = useHint();
 
   const activePanel = PANELS.includes(activeTabId ?? '') ? activeTabId : null;
 
   return (
-    <aside className={`sidebar${collapsed ? ' sidebar-collapsed' : ''}`} onContextMenu={(e) => e.preventDefault()}>
+    <aside
+      className={`sidebar${collapsed ? ' sidebar-collapsed' : ''}${open ? ' sidebar-open' : ''}`}
+      onContextMenu={(e) => e.preventDefault()}
+      // Picking a page puts the drawer away, as it would on any phone app.
+      onClick={(e) => { if ((e.target as HTMLElement).closest('.nav-btn')) onClose(); }}
+    >
       <div className="sidebar-top">
         {!collapsed && <div className="sidebar-brand">
           <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 512 512" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>

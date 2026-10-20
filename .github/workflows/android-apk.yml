@@ -1,0 +1,172 @@
+name: Android APK
+
+# Three doors into the same build, as with the Windows installer.
+#
+# `pull_request` builds a debug APK, which installs beside a release one (its
+# app id ends in .debug) and touches no secret: a pull request never gets near
+# the release key.
+#
+# `workflow_call` with `release: true` is how release-android.yml builds the
+# signed APK, so the steps exist once. `workflow_dispatch` can do either.
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Build the signed release APK instead of a debug one
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      release:
+        type: boolean
+        default: false
+
+concurrency:
+  group: android-apk-${{ github.ref }}-${{ inputs.release && 'release' || 'debug' }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Must match ndkVersion in src-tauri/gen/android/app/build.gradle.kts, or
+  # Gradle cannot find the NDK's strip and the APK carries the Rust library's
+  # debug info, over 200 MB of it.
+  NDK_VERSION: 29.0.14206865
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      # 21 rather than the runner's default: the Android Gradle plugin Tauri
+      # generates is tested against it, and it is what local builds use.
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v4
+
+      - name: Install the NDK
+        run: |
+          sdkmanager --install "ndk;$NDK_VERSION"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: android
+
+      - run: npm ci
+
+      # The Android line is numbered on its own, in tauri.android.conf.json,
+      # not with the desktop version.
+      - name: Read the version
+        id: version
+        run: |
+          version=$(jq -r .version src-tauri/tauri.android.conf.json)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Android version $version"
+
+      - name: Build the debug APK
+        if: ${{ !inputs.release }}
+        run: npm run tauri android build -- --debug --apk --target aarch64
+
+      # Gradle signs the release build from keystore.properties when it exists
+      # (build.gradle.kts). Checked up front, because without it the build
+      # succeeds and produces an unsigned APK nobody can install.
+      - name: Write the signing key
+        if: ${{ inputs.release }}
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for v in KEYSTORE_B64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [ -z "${!v}" ]; then
+              echo "::error::Secret ANDROID_$v is not set"
+              exit 1
+            fi
+          done
+          # Whitespace stripped, so a secret pasted with a line break decodes.
+          printf '%s' "$KEYSTORE_B64" | tr -d '\r\n ' | base64 -d > "$RUNNER_TEMP/release.jks"
+          umask 077
+          {
+            echo "storeFile=$RUNNER_TEMP/release.jks"
+            echo "password=$KEYSTORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > src-tauri/gen/android/keystore.properties
+
+      - name: Build the release APK
+        if: ${{ inputs.release }}
+        run: npm run tauri android build -- --apk --target aarch64
+
+      - name: Remove the signing key
+        if: ${{ always() && inputs.release }}
+        run: rm -f "$RUNNER_TEMP/release.jks" src-tauri/gen/android/keystore.properties
+
+      - name: Find the APK
+        id: artefact
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          RELEASE: ${{ inputs.release }}
+        run: |
+          set -euo pipefail
+          out=src-tauri/gen/android/app/build/outputs/apk/universal
+          if [ "$RELEASE" = "true" ]; then
+            src="$out/release/app-universal-release.apk"
+            name="BifroSSH_android_${VERSION}_arm64.apk"
+          else
+            src="$out/debug/app-universal-debug.apk"
+            name="BifroSSH_android_${VERSION}_arm64-debug.apk"
+          fi
+          if [ ! -f "$src" ]; then
+            echo "::error::No APK at $src; the build produced: $(find "$out" -name '*.apk' | tr '\n' ' ')"
+            exit 1
+          fi
+          mkdir -p apk
+          mv "$src" "apk/$name"
+          echo "path=apk/$name" >> "$GITHUB_OUTPUT"
+          ls -lh apk
+
+      # A release APK signed by anything but the release key would install
+      # once and then refuse every update, so the certificate is checked and
+      # printed rather than assumed.
+      - name: Verify the signature
+        if: ${{ inputs.release }}
+        env:
+          APK: ${{ steps.artefact.outputs.path }}
+          # The release certificate's SHA-256, as the README publishes it.
+          EXPECTED: 264b574424669ffff17beefa19d425911d13bcb00a1a556b78a6bd19a726c355
+        run: |
+          set -euo pipefail
+          tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          certs=$("$tools/apksigner" verify --print-certs "$APK")
+          echo "$certs" | grep -E 'Signer|SHA-256'
+          if ! echo "$certs" | grep -q "SHA-256 digest: $EXPECTED"; then
+            echo "::error::The APK is not signed with the release certificate ($EXPECTED)"
+            exit 1
+          fi
+
+      - name: Upload the APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: bifrossh-android-apk
+          path: ${{ steps.artefact.outputs.path }}
+          if-no-files-found: error

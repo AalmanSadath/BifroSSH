@@ -15,11 +15,45 @@ use super::AppState;
 /// own executor, and calling it straight from a command panics with "Cannot
 /// start a runtime from within a runtime". `keyring` uses the same API without
 /// this only because it runs at startup, before the runtime exists.
+///
+/// Android answers from the Activity, by way of the app's own plugin.
 #[tauri::command]
-pub async fn system_appearance() -> crate::appearance::SystemAppearance {
-    tokio::task::spawn_blocking(crate::appearance::read)
+pub async fn system_appearance(
+    #[cfg_attr(not(target_os = "android"), allow(unused_variables))] app: tauri::AppHandle,
+) -> crate::appearance::SystemAppearance {
+    #[cfg(target_os = "android")]
+    let read = move || crate::android::system_appearance(&app);
+    #[cfg(not(target_os = "android"))]
+    let read = crate::appearance::read;
+    tokio::task::spawn_blocking(read).await.unwrap_or_default()
+}
+
+/// Whether the user's files can be read and written by path. Always on a
+/// desktop; on Android only once All files access is granted.
+#[tauri::command]
+pub async fn storage_access(
+    #[cfg_attr(not(target_os = "android"), allow(unused_variables))] app: tauri::AppHandle,
+) -> bool {
+    #[cfg(target_os = "android")]
+    return tokio::task::spawn_blocking(move || crate::android::storage_access(&app))
         .await
-        .unwrap_or_default()
+        .unwrap_or(false);
+    #[cfg(not(target_os = "android"))]
+    true
+}
+
+/// Asks Android for All files access. Nothing to ask for anywhere else.
+#[tauri::command]
+pub async fn request_storage_access(
+    #[cfg_attr(not(target_os = "android"), allow(unused_variables))] app: tauri::AppHandle,
+) -> CmdResult<()> {
+    #[cfg(target_os = "android")]
+    return tokio::task::spawn_blocking(move || crate::android::request_storage_access(&app))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(Into::into);
+    #[cfg(not(target_os = "android"))]
+    Ok(())
 }
 
 /// Which platform the app is running on.
@@ -80,6 +114,7 @@ pub async fn list_fonts() -> CmdResult<Vec<String>> {
 
 /// Emoji fonts are fixed advance and so count as monospace on both platforms,
 /// but nobody wants a terminal rendered in one.
+#[cfg(not(target_os = "android"))]
 fn wanted(family: &str) -> bool {
     !family.is_empty() && !family.to_lowercase().contains("emoji")
 }
@@ -87,7 +122,7 @@ fn wanted(family: &str) -> bool {
 /// Shelling out to `fc-list` rather than linking fontconfig: the binary is
 /// present both on a normal desktop and in the Flatpak runtime, and this runs
 /// once when Settings opens rather than on any hot path.
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "android")))]
 async fn monospace_families() -> CmdResult<Vec<String>> {
     let out = tokio::process::Command::new("fc-list")
         .args([":mono", "family"])
@@ -114,6 +149,14 @@ async fn monospace_families() -> CmdResult<Vec<String>> {
 /// would give filenames and no monospace flag.
 ///
 /// On a blocking thread because it is COM, and this is an async command.
+/// Android has no fontconfig, and the WebView offers its own monospace face
+/// and nothing a user installed. The list stays empty and the setting keeps
+/// what it holds.
+#[cfg(target_os = "android")]
+async fn monospace_families() -> CmdResult<Vec<String>> {
+    Ok(Vec::new())
+}
+
 #[cfg(windows)]
 async fn monospace_families() -> CmdResult<Vec<String>> {
     tokio::task::spawn_blocking(directwrite_families)

@@ -9,6 +9,7 @@ import { useCopy } from '../shared/useCopy';
 import HighlightRules from './HighlightRules';
 import { SHELLS, snippetFor } from '../../shellIntegration';
 import type { CursorStyle } from '../../types';
+import { isAndroid } from '../../platform';
 
 const CURSOR_STYLES: PickerOption<CursorStyle>[] = [
   { value: 'block', label: 'Block' },
@@ -194,7 +195,7 @@ export default function TerminalSection() {
         </p>
       </section>
 
-      <section className="panel-section">
+      {!isAndroid && <section className="panel-section">
         <h3>Local shell</h3>
         <div className="form-group">
           <label>Command</label>
@@ -214,7 +215,7 @@ export default function TerminalSection() {
           them, as in <code>fish --login</code>. In the Flatpak the shell runs outside the sandbox,
           so your own tools are there.
         </p>
-      </section>
+      </section>}
 
       <HighlightRules />
 

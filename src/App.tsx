@@ -45,6 +45,9 @@ import Modal from './components/shared/Modal';
 import PassphraseInput from './components/shared/PassphraseInput';
 import { tabLabel } from './tabName';
 import PortalDropdown from './components/shared/PortalDropdown';
+import { isAndroid } from './platform';
+import { setBackFallback, useBackClose } from './backStack';
+import TerminalKeyBar from './components/TerminalKeyBar';
 
 export default function App() {
   const {
@@ -59,6 +62,8 @@ export default function App() {
   // 'new' is the Add Host drawer: no record to find, so the form opens empty.
   const [editServerId, setEditServerId] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // On a narrow screen the sidebar is a drawer over the page.
+  const [navOpen, setNavOpen] = useState(false);
   // A codeprint picked in the palette, waiting for its placeholders.
   const [snippet, setSnippet] = useState<Codeprint | null>(null);
   const [quickInput, setQuickInput] = useState('');
@@ -67,6 +72,7 @@ export default function App() {
   const [quickKeyId, setQuickKeyId] = useState('');
   const quickPasswordRef = useRef<HTMLInputElement>(null);
   const [termSidebarOpen, setTermSidebarOpen] = useState(false);
+  useBackClose(termSidebarOpen ? () => setTermSidebarOpen(false) : undefined);
   const [tabCtx, setTabCtx] = useState<{ x: number; y: number; session: SessionTab } | null>(null);
   const [tabDragOver, setTabDragOver] = useState(false);
   const transcript = useTranscript(setActionError);
@@ -93,6 +99,14 @@ export default function App() {
     return <span className={`tab-activity tab-activity-${chip.kind}`} title={hint(chip.title)}>{chip.text}</span>;
   }
   const splitShown = activeTabId !== null && splitGroup.includes(activeTabId);
+
+  // Back with nothing open steps back to Hosts, and from Hosts leaves the app.
+  useEffect(() => {
+    setBackFallback({
+      can: () => activeTabId !== 'hosts' && activeTabId !== null,
+      step: () => setActiveTab('hosts'),
+    });
+  }, [activeTabId, setActiveTab]);
 
   /**
    * Drags the boundary to the left of pane `index`.
@@ -348,7 +362,7 @@ export default function App() {
           else if (current && current.server_id) openSession(current.server_id, undefined, current.container);
           return;
         case 'local-shell':
-          void openLocalShell();
+          if (!isAndroid) void openLocalShell();
           return;
         case 'toggle-broadcast':
           if (current) toggleBroadcast(current.tab_id);
@@ -486,7 +500,8 @@ export default function App() {
           lands on. `display: contents` keeps the flex layout the two children
           were laid out by. */}
       <div className="app-body" inert={vault.locked || undefined}>
-      <Sidebar />
+      <Sidebar open={navOpen} onClose={() => setNavOpen(false)} />
+      {navOpen && <div className="nav-backdrop" onClick={() => setNavOpen(false)} />}
       <div className="main">
         {loadError && (
           <div className="load-error-banner">
@@ -544,24 +559,41 @@ export default function App() {
           >
             Quick Connect
           </button>
-          <button
+          {!isAndroid && <button
             className="btn-secondary btn-sm quick-local-shell"
             onClick={() => void openLocalShell()}
             title={hint('Open a shell on this computer')}
           >
             <span className="quick-local-shell-glyph">&gt;_</span> Local Shell
-          </button>
+          </button>}
         </div>}
         {/* Always rendered, empty or not. Appearing on the first connect, it
             pushed everything below it down the page. */}
         <div className={`tab-bar${sessions.length === 0 ? ' tab-bar-empty' : ''}`}>
+          {/* Narrow screens only: the drawer's handle, and the palette, which
+              a touch keyboard has no Ctrl+K to open. */}
+          <div className="tab-bar-narrow">
+            <button className="tab-bar-icon" aria-label="Menu" onClick={() => setNavOpen(true)}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                <line x1="4" y1="6" x2="20" y2="6"/>
+                <line x1="4" y1="12" x2="20" y2="12"/>
+                <line x1="4" y1="18" x2="20" y2="18"/>
+              </svg>
+            </button>
+            <button className="tab-bar-icon" aria-label="Command palette" onClick={() => setPaletteOpen(true)}>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="7"/>
+                <line x1="16.5" y1="16.5" x2="21" y2="21"/>
+              </svg>
+            </button>
+          </div>
           {sessions.map((s) => (
               <div
                 key={s.tab_id}
                 className={`tab ${activeTabId === s.tab_id ? 'tab-active' : ''}${s.detached ? ' tab-detached' : ''}`}
                 onClick={() => setActiveTab(s.tab_id)}
                 onContextMenu={(e) => handleTabContextMenu(e, s)}
-                draggable
+                draggable={!isAndroid}
                 onDragStart={(e) => {
                   e.dataTransfer.setData('text/plain', tabDragPayload(s.tab_id));
                   e.dataTransfer.effectAllowed = 'move';
@@ -724,6 +756,7 @@ export default function App() {
             );
           })}
           </div>
+          {isAndroid && activeIsSession && !activeDetached && <TerminalKeyBar />}
 
           {(activeTabId === 'hosts' || activeTabId === null) && <HostsPanel />}
           {activeTabId === 'containers' && <ContainersPanel />}
@@ -909,7 +942,7 @@ export default function App() {
                     Bring back to this window
                   </button>
                 </>
-              ) : (
+              ) : !isAndroid && (
                 <button
                   className="menu-item"
                   disabled={tabCtx.session.status !== 'connected' || !tabCtx.session.session_id}

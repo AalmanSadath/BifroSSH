@@ -158,6 +158,9 @@ export const dataDir = () => invoke<string>('data_dir');
  * needs a user activation and a right click is not one.
  */
 export const clipboardReadText = () => invoke<string>('clipboard_read_text');
+/** Whether files can be used by path; false on Android until All files access is granted. */
+export const storageAccess = () => invoke<boolean>('storage_access');
+export const requestStorageAccess = () => invoke<void>('request_storage_access');
 
 // ── ssh_config import ────────────────────────────────────────────────────
 

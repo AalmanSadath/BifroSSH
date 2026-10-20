@@ -4,7 +4,7 @@
 [![Release](https://img.shields.io/github/v/release/AalmanSadath/BifroSSH)](https://github.com/AalmanSadath/BifroSSH/releases/latest)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 
-A desktop SSH client for Linux and Windows. Tabbed terminal, SFTP, jump-host
+An SSH client for Linux, Windows and Android. Tabbed terminal, SFTP, jump-host
 chains, port forwarding and key management in one window.
 
 Most SSH clients that save your servers leave the list of them sitting in
@@ -18,7 +18,8 @@ Keys can stay in your ssh-agent and never enter the app at all, which is how
 PIV smartcards and YubiKeys work here.
 
 Built in Rust with Tauri 2, russh and xterm.js. Flatpak, `.deb` and `.rpm` on
-Linux, NSIS installer on Windows. macOS is not supported.
+Linux, NSIS installer on Windows, APK on Android. macOS and iOS are not
+supported.
 
 ![Multiple Hosts](screenshots/HostList.png)
 
@@ -110,6 +111,22 @@ Uninstalling leaves `%APPDATA%\BifroSSH` alone unless you tick **Delete the appl
 The installer is not code signed, so SmartScreen shows **"Windows protected your PC"** on first run. **More info** then **Run anyway** gets past it. Signing needs a certificate that has to be bought and renewed; there is no way to make that warning go away without one.
 
 Windows 10 1803 or later. WebView2 is already present on Windows 11 and on current Windows 10; the installer fetches it if it is not.
+
+### Android
+
+The Android app has its own releases, tagged `android-vX.Y.Z` and numbered apart from the desktop versions. Download `BifroSSH_android_x.y.z_arm64.apk` from the newest **BifroSSH for Android** release on the [releases page](https://github.com/AalmanSadath/BifroSSH/releases); the one marked Latest is the desktop release. Open it on the phone and allow your browser or file manager to install unknown apps when Android asks.
+
+The first time you open the local side of SFTP, the file picker or an export, the app asks for access to all files, which Android grants from a settings screen. Without it they cannot read or write the phone's files.
+
+The local shell, X11 forwarding, the SSH agent, the desktop keyring and separate windows are desktop only and do not appear on Android. An extra key bar above the keyboard gives Esc, Tab, Ctrl, Alt, the arrows and paste.
+
+Android 7 or later, arm64 phones and tablets only. [Obtainium](https://github.com/ImranR98/Obtainium) can keep it updated: add this repository and set the release tag filter to `^android-v`.
+
+The APK is signed with a certificate whose SHA-256 fingerprint is:
+
+```
+26:4B:57:44:24:66:9F:FF:F1:7B:EE:FA:19:D4:25:91:1D:13:BC:B0:0A:1A:55:6B:78:A6:BD:19:A7:26:C3:55
+```
 
 ## Features
 
@@ -254,6 +271,20 @@ npm run tauri -- build --bundles nsis
 ```
 
 The installer lands in `src-tauri\target\release\bundle\nsis`. `npm run tauri -- dev` runs it without packaging. `install.sh` is Linux only.
+
+### Android
+
+Needs [Rust](https://rustup.rs), [Node.js 22+](https://nodejs.org), JDK 21, and the Android SDK with NDK `29.0.14206865` (the version `src-tauri/gen/android/app/build.gradle.kts` pins). Point `JAVA_HOME`, `ANDROID_HOME` and `NDK_HOME` at them, then:
+
+```bash
+rustup target add aarch64-linux-android
+npm install
+npm run tauri android build -- --debug --apk --target aarch64
+```
+
+The APK lands in `src-tauri/gen/android/app/build/outputs/apk/universal/debug`. It installs as **BifroSSH Debug**, beside a release install rather than over it. With a phone connected over adb, `adb install -r` on that file puts it on the phone.
+
+A release build (drop `--debug`) is signed only when `src-tauri/gen/android/keystore.properties` exists, with `storeFile`, `password`, `keyAlias` and `keyPassword`; otherwise it comes out unsigned.
 
 ---
 

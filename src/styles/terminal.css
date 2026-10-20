@@ -350,3 +350,50 @@
   height: 6px;
   accent-color: var(--accent);
 }
+
+/* ── Extra-key bar (Android) ───────────────────────────────── */
+
+/* One row that scrolls sideways, under the terminal and so just above the
+   touch keyboard. */
+.keybar {
+  display: flex;
+  flex-shrink: 0;
+  gap: 3px;
+  padding: 2px 3px;
+  overflow-x: auto;
+  background: var(--bg-dark);
+  border-top: 1px solid var(--border);
+  scrollbar-width: none;
+}
+
+.keybar::-webkit-scrollbar {
+  display: none;
+}
+
+.keybar-key {
+  flex: 0 0 auto;
+  min-width: 34px;
+  height: 28px;
+  padding: 0 7px;
+  background: var(--bg-mid);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, 'Cascadia Mono', Consolas, monospace;
+  touch-action: manipulation;
+}
+
+.keybar-key:active {
+  background: var(--bg-hover);
+}
+
+.keybar-latched {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+
+.keybar-wide {
+  font-family: inherit;
+}

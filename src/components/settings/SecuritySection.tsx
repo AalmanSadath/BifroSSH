@@ -5,6 +5,7 @@ import MasterKeySection from '../MasterKeySection';
 import { Picker, usePatch, type PickerOption } from './Picker';
 import { formatChords, resolve } from '../../shortcuts';
 import type { KeystoreStatus } from '../../types';
+import { isAndroid } from '../../platform';
 
 /** Minutes, as strings because the picker is keyed on strings; 0 is off. */
 const AUTO_LOCK_OPTIONS: PickerOption<string>[] = [
@@ -58,7 +59,7 @@ export default function SecuritySection({ setActiveTab }: { setActiveTab: (id: s
         <p className="form-hint">
           Input means yours: keys, pointer, wheel. Output arriving in a terminal does not count.
         </p>
-        <label className="checkbox-row">
+        {!isAndroid && <label className="checkbox-row">
           <input
             type="checkbox"
             disabled={!canLock}
@@ -66,7 +67,7 @@ export default function SecuritySection({ setActiveTab }: { setActiveTab: (id: s
             onChange={(e) => patch({ lock_on_suspend: e.target.checked })}
           />
           <span>Lock before the computer sleeps</span>
-        </label>
+        </label>}
         <div className="form-row" style={{ alignItems: 'center', gap: 10 }}>
           <button
             type="button"

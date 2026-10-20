@@ -14,6 +14,7 @@ import PassphraseInput from './shared/PassphraseInput';
 import { cardKeys } from './shared/cardKeys';
 import { EditIcon } from './shared/icons';
 import PortalDropdown, { CHEVRON } from './shared/PortalDropdown';
+import { isAndroid } from '../platform';
 
 const KEY_ALGORITHMS = [
   { value: 'ed25519', label: 'ED25519' },
@@ -529,7 +530,7 @@ export default function KeychainPanel() {
                   <button type="button" className={`toggle-btn${idAuthType === 'key' ? ' active' : ''}`} onClick={() => setIdAuthType('key')}>Key</button>
                   <button type="button" className={`toggle-btn${idAuthType === 'password' ? ' active' : ''}`} onClick={() => setIdAuthType('password')}>Password</button>
                   <button type="button" className={`toggle-btn${idAuthType === 'keyboard-interactive' ? ' active' : ''}`} onClick={() => setIdAuthType('keyboard-interactive')}>Prompt</button>
-                  <button type="button" className={`toggle-btn${idAuthType === 'agent' ? ' active' : ''}`} onClick={() => setIdAuthType('agent')}>Agent</button>
+                  {!isAndroid && <button type="button" className={`toggle-btn${idAuthType === 'agent' ? ' active' : ''}`} onClick={() => setIdAuthType('agent')}>Agent</button>}
                 </div>
                 {idAuthType === 'keyboard-interactive' && (
                   <p className="form-hint">
@@ -682,7 +683,7 @@ export default function KeychainPanel() {
                 <form id="edit-key-form" className="inline-form" onSubmit={handleSaveEditKey}>
                   <div className="form-group">
                     <label>Name</label>
-                    <input value={editKeyName} onChange={(e) => setEditKeyName(e.target.value)} placeholder="Key name" autoFocus />
+                    <input value={editKeyName} onChange={(e) => setEditKeyName(e.target.value)} placeholder="Key name" autoFocus={!isAndroid} />
                   </div>
                   <div className="form-group">
                     <label>Passphrase</label>

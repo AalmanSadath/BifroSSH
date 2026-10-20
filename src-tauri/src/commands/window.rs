@@ -55,6 +55,9 @@ pub async fn window_detach(
     title: String,
     payload: String,
 ) -> CmdResult<()> {
+    if cfg!(mobile) {
+        return Err("Tabs cannot move to a window of their own on this platform".into());
+    }
     let label = label_for(&tab_id)?;
     if app.get_webview_window(&label).is_some() {
         return Err("This tab is already in a window of its own".into());
@@ -96,6 +99,7 @@ pub fn window_stash(detached: State<'_, DetachedTabs>, tab_id: String, payload: 
 pub fn window_focus(app: AppHandle, tab_id: String) -> CmdResult<()> {
     let label = label_for(&tab_id)?;
     let window = app.get_webview_window(&label).ok_or("That window has closed")?;
+    #[cfg(desktop)]
     let _ = window.unminimize();
     let _ = window.show();
     window.set_focus().map_err(|e| e.to_string())?;

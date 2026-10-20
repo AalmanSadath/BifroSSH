@@ -18,6 +18,7 @@ import { cardKeys } from './shared/cardKeys';
 import { EditIcon, NoteIcon } from './shared/icons';
 import { probeClass, probeLabel, probeTitle } from '../probe';
 import { tabLabel } from '../tabName';
+import { isAndroid } from '../platform';
 
 const STATUS_DOT: Record<HostStatus, { className: string; title: string }> = {
   connected: { className: 'dot-on', title: 'Connected' },
@@ -161,13 +162,14 @@ export default function HostsPanel() {
             <PortalDropdown label="Import Hosts">
               {(close) => (
                 <>
-                  <button
+                  {/* There is no ~/.ssh/config on Android to read. */}
+                  {!isAndroid && <button
                     type="button"
                     className="picker-item"
                     onMouseDown={(e) => { e.preventDefault(); close(); setShowSshImport(true); }}
                   >
                     sshconfig
-                  </button>
+                  </button>}
                   <button
                     type="button"
                     className="picker-item"
@@ -243,7 +245,9 @@ export default function HostsPanel() {
                     key={server.id}
                     className={`host-card${selection.selected.has(server.id) ? ' host-card-selected' : ''}`}
                     {...cardKeys(() => handleDoubleClick(server))}
-                    onClick={(e) => handleCardClick(e, server)}
+                    // A tap is the only click a phone has, so it connects;
+                    // picking several is on the long-press menu.
+                    onClick={(e) => (isAndroid ? handleDoubleClick(server) : handleCardClick(e, server))}
                     onDoubleClick={() => handleDoubleClick(server)}
                     onContextMenu={(e) => handleContextMenu(e, server)}
                     title={hint('Double-click to connect · Click to select, Ctrl or Shift to select several · Right-click for options')}

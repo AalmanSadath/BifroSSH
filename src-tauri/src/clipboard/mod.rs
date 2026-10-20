@@ -29,7 +29,14 @@ mod windows;
 #[cfg(windows)]
 use windows as backend;
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(target_os = "android")]
+mod backend {
+    pub(super) fn read_text(app: &tauri::AppHandle) -> Result<String, String> {
+        crate::android::read_clipboard(app)
+    }
+}
+
+#[cfg(not(any(target_os = "linux", windows, target_os = "android")))]
 mod backend {
     pub(super) fn read_text(_app: &tauri::AppHandle) -> Result<String, String> {
         Err("Reading the clipboard is not supported on this platform".into())

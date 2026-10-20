@@ -7,6 +7,7 @@ import FilePickerModal from './FilePickerModal';
 import { describeCounts } from '../types';
 import type { ExportResult } from '../types';
 import Modal from './shared/Modal';
+import { StorageAccessNotice, useStorageAccess } from '../storageAccess';
 
 interface Props {
   onClose: () => void;
@@ -51,6 +52,7 @@ function defaultName(): string {
  * lets the file open on a machine that has never seen this keystore.
  */
 export default function ExportDataModal({ onClose }: Props) {
+  const storage = useStorageAccess();
   const [dir, setDir] = useState('');
   const [path, setPath] = useState('');
   const [picking, setPicking] = useState(false);
@@ -123,6 +125,7 @@ export default function ExportDataModal({ onClose }: Props) {
       subtitle="One encrypted file you can carry to another machine"
       onClose={onClose}
     >
+      {!storage && !result && <StorageAccessNotice what="save the export in this phone's storage" />}
       {result ? (
         <>
           <p className="hostkey-body">Wrote {describeCounts(result.counts)}.</p>

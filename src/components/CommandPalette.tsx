@@ -4,6 +4,8 @@ import { useAppStore } from '../store/appStore';
 import { bySection, rankCommands, type Command } from '../palette';
 import type { Codeprint, SettingsSection } from '../types';
 import { tabLabel } from '../tabName';
+import { isAndroid } from '../platform';
+import { useBackClose } from '../backStack';
 
 interface Props {
   onClose: () => void;
@@ -38,7 +40,7 @@ const PANELS: { id: string; label: string }[] = [
 const SETTINGS_SECTIONS: { id: SettingsSection; label: string }[] = [
   { id: 'appearance', label: 'Appearance' },
   { id: 'terminal', label: 'Terminal' },
-  { id: 'shortcuts', label: 'Keyboard shortcuts' },
+  ...(isAndroid ? [] : [{ id: 'shortcuts' as const, label: 'Keyboard shortcuts' }]),
   { id: 'connection', label: 'Connection' },
   { id: 'security', label: 'Security' },
   { id: 'data', label: 'Backup and transfer' },
@@ -56,6 +58,7 @@ export default function CommandPalette({ onClose, onCodeprint, onAddHost, onLock
     servers, sessions, activeTabId, codeprints, setActiveTab, openSession, openInSftp,
     removeSession, toggleBroadcast, toggleLogging, toggleRecording, openLocalShell, checkForUpdates, openSettings,
   } = useAppStore();
+  useBackClose(onClose);
   const [query, setQuery] = useState('');
   const [cursor, setCursor] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
@@ -193,7 +196,7 @@ export default function CommandPalette({ onClose, onCodeprint, onAddHost, onLock
           group: 'Actions',
           run: done(() => onShowWindow(active.tab_id)),
         });
-      } else if (active.status === 'connected' && active.session_id) {
+      } else if (active.status === 'connected' && active.session_id && !isAndroid) {
         items.push({
           id: 'action:detach',
           title: 'Move this tab to a new window',
@@ -214,13 +217,15 @@ export default function CommandPalette({ onClose, onCodeprint, onAddHost, onLock
       });
     }
     items.push({ id: 'action:lock', title: 'Lock the vault', group: 'Actions', run: done(onLock) });
-    items.push({
-      id: 'action:local-shell',
-      title: 'Open a local shell',
-      subtitle: 'A shell on this computer, in a tab',
-      group: 'Actions',
-      run: done(() => { void openLocalShell(); }),
-    });
+    if (!isAndroid) {
+      items.push({
+        id: 'action:local-shell',
+        title: 'Open a local shell',
+        subtitle: 'A shell on this computer, in a tab',
+        group: 'Actions',
+        run: done(() => { void openLocalShell(); }),
+      });
+    }
     items.push({
       id: 'action:updates',
       title: 'Check for updates',

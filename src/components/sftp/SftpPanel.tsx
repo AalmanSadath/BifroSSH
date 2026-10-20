@@ -17,6 +17,8 @@ import { useCompare } from './useCompare';
 import { useExternalDrop } from './useExternalDrop';
 import { usePane, type Pane } from './usePane';
 import { useTransferQueue } from './useTransferQueue';
+import { isAndroid } from '../../platform';
+import { StorageAccessNotice, useStorageAccess } from '../../storageAccess';
 
 const closeConnectionActions = (onClose: () => void) => (
   <>
@@ -80,6 +82,19 @@ export default function SftpPanel() {
   }, [sftpRequest]);
 
   const [dropTarget, setDropTarget] = useState<'left' | 'right' | null>(null);
+  // Granted while a pane was showing local files: list them again, now that
+  // they can be.
+  const storage = useStorageAccess();
+  useEffect(() => {
+    if (!storage) return;
+    for (const pane of [panesRef.current.left, panesRef.current.right]) {
+      // A pane still on its way to its home folder will list it itself.
+      if (pane.mode === 'local' && pane.listing.path) void pane.refresh();
+    }
+  }, [storage]);
+
+  // Which pane a narrow screen shows. The right one is where a server opens.
+  const [shownSide, setShownSide] = useState<'left' | 'right'>('right');
   const transfers = useTransferQueue(panesRef, () => setDropTarget(null));
   const compare = useCompare();
   useExternalDrop(setDropTarget, handleExternalDrop);
@@ -217,7 +232,7 @@ export default function SftpPanel() {
         onDelete={pane.removeMany}
         onSetMode={pane.setPerms}
         onMove={pane.moveInto}
-        onOpen={pane.open}
+        onOpen={isAndroid ? undefined : pane.open}
         onLocalBtn={() => pane.setMode('idle')}
         extraActions={closeConnectionActions(
           pane.mode === 'local' ? () => pane.setMode('idle') : pane.disconnect,
@@ -238,6 +253,12 @@ export default function SftpPanel() {
 
     switch (pane.mode) {
       case 'local':
+        return storage ? browser : (
+          <>
+            <StorageAccessNotice what="show and transfer the files on this phone" />
+            {browser}
+          </>
+        );
       case 'connected':
         return browser;
       case 'idle':
@@ -273,6 +294,13 @@ export default function SftpPanel() {
     }
   }
 
+  /** What a pane is showing, for the switch between them on a narrow screen. */
+  function paneLabel(pane: Pane, fallback: string): string {
+    if (pane.mode === 'local') return 'Local';
+    if (pane.mode === 'connected') return pane.serverName;
+    return fallback;
+  }
+
   const { mismatches } = transfers;
   return (
     <div className="sftp-container">
@@ -299,7 +327,22 @@ export default function SftpPanel() {
           onCopyAgain={() => transfers.copyAgain(mismatches)}
         />
       )}
-      <div className="sftp-panels-row">
+      {/* Narrow screens show one pane at a time; copying to the other is
+          on each file's menu. */}
+      <div className="sftp-pane-switch" role="tablist">
+        {(['left', 'right'] as const).map((side) => (
+          <button
+            key={side}
+            role="tab"
+            aria-selected={shownSide === side}
+            className={`sftp-pane-switch-btn${shownSide === side ? ' active' : ''}`}
+            onClick={() => setShownSide(side)}
+          >
+            {side === 'left' ? paneLabel(left, 'Left') : paneLabel(right, 'Right')}
+          </button>
+        ))}
+      </div>
+      <div className="sftp-panels-row" data-shown={shownSide}>
         <div className="sftp-file-panel" data-side="left">{renderPane(left, right, 'left')}</div>
         <div className="sftp-divider" />
         <div className="sftp-file-panel sftp-remote-panel" data-side="right">{renderPane(right, left, 'right')}</div>
