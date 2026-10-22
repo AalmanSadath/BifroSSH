@@ -44,6 +44,7 @@ import type {
   KnownHostEntry,
   MergePlan,
   OpenTab,
+  PinAttempt,
   PortForwarding,
   QuickConnectRequest,
   Server,
@@ -309,6 +310,22 @@ export const setAlwaysAsk = (alwaysAsk: boolean) =>
 
 export const removeMasterPassphrase = (passphrase: string) =>
   invoke<void>('remove_master_passphrase', { passphrase });
+
+/** Opens the vault with a fingerprint. False when the prompt was cancelled. */
+export const unlockVaultBiometric = () => invoke<boolean>('unlock_vault_biometric');
+
+export const unlockVaultPin = (pin: string) => invoke<PinAttempt>('unlock_vault_pin', { pin });
+
+/** Turns fingerprint unlock on. False when the prompt was cancelled. */
+export const enableBiometric = (passphrase: string) =>
+  invoke<boolean>('enable_biometric', { passphrase });
+
+export const disableBiometric = () => invoke<void>('disable_biometric');
+
+export const setAppPin = (passphrase: string, pin: string) =>
+  invoke<void>('set_app_pin', { passphrase, pin });
+
+export const removeAppPin = () => invoke<void>('remove_app_pin');
 
 // ── host keys and prompts ────────────────────────────────────────────────
 

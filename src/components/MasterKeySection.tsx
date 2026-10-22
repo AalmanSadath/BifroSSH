@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import * as ipc from '../ipc';
 import PassphraseInput from './shared/PassphraseInput';
 import type { KeystoreStatus } from '../types';
+import { isAndroid } from '../platform';
 
 /**
  * Where the key that encrypts everything is kept, and what that is worth.
@@ -58,7 +59,7 @@ export default function MasterKeySection({ onChanged }: Props = {}) {
         : ipc.removeMasterPassphrase(pass));
       setNote(
         mode === 'set'
-          ? alwaysAsk
+          ? alwaysAsk || isAndroid
             ? 'Passphrase set. It will be asked for every time BifroSSH starts.'
             : 'Passphrase set. Your keyring still unlocks normally; the passphrase is there for when it cannot.'
           : 'Passphrase removed.',
@@ -74,7 +75,7 @@ export default function MasterKeySection({ onChanged }: Props = {}) {
 
   const where = {
     keyring: 'in your desktop keyring',
-    file: 'in a file next to your data',
+    file: isAndroid ? 'in a file next to your data in the app\'s storage' : 'in a file next to your data',
     passphrase: 'behind your master passphrase',
   };
 
@@ -84,6 +85,13 @@ export default function MasterKeySection({ onChanged }: Props = {}) {
    * paragraphs saying the same thing.
    */
   function detail(s: KeystoreStatus) {
+    // Android has no keyring, so the passphrase is the only thing it could
+    // be behind, and the file the only alternative.
+    if (isAndroid) {
+      return s.source === 'file'
+        ? 'Anything that copies the app\'s storage, such as a phone backup, copies the key too. Set a passphrase to take it off the phone.'
+        : null;
+    }
     if (s.source === 'keyring') {
       return 'The passphrase is only needed if the keyring is ever lost.';
     }
@@ -118,7 +126,7 @@ export default function MasterKeySection({ onChanged }: Props = {}) {
 
           {mode === 'idle' ? (
             <>
-              {status.passphrase_set && (
+              {status.passphrase_set && !isAndroid && (
                 <>
                   <label className="checkbox-row master-key-toggle">
                     <input
@@ -162,7 +170,7 @@ export default function MasterKeySection({ onChanged }: Props = {}) {
               </div>
             </>
           ) : (
-            <div className="hostkey-confirm">
+            <div className="master-key-form">
               {mode === 'set' && (
                 <div className={alwaysAsk ? 'hostkey-warn' : ''}>
                   {alwaysAsk ? (
@@ -175,6 +183,12 @@ export default function MasterKeySection({ onChanged }: Props = {}) {
                         them without this passphrase. Forget it and they are gone.
                       </p>
                     </>
+                  ) : isAndroid ? (
+                    <p className="form-hint form-hint-flush">
+                      The key is removed from the phone and your passphrase replaces it. It is
+                      asked for whenever BifroSSH starts or is locked, and forgetting it loses
+                      your saved passwords and keys for good.
+                    </p>
                   ) : (
                     <p className="form-hint form-hint-flush">
                       The key is removed from disk and your passphrase replaces it. Your keyring
@@ -192,10 +206,14 @@ export default function MasterKeySection({ onChanged }: Props = {}) {
                   <p>
                     Without a passphrase there has to be something that can still open your data,
                     so removing it writes the key to <code>.secret</code> next to that data. From
-                    then on anything that copies your home directory, a backup or a synced folder,
-                    copies the key along with it{status.always_ask
+                    then on anything that copies {isAndroid
+                      ? 'the app\'s storage, such as a phone backup,'
+                      : 'your home directory, a backup or a synced folder,'} copies the key along
+                    with it{status.always_ask || isAndroid
                       ? ', and BifroSSH will stop asking you for anything at startup'
                       : ''}.
+                    {(status.biometric_enabled || status.pin_enabled) &&
+                      ' Fingerprint unlock and the app PIN are turned off as well.'}
                   </p>
                 </div>
               )}
@@ -219,14 +237,14 @@ export default function MasterKeySection({ onChanged }: Props = {}) {
                     value={confirm}
                     onChange={setConfirm}
                   />
-                  <label className="checkbox-row">
+                  {!isAndroid && <label className="checkbox-row">
                     <input
                       type="checkbox"
                       checked={alwaysAsk}
                       onChange={(e) => { setAlwaysAsk(e.target.checked); setUnderstood(false); }}
                     />
                     <span>Always ask, even when the keyring could unlock it</span>
-                  </label>
+                  </label>}
                   {alwaysAsk && (
                     <label className="checkbox-row">
                       <input

@@ -18,6 +18,10 @@
 
 .unlock-screen {
   flex: 1;
+  /* Allowed narrower than the card inside it, so the card's max-width can
+     take effect inside the lock overlay on a phone instead of pushing past
+     the right edge. */
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -75,6 +79,23 @@
   color: var(--danger);
   font-size: 12px;
   line-height: 1.45;
+}
+
+/* A PIN is typed into a text field drawn as dots rather than a password
+   field, because a password field is what password managers watch: on
+   Android, Bitwarden offered to save the PIN as a password after every
+   unlock. The PIN is useless off this phone, so there is nothing to save. */
+.pin-input { -webkit-text-security: disc; }
+
+/* Between PIN and passphrase: a quiet link, since the main button is above. */
+.unlock-switch {
+  align-self: center;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 12px;
+  padding: 4px;
+  cursor: pointer;
 }
 
 /* Wider than the unlock card: three options with a sentence of explanation
@@ -144,6 +165,13 @@
    for the toggle, so it needs to read as a separate thing rather than as the
    toggle's caption. */
 .master-key-toggle { margin-top: 14px; }
+
+/* Setting or removing the passphrase, a PIN or a fingerprint in Settings:
+   fields stacked one per line. These borrowed the host key prompt's class,
+   which became a checkbox row and laid them side by side. */
+.master-key-form { display: flex; flex-direction: column; gap: 6px; }
+.master-key-form > label:not(.checkbox-row) { font-size: 12px; color: var(--text-muted); }
+.master-key-form code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text-primary); }
 
 /* The eye sits inside the box, so in a row that also holds the dice the
    wrapper is what stretches, not the bare input. */

@@ -67,17 +67,21 @@ export default function FirstRunSetup({ keyringAvailable, onReady }: Props) {
     {
       id: 'passphrase-only',
       title: 'Passphrase only, asked every time',
-      body:
-        'The key exists nowhere until you type it. This is the only option that protects your ' +
-        'saved keys from anything else running as you, and the only one where forgetting the ' +
-        'passphrase loses them for good.',
+      body: isAndroid
+        ? 'The key exists nowhere until you type it. Forgetting the passphrase loses your saved ' +
+          'keys for good. Fingerprint or PIN unlock can be added in Settings afterwards.'
+        : 'The key exists nowhere until you type it. This is the only option that protects your ' +
+          'saved keys from anything else running as you, and the only one where forgetting the ' +
+          'passphrase loses them for good.',
     },
     {
       id: 'secret-file',
       title: 'Keep the key in a file, no passphrase',
-      body:
-        'Simplest, and nothing to remember. The key sits next to your data, readable only by ' +
-        'your account, which means anything that copies your home directory copies both.',
+      body: isAndroid
+        ? 'Simplest, and nothing to remember. The key sits next to your data in the app\'s own ' +
+          'storage, so anything that copies that, such as a phone backup, copies both.'
+        : 'Simplest, and nothing to remember. The key sits next to your data, readable only by ' +
+          'your account, which means anything that copies your home directory copies both.',
     },
   ];
 

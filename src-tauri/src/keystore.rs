@@ -60,6 +60,57 @@ pub struct KeyStore {
     /// a process already running as this user.
     #[serde(default)]
     pub always_ask: bool,
+    /// Master key encrypted by a key in the Android Keystore that only a
+    /// fingerprint can use. Android only, and only beside a passphrase.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub biometric: Option<BiometricWrapper>,
+    /// Master key wrapped with the app PIN. Android only, and only beside a
+    /// passphrase.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pin: Option<PinWrapper>,
+}
+
+/// What the Android Keystore's fingerprint-bound key made of the master key.
+/// Opaque here: only that key, behind a fingerprint, can turn it back.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BiometricWrapper {
+    pub iv: String,
+    pub blob: String,
+}
+
+/// The master key wrapped with a key made from the app PIN.
+///
+/// A six digit PIN is a million guesses, which Argon2 alone would let a copy
+/// of the data folder run through in hours. So the Argon2 output is passed
+/// through an HMAC whose key never leaves the phone's secure hardware: every
+/// guess has to be made on this phone, by this app, where `failures` counts
+/// them.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PinWrapper {
+    pub salt: String,
+    pub m_cost: u32,
+    pub t_cost: u32,
+    pub p_cost: u32,
+    pub blob: String,
+    /// Wrong PINs since the last right one. Written before each attempt is
+    /// checked, so stopping the app mid-attempt still counts it.
+    #[serde(default)]
+    pub failures: u32,
+}
+
+/// Wrong PINs allowed before the PIN is switched off.
+pub const PIN_TRIES: u32 = 5;
+/// Shortest PIN accepted.
+pub const PIN_MIN_DIGITS: usize = 6;
+
+/// How a PIN attempt went.
+#[derive(Debug, PartialEq, Eq)]
+pub enum PinOutcome {
+    Opened([u8; 32]),
+    Wrong { tries_left: u32 },
+    /// That was the last try: the PIN is gone and only the passphrase opens
+    /// the vault now.
+    Disabled,
 }
 
 /// Argon2id parameters are stored alongside the wrapped key rather than being
@@ -144,16 +195,20 @@ pub fn unwrap_key(blob: &str, kek: &[u8; 32]) -> Result<[u8; 32]> {
 }
 
 pub fn derive_passphrase_kek(passphrase: &str, w: &PassphraseWrapper) -> Result<[u8; 32]> {
+    argon2_kek(prepare(passphrase, w.form).as_bytes(), &w.salt, w.m_cost, w.t_cost, w.p_cost)
+}
+
+/// Argon2id with the costs and base64 salt stored beside what it opens.
+fn argon2_kek(secret: &[u8], salt: &str, m_cost: u32, t_cost: u32, p_cost: u32) -> Result<[u8; 32]> {
     use argon2::{Algorithm, Argon2, Params, Version};
-    check_argon2_costs(w.m_cost, w.t_cost, w.p_cost)?;
-    let salt = BASE64.decode(&w.salt)?;
-    let params = Params::new(w.m_cost, w.t_cost, w.p_cost, Some(32))
+    check_argon2_costs(m_cost, t_cost, p_cost)?;
+    let salt = BASE64.decode(salt)?;
+    let params = Params::new(m_cost, t_cost, p_cost, Some(32))
         .map_err(|e| anyhow!("Bad Argon2 parameters: {e}"))?;
     let argon = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
-    let prepared = prepare(passphrase, w.form);
     let mut kek = [0u8; 32];
     argon
-        .hash_password_into(prepared.as_bytes(), &salt, &mut kek)
+        .hash_password_into(secret, &salt, &mut kek)
         .map_err(|e| anyhow!("Could not derive key from passphrase: {e}"))?;
     Ok(kek)
 }
@@ -491,6 +546,11 @@ pub fn clear_passphrase(dir: &Path, master: &[u8; 32]) -> Result<()> {
     let mut store = load_keystore(dir)?;
     store.passphrase = None;
     store.always_ask = false;
+    // Fingerprint and PIN are only offered beside a passphrase, which is the
+    // way back when they fail. Without one they would be the only way in, and
+    // both can stop working through no fault of the user's.
+    store.biometric = None;
+    store.pin = None;
     save_keystore(dir, &store)?;
     let _ = store_keyring_wrapper(dir, master);
     Ok(())
@@ -574,6 +634,130 @@ pub fn store_keyring_wrapper(dir: &Path, master: &[u8; 32]) -> Result<bool> {
     store.keyring = Some(wrap(master, &kek)?);
     save_keystore(dir, &store)?;
     Ok(true)
+}
+
+// ── Fingerprint and PIN (Android) ───────────────────────────────────────────
+//
+// Both are kept here, away from the Android plugin that does their hardware
+// half, so the rules about them can be tested on any machine. Neither is
+// allowed without a passphrase, which is what still opens the vault when a
+// fingerprint is enrolled or removed (and the Keystore key with it is
+// destroyed) or the PIN runs out of tries.
+
+fn require_passphrase(store: &KeyStore) -> Result<()> {
+    if store.passphrase.is_none() {
+        return Err(anyhow!("Set a master passphrase first. It is how you get back in if this stops working."));
+    }
+    Ok(())
+}
+
+pub fn set_biometric(dir: &Path, wrapper: BiometricWrapper) -> Result<()> {
+    let mut store = load_keystore(dir)?;
+    require_passphrase(&store)?;
+    store.biometric = Some(wrapper);
+    save_keystore(dir, &store)
+}
+
+pub fn biometric_wrapper(dir: &Path) -> Option<BiometricWrapper> {
+    load_keystore(dir).ok()?.biometric
+}
+
+pub fn clear_biometric(dir: &Path) -> Result<()> {
+    let mut store = load_keystore(dir)?;
+    store.biometric = None;
+    save_keystore(dir, &store)
+}
+
+pub fn has_biometric(dir: &Path) -> bool {
+    load_keystore(dir).map(|s| s.biometric.is_some()).unwrap_or(false)
+}
+
+pub fn has_pin(dir: &Path) -> bool {
+    load_keystore(dir).map(|s| s.pin.is_some()).unwrap_or(false)
+}
+
+/// Digits only, at least `PIN_MIN_DIGITS` of them.
+pub fn check_pin(pin: &str) -> Result<()> {
+    if pin.len() < PIN_MIN_DIGITS || !pin.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(anyhow!("The PIN must be at least {PIN_MIN_DIGITS} digits"));
+    }
+    Ok(())
+}
+
+/// The PIN's key: Argon2 of the PIN, then the hardware HMAC over that.
+fn pin_kek(pin: &str, w: &PinWrapper, hw_mac: &dyn Fn(&[u8; 32]) -> Result<[u8; 32]>) -> Result<[u8; 32]> {
+    let stretched = argon2_kek(pin.as_bytes(), &w.salt, w.m_cost, w.t_cost, w.p_cost)?;
+    hw_mac(&stretched)
+}
+
+/// Sets or replaces the PIN. `hw_mac` is the HMAC under the phone's
+/// hardware-held key, passed in so tests can stand in for it.
+pub fn set_pin(
+    dir: &Path,
+    master: &[u8; 32],
+    pin: &str,
+    hw_mac: &dyn Fn(&[u8; 32]) -> Result<[u8; 32]>,
+) -> Result<()> {
+    check_pin(pin)?;
+    let mut store = load_keystore(dir)?;
+    require_passphrase(&store)?;
+    let mut salt = [0u8; 16];
+    rand::thread_rng().fill_bytes(&mut salt);
+    let mut wrapper = PinWrapper {
+        salt: BASE64.encode(salt),
+        m_cost: ARGON2.m_cost,
+        t_cost: ARGON2.t_cost,
+        p_cost: ARGON2.p_cost,
+        blob: String::new(),
+        failures: 0,
+    };
+    let kek = pin_kek(pin, &wrapper, hw_mac)?;
+    wrapper.blob = wrap(master, &kek)?;
+    // Prove it opens before it is relied on.
+    if unwrap_key(&wrapper.blob, &pin_kek(pin, &wrapper, hw_mac)?)? != *master {
+        return Err(anyhow!("The new PIN did not verify; nothing was changed"));
+    }
+    store.pin = Some(wrapper);
+    save_keystore(dir, &store)
+}
+
+pub fn clear_pin(dir: &Path) -> Result<()> {
+    let mut store = load_keystore(dir)?;
+    store.pin = None;
+    save_keystore(dir, &store)
+}
+
+/// Tries a PIN. The failure is counted on disk before the PIN is checked, and
+/// taken back only if it was right, so no way of stopping the app partway
+/// gets a free guess. The last allowed failure removes the PIN.
+pub fn unlock_with_pin(
+    dir: &Path,
+    pin: &str,
+    hw_mac: &dyn Fn(&[u8; 32]) -> Result<[u8; 32]>,
+) -> Result<PinOutcome> {
+    let mut store = load_keystore(dir)?;
+    let Some(mut wrapper) = store.pin.clone() else {
+        return Err(anyhow!("No PIN is set"));
+    };
+    wrapper.failures += 1;
+    store.pin = Some(wrapper.clone());
+    save_keystore(dir, &store)?;
+
+    let opened = pin_kek(pin, &wrapper, hw_mac).and_then(|kek| unwrap_key(&wrapper.blob, &kek));
+    match opened {
+        Ok(master) => {
+            wrapper.failures = 0;
+            store.pin = Some(wrapper);
+            save_keystore(dir, &store)?;
+            Ok(PinOutcome::Opened(master))
+        }
+        Err(_) if wrapper.failures >= PIN_TRIES => {
+            store.pin = None;
+            save_keystore(dir, &store)?;
+            Ok(PinOutcome::Disabled)
+        }
+        Err(_) => Ok(PinOutcome::Wrong { tries_left: PIN_TRIES - wrapper.failures }),
+    }
 }
 
 #[cfg(test)]
@@ -743,6 +927,7 @@ mod tests {
             keyring: Some(wrap(&key(2), &key(3)).unwrap()),
             passphrase: None,
             always_ask: false,
+            ..Default::default()
         };
         save_keystore(&dir, &stale).unwrap();
 
@@ -761,6 +946,7 @@ mod tests {
             keyring: Some(wrap(&master, &key(6)).unwrap()),
             passphrase: None,
             always_ask: false,
+            ..Default::default()
         }).unwrap();
 
         set_passphrase(&dir, &master, "hunter2", true, PassphraseForm::Verbatim).unwrap();
@@ -851,6 +1037,7 @@ mod tests {
             keyring: Some(wrap(&master, &key(6)).unwrap()),
             passphrase: None,
             always_ask: false,
+            ..Default::default()
         }).unwrap();
 
         set_passphrase(&dir, &master, "hunter2", false, PassphraseForm::Verbatim).unwrap();
@@ -874,6 +1061,7 @@ mod tests {
             keyring: Some(wrap(&master, &kek).unwrap()),
             passphrase: None,
             always_ask: false,
+            ..Default::default()
         }).unwrap();
         set_passphrase(&dir, &master, "hunter2", false, PassphraseForm::Verbatim).unwrap();
 
@@ -894,6 +1082,7 @@ mod tests {
             keyring: Some(wrap(&master, &key(6)).unwrap()),
             passphrase: None,
             always_ask: false,
+            ..Default::default()
         }).unwrap();
         set_passphrase(&dir, &master, "hunter2", false, PassphraseForm::Verbatim).unwrap();
 
@@ -1045,6 +1234,7 @@ mod tests {
             keyring: Some(wrap(&master, &key(2)).unwrap()),
             passphrase: None,
             always_ask: false,
+            ..Default::default()
         }).unwrap();
         assert_eq!(current_source(&dir, true), KeySource::File);
 
@@ -1137,5 +1327,128 @@ mod tests {
         assert!(load_keystore(&dir).unwrap().keyring.is_none());
         assert!(unlock(&dir).unwrap().needs_passphrase);
     }
-}
 
+    // ── Fingerprint and PIN ─────────────────────────────────────────────────
+
+    /// Stands in for the phone's hardware HMAC: a keyed hash this test owns.
+    fn fake_mac(input: &[u8; 32]) -> Result<[u8; 32]> {
+        let mut out = *input;
+        for (i, b) in out.iter_mut().enumerate() {
+            *b ^= 0x5a ^ i as u8;
+        }
+        Ok(out)
+    }
+
+    /// A different phone: the same PIN gives a different key.
+    fn other_mac(input: &[u8; 32]) -> Result<[u8; 32]> {
+        let mut out = *input;
+        out[0] ^= 1;
+        Ok(out)
+    }
+
+    fn with_passphrase(master: &[u8; 32]) -> std::path::PathBuf {
+        let dir = temp_dir();
+        save_keystore(&dir, &KeyStore {
+            version: 1,
+            passphrase: Some(new_passphrase_wrapper("pass", master, PassphraseForm::Verbatim).unwrap()),
+            always_ask: true,
+            ..Default::default()
+        })
+        .unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_pin_opens_the_vault() {
+        let master = key(4);
+        let dir = with_passphrase(&master);
+        set_pin(&dir, &master, "123456", &fake_mac).unwrap();
+        assert_eq!(unlock_with_pin(&dir, "123456", &fake_mac).unwrap(), PinOutcome::Opened(master));
+    }
+
+    #[test]
+    fn a_pin_needs_the_hardware_it_was_set_on() {
+        let master = key(4);
+        let dir = with_passphrase(&master);
+        set_pin(&dir, &master, "123456", &fake_mac).unwrap();
+        assert!(matches!(unlock_with_pin(&dir, "123456", &other_mac).unwrap(), PinOutcome::Wrong { .. }));
+    }
+
+    #[test]
+    fn wrong_pins_count_down_and_the_last_one_removes_the_pin() {
+        let master = key(4);
+        let dir = with_passphrase(&master);
+        set_pin(&dir, &master, "123456", &fake_mac).unwrap();
+        for left in (1..PIN_TRIES).rev() {
+            assert_eq!(unlock_with_pin(&dir, "000000", &fake_mac).unwrap(), PinOutcome::Wrong { tries_left: left });
+        }
+        assert_eq!(unlock_with_pin(&dir, "000000", &fake_mac).unwrap(), PinOutcome::Disabled);
+        assert!(!has_pin(&dir));
+        assert!(unlock_with_pin(&dir, "123456", &fake_mac).is_err());
+        // The passphrase is untouched and still the way in.
+        assert_eq!(unlock_with_passphrase(&dir, "pass").unwrap(), master);
+    }
+
+    #[test]
+    fn the_right_pin_resets_the_count() {
+        let master = key(4);
+        let dir = with_passphrase(&master);
+        set_pin(&dir, &master, "123456", &fake_mac).unwrap();
+        for _ in 0..PIN_TRIES - 1 {
+            unlock_with_pin(&dir, "000000", &fake_mac).unwrap();
+        }
+        assert!(matches!(unlock_with_pin(&dir, "123456", &fake_mac).unwrap(), PinOutcome::Opened(_)));
+        assert_eq!(load_keystore(&dir).unwrap().pin.unwrap().failures, 0);
+    }
+
+    #[test]
+    fn a_failure_is_counted_before_the_pin_is_checked() {
+        // If the hardware step fails partway, as it would were the app
+        // stopped there, the attempt has already been written down.
+        let master = key(4);
+        let dir = with_passphrase(&master);
+        set_pin(&dir, &master, "123456", &fake_mac).unwrap();
+        let broken = |_: &[u8; 32]| -> Result<[u8; 32]> { Err(anyhow!("stopped")) };
+        let _ = unlock_with_pin(&dir, "123456", &broken);
+        assert_eq!(load_keystore(&dir).unwrap().pin.unwrap().failures, 1);
+    }
+
+    #[test]
+    fn a_pin_must_be_six_or_more_digits() {
+        let master = key(4);
+        let dir = with_passphrase(&master);
+        for bad in ["", "12345", "12345a", "123 456", "١٢٣٤٥٦"] {
+            assert!(set_pin(&dir, &master, bad, &fake_mac).is_err(), "{bad:?} was accepted");
+        }
+        assert!(!has_pin(&dir));
+        assert!(set_pin(&dir, &master, "12345678", &fake_mac).is_ok());
+    }
+
+    #[test]
+    fn fingerprint_and_pin_need_a_passphrase() {
+        let dir = temp_dir();
+        let master = key(4);
+        crate::store::write_private(&secret_file_path(&dir), &master).unwrap();
+        assert!(set_pin(&dir, &master, "123456", &fake_mac).is_err());
+        assert!(set_biometric(&dir, BiometricWrapper { iv: "i".into(), blob: "b".into() }).is_err());
+    }
+
+    #[test]
+    fn removing_the_passphrase_removes_fingerprint_and_pin() {
+        let master = key(4);
+        let dir = with_passphrase(&master);
+        set_pin(&dir, &master, "123456", &fake_mac).unwrap();
+        set_biometric(&dir, BiometricWrapper { iv: "i".into(), blob: "b".into() }).unwrap();
+        clear_passphrase(&dir, &master).unwrap();
+        assert!(!has_pin(&dir));
+        assert!(!has_biometric(&dir));
+    }
+
+    #[test]
+    fn a_keystore_from_before_fingerprint_and_pin_still_reads() {
+        let dir = temp_dir();
+        std::fs::write(dir.join(KEYSTORE_FILE), r#"{"version":1,"always_ask":false}"#).unwrap();
+        let store = load_keystore(&dir).unwrap();
+        assert!(store.biometric.is_none() && store.pin.is_none());
+    }
+}

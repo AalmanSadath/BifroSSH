@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import * as ipc from '../../ipc';
 import { useAppStore, reportFailure } from '../../store/appStore';
 import MasterKeySection from '../MasterKeySection';
+import QuickUnlockSection from '../QuickUnlockSection';
 import { Picker, usePatch, type PickerOption } from './Picker';
 import { formatChords, resolve } from '../../shortcuts';
 import type { KeystoreStatus } from '../../types';
@@ -17,7 +18,9 @@ const AUTO_LOCK_OPTIONS: PickerOption<string>[] = [
 ];
 
 /** The one sentence every disabled lock control shows. */
-const LOCK_NEEDS_PASSPHRASE = 'Set a master passphrase to enable locking. Without one the keyring would reopen the vault by itself.';
+const LOCK_NEEDS_PASSPHRASE = isAndroid
+  ? 'Set a master passphrase to enable locking. Without one there is nothing to unlock it with.'
+  : 'Set a master passphrase to enable locking. Without one the keyring would reopen the vault by itself.';
 
 /** The master key, locking, and where host keys are managed. */
 export default function SecuritySection({ setActiveTab }: { setActiveTab: (id: string) => void }) {
@@ -34,6 +37,8 @@ export default function SecuritySection({ setActiveTab }: { setActiveTab: (id: s
   return (
     <>
       <MasterKeySection onChanged={refreshKeystore} />
+
+      {isAndroid && <QuickUnlockSection status={keystore} onChanged={refreshKeystore} />}
 
       <section className="panel-section">
         <h3>Locking</h3>
@@ -57,7 +62,9 @@ export default function SecuritySection({ setActiveTab }: { setActiveTab: (id: s
           </div>
         </div>
         <p className="form-hint">
-          Input means yours: keys, pointer, wheel. Output arriving in a terminal does not count.
+          {isAndroid
+            ? 'Input means yours: typing and touches. Output arriving in a terminal does not count.'
+            : 'Input means yours: keys, pointer, wheel. Output arriving in a terminal does not count.'}
         </p>
         {!isAndroid && <label className="checkbox-row">
           <input
@@ -77,8 +84,9 @@ export default function SecuritySection({ setActiveTab }: { setActiveTab: (id: s
           >
             Lock now
           </button>
-          {/* The chord is rebindable, so it is read rather than written out. */}
-          <span className="form-hint form-hint-flush">or {lockChord} anywhere</span>
+          {/* The chord is rebindable, so it is read rather than written out.
+              Android has no shortcuts page and usually no keyboard. */}
+          {!isAndroid && <span className="form-hint form-hint-flush">or {lockChord} anywhere</span>}
         </div>
       </section>
 

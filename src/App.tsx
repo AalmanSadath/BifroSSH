@@ -191,13 +191,13 @@ export default function App() {
         setVault(v);
         if (!v.locked) loadAll();
       })
-      .catch(() => setVault({ locked: false, setup_required: false, keyring_available: false, keyring_locked: false, error: null }));
+      .catch(() => setVault({ locked: false, setup_required: false, keyring_available: false, keyring_locked: false, error: null, biometric: false, pin: false }));
     // `loadAll` is a store action, created once with the store, so naming it
     // does not make this run again.
   }, [loadAll]);
 
   const opened = () => {
-    setVault({ locked: false, setup_required: false, keyring_available: false, keyring_locked: false, error: null });
+    setVault({ locked: false, setup_required: false, keyring_available: false, keyring_locked: false, error: null, biometric: false, pin: false });
     loadAll();
   };
 
@@ -222,9 +222,12 @@ export default function App() {
     const unlisten = listen('vault-locked', () => {
       clearForLock();
       setVault((v) => ({
-        ...(v ?? { setup_required: false, keyring_available: false, keyring_locked: false, error: null }),
+        ...(v ?? { setup_required: false, keyring_available: false, keyring_locked: false, error: null, biometric: false, pin: false }),
         locked: true,
       }));
+      // Then what can open it now: a fingerprint or PIN turned on since
+      // launch is not in the status read then.
+      ipc.vaultStatus().then(setVault).catch(() => {});
     });
     return () => { unlisten.then((f) => f()); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -477,7 +480,7 @@ export default function App() {
         {vault.setup_required ? (
           <FirstRunSetup keyringAvailable={vault.keyring_available} onReady={opened} />
         ) : (
-          <UnlockScreen fatal={vault.error} keyringLocked={vault.keyring_locked} onUnlocked={opened} />
+          <UnlockScreen key={`${vault.biometric}-${vault.pin}`} fatal={vault.error} keyringLocked={vault.keyring_locked} biometric={vault.biometric} pin={vault.pin} onUnlocked={opened} />
         )}
       </div>
     );
@@ -489,10 +492,12 @@ export default function App() {
           so the terminals stay mounted: unmounting one disposes its xterm and
           the scrollback with it, and drops its output listener, so nothing
           the shell printed during the lock would be seen. The overlay is
-          opaque and takes every pointer event; the unlock field has focus. */}
+          opaque and takes every pointer event; the unlock field has focus.
+          Keyed on the ways in, so a status read after the lock that finds
+          a fingerprint or PIN starts the screen again with them. */}
       {vault.locked && (
         <div className="lock-overlay">
-          <UnlockScreen fatal={null} keyringLocked={vault.keyring_locked} onUnlocked={opened} />
+          <UnlockScreen key={`${vault.biometric}-${vault.pin}`} fatal={null} keyringLocked={vault.keyring_locked} biometric={vault.biometric} pin={vault.pin} onUnlocked={opened} />
         </div>
       )}
       {/* Inert while locked: without it, Tab from the passphrase field walks
