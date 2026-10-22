@@ -12,6 +12,9 @@ import type { NamedTheme } from '../styles/themes';
 interface Props {
   /** The active tab's id. Everything here is keyed by tab, not by session. */
   activeSessionId: string | null;
+  /** A codeprint went to the terminal. App closes the panel on a phone,
+   *  where it covers the terminal the command just went to. */
+  onSent?: () => void;
 }
 
 
@@ -38,7 +41,7 @@ function ThemeSwatch({ theme }: { theme: NamedTheme }) {
   );
 }
 
-export default function TerminalSidebar({ activeSessionId }: Props) {
+export default function TerminalSidebar({ activeSessionId, onSent }: Props) {
   const {
     settings, customThemes, codeprints, sessions, servers,
     addCodeprint, updateCodeprint, deleteCodeprint, sendInput,
@@ -92,6 +95,7 @@ export default function TerminalSidebar({ activeSessionId }: Props) {
     if (!activeSessionId) return;
     const payload = run ? text + '\n' : text;
     sendInput(activeSessionId, Array.from(new TextEncoder().encode(payload)));
+    onSent?.();
   }
 
   function sendToTerminal(name: string, text: string, run: boolean) {
