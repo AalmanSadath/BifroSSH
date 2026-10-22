@@ -774,7 +774,10 @@ export default function App() {
           {activeTabId === 'theme-editor' && <ThemeEditorPanel />}
           </div>
           {termSidebarOpen && activeIsSession && !activeDetached && (
-            <TerminalSidebar activeSessionId={activeTabId} />
+            <TerminalSidebar
+              activeSessionId={activeTabId}
+              onSent={isAndroid ? () => setTermSidebarOpen(false) : undefined}
+            />
           )}
         </div>
       </div>
