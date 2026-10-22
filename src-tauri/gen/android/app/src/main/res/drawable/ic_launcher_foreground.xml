@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The launcher glyph from src-tauri/icons/icon.svg without its rounded
+  square, which is the background layer's job here. Android masks an
+  adaptive icon to whatever shape the launcher uses and only promises the
+  middle 66dp of the 108dp canvas, so the 512-unit drawing is scaled to
+  72dp: the farthest corners of the glyph then sit just inside that circle.
+  Also the monochrome layer for themed icons.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+  <group
+      android:translateX="18"
+      android:translateY="18"
+      android:scaleX="0.140625"
+      android:scaleY="0.140625">
+    <path
+        android:pathData="M110,390 L110,200 Q256,40 402,200 L402,390"
+        android:strokeColor="#F5A623"
+        android:strokeWidth="30"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M174,254 L254,296 L174,338 M254,360 L338,360"
+        android:strokeColor="#F5A623"
+        android:strokeWidth="24"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+  </group>
+</vector>
