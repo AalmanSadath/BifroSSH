@@ -11,13 +11,44 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.Settings
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyPermanentlyInvalidatedException
+import android.security.keystore.KeyProperties
+import android.security.keystore.StrongBoxUnavailableException
+import android.util.Base64
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG
+import androidx.biometric.BiometricPrompt
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 import app.tauri.annotation.Command
+import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+import java.security.KeyStore
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.Mac
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
+
+@InvokeArg
+class DataArgs {
+  lateinit var data: String
+}
+
+@InvokeArg
+class SealedArgs {
+  lateinit var iv: String
+  lateinit var blob: String
+}
+
+private const val ANDROID_KEYSTORE = "AndroidKeyStore"
+private const val BIOMETRIC_ALIAS = "bifrossh-biometric"
+private const val PIN_ALIAS = "bifrossh-pin"
 
 /**
  * What the Rust side needs from Android that only the Activity can reach.
@@ -105,4 +136,206 @@ class AndroidPlugin(private val activity: Activity) : Plugin(activity) {
       ContextCompat.checkSelfPermission(activity, Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
         PackageManager.PERMISSION_GRANTED
     }
+
+  // ── Fingerprint and PIN ─────────────────────────────────────────────────
+  //
+  // The keys below live in the Android Keystore and never leave its secure
+  // hardware. The Rust side keeps what they produce in keystore.json; the
+  // rules (passphrase required, five PIN tries) are kept there too.
+
+  /** Whether a fingerprint can be used, and if not, why. */
+  @Command
+  fun biometricStatus(invoke: Invoke) {
+    val reason = when (BiometricManager.from(activity).canAuthenticate(BIOMETRIC_STRONG)) {
+      BiometricManager.BIOMETRIC_SUCCESS -> null
+      BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> "No fingerprint is enrolled in Android's settings."
+      BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE -> "This phone has no fingerprint sensor."
+      BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE -> "The fingerprint sensor is not available right now."
+      BiometricManager.BIOMETRIC_ERROR_SECURITY_UPDATE_REQUIRED -> "Android needs a security update before the fingerprint sensor can be used."
+      else -> "Fingerprint unlock is not supported on this phone."
+    }
+    val ret = JSObject()
+    ret.put("available", reason == null)
+    if (reason != null) ret.put("reason", reason)
+    invoke.resolve(ret)
+  }
+
+  /**
+   * Encrypts `data` under a fresh fingerprint-bound key, after a fingerprint.
+   * The key is made anew each time, so turning this on again after a
+   * fingerprint change starts clean.
+   */
+  @Command
+  fun biometricEncrypt(invoke: Invoke) {
+    val args = invoke.parseArgs(DataArgs::class.java)
+    val cipher = try {
+      deleteKey(BIOMETRIC_ALIAS)
+      Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, newBiometricKey()) }
+    } catch (e: Exception) {
+      invoke.reject("Could not make a fingerprint key: ${e.message}", "failed")
+      return
+    }
+    authenticate(invoke, cipher, "Turn on fingerprint unlock") { c ->
+      val blob = c.doFinal(Base64.decode(args.data, Base64.NO_WRAP))
+      val ret = JSObject()
+      ret.put("iv", Base64.encodeToString(c.iv, Base64.NO_WRAP))
+      ret.put("blob", Base64.encodeToString(blob, Base64.NO_WRAP))
+      ret
+    }
+  }
+
+  /** Decrypts what `biometricEncrypt` made, after a fingerprint. */
+  @Command
+  fun biometricDecrypt(invoke: Invoke) {
+    val args = invoke.parseArgs(SealedArgs::class.java)
+    val cipher = try {
+      val key = keystore().getKey(BIOMETRIC_ALIAS, null) as? SecretKey
+      if (key == null) {
+        invoke.reject("The fingerprint key is gone", "invalidated")
+        return
+      }
+      Cipher.getInstance("AES/GCM/NoPadding").apply {
+        init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, Base64.decode(args.iv, Base64.NO_WRAP)))
+      }
+    } catch (e: KeyPermanentlyInvalidatedException) {
+      // A fingerprint was added or removed since this was turned on, and
+      // Android destroyed the key so the new finger cannot use it.
+      deleteKey(BIOMETRIC_ALIAS)
+      invoke.reject("Fingerprints changed", "invalidated")
+      return
+    } catch (e: Exception) {
+      invoke.reject("Could not use the fingerprint key: ${e.message}", "failed")
+      return
+    }
+    authenticate(invoke, cipher, "Unlock BifroSSH") { c ->
+      val ret = JSObject()
+      ret.put("data", Base64.encodeToString(c.doFinal(Base64.decode(args.blob, Base64.NO_WRAP)), Base64.NO_WRAP))
+      ret
+    }
+  }
+
+  @Command
+  fun biometricRemove(invoke: Invoke) {
+    deleteKey(BIOMETRIC_ALIAS)
+    invoke.resolve()
+  }
+
+  /**
+   * HMAC-SHA256 of `data` under a key that never leaves the phone's secure
+   * hardware, made on first use. What a PIN guess has to pass through, so
+   * guessing can only happen here.
+   */
+  @Command
+  fun pinMac(invoke: Invoke) {
+    val args = invoke.parseArgs(DataArgs::class.java)
+    try {
+      val key = keystore().getKey(PIN_ALIAS, null) as? SecretKey ?: newPinKey()
+      val mac = Mac.getInstance("HmacSHA256").apply { init(key) }
+      val ret = JSObject()
+      ret.put("mac", Base64.encodeToString(mac.doFinal(Base64.decode(args.data, Base64.NO_WRAP)), Base64.NO_WRAP))
+      invoke.resolve(ret)
+    } catch (e: Exception) {
+      invoke.reject("Could not use the PIN key: ${e.message}", "failed")
+    }
+  }
+
+  @Command
+  fun pinRemove(invoke: Invoke) {
+    deleteKey(PIN_ALIAS)
+    invoke.resolve()
+  }
+
+  private fun keystore(): KeyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+
+  private fun deleteKey(alias: String) {
+    try {
+      keystore().deleteEntry(alias)
+    } catch (_: Exception) {
+    }
+  }
+
+  private fun newBiometricKey(): SecretKey {
+    val spec = KeyGenParameterSpec.Builder(BIOMETRIC_ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+      .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+      .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+      .setKeySize(256)
+      .setUserAuthenticationRequired(true)
+      .setInvalidatedByBiometricEnrollment(true)
+      .apply {
+        // Every use needs its own fingerprint, never a recent screen unlock.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+          setUserAuthenticationParameters(0, KeyProperties.AUTH_BIOMETRIC_STRONG)
+        }
+      }
+      .build()
+    return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE).run {
+      init(spec)
+      generateKey()
+    }
+  }
+
+  /** In StrongBox where the phone has one, the main secure hardware if not. */
+  private fun newPinKey(): SecretKey {
+    fun make(strongBox: Boolean): SecretKey {
+      val spec = KeyGenParameterSpec.Builder(PIN_ALIAS, KeyProperties.PURPOSE_SIGN)
+        .setDigests(KeyProperties.DIGEST_SHA256)
+        .apply { if (strongBox && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) setIsStrongBoxBacked(true) }
+        .build()
+      return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_HMAC_SHA256, ANDROID_KEYSTORE).run {
+        init(spec)
+        generateKey()
+      }
+    }
+    return try {
+      make(true)
+    } catch (_: StrongBoxUnavailableException) {
+      make(false)
+    }
+  }
+
+  /**
+   * Shows the system fingerprint prompt for `cipher` and, once a finger
+   * unlocks it, resolves `invoke` with what `use` makes of it. Cancelling
+   * rejects with "cancelled", too many failed fingers with "lockout".
+   */
+  private fun authenticate(invoke: Invoke, cipher: Cipher, title: String, use: (Cipher) -> JSObject) {
+    val host = activity as FragmentActivity
+    host.runOnUiThread {
+      val callback = object : BiometricPrompt.AuthenticationCallback() {
+        override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+          val unlocked = result.cryptoObject?.cipher
+          if (unlocked == null) {
+            invoke.reject("The fingerprint did not unlock the key", "failed")
+            return
+          }
+          try {
+            invoke.resolve(use(unlocked))
+          } catch (e: Exception) {
+            invoke.reject("Could not use the fingerprint key: ${e.message}", "failed")
+          }
+        }
+
+        override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+          val code = when (errorCode) {
+            BiometricPrompt.ERROR_USER_CANCELED,
+            BiometricPrompt.ERROR_NEGATIVE_BUTTON,
+            BiometricPrompt.ERROR_CANCELED -> "cancelled"
+            BiometricPrompt.ERROR_LOCKOUT,
+            BiometricPrompt.ERROR_LOCKOUT_PERMANENT -> "lockout"
+            else -> "failed"
+          }
+          invoke.reject(errString.toString(), code)
+        }
+        // onAuthenticationFailed is one finger not recognised; the prompt
+        // stays up for another try, so there is nothing to answer yet.
+      }
+      val info = BiometricPrompt.PromptInfo.Builder()
+        .setTitle(title)
+        .setNegativeButtonText("Cancel")
+        .setAllowedAuthenticators(BIOMETRIC_STRONG)
+        .build()
+      BiometricPrompt(host, ContextCompat.getMainExecutor(activity), callback)
+        .authenticate(info, BiometricPrompt.CryptoObject(cipher))
+    }
+  }
 }

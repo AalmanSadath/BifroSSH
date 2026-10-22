@@ -386,6 +386,10 @@ export interface VaultStatus {
   keyring_locked: boolean;
   /** Set when the keystore cannot be opened at all; no passphrase helps. */
   error: string | null;
+  /** Fingerprint unlock is turned on (Android). */
+  biometric: boolean;
+  /** An app PIN is set (Android). */
+  pin: boolean;
 }
 
 /** Where the key that encrypts data.json is kept. */
@@ -398,7 +402,20 @@ export interface KeystoreStatus {
   keyring_available: boolean;
   /** Present but locked, which the user can undo by unlocking it. */
   keyring_locked: boolean;
+  biometric_enabled: boolean;
+  pin_enabled: boolean;
+  /** Whether this phone can do fingerprint unlock; always false off Android. */
+  biometric_available: boolean;
+  /** Why not, when it cannot. */
+  biometric_reason: string | null;
 }
+
+/** How one PIN attempt went. */
+export type PinAttempt =
+  | { result: 'opened' }
+  | { result: 'wrong'; tries_left: number }
+  /** Out of tries: the PIN is gone, only the passphrase opens the vault. */
+  | { result: 'disabled' };
 
 export type CursorStyle = 'block' | 'underline' | 'bar';
 

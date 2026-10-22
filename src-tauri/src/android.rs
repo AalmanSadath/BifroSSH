@@ -72,3 +72,141 @@ pub fn request_storage_access(app: &AppHandle) -> Result<(), String> {
         .run_mobile_plugin::<()>("requestStorageAccess", ())
         .map_err(|e| e.to_string())
 }
+
+// ── Fingerprint and PIN ─────────────────────────────────────────────────────
+//
+// The hardware half of fingerprint and PIN unlock. What to keep and when to
+// allow it is decided in keystore.rs; these only reach the Android Keystore.
+
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use tauri::plugin::mobile::PluginInvokeError;
+
+#[derive(Deserialize)]
+pub struct BiometricStatus {
+    pub available: bool,
+    pub reason: Option<String>,
+}
+
+/// Whether a fingerprint can be used now, and why not if it cannot.
+pub fn biometric_status(app: &AppHandle) -> BiometricStatus {
+    app.state::<Android>()
+        .0
+        .run_mobile_plugin::<BiometricStatus>("biometricStatus", ())
+        .unwrap_or(BiometricStatus { available: false, reason: Some("Android could not be asked.".into()) })
+}
+
+/// Why a fingerprint prompt did not hand back a key.
+#[derive(Debug)]
+pub enum BiometricError {
+    /// The user closed the prompt.
+    Cancelled,
+    /// Fingerprints were added or removed since this was turned on, and
+    /// Android destroyed the key.
+    Invalidated,
+    /// Too many unrecognised fingers; Android has paused the sensor.
+    Lockout,
+    Failed(String),
+}
+
+impl std::fmt::Display for BiometricError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Cancelled => f.write_str("Cancelled"),
+            Self::Invalidated => f.write_str(
+                "The fingerprints on this phone changed, so Android switched off fingerprint unlock. \
+                 Unlock another way and turn it on again in Settings.",
+            ),
+            Self::Lockout => f.write_str("Too many tries. Android has paused the fingerprint sensor for now."),
+            Self::Failed(m) => write!(f, "Fingerprint unlock failed: {m}"),
+        }
+    }
+}
+
+fn biometric_error(e: PluginInvokeError) -> BiometricError {
+    match e {
+        PluginInvokeError::InvokeRejected(r) => match r.code.as_deref() {
+            Some("cancelled") => BiometricError::Cancelled,
+            Some("invalidated") => BiometricError::Invalidated,
+            Some("lockout") => BiometricError::Lockout,
+            _ => BiometricError::Failed(r.message.unwrap_or_default()),
+        },
+        other => BiometricError::Failed(other.to_string()),
+    }
+}
+
+#[derive(serde::Serialize)]
+struct DataArgs {
+    data: String,
+}
+
+#[derive(serde::Serialize, Deserialize)]
+struct Sealed {
+    iv: String,
+    blob: String,
+}
+
+/// Encrypts the master key under a new fingerprint-bound key, asking for a
+/// fingerprint to do it.
+pub async fn biometric_encrypt(
+    app: &AppHandle,
+    master: &[u8; 32],
+) -> Result<crate::keystore::BiometricWrapper, BiometricError> {
+    let android = app.state::<Android>();
+    let sealed: Sealed = android
+        .0
+        .run_mobile_plugin_async("biometricEncrypt", DataArgs { data: BASE64.encode(master) })
+        .await
+        .map_err(biometric_error)?;
+    Ok(crate::keystore::BiometricWrapper { iv: sealed.iv, blob: sealed.blob })
+}
+
+#[derive(Deserialize)]
+struct Data {
+    data: String,
+}
+
+/// The master key back from what `biometric_encrypt` made, after a
+/// fingerprint.
+pub async fn biometric_decrypt(
+    app: &AppHandle,
+    wrapper: &crate::keystore::BiometricWrapper,
+) -> Result<[u8; 32], BiometricError> {
+    let android = app.state::<Android>();
+    let out: Data = android
+        .0
+        .run_mobile_plugin_async("biometricDecrypt", Sealed { iv: wrapper.iv.clone(), blob: wrapper.blob.clone() })
+        .await
+        .map_err(biometric_error)?;
+    BASE64
+        .decode(out.data)
+        .ok()
+        .and_then(|b| b.try_into().ok())
+        .ok_or_else(|| BiometricError::Failed("the key came back the wrong size".into()))
+}
+
+pub fn biometric_remove(app: &AppHandle) {
+    let _ = app.state::<Android>().0.run_mobile_plugin::<()>("biometricRemove", ());
+}
+
+#[derive(Deserialize)]
+struct Mac {
+    mac: String,
+}
+
+/// HMAC-SHA256 under the PIN key in the phone's secure hardware.
+pub fn pin_mac(app: &AppHandle, input: &[u8; 32]) -> anyhow::Result<[u8; 32]> {
+    let out: Mac = app
+        .state::<Android>()
+        .0
+        .run_mobile_plugin("pinMac", DataArgs { data: BASE64.encode(input) })
+        .map_err(|e| anyhow::anyhow!("The phone's secure hardware did not answer: {e}"))?;
+    BASE64
+        .decode(out.mac)
+        .ok()
+        .and_then(|b| b.try_into().ok())
+        .ok_or_else(|| anyhow::anyhow!("The PIN key gave an answer of the wrong size"))
+}
+
+pub fn pin_remove(app: &AppHandle) {
+    let _ = app.state::<Android>().0.run_mobile_plugin::<()>("pinRemove", ());
+}
