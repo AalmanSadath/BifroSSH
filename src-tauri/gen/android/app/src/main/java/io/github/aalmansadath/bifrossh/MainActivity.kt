@@ -1,5 +1,6 @@
 package io.github.aalmansadath.bifrossh
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.View
 import android.webkit.WebView
@@ -9,6 +10,8 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : TauriActivity() {
+  private var webView: WebView? = null
+
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
@@ -36,6 +39,7 @@ class MainActivity : TauriActivity() {
   // nothing to undo does Back leave the app. Added after the WebView's own
   // callback, so it is asked first.
   override fun onWebViewCreate(webView: WebView) {
+    this.webView = webView
     onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
       override fun handleOnBackPressed() {
         webView.evaluateJavascript("window.__bifrosshBack ? window.__bifrosshBack() : false") { spent ->
@@ -47,5 +51,18 @@ class MainActivity : TauriActivity() {
         }
       }
     })
+  }
+
+  /** The notification's "Disconnect all" (SessionService). */
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    if (intent.getBooleanExtra(EXTRA_DISCONNECT_ALL, false)) {
+      intent.removeExtra(EXTRA_DISCONNECT_ALL)
+      webView?.evaluateJavascript("window.__bifrosshDisconnectAll && window.__bifrosshDisconnectAll()", null)
+    }
+  }
+
+  companion object {
+    const val EXTRA_DISCONNECT_ALL = "disconnectAll"
   }
 }

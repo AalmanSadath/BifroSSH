@@ -7,6 +7,7 @@ import type { EditEvent, FileEntry, LogEntry, Server } from '../../types';
 import { localStyle, styleFor } from '../../paths';
 import type { OwnerChange } from './PermissionsDialog';
 import { emptyListing, type Listing, type Notice, type PaneMode } from './panes';
+import { holdConnection } from '../../heldConnections';
 
 /**
  * One side of the panel.
@@ -194,6 +195,15 @@ export function usePane(initialMode: PaneMode) {
     setDisconnected(false);
     setRemote(emptyListing(false));
   }
+
+  // Counted while open, so Android keeps it alive in the background, and
+  // closed by the notification's "Disconnect all".
+  const disconnectRef = useRef(disconnect);
+  disconnectRef.current = disconnect;
+  useEffect(() => {
+    if (!sid) return;
+    return holdConnection(() => { void disconnectRef.current(); });
+  }, [sid]);
 
   /** Reconnects to the host whose session dropped, if there is one. */
   const reconnect = disconnected

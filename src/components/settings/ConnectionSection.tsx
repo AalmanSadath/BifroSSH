@@ -57,6 +57,23 @@ export default function ConnectionSection() {
 
       <section className="panel-section">
         <h3>Sessions</h3>
+        {isAndroid && (
+          <>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={settings.keep_awake}
+                onChange={(e) => patch({ keep_awake: e.target.checked })}
+              />
+              <span>Keep connections alive with the screen off</span>
+            </label>
+            <p className="form-hint">
+              Connections stay open while BifroSSH is in the background, with a notification
+              saying so. With the screen off Android may still pause them after a while; this
+              keeps the phone awake for as long as anything is connected, which uses more battery.
+            </p>
+          </>
+        )}
         <label className="checkbox-row">
           <input
             type="checkbox"

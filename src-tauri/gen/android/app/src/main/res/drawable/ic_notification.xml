@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The status bar icon for SessionService's notification: the launcher glyph
+  cropped to its own bounds and scaled to fill the 24dp square, since the
+  launcher drawing keeps a wide margin for the adaptive icon mask that left
+  the glyph tiny here. Android draws it in one colour from its alpha.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+  <group
+      android:translateX="-5.49"
+      android:translateY="-5.42"
+      android:scaleX="0.06832"
+      android:scaleY="0.06832">
+    <path
+        android:pathData="M110,390 L110,200 Q256,40 402,200 L402,390"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="30"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M174,254 L254,296 L174,338 M254,360 L338,360"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="24"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+  </group>
+</vector>

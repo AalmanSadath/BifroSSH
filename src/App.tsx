@@ -8,6 +8,7 @@ import { detachTab, mirrorOf, runDetachedAction, takeBack, windowLabel, type Det
 import { setLocalPlatform } from './paths';
 import { useIdleLock } from './hooks/useIdleLock';
 import { useBackgroundLock } from './hooks/useBackgroundLock';
+import { useAndroidKeepAlive } from './hooks/useAndroidBackground';
 import type { AuthPromptEvent, Codeprint, HostKeyPromptEvent, SessionTab, TunnelClosed, VaultStatus } from './types';
 import { fill } from './snippets';
 import { zoomPercent } from './zoom';
@@ -242,6 +243,7 @@ export default function App() {
     isAndroid && vault && !vault.locked ? settings.background_lock_minutes : null,
     () => { ipc.lockVault().catch(() => {}); },
   );
+  useAndroidKeepAlive();
 
   useEffect(() => {
     const unlisten = listen<TunnelClosed>('tunnel-closed', (e) => {
