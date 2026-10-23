@@ -42,9 +42,9 @@ class MainActivity : TauriActivity() {
 
   /**
    * Keeps what the app was opened for, for the page to take once it is
-   * ready (AndroidPlugin.takeLaunch): a launcher shortcut's host. A page
-   * already running is told now; one still loading, or locked, asks when
-   * it gets there.
+   * ready (AndroidPlugin.takeLaunch): a launcher shortcut's host or an
+   * ssh:// link. A page already running is told
+   * now; one still loading, or locked, asks when it gets there.
    */
   private fun handleLaunch(intent: Intent?) {
     if (intent == null) return
@@ -54,6 +54,10 @@ class MainActivity : TauriActivity() {
       hostId != null -> {
         launch.put("kind", "host")
         launch.put("id", hostId)
+      }
+      intent.action == Intent.ACTION_VIEW && intent.data?.scheme == "ssh" -> {
+        launch.put("kind", "ssh")
+        launch.put("url", intent.data.toString())
       }
       else -> return
     }
@@ -81,8 +85,8 @@ class MainActivity : TauriActivity() {
   }
 
   /**
-   * A shortcut reaching the running app, or the notification's
-   * "Disconnect all" (SessionService).
+   * A shortcut or link reaching the running app, or the
+   * notification's "Disconnect all" (SessionService).
    */
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)

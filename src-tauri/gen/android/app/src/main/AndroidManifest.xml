@@ -40,6 +40,13 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- ssh://user@host:port links from other apps. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="ssh" />
+            </intent-filter>
         </activity>
 
         <!-- specialUse: an SSH session has no closer type, and dataSync is

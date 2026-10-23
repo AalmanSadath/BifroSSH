@@ -11,7 +11,8 @@ declare global {
 }
 
 /**
- * Acts on what the Android app was opened for: a launcher shortcut.
+ * Acts on what the Android app was opened for: a launcher shortcut or an
+ * ssh:// link.
  *
  * Asked for only once `ready`, meaning unlocked and loaded, since every one
  * of them needs the saved hosts. One that arrives while locked waits in

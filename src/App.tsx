@@ -14,7 +14,7 @@ import type { AndroidLaunch, AuthPromptEvent, Codeprint, HostKeyPromptEvent, Ses
 import { fill } from './snippets';
 import { zoomPercent } from './zoom';
 import { activityChip, anyBusy } from './activity';
-import { parseSSHInput } from './sshInput';
+import { parseSSHInput, parseSshUrl } from './sshInput';
 import { readTabDrag, tabDragPayload } from './dragPayload';
 import { usePromptQueue } from './usePromptQueue';
 import { useTranscript } from './useTranscript';
@@ -75,6 +75,7 @@ export default function App() {
   const [quickPassword, setQuickPassword] = useState('');
   const [quickKeyId, setQuickKeyId] = useState('');
   const quickPasswordRef = useRef<HTMLInputElement>(null);
+  const quickInputRef = useRef<HTMLInputElement>(null);
   const [termSidebarOpen, setTermSidebarOpen] = useState(false);
   useBackClose(termSidebarOpen ? () => setTermSidebarOpen(false) : undefined);
   const [tabCtx, setTabCtx] = useState<{ x: number; y: number; session: SessionTab } | null>(null);
@@ -449,10 +450,15 @@ export default function App() {
   }
 
   /**
-   * What the Android app was opened for: a launcher shortcut's host.
+   * What the Android app was opened for: a launcher shortcut's host or an
+   * ssh:// link.
+   *
+   * A link to a host that is saved opens it as saved, credentials and all.
+   * Any other link stops at the quick connect prompt: a link can name a
+   * host, but never says how to log in to it.
    */
   function handleLaunch(launch: AndroidLaunch) {
-    const { servers: saved, sessions: tabs } = useAppStore.getState();
+    const { servers: saved, identities, sessions: tabs } = useAppStore.getState();
     if (launch.kind === 'host') {
       // A shortcut is a way to the host, not a request for another tab on
       // it: one already open (restored at launch, say) is shown instead.
@@ -461,6 +467,36 @@ export default function App() {
       else if (saved.some((s) => s.id === launch.id)) void openSession(launch.id);
       else setActionError('That host no longer exists.');
       return;
+    }
+    const url = parseSshUrl(launch.url);
+    if (!url) {
+      setActionError(`Not an SSH link BifroSSH can open: ${launch.url}`);
+      return;
+    }
+    const userOf = (s: (typeof saved)[number]) =>
+      s.username ?? identities.find((i) => i.id === s.identity_id)?.username ?? null;
+    const match = saved.find((s) =>
+      s.host.toLowerCase() === url.host.toLowerCase()
+      && s.port === url.port
+      && (!url.user || userOf(s) === url.user));
+    if (match) {
+      void openSession(match.id);
+      return;
+    }
+    setActiveTab('hosts');
+    if (url.user) {
+      setQuickParsed({ user: url.user, host: url.host, port: url.port });
+      setQuickPassword('');
+      setQuickKeyId('');
+      setTimeout(() => quickPasswordRef.current?.focus(), 50);
+    } else {
+      // No user in the link: the box is filled in up to it, with the cursor
+      // where the name goes.
+      setQuickInput(`@${url.host}${url.port !== 22 ? ` -p ${url.port}` : ''}`);
+      setTimeout(() => {
+        quickInputRef.current?.focus();
+        quickInputRef.current?.setSelectionRange(0, 0);
+      }, 50);
     }
   }
 
@@ -590,6 +626,7 @@ export default function App() {
         {(activeTabId === 'hosts' || activeTabId === null) && <div className="quick-connect-bar">
 
           <input
+            ref={quickInputRef}
             className="quick-connect-input"
             value={quickInput}
             onChange={(e) => setQuickInput(e.target.value)}

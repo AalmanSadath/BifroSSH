@@ -843,4 +843,5 @@ export interface ImportReport {
 
 /** What the Android app was opened for from outside (MainActivity.handleLaunch). */
 export type AndroidLaunch =
-  | { kind: 'host'; id: string };
+  | { kind: 'host'; id: string }
+  | { kind: 'ssh'; url: string };
