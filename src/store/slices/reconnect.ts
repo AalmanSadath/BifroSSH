@@ -24,7 +24,20 @@ export interface ReconnectSlice {
    * starts it.
    */
   retryLoop: (tabId: string, delayMs: number, attempt: number) => Promise<void>;
+  /**
+   * Tries every retrying tab at once instead of when its countdown runs
+   * out, for when the network has just come back or changed. The attempt
+   * count carries on; the wait after it starts again from 5s.
+   */
+  retryTabsNow: () => void;
 }
+
+/**
+ * Which retry loop is current for each tab. Every pass of a loop notes the
+ * number when it starts waiting; trying at once moves it on, so the pass
+ * that was waiting stops when it wakes instead of trying a second time.
+ */
+const tabRetryGen = new Map<string, number>();
 
 export const createReconnectSlice: Slice<ReconnectSlice> = (set, get) => ({
   markDropped: (tabId, endedWith) => {
@@ -62,12 +75,14 @@ export const createReconnectSlice: Slice<ReconnectSlice> = (set, get) => ({
   },
 
   retryLoop: async (tabId, delayMs, attempt) => {
+    const gen = tabRetryGen.get(tabId) ?? 0;
     // The countdown the banner shows is this, rather than a timer the
     // component keeps: one clock, and it survives a re-render.
     set((s) => ({
       sessions: s.sessions.map((t) => (t.tab_id === tabId ? { ...t, retryAt: Date.now() + delayMs, retryAttempt: attempt } : t)),
     }));
     await new Promise((r) => setTimeout(r, delayMs));
+    if ((tabRetryGen.get(tabId) ?? 0) !== gen) return;
 
     // Stopped, closed, or brought back by hand while we waited.
     const { retryingTabIds, sessions, settings } = get();
@@ -93,7 +108,18 @@ export const createReconnectSlice: Slice<ReconnectSlice> = (set, get) => ({
       return;
     }
     if (!get().retryingTabIds.has(tabId)) return;
-    void get().retryLoop(tabId, Math.min(delayMs * 2, RETRY_MAX_MS), attempt + 1);
+    void get().retryLoop(tabId, Math.min(Math.max(delayMs * 2, RETRY_FIRST_MS), RETRY_MAX_MS), attempt + 1);
+  },
+
+  retryTabsNow: () => {
+    const { retryingTabIds, sessions } = get();
+    for (const tabId of retryingTabIds) {
+      const tab = sessions.find((t) => t.tab_id === tabId);
+      // One already reconnecting is in the middle of the try this would make.
+      if (!tab || tab.reconnecting) continue;
+      tabRetryGen.set(tabId, (tabRetryGen.get(tabId) ?? 0) + 1);
+      void get().retryLoop(tabId, 0, tab.retryAttempt ?? 1);
+    }
   },
 
   reconnectSession: async (tabId) => {

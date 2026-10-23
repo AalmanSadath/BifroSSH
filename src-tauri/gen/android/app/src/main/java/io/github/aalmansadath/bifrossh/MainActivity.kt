@@ -1,7 +1,12 @@
 package io.github.aalmansadath.bifrossh
 
+import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.KeyEvent
 import android.view.View
 import android.webkit.WebView
@@ -13,6 +18,8 @@ import app.tauri.plugin.JSObject
 
 class MainActivity : TauriActivity() {
   private var webView: WebView? = null
+  private val main = Handler(Looper.getMainLooper())
+  private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
@@ -38,6 +45,15 @@ class MainActivity : TauriActivity() {
     // Recreated for a configuration change, the intent is the one already
     // handled when the Activity first started.
     if (savedInstanceState == null) handleLaunch(intent)
+    watchNetwork()
+  }
+
+  override fun onDestroy() {
+    networkCallback?.let {
+      (getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager).unregisterNetworkCallback(it)
+    }
+    networkCallback = null
+    super.onDestroy()
   }
 
   /**
@@ -68,6 +84,50 @@ class MainActivity : TauriActivity() {
     }
     pendingLaunch = launch
     webView?.evaluateJavascript("window.__bifrosshLaunch && window.__bifrosshLaunch()", null)
+  }
+
+  /**
+   * Tells the page when the default network changes, Wi-Fi to mobile data
+   * and back, or goes. Connections made over the old one are dead but do
+   * not know it yet; the page has them checked and brought back at once
+   * rather than after the keepalives give up. The first answer is the
+   * network the app started on, and is not a change.
+   */
+  private fun watchNetwork() {
+    val manager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    val changed = Runnable {
+      webView?.evaluateJavascript("window.__bifrosshNetwork && window.__bifrosshNetwork()", null)
+    }
+    // Several callbacks arrive for one switch; the page hears about it once.
+    fun notifySoon() {
+      main.removeCallbacks(changed)
+      main.postDelayed(changed, 1000)
+    }
+    val callback = object : ConnectivityManager.NetworkCallback() {
+      private var current: Network? = null
+      private var started = false
+
+      override fun onAvailable(network: Network) {
+        val first = !started
+        started = true
+        if (network == current) return
+        current = network
+        if (!first) notifySoon()
+      }
+
+      override fun onLost(network: Network) {
+        if (network == current) {
+          current = null
+          notifySoon()
+        }
+      }
+    }
+    try {
+      manager.registerDefaultNetworkCallback(callback)
+      networkCallback = callback
+    } catch (e: Exception) {
+      // Without it, dead connections are still found by their keepalives.
+    }
   }
 
   // Back goes to the page first: it closes whatever is open there, or steps

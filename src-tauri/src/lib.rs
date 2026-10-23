@@ -315,6 +315,7 @@ fn start(profile: Option<Profile>) {
             commands::window_stash,
             commands::window_focus,
             commands::ssh_disconnect,
+            commands::ssh_check_sessions,
             commands::ssh_host_stats,
             commands::ssh_set_log,
             commands::ssh_set_recording,

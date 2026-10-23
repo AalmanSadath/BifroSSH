@@ -8,7 +8,7 @@ import { detachTab, mirrorOf, runDetachedAction, takeBack, windowLabel, type Det
 import { setLocalPlatform } from './paths';
 import { useIdleLock } from './hooks/useIdleLock';
 import { useBackgroundLock } from './hooks/useBackgroundLock';
-import { useAndroidKeepAlive, useVolumeZoom } from './hooks/useAndroidBackground';
+import { useAndroidKeepAlive, useNetworkChange, useVolumeZoom } from './hooks/useAndroidBackground';
 import { useAndroidLaunch } from './hooks/useAndroidLaunch';
 import type { AndroidLaunch, AuthPromptEvent, Codeprint, HostKeyPromptEvent, SessionTab, TunnelClosed, VaultStatus } from './types';
 import { fill } from './snippets';
@@ -252,6 +252,7 @@ export default function App() {
     () => { ipc.lockVault().catch(() => {}); },
   );
   useAndroidKeepAlive();
+  useNetworkChange();
   const restoringTabs = useAppStore((s) => s.restoringTabs);
   useAndroidLaunch(!!vault && !vault.locked && loaded && !restoringTabs, handleLaunch);
   useVolumeZoom(!!vault && !vault.locked && activeIsSession && !activeDetached);

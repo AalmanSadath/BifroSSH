@@ -243,6 +243,8 @@ pub async fn start(
                         out.recorder = next;
                     }
                     SshCommand::TransferDone => out.transfer_done(),
+                    // A local shell has no connection to lose; never sent.
+                    SshCommand::Lost => {}
                     SshCommand::Close => {
                         closed_by_user = true;
                         let _ = killer.kill();

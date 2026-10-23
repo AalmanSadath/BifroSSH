@@ -400,6 +400,8 @@ export const sshAttach = (sessionId: string) =>
 export const sshHold = (sessionId: string) =>
   invoke<boolean>('ssh_hold', { sessionId });
 
+/** Pings every terminal connection; those that do not answer end as dropped. Returns how many. */
+export const sshCheckSessions = () => invoke<number>('ssh_check_sessions');
 export const sshDisconnect = (sessionId: string) =>
   invoke<void>('ssh_disconnect', { sessionId });
 

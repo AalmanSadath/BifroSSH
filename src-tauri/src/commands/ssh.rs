@@ -501,6 +501,46 @@ pub async fn ssh_disconnect(
     Ok(())
 }
 
+/// How long a connection has to answer a ping before it counts as dead.
+const PING_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Pings every terminal connection at once and ends, as dropped, each one
+/// that does not answer in time.
+///
+/// For a network change on Android: the old connections sit on a socket
+/// that will never hear back, and keepalives alone take three intervals to
+/// give up on them. Ending them here lets the usual retry bring them back
+/// on the new network straight away. A connection that answers is left be.
+#[tauri::command]
+pub async fn ssh_check_sessions(state: State<'_, AppState>) -> CmdResult<u32> {
+    let checks: Vec<_> = {
+        let sessions = state.ssh_state.sessions.lock().await;
+        sessions
+            .values()
+            .filter_map(|h| h.opener.as_ref().map(|o| (Arc::clone(o), h.cmd_tx.clone())))
+            .collect()
+    };
+    // All at once: a dead connection costs the full timeout, and several in
+    // a row would keep the live ones waiting for their turn.
+    let mut pings = tokio::task::JoinSet::new();
+    for (opener, tx) in checks {
+        pings.spawn(async move {
+            let alive = matches!(tokio::time::timeout(PING_TIMEOUT, opener.ping()).await, Ok(Ok(())));
+            if !alive {
+                let _ = tx.send(SshCommand::Lost).await;
+            }
+            alive
+        });
+    }
+    let mut lost = 0;
+    while let Some(alive) = pings.join_next().await {
+        if !matches!(alive, Ok(true)) {
+            lost += 1;
+        }
+    }
+    Ok(lost)
+}
+
 /// How long one sample may take before it is abandoned. Well under the bar's
 /// three-second interval would starve a slow host; the bar skips a tick while
 /// one is still out instead.

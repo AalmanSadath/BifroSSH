@@ -244,12 +244,20 @@ pub(super) struct SftpConnection {
 #[async_trait::async_trait]
 pub(crate) trait ChannelOpener: Send + Sync {
     async fn open_session(&self) -> anyhow::Result<russh::Channel<russh::client::Msg>>;
+    /// A keepalive that waits for the server's answer, to tell a live
+    /// connection from one whose network has gone. Bound with a timeout by
+    /// the caller: on a dead link no answer ever comes.
+    async fn ping(&self) -> anyhow::Result<()>;
 }
 
 #[async_trait::async_trait]
 impl<H: russh::client::Handler> ChannelOpener for russh::client::Handle<H> {
     async fn open_session(&self) -> anyhow::Result<russh::Channel<russh::client::Msg>> {
         self.channel_open_session().await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    async fn ping(&self) -> anyhow::Result<()> {
+        self.send_ping().await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 }
 
