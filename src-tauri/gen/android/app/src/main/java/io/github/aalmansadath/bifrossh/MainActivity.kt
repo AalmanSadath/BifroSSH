@@ -134,12 +134,18 @@ class MainActivity : TauriActivity() {
   // back to the Hosts page (src/backStack.ts). Only when the page has
   // nothing to undo does Back leave the app. Added after the WebView's own
   // callback, so it is asked first.
+  //
+  // With connections open, leaving is what Home does: the app goes behind
+  // and SessionService keeps them. Finishing the Activity ended the process
+  // and every connection with it.
   override fun onWebViewCreate(webView: WebView) {
     this.webView = webView
     onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
       override fun handleOnBackPressed() {
         webView.evaluateJavascript("window.__bifrosshBack ? window.__bifrosshBack() : false") { spent ->
-          if (spent != "true") {
+          if (spent != "true" && SessionService.running != null) {
+            moveTaskToBack(true)
+          } else if (spent != "true") {
             isEnabled = false
             onBackPressedDispatcher.onBackPressed()
             isEnabled = true
