@@ -1,7 +1,7 @@
 import type { Slice } from '../types';
 
 /** Panes side by side before the terminals stop being useful. */
-const MAX_SPLIT = 4;
+export const MAX_SPLIT = 4;
 
 /** The group without `tabId`; a group of one is no group. */
 export function pruneSplit(group: string[], tabId: string): string[] {

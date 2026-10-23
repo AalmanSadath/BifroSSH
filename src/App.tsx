@@ -18,6 +18,7 @@ import { useTranscript } from './useTranscript';
 import { useDragResize } from './components/shared/useDragResize';
 import { useHint } from './components/shared/useHint';
 import { evenAt, evenWidths, resizeAt, widthAt } from './paneSizes';
+import { MAX_SPLIT } from './store/slices/splits';
 import { WINDOW_ACTIONS, actionFor, resolve as resolveShortcuts, tabIndexFor } from './shortcuts';
 import CommandPalette from './components/CommandPalette';
 import SnippetPromptModal from './components/SnippetPromptModal';
@@ -416,6 +417,13 @@ export default function App() {
     e.preventDefault();
     e.stopPropagation();
     setTabCtx({ x: e.clientX, y: e.clientY, session });
+  }
+
+  /** Tabs that `tabId` could be split with from its menu: none once the group is full. */
+  function splitCandidates(tabId: string): SessionTab[] {
+    const group = splitGroup.includes(tabId) ? splitGroup : [tabId];
+    if (group.length >= MAX_SPLIT) return [];
+    return sessions.filter((t) => !t.detached && !group.includes(t.tab_id));
   }
 
   function handleDuplicate(session: SessionTab) {
@@ -959,6 +967,21 @@ export default function App() {
                   Move to new window
                 </button>
               )}
+              {/* Dragging a tab onto the terminal splits it on a desktop;
+                  a phone has no drag, so the menu offers each tab instead. */}
+              {isAndroid && !tabCtx.session.detached && splitCandidates(tabCtx.session.tab_id).map((other) => (
+                <button
+                  key={other.tab_id}
+                  className="menu-item"
+                  onClick={() => {
+                    splitWith(tabCtx.session.tab_id, other.tab_id);
+                    setActiveTab(tabCtx.session.tab_id);
+                    setTabCtx(null);
+                  }}
+                >
+                  Split with {tabLabel(other)}
+                </button>
+              ))}
               {splitGroup.includes(tabCtx.session.tab_id) && (
                 <button className="menu-item" onClick={() => { unsplit(tabCtx.session.tab_id); setTabCtx(null); }}>
                   Remove from split
