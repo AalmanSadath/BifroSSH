@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import * as ipc from '../ipc';
 import { useAppStore } from '../store/appStore';
 import { disconnectHeld, useHeldCount } from '../heldConnections';
@@ -8,6 +8,8 @@ declare global {
   interface Window {
     /** The background notification's "Disconnect all" (MainActivity). */
     __bifrosshDisconnectAll?: () => void;
+    /** A volume key, +1 or -1, while they belong to the terminal (MainActivity). */
+    __bifrosshVolume?: (step: number) => void;
   }
 }
 
@@ -49,3 +51,27 @@ export function useAndroidKeepAlive(): void {
   }, []);
 }
 
+/**
+ * The volume keys as the terminal's text size on Android, while a terminal
+ * is in front and the setting is on. Anywhere else they stay the volume.
+ */
+export function useVolumeZoom(terminalInFront: boolean): void {
+  const enabled = useAppStore((s) => s.settings.volume_keys_zoom) && terminalInFront;
+  const activeTabId = useAppStore((s) => s.activeTabId);
+  const zoomSession = useAppStore((s) => s.zoomSession);
+  const tabRef = useRef(activeTabId);
+  tabRef.current = activeTabId;
+
+  useEffect(() => {
+    if (!isAndroid) return;
+    ipc.androidVolumeKeys(enabled).catch(() => {});
+  }, [enabled]);
+
+  useEffect(() => {
+    if (!isAndroid) return;
+    window.__bifrosshVolume = (step) => {
+      if (tabRef.current) zoomSession(tabRef.current, step);
+    };
+    return () => { delete window.__bifrosshVolume; };
+  }, [zoomSession]);
+}

@@ -404,6 +404,9 @@ pub struct Settings {
     /// Android: lock once the app has been out of sight this many minutes;
     /// 0 locks on every return, None is off, and off is the default.
     pub background_lock_minutes: Option<u32>,
+    /// Android: the volume keys change the terminal's text size while a
+    /// terminal is in front. On by default.
+    pub volume_keys_zoom: bool,
 }
 
 /// One keyword highlighting rule.
@@ -471,6 +474,7 @@ impl Default for Settings {
             inline_images: true,
             keep_awake: false,
             background_lock_minutes: None,
+            volume_keys_zoom: true,
         }
     }
 }

@@ -52,6 +52,11 @@ class KeepAliveArgs {
   var wakeLock: Boolean = false
 }
 
+@InvokeArg
+class EnabledArgs {
+  var enabled: Boolean = false
+}
+
 private const val ANDROID_KEYSTORE = "AndroidKeyStore"
 private const val BIOMETRIC_ALIAS = "bifrossh-biometric"
 private const val PIN_ALIAS = "bifrossh-pin"
@@ -186,6 +191,13 @@ class AndroidPlugin(private val activity: Activity) : Plugin(activity) {
     } else {
       activity.stopService(intent)
     }
+    invoke.resolve()
+  }
+
+  /** Whether the volume keys go to the page (MainActivity.dispatchKeyEvent). */
+  @Command
+  fun volumeKeys(invoke: Invoke) {
+    MainActivity.volumeZoom = invoke.parseArgs(EnabledArgs::class.java).enabled
     invoke.resolve()
   }
 

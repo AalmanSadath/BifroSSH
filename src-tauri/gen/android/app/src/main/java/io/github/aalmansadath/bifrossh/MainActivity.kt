@@ -2,6 +2,7 @@ package io.github.aalmansadath.bifrossh
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.KeyEvent
 import android.view.View
 import android.webkit.WebView
 import androidx.activity.OnBackPressedCallback
@@ -62,7 +63,29 @@ class MainActivity : TauriActivity() {
     }
   }
 
+  // The volume keys step the terminal's text size while a terminal is in
+  // front and the setting is on; the page says when (AndroidPlugin
+  // volumeKeys). Anywhere else they are the volume keys. Both the press and
+  // the release are taken, or the release would still reach the system.
+  override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+    val step = when (event.keyCode) {
+      KeyEvent.KEYCODE_VOLUME_UP -> 1
+      KeyEvent.KEYCODE_VOLUME_DOWN -> -1
+      else -> 0
+    }
+    if (step != 0 && volumeZoom) {
+      if (event.action == KeyEvent.ACTION_DOWN) {
+        webView?.evaluateJavascript("window.__bifrosshVolume && window.__bifrosshVolume($step)", null)
+      }
+      return true
+    }
+    return super.dispatchKeyEvent(event)
+  }
+
   companion object {
     const val EXTRA_DISCONNECT_ALL = "disconnectAll"
+
+    @Volatile
+    var volumeZoom = false
   }
 }

@@ -43,4 +43,5 @@ export const DEFAULT_SETTINGS: Settings = {
   accent_color: null,
   keep_awake: false,
   background_lock_minutes: null,
+  volume_keys_zoom: true,
 };

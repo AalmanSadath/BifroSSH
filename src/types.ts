@@ -375,6 +375,8 @@ export interface Settings {
   keep_awake: boolean;
   /** Android: lock after this many minutes out of sight; 0 on every return, null is off. */
   background_lock_minutes: number | null;
+  /** Android: the volume keys change the terminal's text size. */
+  volume_keys_zoom: boolean;
 }
 
 /** How the user chose to keep the master key on the first run screen. */
