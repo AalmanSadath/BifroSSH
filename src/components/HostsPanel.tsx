@@ -390,6 +390,18 @@ export default function HostsPanel() {
                   >
                     Clear command history
                   </button>
+                  {/* An icon of its own that opens straight into the host. */}
+                  {isAndroid && (
+                    <button
+                      className="menu-item"
+                      onClick={() => {
+                        setContextMenu(null);
+                        ipc.androidPinHost(contextMenu.server.id, contextMenu.server.name).catch(reportFailure);
+                      }}
+                    >
+                      Add to home screen
+                    </button>
+                  )}
                   <div className="menu-divider" />
                   <button className="menu-item menu-item-danger" onClick={() => { setConfirmDelete([contextMenu.server.id]); setContextMenu(null); }}>
                     Remove

@@ -8,6 +8,8 @@ declare global {
   interface Window {
     /** The background notification's "Disconnect all" (MainActivity). */
     __bifrosshDisconnectAll?: () => void;
+    /** The default network changed or went (MainActivity.watchNetwork). */
+    __bifrosshNetwork?: () => void;
     /** A volume key, +1 or -1, while they belong to the terminal (MainActivity). */
     __bifrosshVolume?: (step: number) => void;
   }
@@ -74,4 +76,29 @@ export function useVolumeZoom(terminalInFront: boolean): void {
     };
     return () => { delete window.__bifrosshVolume; };
   }, [zoomSession]);
+}
+
+/**
+ * After the network changes on Android, finds the connections left on the
+ * old one and brings everything waiting to reconnect back at once.
+ *
+ * The check pings each terminal connection and ends, as dropped, those that
+ * do not answer; they then take the usual reconnect path. Tabs and tunnels
+ * already waiting out a backoff are tried straight away. An SFTP pane finds
+ * out on its next action, as it does today.
+ */
+export function useNetworkChange(): void {
+  useEffect(() => {
+    if (!isAndroid) return;
+    window.__bifrosshNetwork = () => {
+      void ipc.sshCheckSessions()
+        .catch(() => 0)
+        .then(() => {
+          const s = useAppStore.getState();
+          s.retryTabsNow();
+          s.retryTunnelsNow();
+        });
+    };
+    return () => { delete window.__bifrosshNetwork; };
+  }, []);
 }

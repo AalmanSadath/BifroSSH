@@ -89,6 +89,69 @@ pub async fn android_volume_keys(
     Ok(())
 }
 
+/// What the app was opened for from outside, if anything is waiting:
+/// a launcher shortcut, an `ssh://` link or shared text. Android only.
+#[tauri::command]
+pub async fn android_take_launch(
+    #[cfg_attr(not(target_os = "android"), allow(unused_variables))] app: tauri::AppHandle,
+) -> CmdResult<Option<serde_json::Value>> {
+    #[cfg(target_os = "android")]
+    return tokio::task::spawn_blocking(move || crate::android::take_launch(&app))
+        .await
+        .map_err(|e| e.to_string())?
+        .map(|l| l.and_then(|l| serde_json::to_value(l).ok()))
+        .map_err(Into::into);
+    #[cfg(not(target_os = "android"))]
+    Ok(None)
+}
+
+/// A host was connected to: it goes to the top of the launcher shortcuts.
+#[tauri::command]
+pub async fn android_host_used(
+    #[cfg_attr(not(target_os = "android"), allow(unused_variables))] app: tauri::AppHandle,
+    #[cfg_attr(not(target_os = "android"), allow(unused_variables))] id: String,
+    #[cfg_attr(not(target_os = "android"), allow(unused_variables))] label: String,
+) -> CmdResult<()> {
+    #[cfg(target_os = "android")]
+    return tokio::task::spawn_blocking(move || crate::android::host_used(&app, &id, &label))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(Into::into);
+    #[cfg(not(target_os = "android"))]
+    Ok(())
+}
+
+/// Asks the launcher to pin a host to the home screen.
+#[tauri::command]
+pub async fn android_pin_host(
+    #[cfg_attr(not(target_os = "android"), allow(unused_variables))] app: tauri::AppHandle,
+    #[cfg_attr(not(target_os = "android"), allow(unused_variables))] id: String,
+    #[cfg_attr(not(target_os = "android"), allow(unused_variables))] label: String,
+) -> CmdResult<()> {
+    #[cfg(target_os = "android")]
+    return tokio::task::spawn_blocking(move || crate::android::pin_host(&app, &id, &label))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(Into::into);
+    #[cfg(not(target_os = "android"))]
+    Ok(())
+}
+
+/// Hosts were deleted: their shortcuts go, and pinned ones stop working.
+#[tauri::command]
+pub async fn android_hosts_removed(
+    #[cfg_attr(not(target_os = "android"), allow(unused_variables))] app: tauri::AppHandle,
+    #[cfg_attr(not(target_os = "android"), allow(unused_variables))] ids: Vec<String>,
+) -> CmdResult<()> {
+    #[cfg(target_os = "android")]
+    return tokio::task::spawn_blocking(move || crate::android::hosts_removed(&app, &ids))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(Into::into);
+    #[cfg(not(target_os = "android"))]
+    Ok(())
+}
+
 /// Which platform the app is running on.
 ///
 /// The frontend needs it for exactly one thing: local paths are separated by

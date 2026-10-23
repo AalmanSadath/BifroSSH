@@ -1,7 +1,12 @@
 package io.github.aalmansadath.bifrossh
 
+import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.KeyEvent
 import android.view.View
 import android.webkit.WebView
@@ -9,9 +14,12 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import app.tauri.plugin.JSObject
 
 class MainActivity : TauriActivity() {
   private var webView: WebView? = null
+  private val main = Handler(Looper.getMainLooper())
+  private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
@@ -33,18 +41,122 @@ class MainActivity : TauriActivity() {
       view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
       WindowInsetsCompat.CONSUMED
     }
+
+    // Recreated for a configuration change, the intent is the one already
+    // handled when the Activity first started.
+    if (savedInstanceState == null) handleLaunch(intent)
+    watchNetwork()
+  }
+
+  /**
+   * No autofill anywhere in the app. Password managers offered to fill and
+   * to save the master passphrase, PINs and host passwords, none of which
+   * belong in another vault, and the WebView ignores every per-field way
+   * of saying so (autocomplete, importantForAutofill). It does look for
+   * the autofill service on this context, and leaves autofill off when
+   * there is none, as on a device without the feature.
+   */
+  override fun getSystemService(name: String): Any? =
+    if (name == AUTOFILL_SERVICE) null else super.getSystemService(name)
+
+  override fun onDestroy() {
+    networkCallback?.let {
+      (getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager).unregisterNetworkCallback(it)
+    }
+    networkCallback = null
+    super.onDestroy()
+  }
+
+  /**
+   * Keeps what the app was opened for, for the page to take once it is
+   * ready (AndroidPlugin.takeLaunch): a launcher shortcut's host, an ssh://
+   * link, or text shared from another app. A page already running is told
+   * now; one still loading, or locked, asks when it gets there.
+   */
+  private fun handleLaunch(intent: Intent?) {
+    if (intent == null) return
+    val launch = JSObject()
+    val hostId = intent.getStringExtra(EXTRA_HOST_ID)
+    when {
+      hostId != null -> {
+        launch.put("kind", "host")
+        launch.put("id", hostId)
+      }
+      intent.action == Intent.ACTION_VIEW && intent.data?.scheme == "ssh" -> {
+        launch.put("kind", "ssh")
+        launch.put("url", intent.data.toString())
+      }
+      intent.action == Intent.ACTION_SEND && intent.type == "text/plain" -> {
+        val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return
+        launch.put("kind", "share")
+        launch.put("text", text)
+      }
+      else -> return
+    }
+    pendingLaunch = launch
+    webView?.evaluateJavascript("window.__bifrosshLaunch && window.__bifrosshLaunch()", null)
+  }
+
+  /**
+   * Tells the page when the default network changes, Wi-Fi to mobile data
+   * and back, or goes. Connections made over the old one are dead but do
+   * not know it yet; the page has them checked and brought back at once
+   * rather than after the keepalives give up. The first answer is the
+   * network the app started on, and is not a change.
+   */
+  private fun watchNetwork() {
+    val manager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    val changed = Runnable {
+      webView?.evaluateJavascript("window.__bifrosshNetwork && window.__bifrosshNetwork()", null)
+    }
+    // Several callbacks arrive for one switch; the page hears about it once.
+    fun notifySoon() {
+      main.removeCallbacks(changed)
+      main.postDelayed(changed, 1000)
+    }
+    val callback = object : ConnectivityManager.NetworkCallback() {
+      private var current: Network? = null
+      private var started = false
+
+      override fun onAvailable(network: Network) {
+        val first = !started
+        started = true
+        if (network == current) return
+        current = network
+        if (!first) notifySoon()
+      }
+
+      override fun onLost(network: Network) {
+        if (network == current) {
+          current = null
+          notifySoon()
+        }
+      }
+    }
+    try {
+      manager.registerDefaultNetworkCallback(callback)
+      networkCallback = callback
+    } catch (e: Exception) {
+      // Without it, dead connections are still found by their keepalives.
+    }
   }
 
   // Back goes to the page first: it closes whatever is open there, or steps
   // back to the Hosts page (src/backStack.ts). Only when the page has
   // nothing to undo does Back leave the app. Added after the WebView's own
   // callback, so it is asked first.
+  //
+  // With connections open, leaving is what Home does: the app goes behind
+  // and SessionService keeps them. Finishing the Activity ended the process
+  // and every connection with it.
   override fun onWebViewCreate(webView: WebView) {
     this.webView = webView
     onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
       override fun handleOnBackPressed() {
         webView.evaluateJavascript("window.__bifrosshBack ? window.__bifrosshBack() : false") { spent ->
-          if (spent != "true") {
+          if (spent != "true" && SessionService.running != null) {
+            moveTaskToBack(true)
+          } else if (spent != "true") {
             isEnabled = false
             onBackPressedDispatcher.onBackPressed()
             isEnabled = true
@@ -54,9 +166,13 @@ class MainActivity : TauriActivity() {
     })
   }
 
-  /** The notification's "Disconnect all" (SessionService). */
+  /**
+   * A shortcut, link or share reaching the running app, or the
+   * notification's "Disconnect all" (SessionService).
+   */
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
+    handleLaunch(intent)
     if (intent.getBooleanExtra(EXTRA_DISCONNECT_ALL, false)) {
       intent.removeExtra(EXTRA_DISCONNECT_ALL)
       webView?.evaluateJavascript("window.__bifrosshDisconnectAll && window.__bifrosshDisconnectAll()", null)
@@ -84,6 +200,14 @@ class MainActivity : TauriActivity() {
 
   companion object {
     const val EXTRA_DISCONNECT_ALL = "disconnectAll"
+    const val EXTRA_HOST_ID = "hostId"
+
+    /** Context.AUTOFILL_MANAGER_SERVICE, which the SDK hides. */
+    private const val AUTOFILL_SERVICE = "autofill"
+
+    /** What the app was opened for, until the page takes it. */
+    @Volatile
+    var pendingLaunch: JSObject? = null
 
     @Volatile
     var volumeZoom = false

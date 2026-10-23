@@ -21,6 +21,9 @@ import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG
 import androidx.biometric.BiometricPrompt
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.pm.ShortcutInfoCompat
+import androidx.core.content.pm.ShortcutManagerCompat
+import androidx.core.graphics.drawable.IconCompat
 import androidx.fragment.app.FragmentActivity
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
@@ -34,6 +37,7 @@ import javax.crypto.KeyGenerator
 import javax.crypto.Mac
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
+import org.json.JSONObject
 
 @InvokeArg
 class DataArgs {
@@ -55,6 +59,17 @@ class KeepAliveArgs {
 @InvokeArg
 class EnabledArgs {
   var enabled: Boolean = false
+}
+
+@InvokeArg
+class HostArgs {
+  lateinit var id: String
+  lateinit var label: String
+}
+
+@InvokeArg
+class IdsArgs {
+  var ids: List<String> = emptyList()
 }
 
 private const val ANDROID_KEYSTORE = "AndroidKeyStore"
@@ -198,6 +213,68 @@ class AndroidPlugin(private val activity: Activity) : Plugin(activity) {
   @Command
   fun volumeKeys(invoke: Invoke) {
     MainActivity.volumeZoom = invoke.parseArgs(EnabledArgs::class.java).enabled
+    invoke.resolve()
+  }
+
+  // ── Launches and shortcuts ──────────────────────────────────────────────
+
+  /** What the app was opened for (MainActivity.handleLaunch), taken once. */
+  @Command
+  fun takeLaunch(invoke: Invoke) {
+    val ret = JSObject()
+    ret.put("launch", MainActivity.pendingLaunch ?: JSONObject.NULL)
+    MainActivity.pendingLaunch = null
+    invoke.resolve(ret)
+  }
+
+  private fun hostShortcut(id: String, label: String): ShortcutInfoCompat {
+    val intent = Intent(activity, MainActivity::class.java)
+      .setAction(Intent.ACTION_VIEW)
+      .putExtra(MainActivity.EXTRA_HOST_ID, id)
+    return ShortcutInfoCompat.Builder(activity, "host-$id")
+      .setShortLabel(label)
+      .setIcon(IconCompat.createWithResource(activity, R.mipmap.ic_launcher))
+      .setIntent(intent)
+      .build()
+  }
+
+  /**
+   * A host was connected to. Pushed to the launcher icon's long-press menu,
+   * where Android keeps the most recent few and drops the oldest.
+   */
+  @Command
+  fun hostUsed(invoke: Invoke) {
+    val args = invoke.parseArgs(HostArgs::class.java)
+    try {
+      ShortcutManagerCompat.pushDynamicShortcut(activity, hostShortcut(args.id, args.label))
+    } catch (e: Exception) {
+      // A launcher without shortcuts; nothing is lost.
+    }
+    invoke.resolve()
+  }
+
+  /** Offers the host as an icon of its own on the home screen. */
+  @Command
+  fun pinHost(invoke: Invoke) {
+    val args = invoke.parseArgs(HostArgs::class.java)
+    if (!ShortcutManagerCompat.isRequestPinShortcutSupported(activity)) {
+      invoke.reject("This launcher cannot add shortcuts to the home screen.")
+      return
+    }
+    ShortcutManagerCompat.requestPinShortcut(activity, hostShortcut(args.id, args.label), null)
+    invoke.resolve()
+  }
+
+  /** Deleted hosts: out of the menu, and any pinned icons greyed out. */
+  @Command
+  fun hostsRemoved(invoke: Invoke) {
+    val ids = invoke.parseArgs(IdsArgs::class.java).ids.map { "host-$it" }
+    try {
+      ShortcutManagerCompat.removeDynamicShortcuts(activity, ids)
+      ShortcutManagerCompat.disableShortcuts(activity, ids, "This host was deleted")
+    } catch (e: Exception) {
+      // As above.
+    }
     invoke.resolve()
   }
 

@@ -34,6 +34,10 @@ pub enum SshCommand {
     /// looked like one was not: output goes to the log and recording again.
     TransferDone,
     Close,
+    /// The connection was found dead (a ping went unanswered after the
+    /// network changed). Ends the session as a drop, not a close, so the
+    /// tab keeps its scrollback and reconnects.
+    Lost,
 }
 
 /// Why a session ended, sent with `ssh-closed` so the tab can tell a shell
@@ -648,6 +652,7 @@ pub async fn connect_ssh(
                             closed_by_user = true;
                             break;
                         }
+                        SshCommand::Lost => break,
                     }
                 }
                 Some(msg) = channel.wait() => {

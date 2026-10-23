@@ -8,12 +8,13 @@ import { detachTab, mirrorOf, runDetachedAction, takeBack, windowLabel, type Det
 import { setLocalPlatform } from './paths';
 import { useIdleLock } from './hooks/useIdleLock';
 import { useBackgroundLock } from './hooks/useBackgroundLock';
-import { useAndroidKeepAlive, useVolumeZoom } from './hooks/useAndroidBackground';
-import type { AuthPromptEvent, Codeprint, HostKeyPromptEvent, SessionTab, TunnelClosed, VaultStatus } from './types';
+import { useAndroidKeepAlive, useNetworkChange, useVolumeZoom } from './hooks/useAndroidBackground';
+import { useAndroidLaunch } from './hooks/useAndroidLaunch';
+import type { AndroidLaunch, AuthPromptEvent, Codeprint, HostKeyPromptEvent, SessionTab, TunnelClosed, VaultStatus } from './types';
 import { fill } from './snippets';
 import { zoomPercent } from './zoom';
 import { activityChip, anyBusy } from './activity';
-import { parseSSHInput } from './sshInput';
+import { parseSSHInput, parseSshUrl } from './sshInput';
 import { readTabDrag, tabDragPayload } from './dragPayload';
 import { usePromptQueue } from './usePromptQueue';
 import { useTranscript } from './useTranscript';
@@ -50,7 +51,8 @@ import { tabLabel } from './tabName';
 import PortalDropdown from './components/shared/PortalDropdown';
 import { isAndroid } from './platform';
 import { setBackFallback, useBackClose } from './backStack';
-import TerminalKeyBar from './components/TerminalKeyBar';
+import TerminalKeyBar, { KEYBAR_EVENT, type KeyBarKey } from './components/TerminalKeyBar';
+import ShareToTerminalModal from './components/ShareToTerminalModal';
 
 export default function App() {
   const {
@@ -74,6 +76,9 @@ export default function App() {
   const [quickPassword, setQuickPassword] = useState('');
   const [quickKeyId, setQuickKeyId] = useState('');
   const quickPasswordRef = useRef<HTMLInputElement>(null);
+  const quickInputRef = useRef<HTMLInputElement>(null);
+  // Text shared from another Android app, waiting for a terminal to go to.
+  const [shareText, setShareText] = useState<string | null>(null);
   const [termSidebarOpen, setTermSidebarOpen] = useState(false);
   useBackClose(termSidebarOpen ? () => setTermSidebarOpen(false) : undefined);
   const [tabCtx, setTabCtx] = useState<{ x: number; y: number; session: SessionTab } | null>(null);
@@ -187,12 +192,14 @@ export default function App() {
   // no key, so loadAll would fail on every call anyway; gating it here keeps
   // the unlock screen from flashing a half populated app behind itself.
   const [vault, setVault] = useState<VaultStatus | null>(null);
+  // The saved data has been read since the vault last opened.
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     ipc.vaultStatus()
       .then((v) => {
         setVault(v);
-        if (!v.locked) loadAll();
+        if (!v.locked) void loadAll().then(() => setLoaded(true));
       })
       .catch(() => setVault({ locked: false, setup_required: false, keyring_available: false, keyring_locked: false, error: null, biometric: false, pin: false }));
     // `loadAll` is a store action, created once with the store, so naming it
@@ -201,7 +208,7 @@ export default function App() {
 
   const opened = () => {
     setVault({ locked: false, setup_required: false, keyring_available: false, keyring_locked: false, error: null, biometric: false, pin: false });
-    loadAll();
+    void loadAll().then(() => setLoaded(true));
   };
 
   /**
@@ -224,6 +231,7 @@ export default function App() {
   useEffect(() => {
     const unlisten = listen('vault-locked', () => {
       clearForLock();
+      setLoaded(false);
       setVault((v) => ({
         ...(v ?? { setup_required: false, keyring_available: false, keyring_locked: false, error: null, biometric: false, pin: false }),
         locked: true,
@@ -244,6 +252,9 @@ export default function App() {
     () => { ipc.lockVault().catch(() => {}); },
   );
   useAndroidKeepAlive();
+  useNetworkChange();
+  const restoringTabs = useAppStore((s) => s.restoringTabs);
+  useAndroidLaunch(!!vault && !vault.locked && loaded && !restoringTabs, handleLaunch);
   useVolumeZoom(!!vault && !vault.locked && activeIsSession && !activeDetached);
 
   useEffect(() => {
@@ -442,6 +453,74 @@ export default function App() {
     else openSession(session.server_id, undefined, session.container);
   }
 
+  /**
+   * What the Android app was opened for: a launcher shortcut's host, an
+   * ssh:// link, or text shared from another app.
+   *
+   * A link to a host that is saved opens it as saved, credentials and all.
+   * Any other link stops at the quick connect prompt: a link can name a
+   * host, but never says how to log in to it.
+   */
+  function handleLaunch(launch: AndroidLaunch) {
+    const { servers: saved, identities, sessions: tabs } = useAppStore.getState();
+    if (launch.kind === 'host') {
+      // A shortcut is a way to the host, not a request for another tab on
+      // it: one already open (restored at launch, say) is shown instead.
+      const open = tabs.find((t) => t.server_id === launch.id && !t.container && !t.detached);
+      if (open) setActiveTab(open.tab_id);
+      else if (saved.some((s) => s.id === launch.id)) void openSession(launch.id);
+      else setActionError('That host no longer exists.');
+      return;
+    }
+    if (launch.kind === 'share') {
+      const open = tabs.filter((t) => t.status === 'connected' && !t.detached);
+      if (open.length === 0) setActionError('Open a session first, then share the text again.');
+      else setShareText(launch.text);
+      return;
+    }
+    const url = parseSshUrl(launch.url);
+    if (!url) {
+      setActionError(`Not an SSH link BifroSSH can open: ${launch.url}`);
+      return;
+    }
+    const userOf = (s: (typeof saved)[number]) =>
+      s.username ?? identities.find((i) => i.id === s.identity_id)?.username ?? null;
+    const match = saved.find((s) =>
+      s.host.toLowerCase() === url.host.toLowerCase()
+      && s.port === url.port
+      && (!url.user || userOf(s) === url.user));
+    if (match) {
+      void openSession(match.id);
+      return;
+    }
+    setActiveTab('hosts');
+    if (url.user) {
+      setQuickParsed({ user: url.user, host: url.host, port: url.port });
+      setQuickPassword('');
+      setQuickKeyId('');
+      setTimeout(() => quickPasswordRef.current?.focus(), 50);
+    } else {
+      // No user in the link: the box is filled in up to it, with the cursor
+      // where the name goes.
+      setQuickInput(`@${url.host}${url.port !== 22 ? ` -p ${url.port}` : ''}`);
+      setTimeout(() => {
+        quickInputRef.current?.focus();
+        quickInputRef.current?.setSelectionRange(0, 0);
+      }, 50);
+    }
+  }
+
+  /** Pastes the shared text into a tab, once it is the focused terminal. */
+  function pasteShared(tabId: string) {
+    const text = shareText;
+    setShareText(null);
+    if (text === null) return;
+    setActiveTab(tabId);
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent<KeyBarKey>(KEYBAR_EVENT, { detail: { paste: text } }));
+    }, 100);
+  }
+
   function handleQuickSubmit(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key !== 'Enter') return;
     const parsed = parseSSHInput(quickInput);
@@ -568,6 +647,7 @@ export default function App() {
         {(activeTabId === 'hosts' || activeTabId === null) && <div className="quick-connect-bar">
 
           <input
+            ref={quickInputRef}
             className="quick-connect-input"
             value={quickInput}
             onChange={(e) => setQuickInput(e.target.value)}
@@ -828,6 +908,15 @@ export default function App() {
           extensions={['.txt']}
           onCancel={transcript.cancelSave}
           onChoose={(path) => { void transcript.write(path, transcript.saving!.text); }}
+        />
+      )}
+
+      {shareText !== null && (
+        <ShareToTerminalModal
+          text={shareText}
+          tabs={sessions.filter((t) => t.status === 'connected' && !t.detached)}
+          onPick={pasteShared}
+          onCancel={() => setShareText(null)}
         />
       )}
 

@@ -3,7 +3,7 @@ import type { PortForwarding } from '../../types';
 import { buildJumpChain, resolveServerAuth } from '../auth';
 import { RETRY_FIRST_MS, RETRY_MAX_MS } from '../defaults';
 import { persist } from '../persistence';
-import type { Slice } from '../types';
+import type { AppStore, Slice } from '../types';
 
 /** What just happened, for the tunnels that start on their own. */
 export type AutostartTrigger = { kind: 'launch' } | { kind: 'connect'; serverId: string };
@@ -29,6 +29,44 @@ export interface TunnelsSlice {
    * banner, since the app has to come up whatever a tunnel does.
    */
   autostartTunnels: (trigger: AutostartTrigger) => Promise<void>;
+  /**
+   * Tries every retrying tunnel at once instead of when its backoff runs
+   * out, for when the network has just come back or changed.
+   */
+  retryTunnelsNow: () => void;
+}
+
+/**
+ * Which retry loop is current for each rule. Starting a loop takes the next
+ * number; a loop that wakes to find a newer one has been replaced and stops,
+ * so trying at once never leaves two loops racing.
+ */
+const tunnelRetryGen = new Map<string, number>();
+
+/** Retries the rule after `firstMs`, then from 5s doubling to a minute. */
+function retryTunnel(
+  set: Parameters<Slice<TunnelsSlice>>[0],
+  get: () => AppStore,
+  pfId: string,
+  firstMs: number,
+) {
+  const gen = (tunnelRetryGen.get(pfId) ?? 0) + 1;
+  tunnelRetryGen.set(pfId, gen);
+  const attempt = async (delayMs: number) => {
+    await new Promise((r) => setTimeout(r, delayMs));
+    if (tunnelRetryGen.get(pfId) !== gen) return;
+    const { retryingTunnelIds, portForwardings, startTunnel } = get();
+    // Deactivated meanwhile, or the rule was deleted: nothing to bring back.
+    const rule = portForwardings.find((p) => p.id === pfId);
+    if (!retryingTunnelIds.has(pfId) || !rule) return;
+    try {
+      await startTunnel(rule);
+      set((s) => { const n = new Set(s.retryingTunnelIds); n.delete(pfId); return { retryingTunnelIds: n }; });
+    } catch {
+      attempt(Math.min(Math.max(delayMs * 2, RETRY_FIRST_MS), RETRY_MAX_MS));
+    }
+  };
+  attempt(firstMs);
 }
 
 export const createTunnelsSlice: Slice<TunnelsSlice> = (set, get) => ({
@@ -127,19 +165,10 @@ export const createTunnelsSlice: Slice<TunnelsSlice> = (set, get) => ({
     if (!retry) return;
 
     get().setActionError(`Tunnel "${pf.label}" dropped. Trying again.`);
-    const attempt = async (delayMs: number) => {
-      await new Promise((r) => setTimeout(r, delayMs));
-      const { retryingTunnelIds, portForwardings, startTunnel } = get();
-      // Deactivated meanwhile, or the rule was deleted: nothing to bring back.
-      const rule = portForwardings.find((p) => p.id === pfId);
-      if (!retryingTunnelIds.has(pfId) || !rule) return;
-      try {
-        await startTunnel(rule);
-        set((s) => { const n = new Set(s.retryingTunnelIds); n.delete(pfId); return { retryingTunnelIds: n }; });
-      } catch {
-        attempt(Math.min(delayMs * 2, RETRY_MAX_MS));
-      }
-    };
-    attempt(RETRY_FIRST_MS);
+    retryTunnel(set, get, pfId, RETRY_FIRST_MS);
+  },
+
+  retryTunnelsNow: () => {
+    for (const pfId of get().retryingTunnelIds) retryTunnel(set, get, pfId, 0);
   },
 });

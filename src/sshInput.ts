@@ -58,3 +58,36 @@ export function parseSSHInput(input: string): SSHInput | null {
   if (!user || !host) return null;
   return { user, host, port, password };
 }
+
+/** Where an `ssh://` link points. No user when the link names none. */
+export interface SSHUrl {
+  user?: string;
+  host: string;
+  port: number;
+}
+
+/**
+ * An `ssh://[user[;params]@]host[:port][/]` link, as RFC draft
+ * draft-ietf-secsh-scp-sftp-ssh-uri has it, or null when it is not one.
+ *
+ * The connection parameters after `;` (a host key fingerprint, mostly) are
+ * dropped: nothing here would act on them. An IPv6 address comes in
+ * brackets and leaves without them.
+ */
+export function parseSshUrl(url: string): SSHUrl | null {
+  const m = /^ssh:\/\/(?:([^@/]*)@)?(\[[^\]]+\]|[^:/?#]+)(?::(\d*))?\/?$/i.exec(url.trim());
+  if (!m) return null;
+  const [, userInfo, rawHost, rawPort] = m;
+  let user: string | undefined;
+  let host: string;
+  try {
+    user = userInfo ? decodeURIComponent(userInfo.split(';')[0]) || undefined : undefined;
+    host = decodeURIComponent(rawHost.replace(/^\[|\]$/g, ''));
+  } catch {
+    return null;
+  }
+  if (!host) return null;
+  const port = rawPort ? Number(rawPort) : DEFAULT_PORT;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+  return { user, host, port };
+}
