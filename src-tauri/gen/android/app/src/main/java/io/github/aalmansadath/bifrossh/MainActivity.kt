@@ -48,6 +48,17 @@ class MainActivity : TauriActivity() {
     watchNetwork()
   }
 
+  /**
+   * No autofill anywhere in the app. Password managers offered to fill and
+   * to save the master passphrase, PINs and host passwords, none of which
+   * belong in another vault, and the WebView ignores every per-field way
+   * of saying so (autocomplete, importantForAutofill). It does look for
+   * the autofill service on this context, and leaves autofill off when
+   * there is none, as on a device without the feature.
+   */
+  override fun getSystemService(name: String): Any? =
+    if (name == AUTOFILL_SERVICE) null else super.getSystemService(name)
+
   override fun onDestroy() {
     networkCallback?.let {
       (getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager).unregisterNetworkCallback(it)
@@ -190,6 +201,9 @@ class MainActivity : TauriActivity() {
   companion object {
     const val EXTRA_DISCONNECT_ALL = "disconnectAll"
     const val EXTRA_HOST_ID = "hostId"
+
+    /** Context.AUTOFILL_MANAGER_SERVICE, which the SDK hides. */
+    private const val AUTOFILL_SERVICE = "autofill"
 
     /** What the app was opened for, until the page takes it. */
     @Volatile
