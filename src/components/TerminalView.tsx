@@ -782,6 +782,12 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
         pasteRef.current?.();
         return;
       }
+      if (typeof key === 'object' && 'paste' in key) {
+        // Bracketed, the same as a paste from the clipboard.
+        highlighterRef.current?.markInput();
+        term.paste(key.paste);
+        return;
+      }
       const app = term.modes.applicationCursorKeysMode;
       const csi = (final: string) => (app ? `\x1bO${final}` : `\x1b[${final}`);
       const seq = typeof key === 'object' ? key.text : {

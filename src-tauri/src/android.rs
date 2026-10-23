@@ -104,14 +104,15 @@ pub fn volume_keys(app: &AppHandle, enabled: bool) -> Result<(), String> {
 
 // ── Launches ─────────────────────────────────────────────────────────────────
 
-/// What the app was opened for from outside: a launcher shortcut or an
-/// `ssh://` link. Kept by MainActivity until
+/// What the app was opened for from outside: a launcher shortcut, an
+/// `ssh://` link, or text shared from another app. Kept by MainActivity until
 /// the page is ready to act on it.
 #[derive(Deserialize, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Launch {
     Host { id: String },
     Ssh { url: String },
+    Share { text: String },
 }
 
 #[derive(Deserialize)]

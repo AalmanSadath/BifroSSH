@@ -5,7 +5,9 @@ import { getLatch, subscribeLatch, toggleLatch } from '../keyLatch';
 export type KeyBarKey =
   | 'esc' | 'tab' | 'up' | 'down' | 'left' | 'right'
   | 'home' | 'end' | 'pgup' | 'pgdn' | 'paste'
-  | { text: string };
+  | { text: string }
+  /** Text from elsewhere (an Android share), pasted as the clipboard is. */
+  | { paste: string };
 
 export const KEYBAR_EVENT = 'bifrossh-keybar';
 

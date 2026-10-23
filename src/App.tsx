@@ -51,7 +51,8 @@ import { tabLabel } from './tabName';
 import PortalDropdown from './components/shared/PortalDropdown';
 import { isAndroid } from './platform';
 import { setBackFallback, useBackClose } from './backStack';
-import TerminalKeyBar from './components/TerminalKeyBar';
+import TerminalKeyBar, { KEYBAR_EVENT, type KeyBarKey } from './components/TerminalKeyBar';
+import ShareToTerminalModal from './components/ShareToTerminalModal';
 
 export default function App() {
   const {
@@ -76,6 +77,8 @@ export default function App() {
   const [quickKeyId, setQuickKeyId] = useState('');
   const quickPasswordRef = useRef<HTMLInputElement>(null);
   const quickInputRef = useRef<HTMLInputElement>(null);
+  // Text shared from another Android app, waiting for a terminal to go to.
+  const [shareText, setShareText] = useState<string | null>(null);
   const [termSidebarOpen, setTermSidebarOpen] = useState(false);
   useBackClose(termSidebarOpen ? () => setTermSidebarOpen(false) : undefined);
   const [tabCtx, setTabCtx] = useState<{ x: number; y: number; session: SessionTab } | null>(null);
@@ -450,8 +453,8 @@ export default function App() {
   }
 
   /**
-   * What the Android app was opened for: a launcher shortcut's host or an
-   * ssh:// link.
+   * What the Android app was opened for: a launcher shortcut's host, an
+   * ssh:// link, or text shared from another app.
    *
    * A link to a host that is saved opens it as saved, credentials and all.
    * Any other link stops at the quick connect prompt: a link can name a
@@ -466,6 +469,12 @@ export default function App() {
       if (open) setActiveTab(open.tab_id);
       else if (saved.some((s) => s.id === launch.id)) void openSession(launch.id);
       else setActionError('That host no longer exists.');
+      return;
+    }
+    if (launch.kind === 'share') {
+      const open = tabs.filter((t) => t.status === 'connected' && !t.detached);
+      if (open.length === 0) setActionError('Open a session first, then share the text again.');
+      else setShareText(launch.text);
       return;
     }
     const url = parseSshUrl(launch.url);
@@ -498,6 +507,17 @@ export default function App() {
         quickInputRef.current?.setSelectionRange(0, 0);
       }, 50);
     }
+  }
+
+  /** Pastes the shared text into a tab, once it is the focused terminal. */
+  function pasteShared(tabId: string) {
+    const text = shareText;
+    setShareText(null);
+    if (text === null) return;
+    setActiveTab(tabId);
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent<KeyBarKey>(KEYBAR_EVENT, { detail: { paste: text } }));
+    }, 100);
   }
 
   function handleQuickSubmit(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -887,6 +907,15 @@ export default function App() {
           extensions={['.txt']}
           onCancel={transcript.cancelSave}
           onChoose={(path) => { void transcript.write(path, transcript.saving!.text); }}
+        />
+      )}
+
+      {shareText !== null && (
+        <ShareToTerminalModal
+          text={shareText}
+          tabs={sessions.filter((t) => t.status === 'connected' && !t.detached)}
+          onPick={pasteShared}
+          onCancel={() => setShareText(null)}
         />
       )}
 

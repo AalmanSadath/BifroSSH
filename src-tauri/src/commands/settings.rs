@@ -90,7 +90,7 @@ pub async fn android_volume_keys(
 }
 
 /// What the app was opened for from outside, if anything is waiting:
-/// a launcher shortcut or an `ssh://` link. Android only.
+/// a launcher shortcut, an `ssh://` link or shared text. Android only.
 #[tauri::command]
 pub async fn android_take_launch(
     #[cfg_attr(not(target_os = "android"), allow(unused_variables))] app: tauri::AppHandle,

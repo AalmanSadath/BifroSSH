@@ -47,6 +47,12 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="ssh" />
             </intent-filter>
+            <!-- Text shared from another app, to paste into a terminal. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
         </activity>
 
         <!-- specialUse: an SSH session has no closer type, and dataSync is
