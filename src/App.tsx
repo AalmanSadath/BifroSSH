@@ -9,7 +9,8 @@ import { setLocalPlatform } from './paths';
 import { useIdleLock } from './hooks/useIdleLock';
 import { useBackgroundLock } from './hooks/useBackgroundLock';
 import { useAndroidKeepAlive, useVolumeZoom } from './hooks/useAndroidBackground';
-import type { AuthPromptEvent, Codeprint, HostKeyPromptEvent, SessionTab, TunnelClosed, VaultStatus } from './types';
+import { useAndroidLaunch } from './hooks/useAndroidLaunch';
+import type { AndroidLaunch, AuthPromptEvent, Codeprint, HostKeyPromptEvent, SessionTab, TunnelClosed, VaultStatus } from './types';
 import { fill } from './snippets';
 import { zoomPercent } from './zoom';
 import { activityChip, anyBusy } from './activity';
@@ -187,12 +188,14 @@ export default function App() {
   // no key, so loadAll would fail on every call anyway; gating it here keeps
   // the unlock screen from flashing a half populated app behind itself.
   const [vault, setVault] = useState<VaultStatus | null>(null);
+  // The saved data has been read since the vault last opened.
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     ipc.vaultStatus()
       .then((v) => {
         setVault(v);
-        if (!v.locked) loadAll();
+        if (!v.locked) void loadAll().then(() => setLoaded(true));
       })
       .catch(() => setVault({ locked: false, setup_required: false, keyring_available: false, keyring_locked: false, error: null, biometric: false, pin: false }));
     // `loadAll` is a store action, created once with the store, so naming it
@@ -201,7 +204,7 @@ export default function App() {
 
   const opened = () => {
     setVault({ locked: false, setup_required: false, keyring_available: false, keyring_locked: false, error: null, biometric: false, pin: false });
-    loadAll();
+    void loadAll().then(() => setLoaded(true));
   };
 
   /**
@@ -224,6 +227,7 @@ export default function App() {
   useEffect(() => {
     const unlisten = listen('vault-locked', () => {
       clearForLock();
+      setLoaded(false);
       setVault((v) => ({
         ...(v ?? { setup_required: false, keyring_available: false, keyring_locked: false, error: null, biometric: false, pin: false }),
         locked: true,
@@ -244,6 +248,8 @@ export default function App() {
     () => { ipc.lockVault().catch(() => {}); },
   );
   useAndroidKeepAlive();
+  const restoringTabs = useAppStore((s) => s.restoringTabs);
+  useAndroidLaunch(!!vault && !vault.locked && loaded && !restoringTabs, handleLaunch);
   useVolumeZoom(!!vault && !vault.locked && activeIsSession && !activeDetached);
 
   useEffect(() => {
@@ -440,6 +446,22 @@ export default function App() {
     setTabCtx(null);
     if (session.kind === 'local') void openLocalShell();
     else openSession(session.server_id, undefined, session.container);
+  }
+
+  /**
+   * What the Android app was opened for: a launcher shortcut's host.
+   */
+  function handleLaunch(launch: AndroidLaunch) {
+    const { servers: saved, sessions: tabs } = useAppStore.getState();
+    if (launch.kind === 'host') {
+      // A shortcut is a way to the host, not a request for another tab on
+      // it: one already open (restored at launch, say) is shown instead.
+      const open = tabs.find((t) => t.server_id === launch.id && !t.container && !t.detached);
+      if (open) setActiveTab(open.tab_id);
+      else if (saved.some((s) => s.id === launch.id)) void openSession(launch.id);
+      else setActionError('That host no longer exists.');
+      return;
+    }
   }
 
   function handleQuickSubmit(e: React.KeyboardEvent<HTMLInputElement>) {

@@ -2,6 +2,7 @@ import * as ipc from '../../ipc';
 import { UNKNOWN_OS } from '../../types';
 import type { AuthType, GeneratedKey, Identity, IdentityInput, JumpHopParams, KeyContent, KeyEntry, Server, ServerInput } from '../../types';
 import { dropQueuedCommands } from '../persistence';
+import { isAndroid } from '../../platform';
 import type { Slice } from '../types';
 
 /** The vault's hosts, keys and identities, as copies of what the backend holds. */
@@ -59,6 +60,7 @@ export const createRecordsSlice: Slice<RecordsSlice> = (set, get) => ({
     // too, or the next bookmark save would write the removed ones back.
     const servers = await ipc.listServers();
     ids.forEach((id) => dropQueuedCommands(id));
+    if (isAndroid) ipc.androidHostsRemoved(ids).catch(() => {});
     set((s) => ({
       servers,
       sftpBookmarks: s.sftpBookmarks.filter((b) => !b.server_id || !ids.includes(b.server_id)),

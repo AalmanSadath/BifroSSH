@@ -102,6 +102,66 @@ pub fn volume_keys(app: &AppHandle, enabled: bool) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+// ── Launches ─────────────────────────────────────────────────────────────────
+
+/// What the app was opened for from outside: a launcher shortcut. Kept
+/// by MainActivity until
+/// the page is ready to act on it.
+#[derive(Deserialize, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum Launch {
+    Host { id: String },
+}
+
+#[derive(Deserialize)]
+struct Taken {
+    launch: Option<Launch>,
+}
+
+/// The launch waiting to be handled, taken so it is handled once.
+pub fn take_launch(app: &AppHandle) -> Result<Option<Launch>, String> {
+    app.state::<Android>()
+        .0
+        .run_mobile_plugin::<Taken>("takeLaunch", ())
+        .map(|t| t.launch)
+        .map_err(|e| e.to_string())
+}
+
+#[derive(serde::Serialize)]
+struct HostShortcut<'a> {
+    id: &'a str,
+    label: &'a str,
+}
+
+/// Puts a host at the top of the launcher icon's shortcuts.
+pub fn host_used(app: &AppHandle, id: &str, label: &str) -> Result<(), String> {
+    app.state::<Android>()
+        .0
+        .run_mobile_plugin::<()>("hostUsed", HostShortcut { id, label })
+        .map_err(|e| e.to_string())
+}
+
+/// Asks the launcher to pin a shortcut to a host on the home screen.
+pub fn pin_host(app: &AppHandle, id: &str, label: &str) -> Result<(), String> {
+    app.state::<Android>()
+        .0
+        .run_mobile_plugin::<()>("pinHost", HostShortcut { id, label })
+        .map_err(|e| e.to_string())
+}
+
+#[derive(serde::Serialize)]
+struct Ids<'a> {
+    ids: &'a [String],
+}
+
+/// Takes deleted hosts out of the shortcuts, and disables any pinned ones.
+pub fn hosts_removed(app: &AppHandle, ids: &[String]) -> Result<(), String> {
+    app.state::<Android>()
+        .0
+        .run_mobile_plugin::<()>("hostsRemoved", Ids { ids })
+        .map_err(|e| e.to_string())
+}
+
 // ── Fingerprint and PIN ─────────────────────────────────────────────────────
 //
 // The hardware half of fingerprint and PIN unlock. What to keep and when to

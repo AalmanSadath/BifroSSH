@@ -840,3 +840,7 @@ export interface ImportReport {
   settings_replaced: boolean;
   host_key_conflicts: string[];
 }
+
+/** What the Android app was opened for from outside (MainActivity.handleLaunch). */
+export type AndroidLaunch =
+  | { kind: 'host'; id: string };

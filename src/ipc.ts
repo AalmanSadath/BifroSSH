@@ -17,6 +17,7 @@
  */
 import { invoke } from '@tauri-apps/api/core';
 import type {
+  AndroidLaunch,
   CertInfo,
   AgentKeyInfo,
   AuthType,
@@ -168,6 +169,17 @@ export const androidKeepAlive = (count: number, wakeLock: boolean) =>
 /** Android: the volume keys step the terminal's text size while on. */
 export const androidVolumeKeys = (enabled: boolean) =>
   invoke<void>('android_volume_keys', { enabled });
+/** Android: what the app was opened for from outside, taken once. */
+export const androidTakeLaunch = () => invoke<AndroidLaunch | null>('android_take_launch');
+/** Android: a host was connected to, for the launcher icon's shortcuts. */
+export const androidHostUsed = (id: string, label: string) =>
+  invoke<void>('android_host_used', { id, label });
+/** Android: asks the launcher to pin the host to the home screen. */
+export const androidPinHost = (id: string, label: string) =>
+  invoke<void>('android_pin_host', { id, label });
+/** Android: deleted hosts leave the shortcuts. */
+export const androidHostsRemoved = (ids: string[]) =>
+  invoke<void>('android_hosts_removed', { ids });
 
 // ── ssh_config import ────────────────────────────────────────────────────
 

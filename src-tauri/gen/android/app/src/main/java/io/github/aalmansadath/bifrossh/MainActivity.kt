@@ -9,6 +9,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import app.tauri.plugin.JSObject
 
 class MainActivity : TauriActivity() {
   private var webView: WebView? = null
@@ -33,6 +34,31 @@ class MainActivity : TauriActivity() {
       view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
       WindowInsetsCompat.CONSUMED
     }
+
+    // Recreated for a configuration change, the intent is the one already
+    // handled when the Activity first started.
+    if (savedInstanceState == null) handleLaunch(intent)
+  }
+
+  /**
+   * Keeps what the app was opened for, for the page to take once it is
+   * ready (AndroidPlugin.takeLaunch): a launcher shortcut's host. A page
+   * already running is told now; one still loading, or locked, asks when
+   * it gets there.
+   */
+  private fun handleLaunch(intent: Intent?) {
+    if (intent == null) return
+    val launch = JSObject()
+    val hostId = intent.getStringExtra(EXTRA_HOST_ID)
+    when {
+      hostId != null -> {
+        launch.put("kind", "host")
+        launch.put("id", hostId)
+      }
+      else -> return
+    }
+    pendingLaunch = launch
+    webView?.evaluateJavascript("window.__bifrosshLaunch && window.__bifrosshLaunch()", null)
   }
 
   // Back goes to the page first: it closes whatever is open there, or steps
@@ -54,9 +80,13 @@ class MainActivity : TauriActivity() {
     })
   }
 
-  /** The notification's "Disconnect all" (SessionService). */
+  /**
+   * A shortcut reaching the running app, or the notification's
+   * "Disconnect all" (SessionService).
+   */
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
+    handleLaunch(intent)
     if (intent.getBooleanExtra(EXTRA_DISCONNECT_ALL, false)) {
       intent.removeExtra(EXTRA_DISCONNECT_ALL)
       webView?.evaluateJavascript("window.__bifrosshDisconnectAll && window.__bifrosshDisconnectAll()", null)
@@ -84,6 +114,11 @@ class MainActivity : TauriActivity() {
 
   companion object {
     const val EXTRA_DISCONNECT_ALL = "disconnectAll"
+    const val EXTRA_HOST_ID = "hostId"
+
+    /** What the app was opened for, until the page takes it. */
+    @Volatile
+    var pendingLaunch: JSObject? = null
 
     @Volatile
     var volumeZoom = false

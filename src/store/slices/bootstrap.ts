@@ -16,10 +16,17 @@ export interface BootstrapSlice {
    * Off when the setting says so, and a no-op once anything is open.
    */
   restoreTabs: () => Promise<void>;
+  /**
+   * Set while last time's tabs are being reopened. A launcher shortcut
+   * waits for it, so it finds the host's restored tab instead of opening a
+   * second one beside it.
+   */
+  restoringTabs: boolean;
 }
 
 export const createBootstrapSlice: Slice<BootstrapSlice> = (set, get) => ({
   loadError: null,
+  restoringTabs: false,
 
   // Seven reads, and every way they could fail used to escape as an unhandled
   // rejection: Promise.all rejects on the first one, so a single command
@@ -72,17 +79,22 @@ export const createBootstrapSlice: Slice<BootstrapSlice> = (set, get) => ({
     // Nothing to restore onto: an unlock that follows a lock still has the
     // strip it had, and reopening over it would duplicate every tab.
     if (!settings.restore_tabs || sessions.length > 0) return;
-    let saved: OpenTab[];
+    set({ restoringTabs: true });
     try {
-      saved = await ipc.getOpenTabs();
-    } catch {
-      return;
-    }
-    // One at a time: a tab's name counts the tabs the host already has, and
-    // a host that asks for a passphrase should ask on its own rather than
-    // alongside three others.
-    for (const tab of restoreOrder(saved, servers)) {
-      await openSession(tab.server_id, tab.title ?? undefined);
+      let saved: OpenTab[];
+      try {
+        saved = await ipc.getOpenTabs();
+      } catch {
+        return;
+      }
+      // One at a time: a tab's name counts the tabs the host already has, and
+      // a host that asks for a passphrase should ask on its own rather than
+      // alongside three others.
+      for (const tab of restoreOrder(saved, servers)) {
+        await openSession(tab.server_id, tab.title ?? undefined);
+      }
+    } finally {
+      set({ restoringTabs: false });
     }
   },
 });
