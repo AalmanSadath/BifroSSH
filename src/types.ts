@@ -371,6 +371,8 @@ export interface Settings {
   local_shell: string;
   /** Draw Sixel and iTerm2 images in the terminal. */
   inline_images: boolean;
+  /** Android: lock after this many minutes out of sight; 0 on every return, null is off. */
+  background_lock_minutes: number | null;
 }
 
 /** How the user chose to keep the master key on the first run screen. */

@@ -41,4 +41,5 @@ export const DEFAULT_SETTINGS: Settings = {
   local_shell: '',
   inline_images: true,
   accent_color: null,
+  background_lock_minutes: null,
 };

@@ -7,6 +7,7 @@ import { useAppChrome } from './useAppChrome';
 import { detachTab, mirrorOf, runDetachedAction, takeBack, windowLabel, type DetachedAction } from './detach';
 import { setLocalPlatform } from './paths';
 import { useIdleLock } from './hooks/useIdleLock';
+import { useBackgroundLock } from './hooks/useBackgroundLock';
 import type { AuthPromptEvent, Codeprint, HostKeyPromptEvent, SessionTab, TunnelClosed, VaultStatus } from './types';
 import { fill } from './snippets';
 import { zoomPercent } from './zoom';
@@ -235,6 +236,12 @@ export default function App() {
   }, []);
 
   useIdleLock(vault && !vault.locked ? settings.auto_lock_minutes : 0, () => { void lockNow(); });
+  // Quietly: with no passphrase there is nothing to lock with, and the
+  // setting says so where it is chosen.
+  useBackgroundLock(
+    isAndroid && vault && !vault.locked ? settings.background_lock_minutes : null,
+    () => { ipc.lockVault().catch(() => {}); },
+  );
 
   useEffect(() => {
     const unlisten = listen<TunnelClosed>('tunnel-closed', (e) => {
