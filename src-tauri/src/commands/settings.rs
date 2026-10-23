@@ -56,6 +56,39 @@ pub async fn request_storage_access(
     Ok(())
 }
 
+/// Tells Android how many connections are open, so it keeps the process
+/// alive in the background while any are. Nothing to do anywhere else.
+#[tauri::command]
+pub async fn android_keep_alive(
+    #[cfg_attr(not(target_os = "android"), allow(unused_variables))] app: tauri::AppHandle,
+    #[cfg_attr(not(target_os = "android"), allow(unused_variables))] count: u32,
+    #[cfg_attr(not(target_os = "android"), allow(unused_variables))] wake_lock: bool,
+) -> CmdResult<()> {
+    #[cfg(target_os = "android")]
+    return tokio::task::spawn_blocking(move || crate::android::keep_alive(&app, count, wake_lock))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(Into::into);
+    #[cfg(not(target_os = "android"))]
+    Ok(())
+}
+
+/// Hands the volume keys to the terminal's text size, or back to the
+/// volume. Android only.
+#[tauri::command]
+pub async fn android_volume_keys(
+    #[cfg_attr(not(target_os = "android"), allow(unused_variables))] app: tauri::AppHandle,
+    #[cfg_attr(not(target_os = "android"), allow(unused_variables))] enabled: bool,
+) -> CmdResult<()> {
+    #[cfg(target_os = "android")]
+    return tokio::task::spawn_blocking(move || crate::android::volume_keys(&app, enabled))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(Into::into);
+    #[cfg(not(target_os = "android"))]
+    Ok(())
+}
+
 /// Which platform the app is running on.
 ///
 /// The frontend needs it for exactly one thing: local paths are separated by

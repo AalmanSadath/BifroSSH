@@ -46,6 +46,17 @@ class SealedArgs {
   lateinit var blob: String
 }
 
+@InvokeArg
+class KeepAliveArgs {
+  var count: Int = 0
+  var wakeLock: Boolean = false
+}
+
+@InvokeArg
+class EnabledArgs {
+  var enabled: Boolean = false
+}
+
 private const val ANDROID_KEYSTORE = "AndroidKeyStore"
 private const val BIOMETRIC_ALIAS = "bifrossh-biometric"
 private const val PIN_ALIAS = "bifrossh-pin"
@@ -136,6 +147,59 @@ class AndroidPlugin(private val activity: Activity) : Plugin(activity) {
       ContextCompat.checkSelfPermission(activity, Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
         PackageManager.PERMISSION_GRANTED
     }
+
+  // ── Background ───────────────────────────────────────────────────────────
+
+  private var askedNotifications = false
+
+  /**
+   * Starts, updates or stops SessionService. Called whenever the number of
+   * open connections changes; 0 stops it.
+   *
+   * The first start asks for permission to post notifications (Android 13
+   * on). A no does not stop the service: Android still runs it, and lists it
+   * in the quick settings' active apps instead of the shade.
+   */
+  @Command
+  fun keepAlive(invoke: Invoke) {
+    val args = invoke.parseArgs(KeepAliveArgs::class.java)
+    val intent = Intent(activity, SessionService::class.java)
+    if (args.count > 0) {
+      if (!askedNotifications && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+        ContextCompat.checkSelfPermission(activity, Manifest.permission.POST_NOTIFICATIONS) !=
+        PackageManager.PERMISSION_GRANTED
+      ) {
+        askedNotifications = true
+        ActivityCompat.requestPermissions(activity, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+      }
+      val service = SessionService.running
+      if (service != null) {
+        activity.runOnUiThread { service.update(args.count, args.wakeLock) }
+        invoke.resolve()
+        return
+      }
+      intent.putExtra(SessionService.EXTRA_COUNT, args.count)
+      intent.putExtra(SessionService.EXTRA_WAKE_LOCK, args.wakeLock)
+      try {
+        ContextCompat.startForegroundService(activity, intent)
+      } catch (e: Exception) {
+        // Android refuses a foreground start from the background (12 on).
+        // The next change made with the app in front starts it.
+        invoke.reject("Could not start the background service: ${e.message}")
+        return
+      }
+    } else {
+      activity.stopService(intent)
+    }
+    invoke.resolve()
+  }
+
+  /** Whether the volume keys go to the page (MainActivity.dispatchKeyEvent). */
+  @Command
+  fun volumeKeys(invoke: Invoke) {
+    MainActivity.volumeZoom = invoke.parseArgs(EnabledArgs::class.java).enabled
+    invoke.resolve()
+  }
 
   // ── Fingerprint and PIN ─────────────────────────────────────────────────
   //

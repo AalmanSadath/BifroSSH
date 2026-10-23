@@ -162,6 +162,12 @@ export const clipboardReadText = () => invoke<string>('clipboard_read_text');
 /** Whether files can be used by path; false on Android until All files access is granted. */
 export const storageAccess = () => invoke<boolean>('storage_access');
 export const requestStorageAccess = () => invoke<void>('request_storage_access');
+/** Android: keeps the process alive in the background while `count` > 0. */
+export const androidKeepAlive = (count: number, wakeLock: boolean) =>
+  invoke<void>('android_keep_alive', { count, wakeLock });
+/** Android: the volume keys step the terminal's text size while on. */
+export const androidVolumeKeys = (enabled: boolean) =>
+  invoke<void>('android_volume_keys', { enabled });
 
 // ── ssh_config import ────────────────────────────────────────────────────
 

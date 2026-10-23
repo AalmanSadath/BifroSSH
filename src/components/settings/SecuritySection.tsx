@@ -17,6 +17,15 @@ const AUTO_LOCK_OPTIONS: PickerOption<string>[] = [
   { value: '60', label: '1 hour' },
 ];
 
+/** Android's lock on return; 'off' is null in the setting. */
+const BACKGROUND_LOCK_OPTIONS: PickerOption<string>[] = [
+  { value: 'off', label: 'Off' },
+  { value: '0', label: 'Immediately' },
+  { value: '1', label: '1 minute' },
+  { value: '5', label: '5 minutes' },
+  { value: '15', label: '15 minutes' },
+];
+
 /** The one sentence every disabled lock control shows. */
 const LOCK_NEEDS_PASSPHRASE = isAndroid
   ? 'Set a master passphrase to enable locking. Without one there is nothing to unlock it with.'
@@ -61,6 +70,20 @@ export default function SecuritySection({ setActiveTab }: { setActiveTab: (id: s
             </div>
           </div>
         </div>
+        {isAndroid && (
+          <div className="form-row">
+            <div className="form-group flex-1">
+              <label>Lock after leaving the app for</label>
+              <div style={canLock ? undefined : { opacity: 0.5, pointerEvents: 'none' }}>
+                <Picker
+                  value={settings.background_lock_minutes === null ? 'off' : String(settings.background_lock_minutes)}
+                  options={BACKGROUND_LOCK_OPTIONS}
+                  onChange={(v) => patch({ background_lock_minutes: v === 'off' ? null : Number(v) })}
+                />
+              </div>
+            </div>
+          </div>
+        )}
         <p className="form-hint">
           {isAndroid
             ? 'Input means yours: typing and touches. Output arriving in a terminal does not count.'

@@ -398,6 +398,15 @@ pub struct Settings {
     /// chafa, img2sixel). On by default; the terminal only holds memory for
     /// images that have actually been shown.
     pub inline_images: bool,
+    /// Android: hold a wake lock while anything is connected, so connections
+    /// survive the screen being off. Off by default; it costs battery.
+    pub keep_awake: bool,
+    /// Android: lock once the app has been out of sight this many minutes;
+    /// 0 locks on every return, None is off, and off is the default.
+    pub background_lock_minutes: Option<u32>,
+    /// Android: the volume keys change the terminal's text size while a
+    /// terminal is in front. On by default.
+    pub volume_keys_zoom: bool,
 }
 
 /// One keyword highlighting rule.
@@ -463,6 +472,9 @@ impl Default for Settings {
             monitor_bar: false,
             local_shell: String::new(),
             inline_images: true,
+            keep_awake: false,
+            background_lock_minutes: None,
+            volume_keys_zoom: true,
         }
     }
 }

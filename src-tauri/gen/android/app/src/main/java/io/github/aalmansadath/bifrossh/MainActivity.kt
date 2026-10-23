@@ -1,6 +1,8 @@
 package io.github.aalmansadath.bifrossh
 
+import android.content.Intent
 import android.os.Bundle
+import android.view.KeyEvent
 import android.view.View
 import android.webkit.WebView
 import androidx.activity.OnBackPressedCallback
@@ -9,6 +11,8 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : TauriActivity() {
+  private var webView: WebView? = null
+
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
@@ -36,6 +40,7 @@ class MainActivity : TauriActivity() {
   // nothing to undo does Back leave the app. Added after the WebView's own
   // callback, so it is asked first.
   override fun onWebViewCreate(webView: WebView) {
+    this.webView = webView
     onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
       override fun handleOnBackPressed() {
         webView.evaluateJavascript("window.__bifrosshBack ? window.__bifrosshBack() : false") { spent ->
@@ -47,5 +52,40 @@ class MainActivity : TauriActivity() {
         }
       }
     })
+  }
+
+  /** The notification's "Disconnect all" (SessionService). */
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    if (intent.getBooleanExtra(EXTRA_DISCONNECT_ALL, false)) {
+      intent.removeExtra(EXTRA_DISCONNECT_ALL)
+      webView?.evaluateJavascript("window.__bifrosshDisconnectAll && window.__bifrosshDisconnectAll()", null)
+    }
+  }
+
+  // The volume keys step the terminal's text size while a terminal is in
+  // front and the setting is on; the page says when (AndroidPlugin
+  // volumeKeys). Anywhere else they are the volume keys. Both the press and
+  // the release are taken, or the release would still reach the system.
+  override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+    val step = when (event.keyCode) {
+      KeyEvent.KEYCODE_VOLUME_UP -> 1
+      KeyEvent.KEYCODE_VOLUME_DOWN -> -1
+      else -> 0
+    }
+    if (step != 0 && volumeZoom) {
+      if (event.action == KeyEvent.ACTION_DOWN) {
+        webView?.evaluateJavascript("window.__bifrosshVolume && window.__bifrosshVolume($step)", null)
+      }
+      return true
+    }
+    return super.dispatchKeyEvent(event)
+  }
+
+  companion object {
+    const val EXTRA_DISCONNECT_ALL = "disconnectAll"
+
+    @Volatile
+    var volumeZoom = false
   }
 }

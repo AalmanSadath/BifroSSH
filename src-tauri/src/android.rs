@@ -73,6 +73,35 @@ pub fn request_storage_access(app: &AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct KeepAlive {
+    count: u32,
+    wake_lock: bool,
+}
+
+/// Starts, updates or, at 0, stops the service that keeps the process and
+/// its connections alive in the background.
+pub fn keep_alive(app: &AppHandle, count: u32, wake_lock: bool) -> Result<(), String> {
+    app.state::<Android>()
+        .0
+        .run_mobile_plugin::<()>("keepAlive", KeepAlive { count, wake_lock })
+        .map_err(|e| e.to_string())
+}
+
+#[derive(serde::Serialize)]
+struct Enabled {
+    enabled: bool,
+}
+
+/// Whether the volume keys change the terminal's text size.
+pub fn volume_keys(app: &AppHandle, enabled: bool) -> Result<(), String> {
+    app.state::<Android>()
+        .0
+        .run_mobile_plugin::<()>("volumeKeys", Enabled { enabled })
+        .map_err(|e| e.to_string())
+}
+
 // ── Fingerprint and PIN ─────────────────────────────────────────────────────
 //
 // The hardware half of fingerprint and PIN unlock. What to keep and when to

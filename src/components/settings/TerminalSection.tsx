@@ -129,6 +129,22 @@ export default function TerminalSection() {
           Pictures that programs such as imgcat, chafa or img2sixel send, in the Sixel or iTerm2
           format. Switching it off also clears the images already in open terminals.
         </p>
+        {isAndroid && (
+          <>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={settings.volume_keys_zoom}
+                onChange={(e) => patch({ volume_keys_zoom: e.target.checked })}
+              />
+              <span>Volume keys change the text size</span>
+            </label>
+            <p className="form-hint">
+              While a terminal is in front, volume up and down make its text bigger or smaller.
+              Tap the percentage on the tab to go back. Elsewhere they change the volume.
+            </p>
+          </>
+        )}
       </section>
 
       <section className="panel-section">
