@@ -246,7 +246,7 @@ jobs:
       - uses: actions/checkout@v7
 
       # Tauri needs these to build at all. Kept in step with the Fedora list in
-      # the README, which is the other supported build path.
+      # BUILDING.md, which is the other supported build path.
       - name: Install system dependencies
         run: |
           sudo apt-get update
