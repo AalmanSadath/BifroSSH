@@ -301,7 +301,9 @@ SHA-256 fingerprint:
   you bind it to.
 - A tunnel can start when BifroSSH opens or when you connect to its host, and one
   started that way restarts by itself if it drops.
-- The SOCKS5 server handles CONNECT only, without authentication.
+- A dynamic tunnel can ask for a username and password, so other people on the
+  machine (or the network, if you bind it there) cannot use it. The SOCKS5
+  server handles CONNECT only.
 
 ![Port forwarding rules](screenshots/PortForwarding.png)
 

@@ -705,6 +705,9 @@ export interface PortForwarding {
   autostart_on_launch: boolean;
   /** Start when a session opens to the rule's own host. */
   autostart_on_connect: boolean;
+  /** The login a SOCKS client must give a dynamic rule; null is none. */
+  socks_username?: string | null;
+  socks_password?: string | null;
 }
 
 /**

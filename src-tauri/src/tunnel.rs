@@ -59,7 +59,8 @@ async fn report_dropped(state: &TunnelState, sec: &ConnectSecurity, pf_id: Strin
 pub enum TunnelKind {
     Local   { local_port: u32, dest_host: String, dest_port: u32 },
     Remote  { remote_port: u32, dest_host: String, dest_port: u32 },
-    Dynamic { local_port: u32 },
+    /// `login` is the username and password a SOCKS client must give, if any.
+    Dynamic { local_port: u32, login: Option<(String, String)> },
 }
 
 pub struct TunnelParams {
@@ -247,8 +248,8 @@ pub async fn start_tunnel(pf_id: String, params: TunnelParams, state: Arc<Tunnel
             local_tunnel(pf_id, base, local_port, dest_host, dest_port, state).await,
         TunnelKind::Remote { remote_port, dest_host, dest_port } =>
             remote_tunnel(pf_id, base, remote_port, dest_host, dest_port, state).await,
-        TunnelKind::Dynamic { local_port } =>
-            dynamic_tunnel(pf_id, base, local_port, state).await,
+        TunnelKind::Dynamic { local_port, login } =>
+            dynamic_tunnel(pf_id, base, local_port, login, state).await,
     }
 }
 
@@ -387,24 +388,30 @@ async fn dynamic_tunnel(
     pf_id: String,
     base: TunnelBase,
     local_port: u32,
+    login: Option<(String, String)>,
     state: Arc<TunnelState>,
 ) -> Result<()> {
-    accept_loop(pf_id, base, local_port, state, |mut stream, handle| async move {
-        // Where this one is going is the client's to say, and it says so in
-        // the handshake rather than at setup time.
-        let Ok((host, port)) = crate::socks5::handshake(&mut stream).await else {
-            return;
-        };
-        let ch = handle
-            .lock()
-            .await
-            .channel_open_direct_tcpip(&host, port as u32, "127.0.0.1", 0)
-            .await;
-        if crate::socks5::reply(&mut stream, ch.is_ok()).await.is_err() {
-            return;
-        }
-        if let Ok(ch) = ch {
-            proxy_channel(stream, ch).await;
+    let login = Arc::new(login);
+    accept_loop(pf_id, base, local_port, state, move |mut stream, handle| {
+        let login = login.clone();
+        async move {
+            // Where this one is going is the client's to say, and it says so in
+            // the handshake rather than at setup time.
+            let creds = login.as_ref().as_ref().map(|(username, password)| crate::socks5::Credentials { username, password });
+            let Ok((host, port)) = crate::socks5::handshake(&mut stream, creds).await else {
+                return;
+            };
+            let ch = handle
+                .lock()
+                .await
+                .channel_open_direct_tcpip(&host, port as u32, "127.0.0.1", 0)
+                .await;
+            if crate::socks5::reply(&mut stream, ch.is_ok()).await.is_err() {
+                return;
+            }
+            if let Ok(ch) = ch {
+                proxy_channel(stream, ch).await;
+            }
         }
     })
     .await

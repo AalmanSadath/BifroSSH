@@ -502,6 +502,12 @@ pub struct PortForwarding {
     /// Start when a session opens to the rule's own host.
     #[serde(default)]
     pub autostart_on_connect: bool,
+    /// The username and password a SOCKS client must give a dynamic rule.
+    /// Both None is no login, which is every rule saved before they existed.
+    #[serde(default)]
+    pub socks_username: Option<String>,
+    #[serde(default)]
+    pub socks_password: Option<String>,
 }
 
 /// A tab that was open when the app last closed.

@@ -221,6 +221,8 @@ mod tests {
                 dest_port: Some(80),
                 autostart_on_launch: false,
                 autostart_on_connect: false,
+                socks_username: None,
+                socks_password: None,
             }],
             ..Default::default()
         };
