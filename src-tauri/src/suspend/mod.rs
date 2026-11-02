@@ -1,4 +1,4 @@
-//! Locking the vault before the machine sleeps.
+//! Locking the vault before the machine sleeps, and when the screen locks.
 //!
 //! Two backends, one shape, the way `appearance` is built. Each parks a
 //! watcher on the platform's own "about to sleep" notification and calls
@@ -8,8 +8,10 @@
 //! whoever opened it.
 //!
 //! On Linux it is logind's `PrepareForSleep` on the system bus, which the
-//! Flatpak manifest grants with `--system-talk-name=org.freedesktop.login1`.
-//! On Windows it is a power notification callback.
+//! Flatpak manifest grants with `--system-talk-name=org.freedesktop.login1`,
+//! and the graphical session's lock state from the same place. On Windows it
+//! is a power notification callback, and session change notifications for
+//! the lock.
 
 use tauri::AppHandle;
 
@@ -36,13 +38,24 @@ pub fn watch(app: AppHandle) {
 /// anything to lock; a vault that is already closed is left alone.
 #[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
 pub(crate) fn on_suspend(app: &AppHandle) {
+    lock_if(app, |s| s.lock_on_suspend);
+}
+
+/// The desktop's screen lock came on. The same, under its own setting.
+#[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
+pub(crate) fn on_screen_lock(app: &AppHandle) {
+    lock_if(app, |s| s.lock_on_screen_lock);
+}
+
+#[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
+fn lock_if(app: &AppHandle, setting: fn(&crate::models::Settings) -> bool) {
     use tauri::Manager;
     let state = app.state::<crate::commands::AppState>();
     tauri::async_runtime::block_on(async {
         if !state.secret_key.is_set() {
             return;
         }
-        let wanted = state.data.lock().await.settings.lock_on_suspend;
+        let wanted = setting(&state.data.lock().await.settings);
         if wanted {
             // A refusal here is a vault with no passphrase, which the settings
             // screen already says cannot lock. Nothing to add from a thread.

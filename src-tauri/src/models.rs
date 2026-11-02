@@ -350,6 +350,10 @@ pub struct Settings {
     /// Lock before the machine sleeps, so what is on screen after resume is
     /// the unlock screen. On by default.
     pub lock_on_suspend: bool,
+    /// Lock when the desktop's own screen lock comes on, so unlocking the
+    /// computer does not unlock the vault with it. On by default, like the
+    /// lock before sleep.
+    pub lock_on_screen_lock: bool,
     /// Lines a terminal keeps above the screen. Was a constant of the same
     /// value; a settings file from before this reads the same.
     pub scrollback_lines: u32,
@@ -456,6 +460,7 @@ impl Default for Settings {
             keepalive_interval_secs: 30,
             auto_lock_minutes: 0,
             lock_on_suspend: true,
+            lock_on_screen_lock: true,
             scrollback_lines: 10_000,
             session_log_dir: None,
             recording_dir: None,

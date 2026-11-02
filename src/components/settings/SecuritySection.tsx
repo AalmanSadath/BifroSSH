@@ -98,6 +98,15 @@ export default function SecuritySection({ setActiveTab }: { setActiveTab: (id: s
           />
           <span>Lock before the computer sleeps</span>
         </label>}
+        {!isAndroid && <label className="checkbox-row">
+          <input
+            type="checkbox"
+            disabled={!canLock}
+            checked={settings.lock_on_screen_lock}
+            onChange={(e) => patch({ lock_on_screen_lock: e.target.checked })}
+          />
+          <span>Lock when the screen locks</span>
+        </label>}
         <div className="form-row" style={{ alignItems: 'center', gap: 10 }}>
           <button
             type="button"

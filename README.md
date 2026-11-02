@@ -414,8 +414,9 @@ In short:
 - Host keys are checked before you log in, and a changed key is treated as an attack.
 - Everything saved is encrypted under one master key, not just the passwords.
 - You choose where that key lives: the system keyring, a passphrase, or both.
-- The vault can be locked by hand, after a period of no input, or before the
-  computer sleeps. Open sessions stay connected behind the lock.
+- The vault can be locked by hand, after a period of no input, when the screen
+  locks, or before the computer sleeps. Open sessions stay connected behind the
+  lock.
 
 ### Host keys
 
@@ -480,8 +481,9 @@ directory no longer copies the key along with the data.
 - **Ctrl+Shift+L** closes the vault: the key is zeroed and dropped, and the
   master passphrase is needed to open it again.
 - Settings can also lock after a period with no input from you (off unless you
-  turn it on) and before the computer sleeps (on by default), so what is on
-  screen when the lid opens is the unlock screen.
+  turn it on), when the desktop's screen lock comes on, and before the computer
+  sleeps (both on by default), so unlocking the computer does not unlock the
+  vault with it.
 - Locking needs a passphrase to be set; with the keyring alone the vault would
   reopen itself.
 - Terminal sessions and tunnels already open stay connected behind the lock, the

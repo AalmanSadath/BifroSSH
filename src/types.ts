@@ -335,6 +335,8 @@ export interface Settings {
   auto_lock_minutes: number;
   /** Lock before the machine sleeps. */
   lock_on_suspend: boolean;
+  /** Lock when the desktop's screen lock comes on. */
+  lock_on_screen_lock: boolean;
   /** Lines a terminal keeps above the screen. */
   scrollback_lines: number;
   /** Where session logs go; null is the app's own logs folder. */
