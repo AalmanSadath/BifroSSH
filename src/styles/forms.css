@@ -416,6 +416,10 @@ button { cursor: pointer; font-family: inherit; }
 }
 .picker-btn:hover,
 .picker-btn:focus { border-color: var(--accent); }
+/* The jump host is off while a proxy command is set, as the <select> it
+   replaced was. */
+.picker-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.picker-btn:disabled:hover { border-color: var(--border); }
 .picker-menu {
   position: absolute;
   top: calc(100% + 4px);
@@ -484,6 +488,37 @@ button { cursor: pointer; font-family: inherit; }
 .picker-item:hover { background: var(--bg-hover); }
 .picker-item.selected { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
 .picker-divider { height: 1px; background: var(--border); margin: 4px 0; }
+
+/* A portalled menu (PortalMenu): the box keeps the look, the list scrolls
+   inside it, and the "⋯" row sits under the list while more is below. Rows do
+   not shrink: a flex column squeezes its children before it lets them
+   overflow, which clipped every row's text in half when room ran short. */
+.picker-menu-portal {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.picker-menu-scroll {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+.picker-menu-scroll > * { flex-shrink: 0; }
+.picker-more {
+  flex-shrink: 0;
+  padding: 2px 10px 4px;
+  border: none;
+  border-top: 1px solid var(--border);
+  background: none;
+  color: var(--text-muted);
+  font-size: 16px;
+  line-height: 16px;
+  letter-spacing: 2px;
+  cursor: pointer;
+}
+.picker-more:hover { color: var(--text-primary); background: var(--bg-hover); }
 .picker-add { color: var(--accent); }
 .picker-add:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 

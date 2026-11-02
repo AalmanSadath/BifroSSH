@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { PortalMenu, anchorBelow, type AnchorRect } from './shared/PortalDropdown';
+import { PortalMenu } from './shared/PortalDropdown';
 import { normalizeTags } from '../hosts';
 
 interface Props {
@@ -18,7 +18,7 @@ interface Props {
  */
 export default function TagInput({ tags, onChange, known }: Props) {
   const [text, setText] = useState('');
-  const [rect, setRect] = useState<AnchorRect | null>(null);
+  const [anchor, setAnchor] = useState<Element | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
 
   const add = (raw: string) => {
@@ -62,17 +62,17 @@ export default function TagInput({ tags, onChange, known }: Props) {
             onChange(tags.slice(0, -1));
           }
         }}
-        onFocus={() => setRect(anchorBelow(boxRef.current))}
+        onFocus={() => setAnchor(boxRef.current ?? null)}
         onBlur={() => {
           if (text.trim() !== '') add(text);
-          setTimeout(() => setRect(null), 150);
+          setTimeout(() => setAnchor(null), 150);
         }}
         placeholder={tags.length === 0 ? 'web, eu-west' : ''}
         autoComplete="off"
         spellCheck={false}
       />
-      {rect && suggestions.length > 0 && (
-        <PortalMenu rect={rect} maxHeight={220}>
+      {anchor && suggestions.length > 0 && (
+        <PortalMenu anchor={anchor} maxHeight={220}>
           {suggestions.map((k) => (
             <button
               key={k}
