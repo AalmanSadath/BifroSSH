@@ -20,6 +20,7 @@ const MONITOR_CHOICES: PickerOption<MonitorChoice>[] = [
 ];
 import PortalDropdown, { PortalMenu, anchorBelow, type AnchorRect } from './shared/PortalDropdown';
 import PassphraseInput from './shared/PassphraseInput';
+import KeyCreateDrawer from './KeyCreateDrawer';
 import TagInput from './TagInput';
 import { tagNames } from '../hosts';
 import { isAndroid } from '../platform';
@@ -31,7 +32,7 @@ interface Props {
 }
 
 export default function ServerForm({ server, onClose, onDelete }: Props) {
-  const { servers, identities, keys, saveServer, customThemes, settings, setActiveTab } = useAppStore();
+  const { servers, identities, keys, saveServer, customThemes, settings } = useAppStore();
   const hint = useHint();
 
   const [name, setName] = useState(server?.name ?? '');
@@ -59,6 +60,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [keyId, setKeyId] = useState(server?.key_id ?? '');
+  const [keyDrawer, setKeyDrawer] = useState<'import' | 'generate' | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [dropdownRect, setDropdownRect] = useState<AnchorRect | null>(null);
   const usernameGroupRef = useRef<HTMLDivElement>(null);
@@ -186,6 +188,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
   });
 
   return (
+    <>
     <Drawer
       title={server ? 'Edit Host' : 'Add Host'}
       onClose={onClose}
@@ -271,12 +274,22 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
                           </button>
                         ))}
                         {keys.length > 0 && <div className="picker-divider" />}
+                        {/* On top of this form rather than in place of it, so
+                            what has been typed here is still here after, with
+                            the new key selected. */}
                         <button
                           type="button"
                           className="picker-item picker-add"
-                          onMouseDown={(e) => { e.preventDefault(); close(); setActiveTab('keychain'); onClose(); }}
+                          onMouseDown={(e) => { e.preventDefault(); close(); setKeyDrawer('import'); }}
                         >
-                          + Add Key…
+                          + Import key…
+                        </button>
+                        <button
+                          type="button"
+                          className="picker-item picker-add"
+                          onMouseDown={(e) => { e.preventDefault(); close(); setKeyDrawer('generate'); }}
+                        >
+                          + Generate key…
                         </button>
                       </>
                     )}
@@ -564,5 +577,9 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
         </div>
       )}
     </Drawer>
+    {keyDrawer && (
+      <KeyCreateDrawer mode={keyDrawer} onClose={() => setKeyDrawer(null)} onSaved={(k) => setKeyId(k.id)} />
+    )}
+    </>
   );
 }
