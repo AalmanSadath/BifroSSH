@@ -280,8 +280,10 @@ SHA-256 fingerprint:
   - Linux: the agent named by `SSH_AUTH_SOCK`.
   - Windows: the OpenSSH agent service over its named pipe, or any agent that
     advertises its own pipe through `SSH_AUTH_SOCK`.
-  - Pageant is not supported, and neither are FIDO keys (`ed25519-sk`,
-    `ecdsa-sk`) yet.
+  - Pageant is not supported.
+  - FIDO security keys (`ed25519-sk`, `ecdsa-sk`) work through the agent, which
+    does the talking to the key: add yours with `ssh-add`. The key file on its
+    own cannot sign here.
 - The Keychain lists the agent's keys, and an identity can be pinned to one of them.
 - Agent forwarding (`ssh -A`) can be turned on per host, so programs there can use
   your keys without the keys leaving this machine. Anyone with root on that host
