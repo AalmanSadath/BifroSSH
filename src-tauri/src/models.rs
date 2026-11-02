@@ -350,6 +350,10 @@ pub struct Settings {
     /// Lock before the machine sleeps, so what is on screen after resume is
     /// the unlock screen. On by default.
     pub lock_on_suspend: bool,
+    /// Lock when the desktop's own screen lock comes on, so unlocking the
+    /// computer does not unlock the vault with it. On by default, like the
+    /// lock before sleep.
+    pub lock_on_screen_lock: bool,
     /// Lines a terminal keeps above the screen. Was a constant of the same
     /// value; a settings file from before this reads the same.
     pub scrollback_lines: u32,
@@ -456,6 +460,7 @@ impl Default for Settings {
             keepalive_interval_secs: 30,
             auto_lock_minutes: 0,
             lock_on_suspend: true,
+            lock_on_screen_lock: true,
             scrollback_lines: 10_000,
             session_log_dir: None,
             recording_dir: None,
@@ -502,6 +507,12 @@ pub struct PortForwarding {
     /// Start when a session opens to the rule's own host.
     #[serde(default)]
     pub autostart_on_connect: bool,
+    /// The username and password a SOCKS client must give a dynamic rule.
+    /// Both None is no login, which is every rule saved before they existed.
+    #[serde(default)]
+    pub socks_username: Option<String>,
+    #[serde(default)]
+    pub socks_password: Option<String>,
 }
 
 /// A tab that was open when the app last closed.
@@ -587,6 +598,10 @@ pub struct AppData {
     /// document, and is not part of an export.
     #[serde(default)]
     pub command_history: std::collections::HashMap<String, Vec<String>>,
+    /// Hosts most recently connected to, by server id, newest first, for the
+    /// Windows jump list, which cannot be read back to find out what it holds.
+    #[serde(default)]
+    pub recent_hosts: Vec<String>,
 }
 
 /// How many commands a host keeps.

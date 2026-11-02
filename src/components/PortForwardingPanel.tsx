@@ -6,7 +6,8 @@ import ConfirmModal from './shared/ConfirmModal';
 import ContextMenu from './shared/ContextMenu';
 import Drawer from './shared/Drawer';
 import { cardKeys } from './shared/cardKeys';
-import { EditIcon } from './shared/icons';
+import { EditIcon, LockIcon } from './shared/icons';
+import PassphraseInput from './shared/PassphraseInput';
 import { isAndroid } from '../platform';
 
 type PfType = 'local' | 'remote' | 'dynamic';
@@ -40,6 +41,9 @@ interface Draft {
   destPort: string;
   autostartOnLaunch: boolean;
   autostartOnConnect: boolean;
+  /** The SOCKS login a dynamic rule asks for; both empty is none. */
+  socksUsername: string;
+  socksPassword: string;
 }
 
 /** The default label for a rule the user did not name. */
@@ -72,6 +76,8 @@ function draftToPf(d: Draft) {
     dest_port: !dynamic ? (parseInt(d.destPort) || null) : null,
     autostart_on_launch: d.autostartOnLaunch,
     autostart_on_connect: d.autostartOnConnect,
+    socks_username: dynamic && d.socksUsername ? d.socksUsername : null,
+    socks_password: dynamic && d.socksUsername ? d.socksPassword : null,
   };
 }
 
@@ -211,6 +217,50 @@ function AutostartFields({ draft, onChange }: { draft: Draft; onChange: (patch: 
   );
 }
 
+/**
+ * The username and password a SOCKS client must give a dynamic rule, in a
+ * section that starts closed: most rules have no login, and fields always on
+ * show read as fields that must be filled.
+ *
+ * The password means nothing without a username (the backend ignores it), so
+ * it stays greyed out until there is one, and emptying the username empties
+ * it too rather than leaving a password saved that does nothing.
+ */
+function SocksLoginFields({ draft, onChange, startOpen }: {
+  draft: Draft;
+  onChange: (patch: Partial<Draft>) => void;
+  /** Open at first, for an edit form whose rule already has a login. */
+  startOpen: boolean;
+}) {
+  const noUser = !draft.socksUsername;
+  // Read once: tied to the username, the section would shut while that is
+  // being cleared. Opening and closing after that is the element's own.
+  const [initiallyOpen] = useState(startOpen);
+  return (
+    <details className="pf-socks-login pf-block-gap" open={initiallyOpen}>
+      <summary>SOCKS login (optional)</summary>
+      <FloatField
+        label="SOCKS username"
+        value={draft.socksUsername}
+        onChange={(v) => onChange({ socksUsername: v, ...(v === '' ? { socksPassword: '' } : {}) })}
+      />
+      <div className={`pf-float-field${noUser ? ' pf-field-disabled' : ''}`}>
+        <label className="pf-float-label">SOCKS password</label>
+        <PassphraseInput
+          value={draft.socksPassword}
+          onChange={(v) => onChange({ socksPassword: v })}
+          disabled={noUser}
+          autoComplete="off"
+          placeholder={noUser ? 'Enter a username first' : ''}
+        />
+      </div>
+      <p className="pf-wiz-desc">
+        Programs using this proxy must log in. Leave empty for no login. SOCKS sends the password unencrypted, which is fine on this machine but not across a network.
+      </p>
+    </details>
+  );
+}
+
 const DEFAULT_WIZ: Draft = {
   id: null,
   type: 'local',
@@ -226,6 +276,8 @@ const DEFAULT_WIZ: Draft = {
   label: '',
   autostartOnLaunch: false,
   autostartOnConnect: false,
+  socksUsername: '',
+  socksPassword: '',
 };
 
 function pfToDraft(pf: PortForwarding, servers: { id: string; name: string }[]): Draft {
@@ -246,6 +298,8 @@ function pfToDraft(pf: PortForwarding, servers: { id: string; name: string }[]):
     destPort: pf.dest_port?.toString() ?? '',
     autostartOnLaunch: pf.autostart_on_launch,
     autostartOnConnect: pf.autostart_on_connect,
+    socksUsername: pf.socks_username ?? '',
+    socksPassword: pf.socks_password ?? '',
   };
 }
 
@@ -626,6 +680,7 @@ export default function PortForwardingPanel() {
             onChange={(v) => wiz({ label: v })}
             placeholder={defaultLabel(d.type)}
           />
+          {d.type === 'dynamic' && <SocksLoginFields draft={d} onChange={wiz} startOpen={false} />}
           <AutostartFields draft={d} onChange={wiz} />
           <button className="btn-primary btn-block" onClick={finishWizard}>Done</button>
         </div>
@@ -737,6 +792,7 @@ export default function PortForwardingPanel() {
             <FloatField label="Destination port number" required value={editDraft.destPort} onChange={(v) => ed({ destPort: v })} type="number" placeholder="e.g. 22" />
           </>
         )}
+        {t === 'dynamic' && <SocksLoginFields key={editDraft.id ?? ''} draft={editDraft} onChange={ed} startOpen={!!editDraft.socksUsername} />}
         <AutostartFields draft={editDraft} onChange={ed} />
       </div>
     );
@@ -824,6 +880,13 @@ export default function PortForwardingPanel() {
                       <span className="card-title">{pf.label}</span>
                       {(pf.autostart_on_launch || pf.autostart_on_connect) && (
                         <span className="pf-card-auto" title={hint('Starts on its own')}>auto</span>
+                      )}
+                      {/* In the header rather than after the address, which is
+                          cut off with an ellipsis on a narrow card. */}
+                      {pf.type === 'dynamic' && pf.socks_username && (
+                        <span className="pf-login-marker" title={hint('Needs a login')} aria-label="Needs a login">
+                          <LockIcon size={12} />
+                        </span>
                       )}
                       {active && <span className="pf-card-active-dot" />}
                       {retrying && <span className="pf-card-retry-dot" title={hint('Dropped. Trying to start it again.')} />}

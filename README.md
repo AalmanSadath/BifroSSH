@@ -188,6 +188,10 @@ SHA-256 fingerprint:
 - **Check hosts** times a plain TCP connect to each one, without logging in, and
   shows the latency on its card.
 - The bar at the top connects to anything typed as `user@host -p 22`, saved or not.
+- `ssh://` links open in BifroSSH: a saved host opens as saved, any other stops
+  at the connect bar with the address filled in.
+- On Windows, the hosts you connected to last are in the taskbar button's
+  right-click menu.
 
 ### Jump hosts
 
@@ -230,6 +234,8 @@ SHA-256 fingerprint:
   Windows, or any program you set.
 - Tabs open at exit reopen and reconnect at the next launch, under the names you
   gave them, unless you turn that off.
+- Starting BifroSSH again brings the running window forward instead of opening a
+  second copy.
 
 ![Two sessions side by side](screenshots/SplitPanes.png)
 
@@ -280,8 +286,11 @@ SHA-256 fingerprint:
   - Linux: the agent named by `SSH_AUTH_SOCK`.
   - Windows: the OpenSSH agent service over its named pipe, or any agent that
     advertises its own pipe through `SSH_AUTH_SOCK`.
-  - Pageant is not supported, and neither are FIDO keys (`ed25519-sk`,
-    `ecdsa-sk`) yet.
+  - Windows: Pageant too, or anything that speaks its protocol (KeePassXC,
+    gpg4win), when the OpenSSH agent is not running.
+  - FIDO security keys (`ed25519-sk`, `ecdsa-sk`) work through the agent, which
+    does the talking to the key: add yours with `ssh-add`. The key file on its
+    own cannot sign here.
 - The Keychain lists the agent's keys, and an identity can be pinned to one of them.
 - Agent forwarding (`ssh -A`) can be turned on per host, so programs there can use
   your keys without the keys leaving this machine. Anyone with root on that host
@@ -301,7 +310,9 @@ SHA-256 fingerprint:
   you bind it to.
 - A tunnel can start when BifroSSH opens or when you connect to its host, and one
   started that way restarts by itself if it drops.
-- The SOCKS5 server handles CONNECT only, without authentication.
+- A dynamic tunnel can ask for a username and password, so other people on the
+  machine (or the network, if you bind it there) cannot use it. The SOCKS5
+  server handles CONNECT only.
 
 ![Port forwarding rules](screenshots/PortForwarding.png)
 
@@ -368,6 +379,9 @@ SHA-256 fingerprint:
 - A dropped session keeps its tab and scrollback and reconnects by itself: after
   5 seconds, then twice as long each time up to a minute, five tries unless set
   otherwise. Enter in the tab tries again at once.
+- When the network changes or the computer wakes from sleep, every session is
+  checked at once, and the ones that did not survive reconnect straight away
+  instead of waiting for keepalives to give up.
 
 ### Updates
 
@@ -402,8 +416,9 @@ In short:
 - Host keys are checked before you log in, and a changed key is treated as an attack.
 - Everything saved is encrypted under one master key, not just the passwords.
 - You choose where that key lives: the system keyring, a passphrase, or both.
-- The vault can be locked by hand, after a period of no input, or before the
-  computer sleeps. Open sessions stay connected behind the lock.
+- The vault can be locked by hand, after a period of no input, when the screen
+  locks, or before the computer sleeps. Open sessions stay connected behind the
+  lock.
 
 ### Host keys
 
@@ -468,8 +483,9 @@ directory no longer copies the key along with the data.
 - **Ctrl+Shift+L** closes the vault: the key is zeroed and dropped, and the
   master passphrase is needed to open it again.
 - Settings can also lock after a period with no input from you (off unless you
-  turn it on) and before the computer sleeps (on by default), so what is on
-  screen when the lid opens is the unlock screen.
+  turn it on), when the desktop's screen lock comes on, and before the computer
+  sleeps (both on by default), so unlocking the computer does not unlock the
+  vault with it.
 - Locking needs a passphrase to be set; with the keyring alone the vault would
   reopen itself.
 - Terminal sessions and tunnels already open stay connected behind the lock, the

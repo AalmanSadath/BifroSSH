@@ -104,24 +104,13 @@ pub fn volume_keys(app: &AppHandle, enabled: bool) -> Result<(), String> {
 
 // ── Launches ─────────────────────────────────────────────────────────────────
 
-/// What the app was opened for from outside: a launcher shortcut, an
-/// `ssh://` link, or text shared from another app. Kept by MainActivity until
-/// the page is ready to act on it.
-#[derive(Deserialize, serde::Serialize)]
-#[serde(tag = "kind", rename_all = "lowercase")]
-pub enum Launch {
-    Host { id: String },
-    Ssh { url: String },
-    Share { text: String },
-}
-
 #[derive(Deserialize)]
 struct Taken {
-    launch: Option<Launch>,
+    launch: Option<crate::launch::Launch>,
 }
 
 /// The launch waiting to be handled, taken so it is handled once.
-pub fn take_launch(app: &AppHandle) -> Result<Option<Launch>, String> {
+pub fn take_launch(app: &AppHandle) -> Result<Option<crate::launch::Launch>, String> {
     app.state::<Android>()
         .0
         .run_mobile_plugin::<Taken>("takeLaunch", ())

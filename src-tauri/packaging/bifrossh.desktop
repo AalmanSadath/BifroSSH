@@ -4,14 +4,20 @@
 # Name is written out rather than {{name}}: that is the product name, which
 # tauri.linux.conf.json lowers to "bifrossh" so the packages are called that,
 # and the menu should still say BifroSSH.
+#
+# %u and the MimeType line make this the handler for ssh:// links. They are
+# written out because a custom template is used as is; the bundler's own
+# deep-link handling (plugins.deep-link in tauri.conf.json) only reaches the
+# default template and the Windows installer.
 [Desktop Entry]
 Name=BifroSSH
 GenericName=SSH Client
 Comment={{comment}}
-Exec={{exec}}{{exec_arg}}
+Exec={{exec}} %u
 Icon={{icon}}
 Type=Application
 Categories=Network;RemoteAccess;TerminalEmulator;
 Keywords=ssh;terminal;remote;sftp;
+MimeType=x-scheme-handler/ssh;
 StartupNotify=true
 StartupWMClass={{exec}}

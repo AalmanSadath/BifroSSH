@@ -91,16 +91,17 @@ pub fn expired(cert: &Certificate) -> bool {
     now >= cert.valid_before()
 }
 
-/// A security-key (`sk-`) private key. These need the key itself to sign,
-/// through libfido2, which this app has no way to reach; said plainly when
-/// one is added rather than failing later at connect.
+/// A security-key (`sk-`) private key file. These need the key itself to
+/// sign, through libfido2, which this app has no way to reach; said plainly
+/// when one is added rather than failing later at connect. The same key works
+/// once it is in ssh-agent, which does the talking to the hardware.
 pub fn is_security_key(pem: &str) -> bool {
     ssh_key::PrivateKey::from_openssh(pem)
         .is_ok_and(|k| matches!(k.algorithm(), Algorithm::SkEd25519 | Algorithm::SkEcdsaSha2NistP256))
 }
 
 pub const SECURITY_KEY_REFUSED: &str =
-    "Security-key (sk-) keys are not supported; use an Ed25519, ECDSA or RSA key";
+    "Security-key (sk-) key files cannot sign here. Add the key to ssh-agent with `ssh-add` and choose it as an agent key";
 
 #[cfg(test)]
 mod tests {

@@ -24,6 +24,7 @@ export const DEFAULT_SETTINGS: Settings = {
   keepalive_interval_secs: 30,
   auto_lock_minutes: 0,
   lock_on_suspend: true,
+  lock_on_screen_lock: true,
   scrollback_lines: 10000,
   session_log_dir: null,
   recording_dir: null,

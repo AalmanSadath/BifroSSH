@@ -32,6 +32,8 @@ vi.mock('../ipc', () => ({
   sshSetLog: vi.fn(async () => {}),
   sshSetRecording: vi.fn(async () => null),
   tunnelStart: vi.fn(async () => {}),
+  hostsRemoved: vi.fn(async () => {}),
+  hostUsed: vi.fn(async () => {}),
   tunnelStop: vi.fn(async () => {}),
   probeHost: vi.fn(),
 }));

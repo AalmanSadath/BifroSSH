@@ -53,8 +53,20 @@ pub async fn tunnel_start(
             dest_host: dest_host.ok_or("dest_host required")?,
             dest_port: dest_port.ok_or("dest_port required")?,
         },
+        // The login comes from the saved rule: a tunnel is only ever started
+        // from one, and the rule is where it is kept.
         PfKind::Dynamic => TunnelKind::Dynamic {
             local_port: local_port.ok_or("local_port required")?,
+            login: {
+                let data = state.data.lock().await;
+                data.port_forwardings
+                    .iter()
+                    .find(|pf| pf.id == pf_id)
+                    .and_then(|pf| match (&pf.socks_username, &pf.socks_password) {
+                        (Some(u), Some(p)) if !u.is_empty() => Some((u.clone(), p.clone())),
+                        _ => None,
+                    })
+            },
         },
     };
 

@@ -123,8 +123,15 @@ impl AuthContext {
 /// parameter threaded through `agent_identities` and `agent_auth`.
 #[cfg(unix)]
 pub(crate) type AgentStream = tokio::net::UnixStream;
+/// On Windows it is one of two: the OpenSSH agent's named pipe, or Pageant,
+/// which speaks the same protocol over its own transport.
 #[cfg(windows)]
-pub(crate) type AgentStream = tokio::net::windows::named_pipe::NamedPipeClient;
+pub(crate) type AgentStream = Box<dyn AgentIo>;
+
+#[cfg(windows)]
+pub(crate) trait AgentIo: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
+#[cfg(windows)]
+impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send> AgentIo for T {}
 
 /// Where the agent listens.
 ///
@@ -134,7 +141,8 @@ pub(crate) type AgentStream = tokio::net::windows::named_pipe::NamedPipeClient;
 /// `\\.\pipe\openssh-ssh-agent` and sets no environment variable, so that is
 /// the default -- but `SSH_AUTH_SOCK` is honoured when set, because the agents
 /// that replace the built-in one (1Password, a WSL bridge) advertise their own
-/// pipe that way.
+/// pipe that way. With neither, Pageant: PuTTY's agent, and the one
+/// KeePassXC and gpg4win can stand in for.
 #[cfg(unix)]
 pub(crate) async fn agent_stream() -> Result<AgentStream> {
     let sock = std::env::var("SSH_AUTH_SOCK").map_err(|_| {
@@ -147,18 +155,28 @@ pub(crate) async fn agent_stream() -> Result<AgentStream> {
 
 #[cfg(windows)]
 pub(crate) async fn agent_stream() -> Result<AgentStream> {
+    use std::io::ErrorKind;
     const DEFAULT_PIPE: &str = r"\\.\pipe\openssh-ssh-agent";
-    let pipe = std::env::var("SSH_AUTH_SOCK").unwrap_or_else(|_| DEFAULT_PIPE.to_string());
-    tokio::net::windows::named_pipe::ClientOptions::new()
-        .open(&pipe)
-        .map_err(|e| {
-            anyhow!(
-                "Could not reach ssh-agent at {} ({}). Start it with `Start-Service ssh-agent`, \
-                 or set it to start automatically in Services.",
-                pipe,
-                e
-            )
-        })
+    let named = std::env::var("SSH_AUTH_SOCK").ok();
+    let pipe = named.clone().unwrap_or_else(|| DEFAULT_PIPE.to_string());
+    let opened = tokio::net::windows::named_pipe::ClientOptions::new().open(&pipe);
+    match opened {
+        Ok(stream) => Ok(Box::new(stream)),
+        // An agent named in SSH_AUTH_SOCK is the one the user chose, so its
+        // absence is reported rather than papered over with another.
+        Err(e) if named.is_some() || e.kind() != ErrorKind::NotFound => Err(anyhow!(
+            "Could not reach ssh-agent at {} ({}).",
+            pipe,
+            e
+        )),
+        Err(_) => match pageant::PageantStream::new().await {
+            Ok(stream) => Ok(Box::new(stream)),
+            Err(_) => Err(anyhow!(
+                "Could not reach an SSH agent. Start the OpenSSH agent with `Start-Service ssh-agent` \
+                 (or set it to start automatically in Services), or run Pageant."
+            )),
+        },
+    }
 }
 
 /// Connects to the running ssh-agent and asks what it holds.

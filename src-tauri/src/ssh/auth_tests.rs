@@ -601,4 +601,193 @@ async fn agent_authentication() {
             "unexpected error: {err}"
         );
     }
+
+    // A FIDO security key held by the agent, judged by real OpenSSH. Here
+    // rather than in a test of its own because it points SSH_AUTH_SOCK
+    // somewhere else too.
+    let Some(sshd) = spawn_sshd_for_sk() else {
+        eprintln!("skipping the FIDO half: sshd unavailable");
+        return;
+    };
+    std::env::set_var("SSH_AUTH_SOCK", &sshd.agent_sock);
+    let mut handle = connect(sshd.port).await;
+    let ok = agent_auth(&mut handle, &sshd.user, None, &SilentPrompter)
+        .await
+        .unwrap();
+    assert!(
+        ok.success(),
+        "sshd must accept a security-key signature made through the agent; its log:\n{}",
+        std::fs::read_to_string(sshd.dir.join("sshd.log")).unwrap_or_default()
+    );
+}
+
+// ── A FIDO key, without the hardware ─────────────────────────────────────────
+//
+// A security key signs `sha256(application) || flags || counter ||
+// sha256(data)` with an ordinary Ed25519 key, and the agent hands back that
+// signature with the flags and counter after it. A key we hold ourselves can
+// do the same arithmetic, so a fake agent can stand in for a YubiKey and a
+// real sshd can judge the result.
+
+#[cfg(unix)]
+const SK_ED25519: &str = "sk-ssh-ed25519@openssh.com";
+#[cfg(unix)]
+const SK_APPLICATION: &str = "ssh:";
+
+#[cfg(unix)]
+fn sk_push_string(out: &mut Vec<u8>, bytes: &[u8]) {
+    out.extend_from_slice(&(bytes.len() as u32).to_be_bytes());
+    out.extend_from_slice(bytes);
+}
+
+#[cfg(unix)]
+fn sk_read_string(buf: &[u8], at: &mut usize) -> Option<Vec<u8>> {
+    let len = u32::from_be_bytes(buf.get(*at..*at + 4)?.try_into().ok()?) as usize;
+    let out = buf.get(*at + 4..*at + 4 + len)?.to_vec();
+    *at += 4 + len;
+    Some(out)
+}
+
+/// Serves REQUEST_IDENTITIES and SIGN_REQUEST for one security key, on as
+/// many connections and requests as come.
+#[cfg(unix)]
+fn spawn_sk_agent(sock: &std::path::Path, key: PrivateKey, blob: Vec<u8>) {
+    use sha2::{Digest, Sha256};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::UnixListener::bind(sock).unwrap();
+    let key = Arc::new(key);
+    tokio::spawn(async move {
+        while let Ok((mut stream, _)) = listener.accept().await {
+            let key = Arc::clone(&key);
+            let blob = blob.clone();
+            tokio::spawn(async move {
+                loop {
+                    let mut len = [0u8; 4];
+                    if stream.read_exact(&mut len).await.is_err() {
+                        return;
+                    }
+                    let mut req = vec![0u8; u32::from_be_bytes(len) as usize];
+                    if stream.read_exact(&mut req).await.is_err() {
+                        return;
+                    }
+                    let body = match req.first() {
+                        Some(11) => {
+                            let mut body = vec![12];
+                            body.extend_from_slice(&1u32.to_be_bytes());
+                            sk_push_string(&mut body, &blob);
+                            sk_push_string(&mut body, b"fido@test");
+                            body
+                        }
+                        Some(13) => {
+                            let mut at = 1;
+                            let _key_blob = sk_read_string(&req, &mut at);
+                            let Some(data) = sk_read_string(&req, &mut at) else { return };
+                            let (flags, counter) = (0x01u8, 7u32);
+                            let mut signed = Sha256::digest(SK_APPLICATION.as_bytes()).to_vec();
+                            signed.push(flags);
+                            signed.extend_from_slice(&counter.to_be_bytes());
+                            signed.extend_from_slice(&Sha256::digest(&data));
+                            let sig: russh::keys::ssh_key::Signature =
+                                russh::keys::signature::Signer::sign(key.as_ref(), &signed);
+                            let mut signature = Vec::new();
+                            sk_push_string(&mut signature, SK_ED25519.as_bytes());
+                            sk_push_string(&mut signature, sig.as_bytes());
+                            signature.push(flags);
+                            signature.extend_from_slice(&counter.to_be_bytes());
+                            let mut body = vec![14];
+                            sk_push_string(&mut body, &signature);
+                            body
+                        }
+                        _ => vec![5], // SSH_AGENT_FAILURE
+                    };
+                    let mut out = (body.len() as u32).to_be_bytes().to_vec();
+                    out.extend_from_slice(&body);
+                    if stream.write_all(&out).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+}
+
+/// An sshd run as the current user on a free port, whose only authorised
+/// key is a security key held by a fake agent.
+#[cfg(unix)]
+struct SkSshd {
+    port: u16,
+    user: String,
+    agent_sock: std::path::PathBuf,
+    dir: std::path::PathBuf,
+    child: std::process::Child,
+}
+
+#[cfg(unix)]
+impl Drop for SkSshd {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+#[cfg(unix)]
+fn spawn_sshd_for_sk() -> Option<SkSshd> {
+    use std::process::{Command, Stdio};
+    let sshd = ["/usr/sbin/sshd", "/usr/bin/sshd"].into_iter().find(|p| std::path::Path::new(p).exists())?;
+    let user = std::env::var("USER").ok()?;
+
+    let dir = std::env::temp_dir().join(format!("bifrossh-sk-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).ok()?;
+    let host_key = dir.join("host_key");
+    let made = Command::new("ssh-keygen")
+        .args(["-q", "-t", "ed25519", "-N", "", "-f"])
+        .arg(&host_key)
+        .status()
+        .ok()?
+        .success();
+    if !made {
+        return None;
+    }
+
+    // The security key's public half, as an authorized_keys line.
+    let key = PrivateKey::random(&mut russh::keys::key::safe_rng(), Algorithm::Ed25519).ok()?;
+    let ed = key.public_key().key_data().ed25519()?.0;
+    let mut blob = Vec::new();
+    sk_push_string(&mut blob, SK_ED25519.as_bytes());
+    sk_push_string(&mut blob, &ed);
+    sk_push_string(&mut blob, SK_APPLICATION.as_bytes());
+    let line = format!("{} {}\n", SK_ED25519, base64::engine::general_purpose::STANDARD.encode(&blob));
+    std::fs::write(dir.join("authorized_keys"), line).ok()?;
+
+    let port = std::net::TcpListener::bind(("127.0.0.1", 0)).ok()?.local_addr().ok()?.port();
+    let config = format!(
+        "Port {port}\nListenAddress 127.0.0.1\nHostKey {}\nPidFile none\nAuthorizedKeysFile {}\n\
+         StrictModes no\nUsePAM no\nPasswordAuthentication no\nKbdInteractiveAuthentication no\n\
+         LogLevel VERBOSE\n",
+        host_key.display(),
+        dir.join("authorized_keys").display(),
+    );
+    std::fs::write(dir.join("sshd_config"), config).ok()?;
+    let log = std::fs::File::create(dir.join("sshd.log")).ok()?;
+    let child = Command::new(sshd)
+        .arg("-D").arg("-e").arg("-f").arg(dir.join("sshd_config"))
+        .stdout(Stdio::null())
+        .stderr(log)
+        .spawn()
+        .ok()?;
+
+    let agent_sock = dir.join("agent.sock");
+    spawn_sk_agent(&agent_sock, key, blob);
+
+    let started = std::time::Instant::now();
+    while std::net::TcpStream::connect(("127.0.0.1", port)).is_err() {
+        if started.elapsed() > std::time::Duration::from_secs(5) {
+            eprintln!("sshd did not start: {}", std::fs::read_to_string(dir.join("sshd.log")).unwrap_or_default());
+            return None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    Some(SkSshd { port, user, agent_sock, dir, child })
 }

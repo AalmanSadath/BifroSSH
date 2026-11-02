@@ -1,8 +1,8 @@
 //! The SOCKS5 server side of a dynamic port forward.
 //!
-//! Only what a client needs to say "connect me to this host": no
-//! authentication beyond "none required", and CONNECT only. BIND and UDP
-//! ASSOCIATE are refused rather than half implemented.
+//! Only what a client needs to say "connect me to this host": either no
+//! authentication or a username and password (RFC 1929), and CONNECT only.
+//! BIND and UDP ASSOCIATE are refused rather than half implemented.
 //!
 //! Split out of `tunnel.rs` so it can be driven by a pair of pipes instead of
 //! a socket. It is a wire protocol parsing bytes from whoever dialled the
@@ -12,16 +12,29 @@
 use anyhow::{anyhow, Result};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
+/// The username and password a client has to give, when the rule sets them.
+pub struct Credentials<'a> {
+    pub username: &'a str,
+    pub password: &'a str,
+}
+
 /// Greets a SOCKS5 client and reads the address it wants. The client waits
 /// for `reply` to say whether it got there.
 ///
+/// With `auth` set the client has to offer username and password and get
+/// them right; a client that offers only "none required" is told no method
+/// is acceptable. Without it, whatever the client offers, the answer is
+/// "none required", as it always was.
+///
 /// Generic over the stream so a test can hand it a pipe. In use it is always a
 /// `TcpStream` from the local listener.
-pub async fn handshake<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S) -> Result<(String, u16)> {
+pub async fn handshake<S: AsyncRead + AsyncWrite + Unpin>(
+    stream: &mut S,
+    auth: Option<Credentials<'_>>,
+) -> Result<(String, u16)> {
     let mut buf = [0u8; 256];
 
-    // Greeting: version, then the methods offered, all of which we ignore
-    // because the answer is always "none required".
+    // Greeting: version, then the methods offered.
     stream.read_exact(&mut buf[..2]).await?;
     if buf[0] != 5 {
         return Err(anyhow!("Not SOCKS5"));
@@ -30,7 +43,17 @@ pub async fn handshake<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S) -> Res
     if nmethods > 0 {
         stream.read_exact(&mut buf[..nmethods]).await?;
     }
-    stream.write_all(&[0x05, 0x00]).await?;
+    match auth {
+        None => stream.write_all(&[0x05, 0x00]).await?,
+        Some(creds) => {
+            if !buf[..nmethods].contains(&0x02) {
+                let _ = stream.write_all(&[0x05, 0xFF]).await;
+                return Err(anyhow!("Client did not offer username and password"));
+            }
+            stream.write_all(&[0x05, 0x02]).await?;
+            authenticate(stream, creds).await?;
+        }
+    }
 
     // Request: version, command, reserved, address type.
     stream.read_exact(&mut buf[..4]).await?;
@@ -71,6 +94,41 @@ pub async fn handshake<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S) -> Res
     Ok((host, port))
 }
 
+/// The username and password subnegotiation (RFC 1929): version 1, then the
+/// two as length-prefixed strings. A wrong pair is answered as a failure and
+/// the connection is dropped, which is what the RFC asks for.
+async fn authenticate<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S, creds: Credentials<'_>) -> Result<()> {
+    let mut head = [0u8; 2];
+    stream.read_exact(&mut head).await?;
+    if head[0] != 1 {
+        let _ = stream.write_all(&[0x01, 0x01]).await;
+        return Err(anyhow!("Unknown authentication version {}", head[0]));
+    }
+    let mut username = vec![0u8; head[1] as usize];
+    stream.read_exact(&mut username).await?;
+    let mut len = [0u8; 1];
+    stream.read_exact(&mut len).await?;
+    let mut password = vec![0u8; len[0] as usize];
+    stream.read_exact(&mut password).await?;
+
+    // Both compared in full whatever the first says, so the time taken does
+    // not tell a guesser which half was wrong.
+    let user_ok = same(&username, creds.username.as_bytes());
+    let pass_ok = same(&password, creds.password.as_bytes());
+    if !(user_ok & pass_ok) {
+        let _ = stream.write_all(&[0x01, 0x01]).await;
+        return Err(anyhow!("Wrong SOCKS username or password"));
+    }
+    stream.write_all(&[0x01, 0x00]).await?;
+    Ok(())
+}
+
+/// Equality that looks at every byte rather than stopping at the first
+/// difference. The length is not hidden; the content is.
+fn same(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
 /// Tells the client whether its CONNECT went through, once the channel to
 /// the target has opened or failed to. Answering before that, as this once
 /// did, told every client it had connected, and one whose target could not
@@ -99,7 +157,7 @@ mod tests {
         // are never coming sees the end of the stream instead of hanging. A
         // real client that stops mid-request eventually does the same.
         client.shutdown().await.unwrap();
-        let outcome = handshake(&mut server).await;
+        let outcome = handshake(&mut server, None).await;
         if outcome.is_ok() {
             reply(&mut server, true).await.unwrap();
         }
@@ -225,5 +283,67 @@ mod tests {
         req.extend_from_slice(&[0x05, 0x01, 0x00, 0x01, 10, 0]); // two bytes short
         let (out, _) = talk(&req).await;
         assert!(out.is_err());
+    }
+
+    /// As `talk`, against a rule that wants a username and password.
+    async fn talk_with_auth(request: &[u8]) -> (Result<(String, u16)>, Vec<u8>) {
+        let (mut client, mut server) = duplex(2048);
+        client.write_all(request).await.unwrap();
+        client.shutdown().await.unwrap();
+        let creds = Credentials { username: "alice", password: "s3cret" };
+        let outcome = handshake(&mut server, Some(creds)).await;
+        if outcome.is_ok() {
+            reply(&mut server, true).await.unwrap();
+        }
+        drop(server);
+        let mut reply = Vec::new();
+        client.read_to_end(&mut reply).await.unwrap();
+        (outcome, reply)
+    }
+
+    /// Greeting offering username and password, then the subnegotiation.
+    fn login(user: &[u8], pass: &[u8]) -> Vec<u8> {
+        let mut req = vec![0x05, 0x01, 0x02, 0x01, user.len() as u8];
+        req.extend_from_slice(user);
+        req.push(pass.len() as u8);
+        req.extend_from_slice(pass);
+        req
+    }
+
+    #[tokio::test]
+    async fn the_right_username_and_password_get_through() {
+        let mut req = login(b"alice", b"s3cret");
+        req.extend_from_slice(&[0x05, 0x01, 0x00, 0x01, 10, 0, 0, 1, 0x00, 0x16]);
+        let (out, reply) = talk_with_auth(&req).await;
+        assert_eq!(out.unwrap(), ("10.0.0.1".to_string(), 22));
+        // Method 0x02 chosen, login accepted, CONNECT granted.
+        assert_eq!(reply, &[0x05, 0x02, 0x01, 0x00, 0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
+    }
+
+    #[tokio::test]
+    async fn a_wrong_password_is_refused_before_any_request() {
+        let mut req = login(b"alice", b"s3creT");
+        req.extend_from_slice(&[0x05, 0x01, 0x00, 0x01, 10, 0, 0, 1, 0x00, 0x16]);
+        let (out, reply) = talk_with_auth(&req).await;
+        assert!(format!("{:#}", out.unwrap_err()).contains("username or password"));
+        assert_eq!(reply, &[0x05, 0x02, 0x01, 0x01]);
+    }
+
+    #[tokio::test]
+    async fn a_wrong_username_is_refused() {
+        let (out, reply) = talk_with_auth(&login(b"bob", b"s3cret")).await;
+        assert!(out.is_err());
+        assert_eq!(reply, &[0x05, 0x02, 0x01, 0x01]);
+    }
+
+    /// A client that only offers "none required" to a rule that wants a
+    /// login is told no method is acceptable, not let in.
+    #[tokio::test]
+    async fn a_client_without_credentials_is_turned_away_when_they_are_required() {
+        let mut req = HELLO.to_vec();
+        req.extend_from_slice(&[0x05, 0x01, 0x00, 0x01, 10, 0, 0, 1, 0x00, 0x16]);
+        let (out, reply) = talk_with_auth(&req).await;
+        assert!(out.is_err());
+        assert_eq!(reply, &[0x05, 0xFF]);
     }
 }

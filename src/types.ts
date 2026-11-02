@@ -335,6 +335,8 @@ export interface Settings {
   auto_lock_minutes: number;
   /** Lock before the machine sleeps. */
   lock_on_suspend: boolean;
+  /** Lock when the desktop's screen lock comes on. */
+  lock_on_screen_lock: boolean;
   /** Lines a terminal keeps above the screen. */
   scrollback_lines: number;
   /** Where session logs go; null is the app's own logs folder. */
@@ -705,6 +707,9 @@ export interface PortForwarding {
   autostart_on_launch: boolean;
   /** Start when a session opens to the rule's own host. */
   autostart_on_connect: boolean;
+  /** The login a SOCKS client must give a dynamic rule; null is none. */
+  socks_username?: string | null;
+  socks_password?: string | null;
 }
 
 /**
@@ -841,8 +846,11 @@ export interface ImportReport {
   host_key_conflicts: string[];
 }
 
-/** What the Android app was opened for from outside (MainActivity.handleLaunch). */
-export type AndroidLaunch =
+/**
+ * What the app was opened for from outside: a host from a launcher shortcut
+ * or the jump list, an ssh:// link, or (Android) shared text.
+ */
+export type Launch =
   | { kind: 'host'; id: string }
   | { kind: 'ssh'; url: string }
   | { kind: 'share'; text: string };
