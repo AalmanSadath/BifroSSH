@@ -9,8 +9,8 @@ import { setLocalPlatform } from './paths';
 import { useIdleLock } from './hooks/useIdleLock';
 import { useBackgroundLock } from './hooks/useBackgroundLock';
 import { useAndroidKeepAlive, useNetworkChange, useVolumeZoom } from './hooks/useAndroidBackground';
-import { useAndroidLaunch } from './hooks/useAndroidLaunch';
-import type { AndroidLaunch, AuthPromptEvent, Codeprint, HostKeyPromptEvent, SessionTab, TunnelClosed, VaultStatus } from './types';
+import { useLaunch } from './hooks/useLaunch';
+import type { AuthPromptEvent, Codeprint, HostKeyPromptEvent, Launch, SessionTab, TunnelClosed, VaultStatus } from './types';
 import { fill } from './snippets';
 import { zoomPercent } from './zoom';
 import { activityChip, anyBusy } from './activity';
@@ -254,7 +254,7 @@ export default function App() {
   useAndroidKeepAlive();
   useNetworkChange();
   const restoringTabs = useAppStore((s) => s.restoringTabs);
-  useAndroidLaunch(!!vault && !vault.locked && loaded && !restoringTabs, handleLaunch);
+  useLaunch(!!vault && !vault.locked && loaded && !restoringTabs, handleLaunch);
   useVolumeZoom(!!vault && !vault.locked && activeIsSession && !activeDetached);
 
   useEffect(() => {
@@ -454,14 +454,14 @@ export default function App() {
   }
 
   /**
-   * What the Android app was opened for: a launcher shortcut's host, an
-   * ssh:// link, or text shared from another app.
+   * What the app was opened for: a launcher shortcut's or the jump list's
+   * host, an ssh:// link, or text shared from another app on Android.
    *
    * A link to a host that is saved opens it as saved, credentials and all.
    * Any other link stops at the quick connect prompt: a link can name a
    * host, but never says how to log in to it.
    */
-  function handleLaunch(launch: AndroidLaunch) {
+  function handleLaunch(launch: Launch) {
     const { servers: saved, identities, sessions: tabs } = useAppStore.getState();
     if (launch.kind === 'host') {
       // A shortcut is a way to the host, not a request for another tab on

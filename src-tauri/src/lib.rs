@@ -13,6 +13,7 @@ mod hoststats;
 mod hostverify;
 mod importers;
 mod jump;
+mod launch;
 mod localshell;
 mod keyring;
 mod keystore;
@@ -84,12 +85,7 @@ pub fn run() {
     #[cfg(target_os = "linux")]
     migrate_webview_data_dir();
 
-    // Android tells the app where its own directory is only once the app is
-    // running, so there the profile is opened from setup instead.
-    #[cfg(not(target_os = "android"))]
-    start(Some(open_profile()));
-    #[cfg(target_os = "android")]
-    start(None);
+    start();
 }
 
 /// The key, the document and anything that went wrong getting them, which is
@@ -185,17 +181,33 @@ fn app_state(profile: Profile) -> AppState {
 /// there is nowhere else to report a startup failure, since the only thing
 /// that can show the user anything is the window this opens.
 ///
-/// `profile` is None on Android, where it is opened in setup. The window is
-/// not created from the config there (tauri.android.conf.json), but after the
-/// state is in place, so the page cannot call a command that has none.
-fn start(profile: Option<Profile>) {
-    let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+/// The profile is opened once the app is running rather than before: on the
+/// desktop by a plugin set up after single-instance, so a second launch hands
+/// over its command line and exits without touching the keystore; on Android
+/// from setup, since Android tells the app where its own directory is only
+/// once it runs. Plugins are set up before the config's windows are made, so
+/// the page cannot call a command before the state is there. On Android the
+/// window is not created from the config (tauri.android.conf.json) but after
+/// the state is in place, for the same reason.
+fn start() {
+    let builder = tauri::Builder::default();
+    // First, as the plugin asks: a second launch hands its command line over
+    // and exits before anything else in it starts.
+    #[cfg(not(target_os = "android"))]
+    let builder = builder
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| launch::second_launch(app, args)))
+        .manage(launch::PendingLaunch::from_args(std::env::args()))
+        .plugin(
+            tauri::plugin::Builder::<tauri::Wry, ()>::new("bifrossh-profile")
+                .setup(|app, _| {
+                    app.manage(app_state(open_profile()));
+                    Ok(())
+                })
+                .build(),
+        );
+    let builder = builder.plugin(tauri_plugin_opener::init());
     #[cfg(target_os = "android")]
     let builder = builder.plugin(android::init());
-    let builder = match profile {
-        Some(profile) => builder.manage(app_state(profile)),
-        None => builder,
-    };
     builder
         .manage(commands::DetachedTabs::default())
         .on_window_event(|window, event| {
@@ -249,10 +261,10 @@ fn start(profile: Option<Profile>) {
             commands::request_storage_access,
             commands::android_keep_alive,
             commands::android_volume_keys,
-            commands::android_take_launch,
-            commands::android_host_used,
+            commands::take_launch,
+            commands::host_used,
             commands::android_pin_host,
-            commands::android_hosts_removed,
+            commands::hosts_removed,
             commands::data_dir,
             commands::clipboard_read_text,
             commands::get_settings,

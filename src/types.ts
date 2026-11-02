@@ -844,8 +844,11 @@ export interface ImportReport {
   host_key_conflicts: string[];
 }
 
-/** What the Android app was opened for from outside (MainActivity.handleLaunch). */
-export type AndroidLaunch =
+/**
+ * What the app was opened for from outside: a host from a launcher shortcut
+ * or the jump list, an ssh:// link, or (Android) shared text.
+ */
+export type Launch =
   | { kind: 'host'; id: string }
   | { kind: 'ssh'; url: string }
   | { kind: 'share'; text: string };

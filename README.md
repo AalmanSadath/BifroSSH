@@ -188,6 +188,8 @@ SHA-256 fingerprint:
 - **Check hosts** times a plain TCP connect to each one, without logging in, and
   shows the latency on its card.
 - The bar at the top connects to anything typed as `user@host -p 22`, saved or not.
+- `ssh://` links open in BifroSSH: a saved host opens as saved, any other stops
+  at the connect bar with the address filled in.
 
 ### Jump hosts
 
@@ -230,6 +232,8 @@ SHA-256 fingerprint:
   Windows, or any program you set.
 - Tabs open at exit reopen and reconnect at the next launch, under the names you
   gave them, unless you turn that off.
+- Starting BifroSSH again brings the running window forward instead of opening a
+  second copy.
 
 ![Two sessions side by side](screenshots/SplitPanes.png)
 

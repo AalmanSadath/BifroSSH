@@ -89,25 +89,26 @@ pub async fn android_volume_keys(
     Ok(())
 }
 
-/// What the app was opened for from outside, if anything is waiting:
-/// a launcher shortcut, an `ssh://` link or shared text. Android only.
+/// What the app was opened for from outside, if anything is waiting: a
+/// launcher shortcut or jump list host, an `ssh://` link, or (Android) shared
+/// text. Taken, so it is acted on once.
 #[tauri::command]
-pub async fn android_take_launch(
-    #[cfg_attr(not(target_os = "android"), allow(unused_variables))] app: tauri::AppHandle,
-) -> CmdResult<Option<serde_json::Value>> {
+pub async fn take_launch(app: tauri::AppHandle) -> CmdResult<Option<crate::launch::Launch>> {
     #[cfg(target_os = "android")]
     return tokio::task::spawn_blocking(move || crate::android::take_launch(&app))
         .await
         .map_err(|e| e.to_string())?
-        .map(|l| l.and_then(|l| serde_json::to_value(l).ok()))
         .map_err(Into::into);
     #[cfg(not(target_os = "android"))]
-    Ok(None)
+    {
+        use tauri::Manager;
+        Ok(app.state::<crate::launch::PendingLaunch>().take())
+    }
 }
 
 /// A host was connected to: it goes to the top of the launcher shortcuts.
 #[tauri::command]
-pub async fn android_host_used(
+pub async fn host_used(
     #[cfg_attr(not(target_os = "android"), allow(unused_variables))] app: tauri::AppHandle,
     #[cfg_attr(not(target_os = "android"), allow(unused_variables))] id: String,
     #[cfg_attr(not(target_os = "android"), allow(unused_variables))] label: String,
@@ -139,7 +140,7 @@ pub async fn android_pin_host(
 
 /// Hosts were deleted: their shortcuts go, and pinned ones stop working.
 #[tauri::command]
-pub async fn android_hosts_removed(
+pub async fn hosts_removed(
     #[cfg_attr(not(target_os = "android"), allow(unused_variables))] app: tauri::AppHandle,
     #[cfg_attr(not(target_os = "android"), allow(unused_variables))] ids: Vec<String>,
 ) -> CmdResult<()> {

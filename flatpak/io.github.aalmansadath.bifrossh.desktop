@@ -2,10 +2,11 @@
 Name=BifroSSH
 GenericName=SSH Client
 Comment=GUI SSH client with built-in SFTP and keychain management
-Exec=bifrossh
+Exec=bifrossh %u
 Icon=io.github.aalmansadath.bifrossh
 Type=Application
 Categories=Network;RemoteAccess;TerminalEmulator;
 Keywords=ssh;terminal;remote;sftp;
+MimeType=x-scheme-handler/ssh;
 StartupNotify=true
 StartupWMClass=bifrossh

@@ -4,7 +4,6 @@ import { UNDETECTED_OS } from '../../types';
 import type { AuthType, ContainerTab, JumpHopParams, SessionTab } from '../../types';
 import { buildJumpChain, containerRequest, containerTabName, resolveServerAuth, type ContainersConn } from '../auth';
 import { saveOpenTabs } from '../persistence';
-import { isAndroid } from '../../platform';
 import type { AppStore, Slice } from '../types';
 
 /** Opening new tabs: on a saved host, a container, this machine, or a quick connection. */
@@ -152,8 +151,8 @@ export const createConnectSlice: Slice<ConnectSlice> = (set, get) => ({
     // A container tab is a second view of a host already in use, not a
     // connection to it that tunnels should start with.
     if (ok && !container) get().autostartTunnels({ kind: 'connect', serverId });
-    // To the top of the launcher icon's shortcuts.
-    if (ok && isAndroid) ipc.androidHostUsed(serverId, server.name).catch(() => {});
+    // To the top of the launcher icon's shortcuts, or the jump list.
+    if (ok) ipc.hostUsed(serverId, server.name).catch(() => {});
   },
 
   openLocalShell: async () => {
