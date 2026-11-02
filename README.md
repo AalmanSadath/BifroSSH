@@ -377,6 +377,9 @@ SHA-256 fingerprint:
 - A dropped session keeps its tab and scrollback and reconnects by itself: after
   5 seconds, then twice as long each time up to a minute, five tries unless set
   otherwise. Enter in the tab tries again at once.
+- When the network changes or the computer wakes from sleep, every session is
+  checked at once, and the ones that did not survive reconnect straight away
+  instead of waiting for keepalives to give up.
 
 ### Updates
 

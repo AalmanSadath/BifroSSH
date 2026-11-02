@@ -15,6 +15,7 @@ mod importers;
 mod jump;
 mod launch;
 mod localshell;
+mod netwatch;
 mod keyring;
 mod keystore;
 mod models;
@@ -231,6 +232,7 @@ fn start() {
             }
             appearance::watch(app.handle().clone());
             suspend::watch(app.handle().clone());
+            netwatch::watch(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

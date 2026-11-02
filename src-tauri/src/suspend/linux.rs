@@ -1,7 +1,8 @@
 //! logind's `PrepareForSleep`, on the system bus.
 //!
-//! `true` arrives before the machine sleeps and `false` after it wakes. Only
-//! the first is acted on. A thread and the blocking bus API, as in
+//! `true` arrives before the machine sleeps and `false` after it wakes. The
+//! first may lock the vault; the second is passed to `netwatch`, since the
+//! connections may not have survived the sleep. A thread and the blocking bus API, as in
 //! `appearance::unix`, because this spends its life parked on one signal.
 
 use tauri::AppHandle;
@@ -26,6 +27,8 @@ pub(super) fn watch(app: AppHandle) {
             let Ok(starting) = msg.body().deserialize::<bool>() else { continue };
             if starting {
                 super::on_suspend(&app);
+            } else {
+                crate::netwatch::notify(&app);
             }
         }
     });

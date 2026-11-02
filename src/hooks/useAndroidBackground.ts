@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import * as ipc from '../ipc';
 import { useAppStore } from '../store/appStore';
 import { disconnectHeld, useHeldCount } from '../heldConnections';
@@ -79,8 +80,12 @@ export function useVolumeZoom(terminalInFront: boolean): void {
 }
 
 /**
- * After the network changes on Android, finds the connections left on the
- * old one and brings everything waiting to reconnect back at once.
+ * After the network changes, finds the connections left on the old one and
+ * brings everything waiting to reconnect back at once.
+ *
+ * Android says so through `window.__bifrosshNetwork` (MainActivity), the
+ * desktop with a `network-changed` event (netwatch), which also comes after
+ * the machine wakes from sleep.
  *
  * The check pings each terminal connection and ends, as dropped, those that
  * do not answer; they then take the usual reconnect path. Tabs and tunnels
@@ -89,8 +94,7 @@ export function useVolumeZoom(terminalInFront: boolean): void {
  */
 export function useNetworkChange(): void {
   useEffect(() => {
-    if (!isAndroid) return;
-    window.__bifrosshNetwork = () => {
+    const changed = () => {
       void ipc.sshCheckSessions()
         .catch(() => 0)
         .then(() => {
@@ -99,6 +103,13 @@ export function useNetworkChange(): void {
           s.retryTunnelsNow();
         });
     };
-    return () => { delete window.__bifrosshNetwork; };
+    if (isAndroid) {
+      window.__bifrosshNetwork = changed;
+      return () => { delete window.__bifrosshNetwork; };
+    }
+    // This window's own events only, so a detached tab's window does not
+    // run the same check a second time.
+    const unlisten = getCurrentWebviewWindow().listen('network-changed', changed);
+    return () => { void unlisten.then((f) => f()); };
   }, []);
 }

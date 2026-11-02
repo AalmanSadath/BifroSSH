@@ -1,4 +1,5 @@
-//! A power notification callback, for `PBT_APMSUSPEND`.
+//! A power notification callback, for `PBT_APMSUSPEND`, and for
+//! `PBT_APMRESUMEAUTOMATIC`, which is passed to `netwatch`.
 //!
 //! Registered once for the life of the process and never unregistered: the
 //! app handle it needs is leaked on purpose so the callback, which the system
@@ -11,14 +12,18 @@ use windows::Win32::Foundation::HANDLE;
 use windows::Win32::System::Power::{
     PowerRegisterSuspendResumeNotification, DEVICE_NOTIFY_SUBSCRIBE_PARAMETERS,
 };
-use windows::Win32::UI::WindowsAndMessaging::{DEVICE_NOTIFY_CALLBACK, PBT_APMSUSPEND};
+use windows::Win32::UI::WindowsAndMessaging::{
+    DEVICE_NOTIFY_CALLBACK, PBT_APMRESUMEAUTOMATIC, PBT_APMSUSPEND,
+};
 
 unsafe extern "system" fn on_power(context: *const c_void, kind: u32, _setting: *const c_void) -> u32 {
+    // SAFETY: `context` is the leaked AppHandle registered in `watch`,
+    // which lives for the whole process.
+    let app = unsafe { &*(context as *const AppHandle) };
     if kind == PBT_APMSUSPEND {
-        // SAFETY: `context` is the leaked AppHandle registered in `watch`,
-        // which lives for the whole process.
-        let app = unsafe { &*(context as *const AppHandle) };
         super::on_suspend(app);
+    } else if kind == PBT_APMRESUMEAUTOMATIC {
+        crate::netwatch::notify(app);
     }
     0
 }
