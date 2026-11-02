@@ -106,11 +106,13 @@ pub async fn take_launch(app: tauri::AppHandle) -> CmdResult<Option<crate::launc
     }
 }
 
-/// A host was connected to: it goes to the top of the launcher shortcuts.
+/// A host was connected to: it goes to the top of the launcher shortcuts on
+/// Android, and of the jump list on Windows.
 #[tauri::command]
 pub async fn host_used(
     #[cfg_attr(not(target_os = "android"), allow(unused_variables))] app: tauri::AppHandle,
-    #[cfg_attr(not(target_os = "android"), allow(unused_variables))] id: String,
+    #[cfg_attr(not(windows), allow(unused_variables))] state: tauri::State<'_, AppState>,
+    #[cfg_attr(not(any(target_os = "android", windows)), allow(unused_variables))] id: String,
     #[cfg_attr(not(target_os = "android"), allow(unused_variables))] label: String,
 ) -> CmdResult<()> {
     #[cfg(target_os = "android")]
@@ -118,8 +120,28 @@ pub async fn host_used(
         .await
         .map_err(|e| e.to_string())?
         .map_err(Into::into);
-    #[cfg(not(target_os = "android"))]
+    #[cfg(windows)]
+    {
+        let mut data = state.data.lock().await;
+        data.recent_hosts.retain(|h| *h != id);
+        data.recent_hosts.insert(0, id);
+        data.recent_hosts.truncate(crate::jumplist::RECENT_CAP);
+        state.save(&data)?;
+        crate::jumplist::set(recent_with_labels(&data));
+        Ok(())
+    }
+    #[cfg(not(any(target_os = "android", windows)))]
     Ok(())
+}
+
+/// The recent hosts that still exist, with the labels the jump list shows.
+#[cfg(windows)]
+fn recent_with_labels(data: &crate::models::AppData) -> Vec<(String, String)> {
+    data.recent_hosts
+        .iter()
+        .filter_map(|id| data.servers.iter().find(|s| s.id == *id))
+        .map(|s| (s.id.clone(), s.name.clone()))
+        .collect()
 }
 
 /// Asks the launcher to pin a host to the home screen.
@@ -138,18 +160,31 @@ pub async fn android_pin_host(
     Ok(())
 }
 
-/// Hosts were deleted: their shortcuts go, and pinned ones stop working.
+/// Hosts were deleted: their shortcuts go, and pinned ones stop working on
+/// Android; on Windows they leave the jump list.
 #[tauri::command]
 pub async fn hosts_removed(
     #[cfg_attr(not(target_os = "android"), allow(unused_variables))] app: tauri::AppHandle,
-    #[cfg_attr(not(target_os = "android"), allow(unused_variables))] ids: Vec<String>,
+    #[cfg_attr(not(windows), allow(unused_variables))] state: tauri::State<'_, AppState>,
+    #[cfg_attr(not(any(target_os = "android", windows)), allow(unused_variables))] ids: Vec<String>,
 ) -> CmdResult<()> {
     #[cfg(target_os = "android")]
     return tokio::task::spawn_blocking(move || crate::android::hosts_removed(&app, &ids))
         .await
         .map_err(|e| e.to_string())?
         .map_err(Into::into);
-    #[cfg(not(target_os = "android"))]
+    #[cfg(windows)]
+    {
+        let mut data = state.data.lock().await;
+        let before = data.recent_hosts.len();
+        data.recent_hosts.retain(|h| !ids.contains(h));
+        if data.recent_hosts.len() != before {
+            state.save(&data)?;
+            crate::jumplist::set(recent_with_labels(&data));
+        }
+        Ok(())
+    }
+    #[cfg(not(any(target_os = "android", windows)))]
     Ok(())
 }
 

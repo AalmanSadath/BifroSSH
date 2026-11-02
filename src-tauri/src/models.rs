@@ -598,6 +598,10 @@ pub struct AppData {
     /// document, and is not part of an export.
     #[serde(default)]
     pub command_history: std::collections::HashMap<String, Vec<String>>,
+    /// Hosts most recently connected to, by server id, newest first, for the
+    /// Windows jump list, which cannot be read back to find out what it holds.
+    #[serde(default)]
+    pub recent_hosts: Vec<String>,
 }
 
 /// How many commands a host keeps.

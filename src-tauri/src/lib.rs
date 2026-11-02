@@ -13,6 +13,8 @@ mod hoststats;
 mod hostverify;
 mod importers;
 mod jump;
+#[cfg(windows)]
+mod jumplist;
 mod launch;
 mod localshell;
 mod netwatch;

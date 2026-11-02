@@ -190,6 +190,8 @@ SHA-256 fingerprint:
 - The bar at the top connects to anything typed as `user@host -p 22`, saved or not.
 - `ssh://` links open in BifroSSH: a saved host opens as saved, any other stops
   at the connect bar with the address filled in.
+- On Windows, the hosts you connected to last are in the taskbar button's
+  right-click menu.
 
 ### Jump hosts
 
