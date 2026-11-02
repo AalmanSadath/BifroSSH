@@ -124,6 +124,29 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.17.0" date="2026-11-03">
+      <description>
+        <p>
+          ssh:// links open in BifroSSH, and starting it again brings the
+          running window forward instead of opening a second copy. When the
+          network changes or the computer wakes from sleep, sessions that did
+          not survive reconnect at once instead of waiting for keepalives.
+          The vault can lock when the screen locks, on by default.
+        </p>
+        <p>
+          On Windows, recently used hosts are in the taskbar button's jump
+          list, and Pageant (or KeePassXC and gpg4win in its place) works as
+          an agent. FIDO security keys work through ssh-agent. A dynamic
+          tunnel can ask for a SOCKS username and password.
+        </p>
+        <p>
+          A key can be imported or generated from the host form without
+          leaving it, and is selected once saved. Dropdowns keep their rows
+          whole when space is short, scroll inside, and follow their field
+          when the page scrolls or the window is resized.
+        </p>
+      </description>
+    </release>
     <release version="0.16.2" date="2026-10-17">
       <description>
         <p>
