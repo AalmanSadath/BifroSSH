@@ -19,7 +19,8 @@ export interface RecordsSlice {
   detectServerOs: (serverId: string, username: string, authType: AuthType, authValue: string, jumps?: JumpHopParams[]) => Promise<void>;
 
   importKey: (name: string, path: string, passphrase: string | null, storeContent: boolean) => Promise<void>;
-  saveKeyFromContent: (name: string, content: string, passphrase: string | null, certificate?: string | null) => Promise<void>;
+  /** Resolves to the key as saved, so a form that asked for one can select it. */
+  saveKeyFromContent: (name: string, content: string, passphrase: string | null, certificate?: string | null) => Promise<KeyEntry>;
   generateKey: (algorithm: string, passphrase?: string | null) => Promise<GeneratedKey>;
   getKeyContent: (keyId: string) => Promise<KeyContent>;
   updateKey: (keyId: string, name: string, content: string, passphrase: string | null) => Promise<void>;
@@ -110,6 +111,7 @@ export const createRecordsSlice: Slice<RecordsSlice> = (set, get) => ({
   saveKeyFromContent: async (name, content, passphrase, certificate) => {
     const key = await ipc.saveKeyFromContent(name, content, passphrase, certificate ?? null);
     set((s) => ({ keys: [...s.keys, key] }));
+    return key;
   },
 
   generateKey: async (algorithm, passphrase) => {

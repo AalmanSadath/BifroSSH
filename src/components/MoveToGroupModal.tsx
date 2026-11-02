@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import Modal from './shared/Modal';
-import { PortalMenu, anchorBelow, type AnchorRect } from './shared/PortalDropdown';
+import { PortalMenu } from './shared/PortalDropdown';
 
 interface Props {
   /** How many hosts are moving, for the title. */
@@ -21,7 +21,7 @@ interface Props {
  */
 export default function MoveToGroupModal({ count, groups, onMove, onClose }: Props) {
   const [group, setGroup] = useState('');
-  const [rect, setRect] = useState<AnchorRect | null>(null);
+  const [anchor, setAnchor] = useState<Element | null>(null);
   const fieldRef = useRef<HTMLDivElement>(null);
   const typed = group.trim().toLowerCase();
   const suggestions = groups.filter((g) => g.toLowerCase().includes(typed) && g !== group.trim());
@@ -41,20 +41,20 @@ export default function MoveToGroupModal({ count, groups, onMove, onClose }: Pro
           autoFocus
           value={group}
           onChange={(e) => setGroup(e.target.value)}
-          onFocus={() => setRect(anchorBelow(fieldRef.current?.querySelector('input')))}
-          onBlur={() => setTimeout(() => setRect(null), 150)}
+          onFocus={() => setAnchor(fieldRef.current?.querySelector('input') ?? null)}
+          onBlur={() => setTimeout(() => setAnchor(null), 150)}
           placeholder="A new or existing group; blank for none"
           autoComplete="off"
           spellCheck={false}
         />
-        {rect && suggestions.length > 0 && (
-          <PortalMenu rect={rect} maxHeight={220}>
+        {anchor && suggestions.length > 0 && (
+          <PortalMenu anchor={anchor} maxHeight={220}>
             {suggestions.map((g) => (
               <button
                 key={g}
                 type="button"
                 className="picker-item"
-                onMouseDown={(e) => { e.preventDefault(); setGroup(g); setRect(null); }}
+                onMouseDown={(e) => { e.preventDefault(); setGroup(g); setAnchor(null); }}
               >
                 {g}
               </button>

@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import Modal from './shared/Modal';
-import { PortalMenu, anchorBelow, type AnchorRect } from './shared/PortalDropdown';
+import { PortalMenu } from './shared/PortalDropdown';
 import { MAX_TAG_LEN } from '../hosts';
 import { Picker } from './settings/Picker';
 
@@ -24,7 +24,7 @@ interface Props {
 export default function TagModal({ mode, count, tags, counts, onDone, onClose }: Props) {
   // Removing picks from the tags the hosts have; there is nothing else to take off.
   const [tag, setTag] = useState(mode === 'remove' ? (tags[0] ?? '') : '');
-  const [rect, setRect] = useState<AnchorRect | null>(null);
+  const [anchor, setAnchor] = useState<Element | null>(null);
   const fieldRef = useRef<HTMLDivElement>(null);
   const typed = tag.trim().toLowerCase();
   const suggestions = tags.filter((t) => t.toLowerCase().includes(typed) && t.toLowerCase() !== typed);
@@ -59,20 +59,20 @@ export default function TagModal({ mode, count, tags, counts, onDone, onClose }:
             value={tag}
             maxLength={MAX_TAG_LEN}
             onChange={(e) => setTag(e.target.value.replace(/,/g, ''))}
-            onFocus={() => setRect(anchorBelow(fieldRef.current?.querySelector('input')))}
-            onBlur={() => setTimeout(() => setRect(null), 150)}
+            onFocus={() => setAnchor(fieldRef.current?.querySelector('input') ?? null)}
+            onBlur={() => setTimeout(() => setAnchor(null), 150)}
             placeholder="A new or existing tag"
             autoComplete="off"
             spellCheck={false}
           />
-          {rect && suggestions.length > 0 && (
-            <PortalMenu rect={rect} maxHeight={220}>
+          {anchor && suggestions.length > 0 && (
+            <PortalMenu anchor={anchor} maxHeight={220}>
               {suggestions.map((t) => (
                 <button
                   key={t}
                   type="button"
                   className="picker-item"
-                  onMouseDown={(e) => { e.preventDefault(); setTag(t); setRect(null); }}
+                  onMouseDown={(e) => { e.preventDefault(); setTag(t); setAnchor(null); }}
                 >
                   {t}
                 </button>

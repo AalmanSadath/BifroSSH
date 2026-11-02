@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import * as ipc from '../ipc';
 import { useAppStore, reportFailure } from '../store/appStore';
 import { useCopy } from './shared/useCopy';
@@ -8,6 +8,7 @@ import type { AgentKeyInfo, Identity } from '../types';
 import ConfirmModal from './shared/ConfirmModal';
 import ContextMenu from './shared/ContextMenu';
 import KeyCertificate from './KeyCertificate';
+import KeyCreateDrawer from './KeyCreateDrawer';
 import AutoTextarea from './shared/AutoTextarea';
 import Drawer from './shared/Drawer';
 import PassphraseInput from './shared/PassphraseInput';
@@ -16,48 +17,21 @@ import { EditIcon } from './shared/icons';
 import PortalDropdown, { CHEVRON } from './shared/PortalDropdown';
 import { isAndroid } from '../platform';
 
-const KEY_ALGORITHMS = [
-  { value: 'ed25519', label: 'ED25519' },
-  { value: 'ecdsa-p256', label: 'ECDSA (P-256)' },
-  { value: 'rsa', label: 'RSA' },
-];
-
-const RSA_SIZES = [2048, 4096];
-
 /** Card activation, plus the single click these two use to reach it. */
 function clickableProps(onActivate: () => void) {
   return { ...cardKeys(onActivate), onClick: onActivate };
 }
 
 export default function KeychainPanel() {
-  const { keys, identities, saveKeyFromContent, generateKey, getKeyContent, updateKey, setKeyCertificate, deleteKey, saveIdentity, deleteIdentity } = useAppStore();
+  const { keys, identities, getKeyContent, updateKey, setKeyCertificate, deleteKey, saveIdentity, deleteIdentity } = useAppStore();
   // Four copy buttons, each saying so for itself.
   const { copied, copy } = useCopy();
   const hint = useHint();
 
-  // import drawer
-  const [showKeyForm, setShowKeyForm] = useState(false);
-  const [keyName, setKeyName] = useState('');
-  const [keyContent, setKeyContent] = useState('');
-  const [keyCert, setKeyCert] = useState('');
-  /** What the certificate field says is wrong; the save waits until it is fixed or cleared. */
-  const [certProblem, setCertProblem] = useState('');
-  const [keyPassphrase, setKeyPassphrase] = useState('');
-  const [keyError, setKeyError] = useState('');
-  const [savingKey, setSavingKey] = useState(false);
-  const keyFileInputRef = useRef<HTMLInputElement>(null);
-
-  // generate drawer
-  const [showGenForm, setShowGenForm] = useState(false);
+  // The add-key drawer, and whether the identity form opened it, in which case
+  // the key it makes is the one the identity uses.
+  const [keyDrawer, setKeyDrawer] = useState<{ mode: 'import' | 'generate'; forIdentity: boolean } | null>(null);
   const [showKeyDropdown, setShowKeyDropdown] = useState(false);
-  const [genKeyName, setGenKeyName] = useState('');
-  const [genKeyError, setGenKeyError] = useState('');
-  const [genSaving, setGenSaving] = useState(false);
-  const [genAlgorithm, setGenAlgorithm] = useState('ed25519');
-  const [rsaSize, setRsaSize] = useState(4096);
-  const [genResult, setGenResult] = useState<{ private_pem: string; public_openssh: string } | null>(null);
-  const [generating, setGenerating] = useState(false);
-  const [genPassphrase, setGenPassphrase] = useState('');
 
   // identity drawer
   const [showIdForm, setShowIdForm] = useState(false);
@@ -101,84 +75,8 @@ export default function KeychainPanel() {
   const [editKeyLoading, setEditKeyLoading] = useState(false);
   const [editKeyError, setEditKeyError] = useState('');
   const [editKeyCert, setEditKeyCert] = useState('');
-
-  function resetKeyForm() {
-    setKeyName(''); setKeyContent(''); setKeyCert(''); setKeyPassphrase(''); setKeyError('');
-  }
-
-  function handleKeyFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const text = (ev.target?.result as string).trim();
-      if (!keyName.trim()) setKeyName(file.name.replace(/\.(ppk|pem|key|txt)$/i, ''));
-      setKeyContent(text);
-      setKeyError('');
-    };
-    reader.readAsText(file);
-    e.target.value = '';
-  }
-
-  function resetGenForm() {
-    setGenKeyName(''); setGenKeyError(''); setGenResult(null); setGenAlgorithm('ed25519'); setRsaSize(4096); setGenPassphrase('');
-  }
-
-  async function handleAddKey(e: React.FormEvent) {
-    e.preventDefault();
-    if (!keyName.trim()) { setKeyError('Name required'); return; }
-    if (!keyContent.trim()) { setKeyError('Key content required'); return; }
-    if (certProblem) return;
-    setSavingKey(true);
-    setKeyError('');
-    try {
-      let content = keyContent.trim();
-      let passphraseToStore: string | null = keyPassphrase || null;
-      if (content.startsWith('PuTTY-User-Key-File')) {
-        content = await ipc.convertPpk(content, keyPassphrase || null);
-        passphraseToStore = null;
-      }
-      await saveKeyFromContent(keyName.trim(), content, passphraseToStore, keyCert.trim() || null);
-      setShowKeyForm(false);
-      resetKeyForm();
-    } catch (err) {
-      setKeyError(String(err));
-    } finally {
-      setSavingKey(false);
-    }
-  }
-
-  async function handleGenerate() {
-    setGenerating(true);
-    setGenKeyError('');
-    setGenResult(null);
-    try {
-      const algoArg = genAlgorithm === 'rsa' ? `rsa-${rsaSize}` : genAlgorithm;
-      const result = await generateKey(algoArg, genPassphrase || null);
-      setGenResult(result);
-    } catch (err) {
-      setGenKeyError(String(err));
-    } finally {
-      setGenerating(false);
-    }
-  }
-
-  async function handleSaveGenerated(e: React.FormEvent) {
-    e.preventDefault();
-    if (!genKeyName.trim()) { setGenKeyError('Name required'); return; }
-    if (!genResult) { setGenKeyError('Generate a key first'); return; }
-    setGenSaving(true);
-    setGenKeyError('');
-    try {
-      await saveKeyFromContent(genKeyName.trim(), genResult.private_pem, genPassphrase || null);
-      setShowGenForm(false);
-      resetGenForm();
-    } catch (err) {
-      setGenKeyError(String(err));
-    } finally {
-      setGenSaving(false);
-    }
-  }
+  /** What the certificate field says is wrong; the save waits until it is fixed or cleared. */
+  const [certProblem, setCertProblem] = useState('');
 
   async function handleOpenEditKey(key: { id: string; name: string; certificate?: string | null }) {
     setEditKeyId(key.id);
@@ -292,7 +190,7 @@ export default function KeychainPanel() {
           <div className="add-key-btn-group">
             <button
               className="add-key-btn-main btn-primary btn-sm"
-              onClick={() => setShowKeyForm(true)}
+              onClick={() => setKeyDrawer({ mode: 'import', forIdentity: false })}
             >
               + Add Key
             </button>
@@ -311,7 +209,7 @@ export default function KeychainPanel() {
                 onClick={() => setShowKeyDropdown(false)}
               />
               <div className="key-dropdown">
-                <button onClick={() => { setShowKeyDropdown(false); setShowGenForm(true); resetGenForm(); }}>
+                <button onClick={() => { setShowKeyDropdown(false); setKeyDrawer({ mode: 'generate', forIdentity: false }); }}>
                   Generate Key
                 </button>
               </div>
@@ -322,158 +220,12 @@ export default function KeychainPanel() {
         <button className="btn-primary btn-sm" onClick={openAddIdentity}>+ Add Identity</button>
       </div>
 
-      {/* Import key drawer */}
-      {showKeyForm && (
-        <Drawer
-          title="Add SSH Key"
-          onClose={() => { setShowKeyForm(false); resetKeyForm(); }}
-          action={
-            <button type="submit" form="key-form" className="btn-primary btn-sm" disabled={savingKey || !!certProblem}>
-              {savingKey ? 'Saving…' : 'Save Key'}
-            </button>
-          }
-        >
-          <div className="drawer-body">
-            <form id="key-form" className="inline-form" onSubmit={handleAddKey}>
-              <div className="form-group">
-                <label>Name</label>
-                <input value={keyName} onChange={(e) => setKeyName(e.target.value)} placeholder="My SSH Key" autoFocus />
-              </div>
-              <div className="form-group">
-                <label>Private key</label>
-                <AutoTextarea
-                  className="key-paste-area"
-                  value={keyContent}
-                  onChange={setKeyContent}
-                  placeholder={'-----BEGIN OPENSSH PRIVATE KEY-----\n...'}
-                  rows={8}
-                />
-                <input
-                  ref={keyFileInputRef}
-                  type="file"
-                  accept=".ppk,.pem,.key,.txt,*"
-                  style={{ display: 'none' }}
-                  onChange={handleKeyFileSelect}
-                />
-                <button
-                  type="button"
-                  className="btn-secondary btn-sm self-start"
-                  onClick={() => keyFileInputRef.current?.click()}
-                >
-                  Import from key file
-                </button>
-              </div>
-              <div className="form-group">
-                <label>Passphrase (if encrypted)</label>
-                <PassphraseInput
-                  value={keyPassphrase}
-                  onChange={setKeyPassphrase}
-                  placeholder="leave empty if none"
-                />
-              </div>
-              <KeyCertificate
-                value={keyCert}
-                onChange={setKeyCert}
-                keyPem={keyContent}
-                passphrase={keyPassphrase}
-                onProblem={setCertProblem}
-              />
-              {keyContent.trimStart().startsWith('PuTTY-User-Key-File') && (
-                <p className="form-info">PPK file will be converted to OpenSSH format on save.</p>
-              )}
-              {keyError && <p className="form-error">{keyError}</p>}
-            </form>
-          </div>
-        </Drawer>
-      )}
-
-      {/* Generate key drawer */}
-      {showGenForm && (
-        <Drawer
-          title="Generate SSH Key"
-          onClose={() => { setShowGenForm(false); resetGenForm(); }}
-          action={
-            <button type="submit" form="gen-key-form" className="btn-primary btn-sm" disabled={genSaving || !genResult}>
-              {genSaving ? 'Saving…' : 'Save Key'}
-            </button>
-          }
-        >
-          <div className="drawer-body">
-            <form id="gen-key-form" className="inline-form" onSubmit={handleSaveGenerated}>
-              <div className="form-group">
-                <label>Name</label>
-                <input value={genKeyName} onChange={(e) => setGenKeyName(e.target.value)} placeholder="My Generated Key" autoFocus />
-              </div>
-              <div className="form-group">
-                <label>Passphrase (optional)</label>
-                <PassphraseInput
-                  value={genPassphrase}
-                  onChange={setGenPassphrase}
-                  placeholder="leave empty for no passphrase"
-                />
-              </div>
-              <div className="form-group">
-                <label>Algorithm</label>
-                <div className="toggle-row">
-                  {KEY_ALGORITHMS.map((alg) => (
-                    <button
-                      key={alg.value}
-                      type="button"
-                      className={`toggle-btn${genAlgorithm === alg.value ? ' active' : ''}`}
-                      onClick={() => { setGenAlgorithm(alg.value); setGenResult(null); }}
-                    >
-                      {alg.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {genAlgorithm === 'rsa' && (
-                <div className="form-group">
-                  <label>Key size</label>
-                  <div className="toggle-row">
-                    {RSA_SIZES.map((size) => (
-                      <button
-                        key={size}
-                        type="button"
-                        className={`toggle-btn${rsaSize === size ? ' active' : ''}`}
-                        onClick={() => { setRsaSize(size); setGenResult(null); }}
-                      >
-                        {size}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              <button
-                type="button"
-                className="btn-secondary btn-sm self-start"
-                onClick={handleGenerate}
-                disabled={generating}
-              >
-                {generating ? 'Generating…' : genResult ? 'Regenerate' : 'Generate Key'}
-              </button>
-              {genResult && (
-                <>
-                  <div className="form-group">
-                    <label>Public key: add this to your server's authorized_keys</label>
-                    <div className="key-pub-box">
-                      <code>{genResult.public_openssh}</code>
-                      <button type="button" className="btn-secondary btn-sm" onClick={() => void copy(genResult!.public_openssh, 'gen-pub')}>{copied === 'gen-pub' ? 'Copied' : 'Copy'}</button>
-                    </div>
-                  </div>
-                  <div className="form-group">
-                    <label>Private key</label>
-                    <div className="key-pub-box">
-                      <code>{genResult.private_pem}</code>
-                      <button type="button" className="btn-secondary btn-sm" onClick={() => void copy(genResult!.private_pem, 'gen-key')}>{copied === 'gen-key' ? 'Copied' : 'Copy'}</button>
-                    </div>
-                  </div>
-                </>
-              )}
-              {genKeyError && <p className="form-error">{genKeyError}</p>}
-            </form>
-          </div>
-        </Drawer>
+      {keyDrawer && (
+        <KeyCreateDrawer
+          mode={keyDrawer.mode}
+          onClose={() => setKeyDrawer(null)}
+          onSaved={keyDrawer.forIdentity ? (k) => setIdKeyId(k.id) : undefined}
+        />
       )}
 
       {/* Keys */}
@@ -598,9 +350,16 @@ export default function KeychainPanel() {
                           <button
                             type="button"
                             className="picker-item picker-add"
-                            onMouseDown={(e) => { e.preventDefault(); close(); setShowKeyForm(true); resetKeyForm(); }}
+                            onMouseDown={(e) => { e.preventDefault(); close(); setKeyDrawer({ mode: 'import', forIdentity: true }); }}
                           >
-                            + Add Key…
+                            + Import key…
+                          </button>
+                          <button
+                            type="button"
+                            className="picker-item picker-add"
+                            onMouseDown={(e) => { e.preventDefault(); close(); setKeyDrawer({ mode: 'generate', forIdentity: true }); }}
+                          >
+                            + Generate key…
                           </button>
                         </>
                       )}
@@ -739,8 +498,8 @@ export default function KeychainPanel() {
         <ContextMenu x={ctxMenu.x} y={ctxMenu.y} onClose={() => setCtxMenu(null)}>
           {ctxMenu.kind === 'panel' ? (
             <>
-              <button className="menu-item" onClick={() => { setCtxMenu(null); setShowKeyForm(true); }}>Add Key</button>
-              <button className="menu-item" onClick={() => { setCtxMenu(null); setShowGenForm(true); }}>Generate Key</button>
+              <button className="menu-item" onClick={() => { setCtxMenu(null); setKeyDrawer({ mode: 'import', forIdentity: false }); }}>Add Key</button>
+              <button className="menu-item" onClick={() => { setCtxMenu(null); setKeyDrawer({ mode: 'generate', forIdentity: false }); }}>Generate Key</button>
               <div className="menu-divider" />
               <button className="menu-item" onClick={() => { setCtxMenu(null); setShowIdForm(true); }}>Add Identity</button>
             </>

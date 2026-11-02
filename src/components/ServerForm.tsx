@@ -18,8 +18,9 @@ const MONITOR_CHOICES: PickerOption<MonitorChoice>[] = [
   { value: 'always', label: 'Always' },
   { value: 'never', label: 'Never' },
 ];
-import PortalDropdown, { PortalMenu, anchorBelow, type AnchorRect } from './shared/PortalDropdown';
+import PortalDropdown, { PortalMenu } from './shared/PortalDropdown';
 import PassphraseInput from './shared/PassphraseInput';
+import KeyCreateDrawer from './KeyCreateDrawer';
 import TagInput from './TagInput';
 import { tagNames } from '../hosts';
 import { isAndroid } from '../platform';
@@ -31,7 +32,7 @@ interface Props {
 }
 
 export default function ServerForm({ server, onClose, onDelete }: Props) {
-  const { servers, identities, keys, saveServer, customThemes, settings, setActiveTab } = useAppStore();
+  const { servers, identities, keys, saveServer, customThemes, settings } = useAppStore();
   const hint = useHint();
 
   const [name, setName] = useState(server?.name ?? '');
@@ -59,8 +60,9 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [keyId, setKeyId] = useState(server?.key_id ?? '');
+  const [keyDrawer, setKeyDrawer] = useState<'import' | 'generate' | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [dropdownRect, setDropdownRect] = useState<AnchorRect | null>(null);
+  const [dropdownAnchor, setDropdownAnchor] = useState<Element | null>(null);
   const usernameGroupRef = useRef<HTMLDivElement>(null);
   const passwordGroupRef = useRef<HTMLDivElement>(null);
   // A new host starts from the default in Settings rather than from one
@@ -83,7 +85,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
     server?.monitor === true ? 'always' : server?.monitor === false ? 'never' : 'default',
   );
   const [showGroups, setShowGroups] = useState(false);
-  const [groupRect, setGroupRect] = useState<AnchorRect | null>(null);
+  const [groupAnchor, setGroupAnchor] = useState<Element | null>(null);
   const groupRef = useRef<HTMLDivElement>(null);
   const [themeExpanded, setThemeExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -186,6 +188,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
   });
 
   return (
+    <>
     <Drawer
       title={server ? 'Edit Host' : 'Add Host'}
       onClose={onClose}
@@ -232,8 +235,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
                   value={username}
                   onChange={(e) => { setUsername(e.target.value); setShowSuggestions(true); }}
                   onFocus={() => {
-                    const r = usernameGroupRef.current?.getBoundingClientRect();
-                    if (r) setDropdownRect({ top: r.bottom + 2, left: r.left, width: r.width });
+                    setDropdownAnchor(usernameGroupRef.current);
                     setShowSuggestions(true);
                   }}
                   onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
@@ -247,7 +249,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
                   value={password}
                   onChange={(v) => { setPassword(v); setShowSuggestions(true); }}
                   onFocus={() => {
-                    setDropdownRect(anchorBelow(passwordGroupRef.current));
+                    setDropdownAnchor(passwordGroupRef.current);
                     setShowSuggestions(true);
                   }}
                   onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
@@ -271,23 +273,33 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
                           </button>
                         ))}
                         {keys.length > 0 && <div className="picker-divider" />}
+                        {/* On top of this form rather than in place of it, so
+                            what has been typed here is still here after, with
+                            the new key selected. */}
                         <button
                           type="button"
                           className="picker-item picker-add"
-                          onMouseDown={(e) => { e.preventDefault(); close(); setActiveTab('keychain'); onClose(); }}
+                          onMouseDown={(e) => { e.preventDefault(); close(); setKeyDrawer('import'); }}
                         >
-                          + Add Key…
+                          + Import key…
+                        </button>
+                        <button
+                          type="button"
+                          className="picker-item picker-add"
+                          onMouseDown={(e) => { e.preventDefault(); close(); setKeyDrawer('generate'); }}
+                        >
+                          + Generate key…
                         </button>
                       </>
                     )}
                   </PortalDropdown>
                 </div>
               </div>
-              {showSuggestions && dropdownRect && (() => {
+              {showSuggestions && dropdownAnchor && (() => {
                 const items = suggestions.length > 0 ? suggestions : (!username ? identities : []);
                 if (items.length === 0) return null;
                 return (
-                  <PortalMenu rect={dropdownRect}>
+                  <PortalMenu anchor={dropdownAnchor}>
                     {items.map((i) => (
                       <button
                         key={i.id}
@@ -313,18 +325,39 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
 
           <div className="form-group">
             <label>Jump Host</label>
-            <select
-              value={proxyJump}
-              onChange={(e) => setProxyJump(e.target.value)}
-              disabled={proxyCommand.trim() !== ''}
-            >
-              <option value="">Connect directly</option>
-              {jumpCandidates.map((candidate) => (
-                <option key={candidate.id} value={candidate.id}>
-                  {candidate.name} ({candidate.host})
-                </option>
-              ))}
-            </select>
+            {/* The app's own dropdown rather than a <select>, whose list the
+                toolkit draws in its own colours. */}
+            <div className="picker">
+              <PortalDropdown
+                label={(() => {
+                  const jump = jumpCandidates.find((c) => c.id === proxyJump);
+                  return jump ? `${jump.name} (${jump.host})` : 'Connect directly';
+                })()}
+                disabled={proxyCommand.trim() !== ''}
+              >
+                {(close) => (
+                  <>
+                    <button
+                      type="button"
+                      className={`picker-item${proxyJump === '' ? ' selected' : ''}`}
+                      onMouseDown={(e) => { e.preventDefault(); setProxyJump(''); close(); }}
+                    >
+                      Connect directly
+                    </button>
+                    {jumpCandidates.map((candidate) => (
+                      <button
+                        key={candidate.id}
+                        type="button"
+                        className={`picker-item${proxyJump === candidate.id ? ' selected' : ''}`}
+                        onMouseDown={(e) => { e.preventDefault(); setProxyJump(candidate.id); close(); }}
+                      >
+                        {candidate.name} ({candidate.host})
+                      </button>
+                    ))}
+                  </>
+                )}
+              </PortalDropdown>
+            </div>
           </div>
 
           <div className="form-group">
@@ -348,14 +381,14 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
             <input
               value={group}
               onChange={(e) => { setGroup(e.target.value); setShowGroups(true); }}
-              onFocus={() => { setGroupRect(anchorBelow(groupRef.current)); setShowGroups(true); }}
+              onFocus={() => { setGroupAnchor(groupRef.current); setShowGroups(true); }}
               onBlur={() => setTimeout(() => setShowGroups(false), 150)}
               placeholder="Production"
               autoComplete="off"
             />
           </div>
-          {showGroups && groupRect && groupSuggestions.length > 0 && (
-            <PortalMenu rect={groupRect}>
+          {showGroups && groupAnchor && groupSuggestions.length > 0 && (
+            <PortalMenu anchor={groupAnchor}>
               {groupSuggestions.map((g) => (
                 <button
                   key={g}
@@ -564,5 +597,9 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
         </div>
       )}
     </Drawer>
+    {keyDrawer && (
+      <KeyCreateDrawer mode={keyDrawer} onClose={() => setKeyDrawer(null)} onSaved={(k) => setKeyId(k.id)} />
+    )}
+    </>
   );
 }
