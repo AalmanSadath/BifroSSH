@@ -83,6 +83,9 @@ windows = { version = "0.61", features = [
     "Win32_System_Power",
     "Win32_UI_WindowsAndMessaging",
 ] }
+# Pageant, as a second place to find an agent. The version russh already
+# depends on, so this names a crate the build has rather than adding one.
+pageant = "0.2"
 
 [dev-dependencies]
 # Pausable clock, so a test for a sixty second stall does not take sixty
