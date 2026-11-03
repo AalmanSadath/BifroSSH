@@ -68,6 +68,10 @@ android {
                 signingConfig = signingConfigs.getByName("release")
             }
             isMinifyEnabled = true
+            // Drops the resources nothing refers to, most of them Material's
+            // and AppCompat's. Nothing here looks a resource up by name at
+            // runtime, which is what this would break.
+            isShrinkResources = true
             proguardFiles(
                 *fileTree(".") { include("**/*.pro") }
                     .plus(getDefaultProguardFile("proguard-android-optimize.txt"))
