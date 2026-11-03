@@ -3,7 +3,10 @@ import { createPortal } from 'react-dom';
 import { useBackClose } from '../../backStack';
 
 export interface AnchorRect {
+  /** Where a menu hanging below the anchor starts. */
   top: number;
+  /** The anchor's own top edge, for a menu that opens upward instead. */
+  anchorTop: number;
   left: number;
   width: number;
 }
@@ -12,11 +15,19 @@ export interface AnchorRect {
 export function anchorBelow(el: Element | null | undefined): AnchorRect | null {
   if (!el) return null;
   const r = el.getBoundingClientRect();
-  return { top: r.bottom + 2, left: r.left, width: r.width };
+  return { top: r.bottom + 2, anchorTop: r.top, left: r.left, width: r.width };
 }
 
-/** Space left under the menu's top before the bottom of the window. */
+/** Space kept between the menu and the window's edge. */
 const BOTTOM_MARGIN = 12;
+
+/**
+ * Below this much room under the anchor the menu opens upward, if there is
+ * more room above. A control near the bottom of the window, which a phone
+ * turned on its side puts most of them, otherwise got a menu with room for
+ * its "⋯" row and none of its options.
+ */
+const MIN_BELOW = 160;
 
 /**
  * Whether `el` can be seen inside every scrolling box it sits in. A field
@@ -106,7 +117,11 @@ export function PortalMenu({
   useLayoutEffect(checkMore);
 
   if (!rect || !visible) return null;
-  const available = Math.max(0, window.innerHeight - rect.top - BOTTOM_MARGIN);
+  const below = Math.max(0, window.innerHeight - rect.top - BOTTOM_MARGIN);
+  const above = Math.max(0, rect.anchorTop - 2 - BOTTOM_MARGIN);
+  const wanted = maxHeight ?? MIN_BELOW;
+  const upward = below < Math.min(wanted, MIN_BELOW) && above > below;
+  const available = upward ? above : below;
 
   function scrollPage() {
     const el = scrollRef.current;
@@ -119,7 +134,11 @@ export function PortalMenu({
       className={`${className} picker-menu-portal`}
       style={{
         position: 'fixed',
-        top: rect.top,
+        ...(upward
+          // auto: .picker-menu's own top (for its in-flow use) would
+          // otherwise pin it below the window.
+          ? { top: 'auto', bottom: window.innerHeight - rect.anchorTop + 2 }
+          : { top: rect.top }),
         left: rect.left,
         width: rect.width,
         maxHeight: maxHeight ? Math.min(maxHeight, available) : available,
