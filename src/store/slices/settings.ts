@@ -7,6 +7,7 @@ import { DEFAULT_SETTINGS } from '../defaults';
 import { persist } from '../persistence';
 import { cacheAppTheme, resolveAppTheme } from '../themeCache';
 import type { Slice } from '../types';
+import { isAndroid } from '../../platform';
 
 /** Settings, the themes the user made, and the update check that writes back to settings. */
 export interface SettingsSlice {
@@ -16,10 +17,14 @@ export interface SettingsSlice {
   /**
    * Which category the settings panel is showing. In the store rather than
    * in the panel so the palette and the panel's own links can open one.
+   * Null on Android while the panel shows its list of categories; the
+   * desktop always has one open beside its rail.
    */
-  settingsSection: SettingsSection;
+  settingsSection: SettingsSection | null;
   /** Shows the settings panel, on the category asked for. */
   openSettings: (section?: SettingsSection) => void;
+  /** Back from a category to the list of them (Android). */
+  closeSettingsSection: () => void;
 
   customThemes: Record<string, NamedTheme>;
   saveCustomTheme: (id: string, theme: NamedTheme) => void;
@@ -44,13 +49,15 @@ export const createSettingsSlice: Slice<SettingsSlice> = (set, get) => ({
     set({ settings });
   },
 
-  settingsSection: 'appearance',
+  settingsSection: isAndroid ? null : 'appearance',
 
   openSettings: (section) =>
     set((s) => ({
       activeTabId: 'settings',
       settingsSection: section ?? s.settingsSection,
     })),
+
+  closeSettingsSection: () => set({ settingsSection: null }),
 
   customThemes: {},
 
