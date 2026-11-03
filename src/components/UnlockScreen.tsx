@@ -121,10 +121,9 @@ export default function UnlockScreen({ fatal, keyringLocked, biometric = false, 
               <p>{fatal}</p>
             </div>
             <p className="form-hint">
-              Nothing has been changed on disk. Your data is still there and still encrypted;
-              what is missing is the key that opens it. Restoring{' '}
+              Nothing was changed. Restore{' '}
               {dataDir ? <code>{dataDir}</code> : 'the BifroSSH data folder'} from a backup
-              {isAndroid ? '' : ', keyring and all,'} is the way back.
+              {isAndroid ? '' : ', keyring included,'} to recover.
             </p>
           </>
         ) : showPin ? (

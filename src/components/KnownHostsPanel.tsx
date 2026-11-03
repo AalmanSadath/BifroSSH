@@ -9,16 +9,14 @@ import ConfirmModal from './shared/ConfirmModal';
 // What each does with a server whose key differs from the stored one, as
 // hostverify.rs has it: only Ask offers to replace the key, and only after
 // the user confirms it in the warning.
-const REFUSED = 'A server whose key does not match the one stored here is refused.';
 const POLICIES: { value: HostKeyPolicy; label: string; hint: string }[] = [
   {
     value: 'ask',
     label: 'Ask',
-    hint: 'Prompts you to confirm a server the first time you connect to it. A server whose key does not '
-      + 'match the one stored here gets a warning, and connects only if you confirm replacing the stored key.',
+    hint: 'Confirm new servers; a changed key needs explicit approval.',
   },
-  { value: 'accept-new', label: 'Accept new', hint: `Trusts a server the first time you connect, without asking. ${REFUSED}` },
-  { value: 'strict', label: 'Strict', hint: `Refuses any server that is not already listed below. ${REFUSED}` },
+  { value: 'accept-new', label: 'Accept new', hint: 'Trust new servers silently; refuse changed keys.' },
+  { value: 'strict', label: 'Strict', hint: 'Only connect to servers listed below.' },
 ];
 
 function label(entry: KnownHostEntry) {
@@ -134,10 +132,6 @@ export default function KnownHostsPanel() {
         ) : hosts.length === 0 ? (
           <div className="kh-empty">
             <p>No host keys stored yet.</p>
-            <p className="form-hint">
-              The first time you connect to a server, you&apos;ll be asked to confirm its
-              fingerprint. Once you trust it, it appears here.
-            </p>
           </div>
         ) : filtered.length === 0 ? (
           <p className="form-hint">No hosts match “{query}”.</p>

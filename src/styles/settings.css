@@ -23,9 +23,35 @@
   gap: 24px;
 }
 
+/* Desktop: the title and the rail stay put and only the category scrolls.
+   A sticky rail inside the panel's own scroll still slid up by the title
+   and the panel's padding before it stuck. The panel stops scrolling and
+   hands that to the body, which runs to the panel's bottom edge so its
+   scrollbar sits at the window side as before. */
+.panel.settings-panel-desktop {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 0;
+  padding-right: 0;
+}
+
+.settings-panel-desktop .panel-title {
+  flex-shrink: 0;
+}
+
+.settings-panel-desktop .settings-layout {
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.settings-panel-desktop .settings-body {
+  overflow-y: auto;
+  padding: 0 28px 24px 0;
+}
+
 .settings-rail {
-  position: sticky;
-  top: 0;
   flex-shrink: 0;
   width: 150px;
   display: flex;
@@ -60,6 +86,34 @@
 .settings-body {
   flex: 1;
   min-width: 0;
+}
+
+/* Every section heading keeps a gap above whatever comes first under it,
+   a checkbox included, and an intro line sits straight under it. */
+.settings-body .panel-section > h3 {
+  margin-bottom: 10px;
+}
+
+.settings-body .panel-section > h3 + .form-hint {
+  margin-top: 0;
+}
+
+/* A row of buttons in a settings section: one look, and spaced like a form
+   group, with the hint that explains them 4px underneath. */
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.settings-actions + .form-hint {
+  margin-top: -8px;
+}
+
+.settings-actions .form-hint {
+  margin: 0;
 }
 
 /* The first heading of a category sits level with the first rail item. */
@@ -181,7 +235,7 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 8px;
+  margin: 8px 0 12px;
 }
 
 .shell-integration-row .form-hint {
@@ -351,27 +405,27 @@
   background: var(--bg-hover);
 }
 
-/* Each titled group on a category's page is a box of its own, outlined in
+/* Each titled group in a settings category is a box of its own, outlined in
    the accent, so one group's controls do not run into the next's. */
-.settings-panel-android .settings-body .panel-section {
+.settings-body .panel-section {
   margin-bottom: 14px;
   padding: 16px 16px 4px;
   border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
   border-radius: 18px;
 }
 
-.settings-panel-android .settings-body .panel-section > h3,
-.settings-panel-android .settings-body .panel-section-header h3 {
+.settings-body .panel-section > h3,
+.settings-body .panel-section-header h3 {
   margin-bottom: 10px;
   font-size: 17px;
   font-weight: 600;
 }
 
-.settings-panel-android .settings-body .panel-section-header {
+.settings-body .panel-section-header {
   margin-bottom: 0;
 }
 
 /* The box's own padding is the space under its last control. */
-.settings-panel-android .settings-body .panel-section > :last-child {
+.settings-body .panel-section > :last-child {
   margin-bottom: 12px;
 }

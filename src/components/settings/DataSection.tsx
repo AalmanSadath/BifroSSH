@@ -10,16 +10,11 @@ export default function DataSection() {
   return (
     <section className="panel-section">
       <h3>Backup and transfer</h3>
-      <p className="form-hint form-hint-flush">
-        Everything saved here goes into one file: hosts, identities, keys, tunnels, codeprints,
-        themes, settings and known hosts. It is encrypted under a passphrase you choose for it,
-        separate from your master key, which is what lets it open on another machine. Importing
-        only adds; anything already here is kept.
-      </p>
-      <div className="transfer-buttons">
-        <button className="btn-secondary" onClick={() => setExporting(true)}>Export…</button>
-        <button className="btn-secondary" onClick={() => setImporting(true)}>Import…</button>
+      <div className="settings-actions">
+        <button className="btn-secondary btn-sm" onClick={() => setExporting(true)}>Export…</button>
+        <button className="btn-secondary btn-sm" onClick={() => setImporting(true)}>Import…</button>
       </div>
+      <p className="form-hint">One file, encrypted with its own passphrase. Import only adds.</p>
 
       {exporting && <ExportDataModal onClose={() => setExporting(false)} />}
       {importing && <ImportDataModal onClose={() => setImporting(false)} />}

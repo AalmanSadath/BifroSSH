@@ -105,9 +105,9 @@ type WizSpec =
   | { kind: 'label'; title: string; diagram: number };
 
 const TYPE_DESC: Record<PfType, string> = {
-  local: "Local forwarding lets you access a remote server's listening port as though it were local.",
-  remote: 'Remote forwarding opens a port on the remote machine and forwards connections to the local (current) host.',
-  dynamic: 'Dynamic forwarding creates a local SOCKS proxy that tunnels all traffic through the remote SSH server.',
+  local: 'Reach a remote port as if it were local.',
+  remote: 'Open a port on the server that leads back to this machine.',
+  dynamic: 'A local SOCKS proxy that sends traffic through the server.',
 };
 
 /** The diagram and its wrapper, which every step draws the same way. */
@@ -141,47 +141,47 @@ const WIZ: Record<WizStep, WizSpec> = {
   'local-port': {
     kind: 'fields', diagram: 1,
     title: 'Set the local port and binding address:',
-    desc: 'This port will be open on the local (current) machine to forward traffic to the remote host.',
+    desc: 'Port opened on this machine.',
     fields: [{ key: 'localPort', label: 'Local port number', required: true, numeric: true, placeholder: 'e.g. 8080' }, BIND_FIELD],
   },
   'local-host': {
     kind: 'host', diagram: 2, host: 'intermediate', field: 'Intermediate host',
     title: 'Select the intermediate host:',
-    desc: 'This device is used as an intermediate host to access the remote host.',
+    desc: 'Host the traffic passes through.',
   },
   'local-dest': {
     kind: 'fields', diagram: 3, fields: DEST_FIELDS,
     title: 'Select the destination host:',
-    desc: 'IP address/hostname and the port number of the remote host where the intermediate host will direct the traffic.',
+    desc: 'Where the intermediate host sends the traffic.',
   },
 
   'remote-host': {
     kind: 'host', diagram: 1, host: 'remote', field: 'Remote host',
     title: 'Select the remote host:',
-    desc: 'Select a host where the port will be open. The traffic from this port will be forwarded to the destination host.',
+    desc: 'Host where the port is opened.',
   },
   'remote-port': {
     kind: 'fields', diagram: 2,
     title: 'Set the port and binding address:',
-    desc: 'We will forward traffic from specified port and interface address of the selected host.',
+    desc: 'Port and address to listen on, on that host.',
     fields: [{ key: 'remotePort', label: 'Remote port number', required: true, numeric: true, placeholder: 'e.g. 8080' }, BIND_FIELD],
   },
   'remote-dest': {
     kind: 'fields', diagram: 3, fields: DEST_FIELDS,
     title: 'Select the destination host:',
-    desc: 'The destination address and port where the traffic will be forwarded.',
+    desc: 'Where the traffic goes.',
   },
 
   'dyn-port': {
     kind: 'fields', diagram: 1,
     title: 'Set the local port and binding address:',
-    desc: 'This port will be open on the local (current) device, and it will receive the traffic.',
+    desc: 'Port opened on this machine for the proxy.',
     fields: [{ key: 'localPort', label: 'Local port number', required: true, numeric: true, placeholder: 'e.g. 1080' }, BIND_FIELD],
   },
   'dyn-host': {
     kind: 'host', diagram: 2, host: 'intermediate', field: 'Intermediate host',
     title: 'Select the intermediate host:',
-    desc: 'The intermediate host will receive the traffic that will be forwarded to the local (current) host.',
+    desc: 'Host the proxy traffic goes through.',
   },
 
   'label': { kind: 'label', title: 'Select the label:', diagram: 4 },
@@ -255,7 +255,7 @@ function SocksLoginFields({ draft, onChange, startOpen }: {
         />
       </div>
       <p className="pf-wiz-desc">
-        Programs using this proxy must log in. Leave empty for no login. SOCKS sends the password unencrypted, which is fine on this machine but not across a network.
+        Empty for no login. The password is sent unencrypted; keep it local.
       </p>
     </details>
   );

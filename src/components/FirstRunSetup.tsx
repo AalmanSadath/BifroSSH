@@ -96,7 +96,7 @@ export default function FirstRunSetup({ keyringAvailable, onReady }: Props) {
 
         {!keyringAvailable && !isAndroid && (
           <p className="form-hint">
-            No desktop keyring answered on this system, so that option is not available here.
+            No desktop keyring found, so this option is unavailable.
           </p>
         )}
 
@@ -143,9 +143,6 @@ export default function FirstRunSetup({ keyringAvailable, onReady }: Props) {
           {busy ? 'Setting up…' : 'Continue'}
         </button>
 
-        <p className="form-hint" style={{ textAlign: 'center' }}>
-          You can change this later in Settings.
-        </p>
       </div>
     </div>
   );

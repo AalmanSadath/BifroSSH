@@ -42,8 +42,7 @@ export default function CompareDialog({ left, right, diff, onCancel, onClose }: 
 
       {diff === null ? (
         <p className="sftp-confirm-sub">
-          Files of different size are settled without reading them; the rest are read and
-          hashed on both sides.
+          Same-size files are hashed on both sides.
         </p>
       ) : (
         <>

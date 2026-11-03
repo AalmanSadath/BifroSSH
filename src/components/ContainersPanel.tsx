@@ -342,8 +342,7 @@ export default function ContainersPanel() {
           onSubmit={(e) => { e.preventDefault(); void sudoOn(); }}
         >
           <p className="form-hint">
-            Listings, start, stop and restart, and Shell and Logs tabs opened from this panel will run as
-            root on {server.name} until you press Stop sudo, disconnect or lock the app.
+            Runs as root on {server.name} until Stop sudo, disconnect or lock.
           </p>
           <div className="form-group">
             <label htmlFor="sudo-password">Your password on {server.name}</label>
@@ -358,8 +357,7 @@ export default function ContainersPanel() {
             />
           </div>
           <p className="form-hint">
-            Checked with sudo before it is used. It stays in memory only, is never saved, and is given to
-            sudo on its input, never on a command line. Leave it empty if sudo on this host asks for none.
+            Kept in memory only, never saved. Leave empty if sudo needs none.
           </p>
           {sudoPrompt.error && <p className="form-error">{sudoPrompt.error}</p>}
           <div className="modal-actions">

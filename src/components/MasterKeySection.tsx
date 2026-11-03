@@ -89,24 +89,24 @@ export default function MasterKeySection({ onChanged }: Props = {}) {
     // be behind, and the file the only alternative.
     if (isAndroid) {
       return s.source === 'file'
-        ? 'Anything that copies the app\'s storage, such as a phone backup, copies the key too. Set a passphrase to take it off the phone.'
+        ? 'Phone backups copy the key. Set a passphrase to protect it.'
         : null;
     }
     if (s.source === 'keyring') {
-      return 'The passphrase is only needed if the keyring is ever lost.';
+      return 'The passphrase is the fallback if the keyring is lost.';
     }
     if (s.source === 'passphrase') {
       if (s.always_ask) return null;
       return s.keyring_locked
-        ? 'Your keyring is locked, so the passphrase is what opens it until you unlock the keyring.'
-        : 'No desktop keyring answered here, so the passphrase is what opens it.';
+        ? 'Keyring locked; the passphrase opens it for now.'
+        : 'No desktop keyring here.';
     }
     if (s.keyring_available) {
-      return 'Anything that copies your home directory copies the key too. Set a passphrase to move it into your keyring.';
+      return 'Home folder backups copy the key. Set a passphrase to protect it.';
     }
     return s.keyring_locked
-      ? 'Anything that copies your home directory copies the key too. Your keyring is locked, so unlock it to have it hold the key instead.'
-      : 'Anything that copies your home directory copies the key too. No keyring answered here, so a passphrase is the only way off disk.';
+      ? 'Home folder backups copy the key. Unlock your keyring to move it there.'
+      : 'Home folder backups copy the key. Set a passphrase to protect it.';
   }
 
   return (
@@ -118,7 +118,7 @@ export default function MasterKeySection({ onChanged }: Props = {}) {
       ) : (
         <>
           <p className="form-hint form-hint-flush">
-            Your saved passwords and private keys are encrypted with one key, held{' '}
+            Passwords and keys are encrypted with one key, held{' '}
             <strong>{where[status.source]}</strong>. {detail(status)}
           </p>
 
@@ -157,13 +157,13 @@ export default function MasterKeySection({ onChanged }: Props = {}) {
                 </>
               )}
               {error && <p className="form-hint form-hint-error">{error}</p>}
-              <div className="modal-actions modal-actions-start modal-actions-pad">
+              <div className="settings-actions">
                 {status.passphrase_set ? (
-                  <button className="btn-secondary" onClick={() => { reset(); setMode('remove'); }}>
+                  <button className="btn-secondary btn-sm" onClick={() => { reset(); setMode('remove'); }}>
                     Remove passphrase
                   </button>
                 ) : (
-                  <button className="btn-secondary" onClick={() => { reset(); setMode('set'); }}>
+                  <button className="btn-secondary btn-sm" onClick={() => { reset(); setMode('set'); }}>
                     Set a master passphrase
                   </button>
                 )}
@@ -184,18 +184,9 @@ export default function MasterKeySection({ onChanged }: Props = {}) {
                       </p>
                     </>
                   ) : isAndroid ? (
-                    <p className="form-hint form-hint-flush">
-                      The key is removed from the phone and your passphrase replaces it. It is
-                      asked for whenever BifroSSH starts or is locked, and forgetting it loses
-                      your saved passwords and keys for good.
-                    </p>
+                    <p className="form-hint form-hint-flush">Forgetting the passphrase loses saved passwords and keys.</p>
                   ) : (
-                    <p className="form-hint form-hint-flush">
-                      The key is removed from disk and your passphrase replaces it. Your keyring
-                      still unlocks BifroSSH without asking, so you will only be prompted on a
-                      machine where the keyring is unavailable. You cannot be locked out: either
-                      the keyring or this passphrase will open it.
-                    </p>
+                    <p className="form-hint form-hint-flush">Your keyring still unlocks it; the passphrase is the fallback.</p>
                   )}
                 </div>
               )}
@@ -260,12 +251,12 @@ export default function MasterKeySection({ onChanged }: Props = {}) {
 
               {error && <p className="form-hint form-hint-error">{error}</p>}
 
-              <div className="modal-actions modal-actions-start">
-                <button className="btn-secondary" onClick={reset} disabled={busy}>
+              <div className="settings-actions">
+                <button className="btn-secondary btn-sm" onClick={reset} disabled={busy}>
                   Cancel
                 </button>
                 <button
-                  className={mode === 'set' ? 'btn-primary' : 'btn-danger'}
+                  className={`${mode === 'set' ? 'btn-primary' : 'btn-danger'} btn-sm`}
                   disabled={busy || !pass || (mode === 'set' && alwaysAsk && !understood)}
                   onClick={apply}
                 >

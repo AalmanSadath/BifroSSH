@@ -35,11 +35,7 @@ export default function HighlightRules() {
         />
         <span>Colour keywords in terminal output</span>
       </label>
-      <p className="form-hint">
-        Each rule is a regular expression. Where two overlap, the one that starts first wins, then
-        the one higher in this list. Full-screen programs such as vim and less draw their own
-        colours and are left alone.
-      </p>
+      <p className="form-hint">Regular expressions; earlier match wins, then higher rule.</p>
 
       <div className={`highlight-rules${settings.highlight_enabled ? '' : ' highlight-rules-off'}`}>
         {rules.map((rule, i) => (
@@ -58,7 +54,7 @@ export default function HighlightRules() {
         {rules.length === 0 && <p className="form-hint">No rules.</p>}
       </div>
 
-      <div className="settings-inline-row">
+      <div className="settings-actions">
         <button
           className="btn-secondary btn-sm"
           onClick={() => write([...rules, { pattern: '', color: 'cyan', case_sensitive: false }])}

@@ -27,20 +27,26 @@ const BACKGROUND_LOCK_OPTIONS: PickerOption<string>[] = [
 ];
 
 /** The one sentence every disabled lock control shows. */
-const LOCK_NEEDS_PASSPHRASE = isAndroid
-  ? 'Set a master passphrase to enable locking. Without one there is nothing to unlock it with.'
-  : 'Set a master passphrase to enable locking. Without one the keyring would reopen the vault by itself.';
+const LOCK_NEEDS_PASSPHRASE = 'Set a master passphrase to enable locking.';
 
 /** The master key, locking, and where host keys are managed. */
 export default function SecuritySection({ setActiveTab }: { setActiveTab: (id: string) => void }) {
-  const { settings } = useAppStore();
+  const { settings, refreshPassphrase } = useAppStore();
   const patch = usePatch();
   // Whether a passphrase is set decides whether locking means anything. Read
   // here and refreshed whenever the master key section changes it.
   const [keystore, setKeystore] = useState<KeystoreStatus | null>(null);
-  const refreshKeystore = () => { ipc.keystoreStatus().then(setKeystore).catch(() => {}); };
+  const refreshKeystore = () => {
+    ipc.keystoreStatus().then(setKeystore).catch(() => {});
+    refreshPassphrase();
+  };
   useEffect(() => { refreshKeystore(); }, []);
   const canLock = keystore?.passphrase_set === true;
+  // Without a passphrase the lock settings are kept but not in force, so
+  // they read as off until one is set again.
+  const shown = canLock ? settings : {
+    ...settings, auto_lock_minutes: 0, background_lock_minutes: null, lock_on_suspend: false, lock_on_screen_lock: false,
+  };
   const lockChord = formatChords(resolve(settings.shortcuts)['lock-vault']);
 
   return (
@@ -51,10 +57,7 @@ export default function SecuritySection({ setActiveTab }: { setActiveTab: (id: s
 
       <section className="panel-section">
         <h3>Locking</h3>
-        <p className="form-hint form-hint-flush">
-          A locked vault asks for the master passphrase before anything can be read again.
-          Terminal sessions and tunnels that are already open stay connected behind it.
-        </p>
+        <p className="form-hint form-hint-flush">Open sessions and tunnels stay connected while locked.</p>
         {!canLock && keystore && (
           <p className="form-hint form-hint-warn">{LOCK_NEEDS_PASSPHRASE}</p>
         )}
@@ -63,7 +66,7 @@ export default function SecuritySection({ setActiveTab }: { setActiveTab: (id: s
             <label>Lock after no input for</label>
             <div style={canLock ? undefined : { opacity: 0.5, pointerEvents: 'none' }}>
               <Picker
-                value={String(settings.auto_lock_minutes)}
+                value={String(shown.auto_lock_minutes)}
                 options={AUTO_LOCK_OPTIONS}
                 onChange={(v) => patch({ auto_lock_minutes: Number(v) })}
               />
@@ -76,7 +79,7 @@ export default function SecuritySection({ setActiveTab }: { setActiveTab: (id: s
               <label>Lock after leaving the app for</label>
               <div style={canLock ? undefined : { opacity: 0.5, pointerEvents: 'none' }}>
                 <Picker
-                  value={settings.background_lock_minutes === null ? 'off' : String(settings.background_lock_minutes)}
+                  value={shown.background_lock_minutes === null ? 'off' : String(shown.background_lock_minutes)}
                   options={BACKGROUND_LOCK_OPTIONS}
                   onChange={(v) => patch({ background_lock_minutes: v === 'off' ? null : Number(v) })}
                 />
@@ -84,16 +87,11 @@ export default function SecuritySection({ setActiveTab }: { setActiveTab: (id: s
             </div>
           </div>
         )}
-        <p className="form-hint">
-          {isAndroid
-            ? 'Input means yours: typing and touches. Output arriving in a terminal does not count.'
-            : 'Input means yours: keys, pointer, wheel. Output arriving in a terminal does not count.'}
-        </p>
         {!isAndroid && <label className="checkbox-row">
           <input
             type="checkbox"
             disabled={!canLock}
-            checked={settings.lock_on_suspend}
+            checked={shown.lock_on_suspend}
             onChange={(e) => patch({ lock_on_suspend: e.target.checked })}
           />
           <span>Lock before the computer sleeps</span>
@@ -102,15 +100,15 @@ export default function SecuritySection({ setActiveTab }: { setActiveTab: (id: s
           <input
             type="checkbox"
             disabled={!canLock}
-            checked={settings.lock_on_screen_lock}
+            checked={shown.lock_on_screen_lock}
             onChange={(e) => patch({ lock_on_screen_lock: e.target.checked })}
           />
           <span>Lock when the screen locks</span>
         </label>}
-        <div className="form-row" style={{ alignItems: 'center', gap: 10 }}>
+        <div className="settings-actions">
           <button
             type="button"
-            className="btn-secondary"
+            className="btn-secondary btn-sm"
             disabled={!canLock}
             onClick={() => ipc.lockVault().catch(reportFailure)}
           >
@@ -124,13 +122,11 @@ export default function SecuritySection({ setActiveTab }: { setActiveTab: (id: s
 
       <section className="panel-section">
         <h3>Host keys</h3>
-        <p className="form-hint form-hint-flush">
-          Server fingerprints and how new servers are trusted are managed on the{' '}
+        <p className="form-hint form-hint-flush">Managed on the{' '}
           <button type="button" className="link-btn" onClick={() => setActiveTab('knownhosts')}>
             Known Hosts
           </button>{' '}
-          page.
-        </p>
+          page.</p>
       </section>
     </>
   );

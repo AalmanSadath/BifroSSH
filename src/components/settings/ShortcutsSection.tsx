@@ -103,11 +103,7 @@ export default function ShortcutsSection() {
           Reset all
         </button>
       </div>
-      <p className="form-hint">
-        Click a shortcut and press the keys you want. Escape keeps what was there, Backspace
-        leaves the action unbound so the keys reach the shell instead. Ctrl+W and Ctrl+F are not
-        offered: those belong to readline and to whatever is running on the far end.
-      </p>
+      <p className="form-hint">Click and press keys. Escape cancels, Backspace unbinds.</p>
 
       {clashRow}
 

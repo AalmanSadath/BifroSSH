@@ -34,8 +34,7 @@ export default function MismatchDialog({ mismatches, onLeave, onCopyAgain }: Pro
         {names.length > SHOWN && <li>and {names.length - SHOWN} more</li>}
       </ul>
       <p className="sftp-confirm-sub">
-        Each was continued from an unfinished copy and read back whole afterwards.
-        Copy again sends {count === 1 ? 'it' : 'them'} from the start, over what is there.
+        Resumed copies that failed the check. Copy again resends {count === 1 ? 'it' : 'them'} in full.
       </p>
       <div className="sftp-confirm-actions">
         <button className="sftp-action-btn" onClick={onLeave} autoFocus>Leave</button>

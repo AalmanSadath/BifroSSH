@@ -122,8 +122,7 @@ export default function HostKeyPrompt({ event, onResolved }: Props) {
             <span className="hostkey-label">{event.key_type} key fingerprint</span>
             <div className="hostkey-fp">{event.fingerprint}</div>
           </div>
-          <p className="form-hint">
-            On the server, check with:
+          <p className="form-hint">Check on the server:
             <br />
             <code>ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub</code>
           </p>

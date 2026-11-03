@@ -93,7 +93,6 @@ export default function AppearanceSection() {
         />
         <span>Show hover hints</span>
       </label>
-      <p className="form-hint">Toggles the tooltips that explain what a control does.</p>
       </>}
     </section>
   );

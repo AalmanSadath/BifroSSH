@@ -244,11 +244,18 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useIdleLock(vault && !vault.locked ? settings.auto_lock_minutes : 0, () => { void lockNow(); });
-  // Quietly: with no passphrase there is nothing to lock with, and the
-  // setting says so where it is chosen.
+  // Locking needs a master passphrase, so the timers are armed only while
+  // one is set. The settings stay as chosen and apply again when it is.
+  const passphraseSet = useAppStore((s) => s.passphraseSet);
+  const refreshPassphrase = useAppStore((s) => s.refreshPassphrase);
+  const vaultOpen = !!vault && !vault.locked;
+  useEffect(() => { if (vaultOpen) refreshPassphrase(); }, [vaultOpen, refreshPassphrase]);
+  const canAutoLock = vaultOpen && passphraseSet === true;
+
+  useIdleLock(canAutoLock ? settings.auto_lock_minutes : 0, () => { void lockNow(); });
+  // Quietly: a lock racing the passphrase being removed has nothing to say.
   useBackgroundLock(
-    isAndroid && vault && !vault.locked ? settings.background_lock_minutes : null,
+    isAndroid && canAutoLock ? settings.background_lock_minutes : null,
     () => { ipc.lockVault().catch(() => {}); },
   );
   useAndroidKeepAlive();

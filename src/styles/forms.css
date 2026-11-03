@@ -356,7 +356,7 @@ button { cursor: pointer; font-family: inherit; }
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-top: 10px;
+  margin: 0 0 12px;
 }
 
 .settings-num-row label {
@@ -527,6 +527,26 @@ button { cursor: pointer; font-family: inherit; }
   margin: 4px 0 0;
   font-size: 11px;
   color: var(--text-muted);
+}
+
+/* A hint paragraph keeps the gap a form group keeps before whatever comes
+   next, so the next checkbox or field does not sit flush under it. Only the
+   paragraph: an inline hint in a centred row would ride up by half of it. */
+p.form-hint {
+  margin-bottom: 12px;
+}
+
+/* Inside a group the group's own gap and bottom margin already space it. */
+.form-group > .form-hint:last-child {
+  margin-bottom: 0;
+}
+
+/* A hint belongs to the control just above it, 4px under it as in a form
+   group, rather than the 16px the control's own bottom margin left. */
+.checkbox-row + .form-hint,
+.settings-num-row + .form-hint,
+.form-group + .form-hint {
+  margin-top: -8px;
 }
 
 /* A form hint reporting a failure rather than explaining a field. Was nine

@@ -45,10 +45,7 @@ export default class ErrorBoundary extends Component<Props, State> {
       <div className="crash-screen">
         <div className="crash-card">
           <h1>BifroSSH hit an error</h1>
-          <p className="form-hint">
-            Your saved data is untouched. Reloading rebuilds the window; any open sessions are
-            disconnected.
-          </p>
+          <p className="form-hint">Your data is safe. Reloading closes open sessions.</p>
           <p className="crash-message">{String(error)}</p>
           <textarea className="crash-stack" readOnly value={report} spellCheck={false} />
           <div className="crash-actions">

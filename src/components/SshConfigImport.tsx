@@ -83,9 +83,7 @@ export default function SshConfigImport({ onClose }: Props) {
         <>
           {scan.unreadable_includes.length > 0 && (
             <p className="form-hint form-hint-warn">
-              {scan.unreadable_includes.length === 1 ? 'This file was' : 'These files were'}{' '}
-              named by <code>Include</code> and could not be read, so hosts defined in{' '}
-              {scan.unreadable_includes.length === 1 ? 'it' : 'them'} are missing:{' '}
+              Unreadable <code>Include</code>, hosts in it missing:{' '}
               {scan.unreadable_includes.join(', ')}
             </p>
           )}
@@ -125,11 +123,6 @@ export default function SshConfigImport({ onClose }: Props) {
             ))}
           </div>
 
-          <p className="form-hint">
-            Key files are referenced where they are, not copied into the keychain. Hosts that
-            already exist are skipped. A jump host is linked only when it is imported in the
-            same run.
-          </p>
 
           <div className="modal-actions">
             <button className="btn-secondary" onClick={onClose} disabled={busy}>Cancel</button>
