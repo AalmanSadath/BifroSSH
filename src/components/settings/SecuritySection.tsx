@@ -31,14 +31,22 @@ const LOCK_NEEDS_PASSPHRASE = 'Set a master passphrase to enable locking.';
 
 /** The master key, locking, and where host keys are managed. */
 export default function SecuritySection({ setActiveTab }: { setActiveTab: (id: string) => void }) {
-  const { settings } = useAppStore();
+  const { settings, refreshPassphrase } = useAppStore();
   const patch = usePatch();
   // Whether a passphrase is set decides whether locking means anything. Read
   // here and refreshed whenever the master key section changes it.
   const [keystore, setKeystore] = useState<KeystoreStatus | null>(null);
-  const refreshKeystore = () => { ipc.keystoreStatus().then(setKeystore).catch(() => {}); };
+  const refreshKeystore = () => {
+    ipc.keystoreStatus().then(setKeystore).catch(() => {});
+    refreshPassphrase();
+  };
   useEffect(() => { refreshKeystore(); }, []);
   const canLock = keystore?.passphrase_set === true;
+  // Without a passphrase the lock settings are kept but not in force, so
+  // they read as off until one is set again.
+  const shown = canLock ? settings : {
+    ...settings, auto_lock_minutes: 0, background_lock_minutes: null, lock_on_suspend: false, lock_on_screen_lock: false,
+  };
   const lockChord = formatChords(resolve(settings.shortcuts)['lock-vault']);
 
   return (
@@ -58,7 +66,7 @@ export default function SecuritySection({ setActiveTab }: { setActiveTab: (id: s
             <label>Lock after no input for</label>
             <div style={canLock ? undefined : { opacity: 0.5, pointerEvents: 'none' }}>
               <Picker
-                value={String(settings.auto_lock_minutes)}
+                value={String(shown.auto_lock_minutes)}
                 options={AUTO_LOCK_OPTIONS}
                 onChange={(v) => patch({ auto_lock_minutes: Number(v) })}
               />
@@ -71,7 +79,7 @@ export default function SecuritySection({ setActiveTab }: { setActiveTab: (id: s
               <label>Lock after leaving the app for</label>
               <div style={canLock ? undefined : { opacity: 0.5, pointerEvents: 'none' }}>
                 <Picker
-                  value={settings.background_lock_minutes === null ? 'off' : String(settings.background_lock_minutes)}
+                  value={shown.background_lock_minutes === null ? 'off' : String(shown.background_lock_minutes)}
                   options={BACKGROUND_LOCK_OPTIONS}
                   onChange={(v) => patch({ background_lock_minutes: v === 'off' ? null : Number(v) })}
                 />
@@ -83,7 +91,7 @@ export default function SecuritySection({ setActiveTab }: { setActiveTab: (id: s
           <input
             type="checkbox"
             disabled={!canLock}
-            checked={settings.lock_on_suspend}
+            checked={shown.lock_on_suspend}
             onChange={(e) => patch({ lock_on_suspend: e.target.checked })}
           />
           <span>Lock before the computer sleeps</span>
@@ -92,7 +100,7 @@ export default function SecuritySection({ setActiveTab }: { setActiveTab: (id: s
           <input
             type="checkbox"
             disabled={!canLock}
-            checked={settings.lock_on_screen_lock}
+            checked={shown.lock_on_screen_lock}
             onChange={(e) => patch({ lock_on_screen_lock: e.target.checked })}
           />
           <span>Lock when the screen locks</span>

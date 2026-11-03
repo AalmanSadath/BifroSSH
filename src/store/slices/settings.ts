@@ -15,6 +15,15 @@ export interface SettingsSlice {
   saveSettings: (settings: Settings) => Promise<void>;
 
   /**
+   * Whether a master passphrase is set, null until first read. Locking needs
+   * one, so the lock timers are armed only while this is true; the lock
+   * settings themselves are kept either way and apply again once it is.
+   */
+  passphraseSet: boolean | null;
+  /** Reads it again; after unlocking, and after the passphrase is set or removed. */
+  refreshPassphrase: () => void;
+
+  /**
    * Which category the settings panel is showing. In the store rather than
    * in the panel so the palette and the panel's own links can open one.
    * Null on Android while the panel shows its list of categories; the
@@ -47,6 +56,14 @@ export const createSettingsSlice: Slice<SettingsSlice> = (set, get) => ({
     await ipc.saveSettings(settings);
     cacheAppTheme(resolveAppTheme(settings.app_theme, get().systemAppearance));
     set({ settings });
+  },
+
+  passphraseSet: null,
+
+  refreshPassphrase: () => {
+    ipc.keystoreStatus()
+      .then((s) => set({ passphraseSet: s.passphrase_set }))
+      .catch(() => {});
   },
 
   settingsSection: isAndroid ? null : 'appearance',

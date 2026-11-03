@@ -112,16 +112,11 @@ async fn open_with_key(state: &AppState, key: [u8; 32]) -> CmdResult<()> {
 /// shell leaves the shell running; the key was used at connect time and is
 /// not what they run on.
 ///
-/// Refused while no passphrase is set. The keyring would hand the key
-/// straight back on the next unlock without asking anyone, and a lock that
+/// Refused while no passphrase is set. On the desktop the keyring would hand
+/// the key straight back on the next unlock without asking anyone, and a lock
 /// anyone at the desk can undo with a click is a hidden window, not a lock.
-#[cfg(not(target_os = "android"))]
-pub const LOCK_NEEDS_PASSPHRASE: &str =
-    "Set a master passphrase to enable locking. Without one the keyring would reopen the vault by itself.";
-/// Android has no keyring; the key would be sitting in the app's storage.
-#[cfg(target_os = "android")]
-pub const LOCK_NEEDS_PASSPHRASE: &str =
-    "Set a master passphrase to enable locking. Without one there is nothing to unlock it with.";
+/// Android has no keyring, and the key would be sitting in the app's storage.
+pub const LOCK_NEEDS_PASSPHRASE: &str = "Set a master passphrase to enable locking.";
 
 pub async fn close_vault(state: &AppState, app: &tauri::AppHandle) -> CmdResult<()> {
     if !state.secret_key.is_set() {
