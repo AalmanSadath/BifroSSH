@@ -379,27 +379,27 @@
   background: var(--bg-hover);
 }
 
-/* Each titled group on a category's page is a box of its own, outlined in
+/* Each titled group in a settings category is a box of its own, outlined in
    the accent, so one group's controls do not run into the next's. */
-.settings-panel-android .settings-body .panel-section {
+.settings-body .panel-section {
   margin-bottom: 14px;
   padding: 16px 16px 4px;
   border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
   border-radius: 18px;
 }
 
-.settings-panel-android .settings-body .panel-section > h3,
-.settings-panel-android .settings-body .panel-section-header h3 {
+.settings-body .panel-section > h3,
+.settings-body .panel-section-header h3 {
   margin-bottom: 10px;
   font-size: 17px;
   font-weight: 600;
 }
 
-.settings-panel-android .settings-body .panel-section-header {
+.settings-body .panel-section-header {
   margin-bottom: 0;
 }
 
 /* The box's own padding is the space under its last control. */
-.settings-panel-android .settings-body .panel-section > :last-child {
+.settings-body .panel-section > :last-child {
   margin-bottom: 12px;
 }
