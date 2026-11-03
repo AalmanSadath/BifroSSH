@@ -251,3 +251,127 @@
   flex-shrink: 0;
   margin-top: 6px;
 }
+
+/* ── Android: categories as cards ──────────────────────────── */
+
+/* A block of cards that read as one rounded slab, split by thin gaps: round
+   at the block's top and bottom, nearly square where two cards meet. */
+.settings-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.settings-cards + .settings-cards {
+  margin-top: 20px;
+}
+
+.settings-card {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  width: 100%;
+  min-height: 58px;
+  padding: 0 18px;
+  border: none;
+  border-radius: 6px;
+  background: var(--bg-mid);
+  color: var(--text-primary);
+  font-size: 16px;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.settings-card:first-child {
+  border-top-left-radius: 22px;
+  border-top-right-radius: 22px;
+}
+
+.settings-card:last-child {
+  border-bottom-left-radius: 22px;
+  border-bottom-right-radius: 22px;
+}
+
+.settings-card:active {
+  background: var(--bg-hover);
+}
+
+.settings-card-icon {
+  display: flex;
+  color: var(--accent);
+}
+
+.settings-card-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-card-chevron {
+  display: flex;
+  color: var(--text-muted);
+}
+
+/* A category's own page: back arrow, then its name as the title. Pinned to
+   the top of the page while it scrolls, so the way back is always in reach.
+   It reaches over the panel's padding (16px 14px on a phone) to sit flush
+   with the page's top edge, with the page's own background so the boxes
+   scroll under it rather than through it. */
+.settings-subpage-head {
+  position: sticky;
+  top: -16px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: -16px -14px 8px;
+  padding: 8px 14px 8px 4px;
+  background: var(--bg-darkest);
+}
+
+.settings-subpage-head .panel-title {
+  margin-bottom: 0;
+}
+
+.settings-back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-primary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.settings-back:active {
+  background: var(--bg-hover);
+}
+
+/* Each titled group on a category's page is a box of its own, outlined in
+   the accent, so one group's controls do not run into the next's. */
+.settings-panel-android .settings-body .panel-section {
+  margin-bottom: 14px;
+  padding: 16px 16px 4px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 18px;
+}
+
+.settings-panel-android .settings-body .panel-section > h3,
+.settings-panel-android .settings-body .panel-section-header h3 {
+  margin-bottom: 10px;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.settings-panel-android .settings-body .panel-section-header {
+  margin-bottom: 0;
+}
+
+/* The box's own padding is the space under its last control. */
+.settings-panel-android .settings-body .panel-section > :last-child {
+  margin-bottom: 12px;
+}
