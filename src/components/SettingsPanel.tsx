@@ -122,7 +122,7 @@ function DesktopSettings() {
   const settingsSection = chosen ?? 'appearance';
 
   return (
-    <div className="panel settings-panel">
+    <div className="panel settings-panel settings-panel-desktop">
       <div className="panel-title">Settings</div>
       <div className="settings-layout">
         <nav className="settings-rail">
