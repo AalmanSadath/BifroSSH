@@ -181,7 +181,7 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 8px;
+  margin: 8px 0 12px;
 }
 
 .shell-integration-row .form-hint {
