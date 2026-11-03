@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/AalmanSadath/BifroSSH/actions/workflows/ci.yml/badge.svg)](https://github.com/AalmanSadath/BifroSSH/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/AalmanSadath/BifroSSH)](https://github.com/AalmanSadath/BifroSSH/releases/latest)
-[![Android](https://img.shields.io/github/v/release/AalmanSadath/BifroSSH?display_name=release&filter=Android*&label=release)](https://github.com/AalmanSadath/BifroSSH/releases/tag/android-v0.3.0)
+[![Android](https://img.shields.io/github/v/release/AalmanSadath/BifroSSH?display_name=release&filter=Android*&label=release)](https://github.com/AalmanSadath/BifroSSH/releases/tag/android-v0.4.0)
 [![Add to Forager](https://aalmansadath.github.io/forager/badge.svg)](https://aalmansadath.github.io/forager/add/?url=https%3A%2F%2Fgithub.com%2FAalmanSadath%2FBifroSSH&tag_filter=%5Ev)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 
@@ -145,7 +145,7 @@ The Android app has its own releases, tagged `android-vX.Y.Z` and numbered
 apart from the desktop versions.
 
 1. Download `BifroSSH_android_x.y.z_arm64.apk` from the
-   [latest Android release](https://github.com/AalmanSadath/BifroSSH/releases/tag/android-v0.3.0).
+   [latest Android release](https://github.com/AalmanSadath/BifroSSH/releases/tag/android-v0.4.0).
    The release GitHub marks Latest is the desktop one.
 2. Open it on the phone and allow your browser or file manager to install
    unknown apps when Android asks.

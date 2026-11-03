@@ -124,6 +124,23 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.17.1" date="2026-11-03">
+      <description>
+        <p>
+          Settings are easier to scan: each group sits in an outlined box,
+          hints are one line, checkboxes and buttons are spaced like the
+          other fields, and the category list stays in place while a
+          category scrolls. Long explanations elsewhere in the app are cut
+          down to what is needed.
+        </p>
+        <p>
+          The lock timers only run while a master passphrase is set; without
+          one the lock settings are kept but shown as off, instead of an
+          error appearing after every idle stretch. A dropdown near the
+          bottom of the window opens upward. Release builds are smaller.
+        </p>
+      </description>
+    </release>
     <release version="0.17.0" date="2026-11-03">
       <description>
         <p>
