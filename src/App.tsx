@@ -244,9 +244,14 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useIdleLock(vault && !vault.locked ? settings.auto_lock_minutes : 0, () => { void lockNow(); });
-  // Quietly: with no passphrase there is nothing to lock with, and the
-  // setting says so where it is chosen.
+  // The timers lock quietly: with no passphrase there is nothing to lock
+  // with, the setting says so where it is chosen, and an error banner every
+  // few minutes of no input would only ever repeat that. A lock asked for by
+  // hand still reports it, through lockNow.
+  useIdleLock(
+    vault && !vault.locked ? settings.auto_lock_minutes : 0,
+    () => { ipc.lockVault().catch(() => {}); },
+  );
   useBackgroundLock(
     isAndroid && vault && !vault.locked ? settings.background_lock_minutes : null,
     () => { ipc.lockVault().catch(() => {}); },
