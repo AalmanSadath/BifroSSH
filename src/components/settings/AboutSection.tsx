@@ -41,7 +41,7 @@ export default function AboutSection() {
         <span>Check for updates on launch</span>
       </label>
       <p className="form-hint">One anonymous request to GitHub at startup.</p>
-      <div className="settings-inline-row">
+      <div className="settings-actions">
         <button className="btn-secondary btn-sm" onClick={checkNow} disabled={checking}>
           {checking ? 'Checking…' : 'Check now'}
         </button>
@@ -121,12 +121,12 @@ function Diagnostics({ version }: { version: string }) {
   return (
     <>
       <h3>Diagnostics</h3>
-      <p className="form-hint">Error messages can name hosts; read before sharing.</p>
-      <div className="settings-inline-row">
+      <div className="settings-actions">
         <button className="btn-secondary btn-sm" disabled={!text} onClick={() => { if (text) void copy(text); }}>
           {copied ? 'Copied' : failed ? 'Copy failed' : 'Copy diagnostics'}
         </button>
       </div>
+      <p className="form-hint">Error messages can name hosts; read before sharing.</p>
       {text && (
         <details className="diagnostics-preview">
           <summary>What will be copied</summary>

@@ -10,11 +10,11 @@ export default function DataSection() {
   return (
     <section className="panel-section">
       <h3>Backup and transfer</h3>
-      <p className="form-hint form-hint-flush">One file, encrypted with its own passphrase. Import only adds.</p>
-      <div className="transfer-buttons">
-        <button className="btn-secondary" onClick={() => setExporting(true)}>Export…</button>
-        <button className="btn-secondary" onClick={() => setImporting(true)}>Import…</button>
+      <div className="settings-actions">
+        <button className="btn-secondary btn-sm" onClick={() => setExporting(true)}>Export…</button>
+        <button className="btn-secondary btn-sm" onClick={() => setImporting(true)}>Import…</button>
       </div>
+      <p className="form-hint">One file, encrypted with its own passphrase. Import only adds.</p>
 
       {exporting && <ExportDataModal onClose={() => setExporting(false)} />}
       {importing && <ImportDataModal onClose={() => setImporting(false)} />}

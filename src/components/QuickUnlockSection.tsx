@@ -96,10 +96,10 @@ export default function QuickUnlockSection({ status, onChanged }: Props) {
       {mode === 'idle' ? (
         <>
           {error && <p className="form-hint form-hint-error">{error}</p>}
-          <div className="modal-actions modal-actions-start modal-actions-pad">
+          <div className="settings-actions">
             {status.biometric_enabled ? (
               <button
-                className="btn-secondary"
+                className="btn-secondary btn-sm"
                 disabled={busy}
                 onClick={() => void run(async () => {
                   await ipc.disableBiometric();
@@ -110,7 +110,7 @@ export default function QuickUnlockSection({ status, onChanged }: Props) {
               </button>
             ) : (
               <button
-                className="btn-secondary"
+                className="btn-secondary btn-sm"
                 disabled={busy || !canUse || !status.biometric_available}
                 onClick={() => { reset(); setNote(null); setMode('fingerprint'); }}
               >
@@ -118,7 +118,7 @@ export default function QuickUnlockSection({ status, onChanged }: Props) {
               </button>
             )}
             <button
-              className="btn-secondary"
+              className="btn-secondary btn-sm"
               disabled={busy || !canUse}
               onClick={() => { reset(); setNote(null); setMode('pin'); }}
             >
@@ -126,7 +126,7 @@ export default function QuickUnlockSection({ status, onChanged }: Props) {
             </button>
             {status.pin_enabled && (
               <button
-                className="btn-secondary"
+                className="btn-secondary btn-sm"
                 disabled={busy}
                 onClick={() => void run(async () => {
                   await ipc.removeAppPin();
@@ -189,12 +189,12 @@ export default function QuickUnlockSection({ status, onChanged }: Props) {
 
           {error && <p className="form-hint form-hint-error">{error}</p>}
 
-          <div className="modal-actions modal-actions-start">
-            <button className="btn-secondary" onClick={reset} disabled={busy}>
+          <div className="settings-actions">
+            <button className="btn-secondary btn-sm" onClick={reset} disabled={busy}>
               Cancel
             </button>
             <button
-              className="btn-primary"
+              className="btn-primary btn-sm"
               disabled={busy || !pass || (mode === 'pin' && (!pin || !confirm))}
               onClick={apply}
             >

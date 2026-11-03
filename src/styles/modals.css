@@ -313,7 +313,6 @@
 
 /* The paragraph above is an explanation of what the file is, not a caption for
    these buttons, so it needs to sit apart from them. */
-.transfer-buttons { display: flex; gap: 8px; margin-top: 14px; }
 
 .transfer-modal .form-hint { margin: 0; }
 

@@ -157,13 +157,13 @@ export default function MasterKeySection({ onChanged }: Props = {}) {
                 </>
               )}
               {error && <p className="form-hint form-hint-error">{error}</p>}
-              <div className="modal-actions modal-actions-start modal-actions-pad">
+              <div className="settings-actions">
                 {status.passphrase_set ? (
-                  <button className="btn-secondary" onClick={() => { reset(); setMode('remove'); }}>
+                  <button className="btn-secondary btn-sm" onClick={() => { reset(); setMode('remove'); }}>
                     Remove passphrase
                   </button>
                 ) : (
-                  <button className="btn-secondary" onClick={() => { reset(); setMode('set'); }}>
+                  <button className="btn-secondary btn-sm" onClick={() => { reset(); setMode('set'); }}>
                     Set a master passphrase
                   </button>
                 )}
@@ -251,12 +251,12 @@ export default function MasterKeySection({ onChanged }: Props = {}) {
 
               {error && <p className="form-hint form-hint-error">{error}</p>}
 
-              <div className="modal-actions modal-actions-start">
-                <button className="btn-secondary" onClick={reset} disabled={busy}>
+              <div className="settings-actions">
+                <button className="btn-secondary btn-sm" onClick={reset} disabled={busy}>
                   Cancel
                 </button>
                 <button
-                  className={mode === 'set' ? 'btn-primary' : 'btn-danger'}
+                  className={`${mode === 'set' ? 'btn-primary' : 'btn-danger'} btn-sm`}
                   disabled={busy || !pass || (mode === 'set' && alwaysAsk && !understood)}
                   onClick={apply}
                 >

@@ -54,7 +54,7 @@ export default function HighlightRules() {
         {rules.length === 0 && <p className="form-hint">No rules.</p>}
       </div>
 
-      <div className="settings-inline-row">
+      <div className="settings-actions">
         <button
           className="btn-secondary btn-sm"
           onClick={() => write([...rules, { pattern: '', color: 'cyan', case_sensitive: false }])}

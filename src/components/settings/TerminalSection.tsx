@@ -136,18 +136,18 @@ export default function TerminalSection() {
 
       <section className="panel-section">
         <h3>Shell integration</h3>
-        <p className="form-hint">Add this to the shell (or Run on Connect) to see command status.</p>
-        <div className="shell-integration-row">
+        <div className="settings-actions">
           {SHELLS.map(({ id, label }) => (
             <button
               key={id}
-              className="sftp-action-btn"
+              className="btn-secondary btn-sm"
               onClick={() => void copy(snippetFor(id), id)}
             >
               {copied === id ? 'Copied' : failed ? 'Copy failed' : `Copy for ${label}`}
             </button>
           ))}
         </div>
+        <p className="form-hint">Add this to the shell (or Run on Connect) to see command status.</p>
         <label className="checkbox-row">
           <input
             type="checkbox"
@@ -157,7 +157,7 @@ export default function TerminalSection() {
           <span>Suggest commands from history</span>
         </label>
         <p className="form-hint">Needs the line above. A leading space keeps a command out.</p>
-        <div className="settings-inline-row">
+        <div className="settings-actions">
           <button
             className="btn-secondary btn-sm"
             onClick={() => {

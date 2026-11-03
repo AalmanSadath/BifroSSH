@@ -97,10 +97,10 @@ export default function SecuritySection({ setActiveTab }: { setActiveTab: (id: s
           />
           <span>Lock when the screen locks</span>
         </label>}
-        <div className="form-row" style={{ alignItems: 'center', gap: 10 }}>
+        <div className="settings-actions">
           <button
             type="button"
-            className="btn-secondary"
+            className="btn-secondary btn-sm"
             disabled={!canLock}
             onClick={() => ipc.lockVault().catch(reportFailure)}
           >
