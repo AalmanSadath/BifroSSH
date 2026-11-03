@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.net.Uri
@@ -59,6 +60,11 @@ class KeepAliveArgs {
 @InvokeArg
 class EnabledArgs {
   var enabled: Boolean = false
+}
+
+@InvokeArg
+class OrientationArgs {
+  var mode: String = "auto"
 }
 
 @InvokeArg
@@ -206,6 +212,24 @@ class AndroidPlugin(private val activity: Activity) : Plugin(activity) {
     } else {
       activity.stopService(intent)
     }
+    invoke.resolve()
+  }
+
+  /**
+   * Holds the app portrait or landscape, or hands rotation back to the
+   * phone's own setting. The sensor variants still turn it upside down, so
+   * a phone held either way round is not shown the wrong way up. The
+   * manifest takes orientation changes itself, so the Activity and its
+   * sessions are not rebuilt.
+   */
+  @Command
+  fun orientation(invoke: Invoke) {
+    val mode = when (invoke.parseArgs(OrientationArgs::class.java).mode) {
+      "portrait" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+      "landscape" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+      else -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+    }
+    activity.runOnUiThread { activity.requestedOrientation = mode }
     invoke.resolve()
   }
 

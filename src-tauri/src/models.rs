@@ -411,6 +411,9 @@ pub struct Settings {
     /// Android: the volume keys change the terminal's text size while a
     /// terminal is in front. On by default.
     pub volume_keys_zoom: bool,
+    /// Android: "auto" follows the phone's own rotation setting, "portrait"
+    /// and "landscape" hold the app that way up whatever the phone does.
+    pub screen_orientation: String,
 }
 
 /// One keyword highlighting rule.
@@ -480,6 +483,7 @@ impl Default for Settings {
             keep_awake: false,
             background_lock_minutes: None,
             volume_keys_zoom: true,
+            screen_orientation: "auto".into(),
         }
     }
 }

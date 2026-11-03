@@ -8,7 +8,7 @@ import { detachTab, mirrorOf, runDetachedAction, takeBack, windowLabel, type Det
 import { setLocalPlatform } from './paths';
 import { useIdleLock } from './hooks/useIdleLock';
 import { useBackgroundLock } from './hooks/useBackgroundLock';
-import { useAndroidKeepAlive, useNetworkChange, useVolumeZoom } from './hooks/useAndroidBackground';
+import { useAndroidKeepAlive, useNetworkChange, useOrientation, useVolumeZoom } from './hooks/useAndroidBackground';
 import { useLaunch } from './hooks/useLaunch';
 import type { AuthPromptEvent, Codeprint, HostKeyPromptEvent, Launch, SessionTab, TunnelClosed, VaultStatus } from './types';
 import { fill } from './snippets';
@@ -263,6 +263,7 @@ export default function App() {
   const restoringTabs = useAppStore((s) => s.restoringTabs);
   useLaunch(!!vault && !vault.locked && loaded && !restoringTabs, handleLaunch);
   useVolumeZoom(!!vault && !vault.locked && activeIsSession && !activeDetached);
+  useOrientation();
 
   useEffect(() => {
     const unlisten = listen<TunnelClosed>('tunnel-closed', (e) => {

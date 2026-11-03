@@ -89,6 +89,22 @@ pub async fn android_volume_keys(
     Ok(())
 }
 
+/// Holds the app portrait or landscape, or lets it follow the phone.
+/// Android only.
+#[tauri::command]
+pub async fn android_orientation(
+    #[cfg_attr(not(target_os = "android"), allow(unused_variables))] app: tauri::AppHandle,
+    #[cfg_attr(not(target_os = "android"), allow(unused_variables))] mode: String,
+) -> CmdResult<()> {
+    #[cfg(target_os = "android")]
+    return tokio::task::spawn_blocking(move || crate::android::orientation(&app, &mode))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(Into::into);
+    #[cfg(not(target_os = "android"))]
+    Ok(())
+}
+
 /// What the app was opened for from outside, if anything is waiting: a
 /// launcher shortcut or jump list host, an `ssh://` link, or (Android) shared
 /// text. Taken, so it is acted on once.
