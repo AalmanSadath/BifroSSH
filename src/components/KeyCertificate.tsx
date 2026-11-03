@@ -110,10 +110,7 @@ export default function KeyCertificate({ value, onChange, keyPem, passphrase, ke
             <p className="form-hint">Found beside the key file, as OpenSSH looks for it; used at connect.</p>
           )}
           {info.rsa && (
-            <p className="form-hint form-hint-warn">
-              This is an RSA certificate. This app offers it under the old ssh-rsa-cert-v01 name, which
-              OpenSSH 8.8 and later refuse by default. An Ed25519 or ECDSA key&apos;s certificate works everywhere.
-            </p>
+            <p className="form-hint form-hint-warn">RSA certificates are refused by OpenSSH 8.8+. Prefer Ed25519 or ECDSA.</p>
           )}
         </div>
       )}
@@ -151,12 +148,6 @@ export default function KeyCertificate({ value, onChange, keyPem, passphrase, ke
         )}
       </div>
       {problem && <p className="form-error">{problem}</p>}
-      {!info && !problem && value.trim() === '' && (
-        <p className="form-hint">
-          A certificate signed by a CA the server trusts lets this key in without an
-          authorized_keys line.
-        </p>
-      )}
     </div>
   );
 }

@@ -87,8 +87,8 @@ export default function QuickUnlockSection({ status, onChanged }: Props) {
       <h3>Fingerprint and PIN</h3>
       <p className="form-hint form-hint-flush">
         {canUse
-          ? 'Quicker ways to unlock on this phone. Your master passphrase still works, and is what you need if these stop working.'
-          : 'Set a master passphrase first. It is how you get back in if fingerprint or PIN unlock ever stops working.'}
+          ? 'Your master passphrase still works as a fallback.'
+          : 'Set a master passphrase first, as the fallback.'}
       </p>
 
       {note && <p className="form-hint">{note}</p>}
@@ -145,8 +145,8 @@ export default function QuickUnlockSection({ status, onChanged }: Props) {
         <div className="master-key-form">
           <p className="form-hint form-hint-flush">
             {mode === 'pin'
-              ? `At least ${PIN_MIN_DIGITS} digits. After 5 wrong tries the PIN is switched off and the master passphrase is needed.`
-              : 'Android asks for your fingerprint next. Adding or removing a fingerprint in Android settings switches this off again.'}
+              ? `At least ${PIN_MIN_DIGITS} digits. 5 wrong tries turn the PIN off.`
+              : 'Changing fingerprints in Android turns this off.'}
           </p>
 
           <label htmlFor="quick-pass">Master passphrase</label>

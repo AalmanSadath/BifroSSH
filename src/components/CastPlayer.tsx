@@ -209,9 +209,6 @@ export default function CastPlayer({ path }: Props) {
               ))}
             </div>
           </div>
-          <p className="form-hint">
-            Pauses longer than {MAX_IDLE} seconds are shortened. Space plays and pauses; the arrow keys skip 5 seconds.
-          </p>
         </>
       )}
     </div>

@@ -284,12 +284,6 @@ export default function KeychainPanel() {
                   <button type="button" className={`toggle-btn${idAuthType === 'keyboard-interactive' ? ' active' : ''}`} onClick={() => setIdAuthType('keyboard-interactive')}>Prompt</button>
                   {!isAndroid && <button type="button" className={`toggle-btn${idAuthType === 'agent' ? ' active' : ''}`} onClick={() => setIdAuthType('agent')}>Agent</button>}
                 </div>
-                {idAuthType === 'keyboard-interactive' && (
-                  <p className="form-hint">
-                    The server asks for a password, one-time code, or both at connect time.
-                    Nothing is stored. Use this for PAM or two-factor logins.
-                  </p>
-                )}
               </div>
               {idAuthType === 'agent' ? (
                 <div className="form-group">
@@ -299,7 +293,7 @@ export default function KeychainPanel() {
                     <p className="form-hint">Reading ssh-agent…</p>
                   ) : agentKeys.length === 0 ? (
                     <p className="form-hint">
-                      ssh-agent is running but holds no usable keys. Add one with <code>ssh-add</code>.
+                      ssh-agent has no usable keys. Add one with <code>ssh-add</code>.
                     </p>
                   ) : (
                     <>
@@ -324,9 +318,6 @@ export default function KeychainPanel() {
                           </button>
                         ))}
                       </div>
-                      <p className="form-hint">
-                        The agent signs on your behalf; the private key never reaches BifroSSH.
-                      </p>
                     </>
                   )}
                 </div>

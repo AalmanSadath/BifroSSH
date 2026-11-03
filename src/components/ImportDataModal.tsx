@@ -117,9 +117,8 @@ export default function ImportDataModal({ onClose }: Props) {
           </p>
           {report.unresolved_refs > 0 && (
             <p className="form-hint">
-              {report.unresolved_refs} link{report.unresolved_refs === 1 ? '' : 's'} pointed at
-              something that was not imported and {report.unresolved_refs === 1 ? 'was' : 'were'}{' '}
-              cleared. Check the affected hosts for a missing identity, key or jump host.
+              {report.unresolved_refs} link{report.unresolved_refs === 1 ? '' : 's'} to items not
+              imported {report.unresolved_refs === 1 ? 'was' : 'were'} cleared.
             </p>
           )}
           {report.host_key_conflicts.length > 0 && (
@@ -178,10 +177,8 @@ export default function ImportDataModal({ onClose }: Props) {
 
           {plan.missing_key_paths.length > 0 && (
             <p className="form-hint">
-              {plan.missing_key_paths.length} key entr
-              {plan.missing_key_paths.length === 1 ? 'y points' : 'ies point'} at a file this
-              machine does not have ({plan.missing_key_paths.join(', ')}). They will import, but
-              will not work until the file is there or the key is re-added.
+              Key file{plan.missing_key_paths.length === 1 ? '' : 's'} missing here:{' '}
+              {plan.missing_key_paths.join(', ')}.
             </p>
           )}
 

@@ -132,8 +132,8 @@ export default function ExportDataModal({ onClose }: Props) {
           <p className="transfer-path">{result.path}</p>
           <p className="form-hint">
             {result.secrets_included
-              ? 'Passwords and private keys are inside, encrypted under the passphrase you chose. Anyone who has both the file and that passphrase has your credentials.'
-              : 'No passwords or private keys are in this file. You will have to enter them again on the other machine.'}
+              ? 'Passwords and keys inside, protected by your export passphrase.'
+              : 'No passwords or keys in this file.'}
           </p>
           <div className="modal-actions">
             <button className="btn-primary" onClick={onClose}>Done</button>
@@ -156,12 +156,6 @@ export default function ExportDataModal({ onClose }: Props) {
             />
             <span>Include saved passwords and private keys</span>
           </label>
-          {!includeSecrets && (
-            <p className="form-hint">
-              Hosts, identities and key entries still travel, but without their secrets. Keys
-              stored as a path on disk are references either way and are not copied.
-            </p>
-          )}
 
           <GeneratedPassphraseField
             passphrase={passphrase}

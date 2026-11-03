@@ -75,10 +75,7 @@ export default function TerminalSection() {
               onChange={(id) => { patch({ theme: id }); setThemeExpanded(false); }}
             />
           )}
-          <p className="form-hint">
-            Used by every host that has no theme of its own, and offered as the
-            starting point when a host is added.
-          </p>
+          <p className="form-hint">Default for hosts without their own theme.</p>
         </div>
       </section>
 
@@ -113,10 +110,6 @@ export default function TerminalSection() {
           max={1000000}
           onCommit={(v) => patch({ scrollback_lines: v })}
         />
-        <p className="form-hint">
-          How much output a terminal keeps above the screen. Applies to open tabs as well;
-          lowering it drops what is beyond the new limit.
-        </p>
         <label className="checkbox-row">
           <input
             type="checkbox"
@@ -125,10 +118,7 @@ export default function TerminalSection() {
           />
           <span>Show images in the terminal</span>
         </label>
-        <p className="form-hint">
-          Pictures that programs such as imgcat, chafa or img2sixel send, in the Sixel or iTerm2
-          format. Switching it off also clears the images already in open terminals.
-        </p>
+        <p className="form-hint">Sixel and iTerm2 images, from tools like imgcat or chafa.</p>
         {isAndroid && (
           <>
             <label className="checkbox-row">
@@ -139,22 +129,14 @@ export default function TerminalSection() {
               />
               <span>Volume keys change the text size</span>
             </label>
-            <p className="form-hint">
-              While a terminal is in front, volume up and down make its text bigger or smaller.
-              Tap the percentage on the tab to go back. Elsewhere they change the volume.
-            </p>
+            <p className="form-hint">Only while a terminal is in front.</p>
           </>
         )}
       </section>
 
       <section className="panel-section">
         <h3>Shell integration</h3>
-        <p className="form-hint">
-          A tab can show what its shell is running, and how the last command ended, once the
-          shell marks the start and end of each command. Stock servers send nothing, so the
-          line below has to be added to the shell first: paste it into a session to try it,
-          or put it in a host's Run on Connect to have it every time.
-        </p>
+        <p className="form-hint">Add this to the shell (or Run on Connect) to see command status.</p>
         <div className="shell-integration-row">
           {SHELLS.map(({ id, label }) => (
             <button
@@ -174,12 +156,7 @@ export default function TerminalSection() {
           />
           <span>Suggest commands from history</span>
         </label>
-        <p className="form-hint">
-          With the line above in place, commands run at a prompt on a saved host are remembered
-          for that host, and typing the start of one shows the rest in grey; Right arrow at the
-          end of the line takes it. A command typed with a leading space is never remembered.
-          History is kept encrypted with everything else and is not part of an export.
-        </p>
+        <p className="form-hint">Needs the line above. A leading space keeps a command out.</p>
         <div className="settings-inline-row">
           <button
             className="btn-secondary btn-sm"
@@ -203,12 +180,7 @@ export default function TerminalSection() {
           />
           <span>Show a monitor bar under terminals</span>
         </label>
-        <p className="form-hint">
-          CPU, memory, disk use of /, network in and out, and load, for the host a terminal is on.
-          Read every 3 seconds while the tab is showing, by a small command run over the same
-          connection on a channel of its own, so nothing appears in the shell. Needs a Linux host.
-          A host can be set to always or never show it, whatever this says.
-        </p>
+        <p className="form-hint">CPU, memory, disk and network for Linux hosts.</p>
       </section>
 
       {!isAndroid && <section className="panel-section">
@@ -225,12 +197,7 @@ export default function TerminalSection() {
             spellCheck={false}
           />
         </div>
-        <p className="form-hint">
-          What a local shell tab runs, opened with the Local Shell button beside Quick Connect. Empty is your
-          login shell, or PowerShell on Windows. Arguments are split the way a shell would split
-          them, as in <code>fish --login</code>. In the Flatpak the shell runs outside the sandbox,
-          so your own tools are there.
-        </p>
+        <p className="form-hint">Empty uses your login shell (PowerShell on Windows).</p>
       </section>}
 
       <HighlightRules />

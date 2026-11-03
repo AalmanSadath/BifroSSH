@@ -370,10 +370,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
               autoComplete="off"
               spellCheck={false}
             />
-            <p className="form-hint">
-              A program on this computer that carries the connection, as ssh's ProxyCommand does.
-              %h is the host, %p the port and %r the user. Leave empty to connect directly.
-            </p>
+            <p className="form-hint">%h host, %p port, %r user. Empty connects directly.</p>
           </div>
 
           <div className="form-group" ref={groupRef}>
@@ -451,10 +448,6 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
           <div className="form-group">
             <label>Monitor Bar</label>
             <Picker value={monitor} options={MONITOR_CHOICES} onChange={setMonitor} />
-            <p className="form-hint">
-              CPU, memory, disk and network under this host's terminals, read every 3 seconds
-              over the same connection. Linux hosts only.
-            </p>
           </div>
 
           <div className="form-group">
@@ -486,7 +479,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
                 rather than sent on its own: this host's shell is something
                 only the person who set it up knows. */}
             <div className="shell-integration-row">
-              <span className="form-hint">Shell integration, for the tab's activity chip:</span>
+              <span className="form-hint">Shell integration:</span>
               {SHELLS.map(({ id, label }) => (
                 <button
                   key={id}
@@ -524,11 +517,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
               spellCheck={false}
               title={hint('One NAME=value per line, asked for before the shell starts.')}
             />
-            <p className="form-hint">
-              A server chooses which of these it will accept, usually LANG and LC_* only, and
-              drops the rest without saying so. The terminal type above always applies.
-              {envSummary(env) && <> {envSummary(env)}</>}
-            </p>
+            {envSummary(env) && <p className="form-hint">{envSummary(env)}</p>}
           </div>
 
           <div className="form-group">
@@ -540,11 +529,6 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
               rows={3}
               placeholder="What this host is for, who else uses it, anything worth remembering"
             />
-            <p className="form-hint">
-              Shown on the host card and searched with the name and address. Not a place for
-              passwords: a key or a password belongs in the fields above, where it is kept
-              encrypted and never shown again.
-            </p>
           </div>
 
           <div className="form-group">

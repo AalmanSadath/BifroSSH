@@ -27,9 +27,7 @@ const BACKGROUND_LOCK_OPTIONS: PickerOption<string>[] = [
 ];
 
 /** The one sentence every disabled lock control shows. */
-const LOCK_NEEDS_PASSPHRASE = isAndroid
-  ? 'Set a master passphrase to enable locking. Without one there is nothing to unlock it with.'
-  : 'Set a master passphrase to enable locking. Without one the keyring would reopen the vault by itself.';
+const LOCK_NEEDS_PASSPHRASE = 'Set a master passphrase to enable locking.';
 
 /** The master key, locking, and where host keys are managed. */
 export default function SecuritySection({ setActiveTab }: { setActiveTab: (id: string) => void }) {
@@ -51,10 +49,7 @@ export default function SecuritySection({ setActiveTab }: { setActiveTab: (id: s
 
       <section className="panel-section">
         <h3>Locking</h3>
-        <p className="form-hint form-hint-flush">
-          A locked vault asks for the master passphrase before anything can be read again.
-          Terminal sessions and tunnels that are already open stay connected behind it.
-        </p>
+        <p className="form-hint form-hint-flush">Open sessions and tunnels stay connected while locked.</p>
         {!canLock && keystore && (
           <p className="form-hint form-hint-warn">{LOCK_NEEDS_PASSPHRASE}</p>
         )}
@@ -84,11 +79,6 @@ export default function SecuritySection({ setActiveTab }: { setActiveTab: (id: s
             </div>
           </div>
         )}
-        <p className="form-hint">
-          {isAndroid
-            ? 'Input means yours: typing and touches. Output arriving in a terminal does not count.'
-            : 'Input means yours: keys, pointer, wheel. Output arriving in a terminal does not count.'}
-        </p>
         {!isAndroid && <label className="checkbox-row">
           <input
             type="checkbox"
@@ -124,13 +114,11 @@ export default function SecuritySection({ setActiveTab }: { setActiveTab: (id: s
 
       <section className="panel-section">
         <h3>Host keys</h3>
-        <p className="form-hint form-hint-flush">
-          Server fingerprints and how new servers are trusted are managed on the{' '}
+        <p className="form-hint form-hint-flush">Managed on the{' '}
           <button type="button" className="link-btn" onClick={() => setActiveTab('knownhosts')}>
             Known Hosts
           </button>{' '}
-          page.
-        </p>
+          page.</p>
       </section>
     </>
   );

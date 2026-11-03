@@ -115,10 +115,7 @@ export default function ClientImport({ onClose }: Props) {
             {result.skipped_existing > 0 && ` Skipped ${result.skipped_existing} already saved.`}
           </p>
           {result.passwords_saved > 0 && (
-            <p className="form-hint form-hint-warn">
-              Those passwords are now encrypted here, but they are still in plain text in{' '}
-              {path}. Delete that file.
-            </p>
+            <p className="form-hint form-hint-warn">{path} still holds them in plain text. Delete it.</p>
           )}
           <div className="modal-actions">
             <button className="btn-primary" onClick={onClose}>Done</button>
@@ -168,11 +165,9 @@ export default function ClientImport({ onClose }: Props) {
           {passwordRows > 0 && (
             <>
               <p className="form-hint form-hint-warn">
-                {passwordRows === 1 ? 'One host in' : `${passwordRows} hosts in`} this file{' '}
-                {passwordRows === 1 ? 'carries its password' : 'carry their passwords'} in plain
-                text. Whatever you choose here, that file is readable by anything running as you:
-                delete it once you are done. Saved here, a password is encrypted with your master
-                key like any other.
+                {passwordRows === 1 ? 'One host' : `${passwordRows} hosts`} in this file{' '}
+                {passwordRows === 1 ? 'has its password' : 'have passwords'} in plain text. Delete
+                the file when done.
               </p>
               <label className="checkbox-row">
                 <input
@@ -187,11 +182,6 @@ export default function ClientImport({ onClose }: Props) {
             </>
           )}
 
-          <p className="form-hint">
-            A host already saved under the same address, port and user is skipped, so the same
-            file can be imported twice. Folders become groups, and Termius tags stay tags. Keys are not imported: point each
-            host at one in its settings, or import the key file itself in the Keychain.
-          </p>
 
           <div className="modal-actions">
             <button className="btn-secondary" onClick={onClose} disabled={busy}>Cancel</button>

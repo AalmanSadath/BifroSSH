@@ -31,7 +31,7 @@ export default function ConnectionSection() {
           max={3600}
           onCommit={(v) => patch({ connection_timeout_secs: v })}
         />
-        <p className="form-hint">Connection attempt timeout. Per-host timeout can be set in host settings and overrides this value.</p>
+        <p className="form-hint">A host can override this.</p>
         <NumberSetting
           label="SFTP inactivity timeout (seconds)"
           value={settings.sftp_inactivity_timeout_secs}
@@ -39,7 +39,6 @@ export default function ConnectionSection() {
           max={86400}
           onCommit={(v) => patch({ sftp_inactivity_timeout_secs: v })}
         />
-        <p className="form-hint">How long an idle SFTP session is kept alive.</p>
         <NumberSetting
           label="Keepalive interval (seconds)"
           value={settings.keepalive_interval_secs}
@@ -47,12 +46,7 @@ export default function ConnectionSection() {
           max={3600}
           onCommit={(v) => patch({ keepalive_interval_secs: v })}
         />
-        <p className="form-hint">
-          Sends a periodic keepalive on terminal sessions and tunnels so they are not dropped by
-          a NAT or firewall idle timer, and so a dead connection is noticed rather than hanging.
-          A connection is considered lost after three unanswered keepalives. Set to 0 to disable.
-          Does not apply to SFTP, which uses the inactivity timeout above instead.
-        </p>
+        <p className="form-hint">Keeps NAT and firewalls from dropping idle sessions. 0 is off.</p>
       </section>
 
       <section className="panel-section">
@@ -67,11 +61,7 @@ export default function ConnectionSection() {
               />
               <span>Keep connections alive with the screen off</span>
             </label>
-            <p className="form-hint">
-              Connections stay open while BifroSSH is in the background, with a notification
-              saying so. With the screen off Android may still pause them after a while; this
-              keeps the phone awake for as long as anything is connected, which uses more battery.
-            </p>
+            <p className="form-hint">Keeps the phone awake while connected; uses more battery.</p>
           </>
         )}
         <label className="checkbox-row">
@@ -82,10 +72,7 @@ export default function ConnectionSection() {
           />
           <span>Reopen tabs from last time</span>
         </label>
-        <p className="form-hint">
-          The hosts that had a tab open when the app last closed are opened again and connected,
-          one after another. Quick connections are not: nothing about them was saved.
-        </p>
+        <p className="form-hint">Reconnects the hosts that were open when the app closed.</p>
         <label className="checkbox-row">
           <input
             type="checkbox"
@@ -94,12 +81,7 @@ export default function ConnectionSection() {
           />
           <span>Reconnect a dropped session automatically</span>
         </label>
-        <p className="form-hint">
-          A session whose connection dies is opened again five seconds later, then at twice the
-          wait each time up to a minute. The tab and its scrollback stay where they are, and the
-          banner counts down with a button to stop or to try at once. A session you close, or one
-          whose shell exited, is never reopened.
-        </p>
+        <p className="form-hint">Retries after 5s, doubling up to a minute.</p>
         {settings.auto_reconnect && (
           <>
             <NumberSetting
@@ -120,13 +102,7 @@ export default function ConnectionSection() {
           />
           <span>Verify transfers with a checksum</span>
         </label>
-        <p className="form-hint">
-          After a transfer finishes, both copies are read again and compared file by file with
-          SHA-256. That costs a full read of each side, which is why it is off by default. The
-          far end needs sha256sum. A transfer that was stopped, that skipped a file or that kept
-          a second copy under another name is left unverified rather than reported as a
-          mismatch, since the two trees then legitimately differ.
-        </p>
+        <p className="form-hint">Compares both sides with SHA-256 after a transfer. Slow.</p>
 
         <div className="form-group">
           <label>Session logs folder</label>
@@ -144,10 +120,7 @@ export default function ConnectionSection() {
             </button>}
           </div>
         </div>
-        <p className="form-hint">
-          Where a session's output goes when a tab is logged, or a host is set to log every
-          session. Empty means the app's own data folder.
-        </p>
+        <p className="form-hint">Empty uses the app data folder.</p>
 
         <div className="form-group">
           <label>Recordings folder</label>
@@ -165,10 +138,7 @@ export default function ConnectionSection() {
             </button>}
           </div>
         </div>
-        <p className="form-hint">
-          Where a tab's recording goes, and what the Recordings panel lists. Empty means the
-          app's own data folder.
-        </p>
+        <p className="form-hint">Empty uses the app data folder.</p>
       </section>
     </>
   );
