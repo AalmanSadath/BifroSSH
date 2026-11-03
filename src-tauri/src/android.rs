@@ -102,6 +102,19 @@ pub fn volume_keys(app: &AppHandle, enabled: bool) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+#[derive(serde::Serialize)]
+struct Orientation<'a> {
+    mode: &'a str,
+}
+
+/// Holds the app portrait or landscape, or follows the phone ("auto").
+pub fn orientation(app: &AppHandle, mode: &str) -> Result<(), String> {
+    app.state::<Android>()
+        .0
+        .run_mobile_plugin::<()>("orientation", Orientation { mode })
+        .map_err(|e| e.to_string())
+}
+
 // ── Launches ─────────────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]

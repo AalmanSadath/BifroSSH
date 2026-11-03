@@ -54,6 +54,15 @@ export function useAndroidKeepAlive(): void {
   }, []);
 }
 
+/** The screen rotation setting, applied on Android whenever it changes. */
+export function useOrientation(): void {
+  const mode = useAppStore((s) => s.settings.screen_orientation);
+  useEffect(() => {
+    if (!isAndroid) return;
+    ipc.androidOrientation(mode).catch(() => {});
+  }, [mode]);
+}
+
 /**
  * The volume keys as the terminal's text size on Android, while a terminal
  * is in front and the setting is on. Anywhere else they stay the volume.

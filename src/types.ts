@@ -379,7 +379,11 @@ export interface Settings {
   background_lock_minutes: number | null;
   /** Android: the volume keys change the terminal's text size. */
   volume_keys_zoom: boolean;
+  /** Android: follow the phone's rotation, or hold the app one way up. */
+  screen_orientation: ScreenOrientation;
 }
+
+export type ScreenOrientation = 'auto' | 'portrait' | 'landscape';
 
 /** How the user chose to keep the master key on the first run screen. */
 export type VaultInitMode = 'secret-file' | 'passphrase-only' | 'keyring-and-passphrase';

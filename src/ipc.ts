@@ -52,6 +52,7 @@ import type {
   SftpBookmark,
   ServerInput,
   Settings,
+  ScreenOrientation,
   SshConfigImportResult,
   SshConfigScan,
   SystemAppearance,
@@ -169,6 +170,9 @@ export const androidKeepAlive = (count: number, wakeLock: boolean) =>
 /** Android: the volume keys step the terminal's text size while on. */
 export const androidVolumeKeys = (enabled: boolean) =>
   invoke<void>('android_volume_keys', { enabled });
+/** Android: holds the app one way up, or follows the phone. */
+export const androidOrientation = (mode: ScreenOrientation) =>
+  invoke<void>('android_orientation', { mode });
 /** What the app was opened for from outside, taken once. */
 export const takeLaunch = () => invoke<Launch | null>('take_launch');
 /** A host was connected to, for the launcher shortcuts (Android) or jump list (Windows). */
