@@ -112,3 +112,10 @@ tokio = { version = "1", features = ["test-util"] }
 opt-level = 1
 codegen-units = 1
 
+# One codegen unit and link-time optimisation across every crate: a smaller
+# and slightly faster binary, on Android (where the library is most of the
+# APK) and on the desktop alike, for a slower release link.
+[profile.release]
+lto = true
+codegen-units = 1
+
