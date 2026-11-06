@@ -17,7 +17,7 @@
 }
 
 .containers-hosts {
-  flex: 0 0 240px;
+  flex: 0 0 260px;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -27,36 +27,23 @@
 .containers-host-list {
   flex: 1;
   overflow-y: auto;
+}
+
+/* Host cards, one to a row in the column, a step smaller than on the Hosts
+   page so a name and address still fit. */
+.containers-host-cards {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 8px;
 }
 
-.containers-host {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 7px 10px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: none;
-  text-align: left;
-  cursor: pointer;
-  color: var(--text-primary);
-  font-size: 13px;
+.containers-host-cards .host-card {
+  padding: 10px;
 }
 
-.containers-host:hover { background: var(--bg-hover); }
-
-.containers-host.active {
-  background: var(--bg-hover);
-  border-color: var(--accent);
-}
-
-.containers-host-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.containers-host-cards .host-card-icon {
+  width: 40px;
+  height: 40px;
 }
 
 .containers-main {

@@ -605,57 +605,17 @@
 .sftp-picker-list {
   flex: 1;
   overflow-y: auto;
-  padding: 4px 0;
+  padding: 10px 12px;
 }
 
 .sftp-picker-list::-webkit-scrollbar { width: 6px; }
 .sftp-picker-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
-.sftp-picker-empty {
-  padding: 32px 16px;
-  text-align: center;
-  color: var(--text-dim);
-  font-size: 13px;
-}
-
-.sftp-picker-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 16px;
-  cursor: pointer;
-  transition: background 0.1s;
-  user-select: none;
-}
-
-.sftp-picker-item:hover {
-  background: var(--bg-hover);
-}
-
-.sftp-picker-connecting {
-  opacity: 0.6;
-  pointer-events: none;
-}
-
-.sftp-picker-icon {
-  flex-shrink: 0;
-}
-
-.sftp-picker-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.sftp-picker-name {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
-.sftp-picker-addr {
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-top: 1px;
+/* Half a window wide on the desktop, so a narrower card than the Hosts
+   page's still makes two across. */
+.sftp-host-grid {
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
 }
 
 .sftp-picker-status {
@@ -669,10 +629,6 @@
   color: var(--success);
   flex-shrink: 0;
   font-weight: 500;
-}
-
-.sftp-picker-has-session {
-  border-left: 2px solid var(--success);
 }
 
 /* Actions dropdown */
