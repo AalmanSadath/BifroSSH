@@ -1,20 +1,5 @@
-import { useEffect, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { useCustomFrame } from '../hooks/useWindowFrame';
-
-/** Whether this window is maximized, followed while `watch` is on. */
-function useMaximized(watch: boolean): boolean {
-  const [maximized, setMaximized] = useState(false);
-  useEffect(() => {
-    if (!watch) return;
-    const win = getCurrentWindow();
-    const check = () => { win.isMaximized().then(setMaximized).catch(() => {}); };
-    check();
-    const unlisten = win.onResized(check);
-    return () => { void unlisten.then((fn) => fn()); };
-  }, [watch]);
-  return maximized;
-}
+import { useCustomFrame, useMaximized } from '../hooks/useWindowFrame';
 
 /**
  * Minimize, maximize and close, drawn by the app when the window has no

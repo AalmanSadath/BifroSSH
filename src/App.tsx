@@ -10,7 +10,7 @@ import { useIdleLock } from './hooks/useIdleLock';
 import { useBackgroundLock } from './hooks/useBackgroundLock';
 import { useAndroidKeepAlive, useNetworkChange, useOrientation, useVolumeZoom } from './hooks/useAndroidBackground';
 import { useLaunch } from './hooks/useLaunch';
-import { useWindowFrame } from './hooks/useWindowFrame';
+import { useResizeBand, useWindowFrame } from './hooks/useWindowFrame';
 import type { AuthPromptEvent, Codeprint, HostKeyPromptEvent, Launch, SessionTab, TunnelClosed, VaultStatus } from './types';
 import { fill } from './snippets';
 import { zoomPercent } from './zoom';
@@ -269,6 +269,7 @@ export default function App() {
   useVolumeZoom(!!vault && !vault.locked && activeIsSession && !activeDetached);
   useOrientation();
   useWindowFrame();
+  const resizeBand = useResizeBand();
 
   useEffect(() => {
     const unlisten = listen<TunnelClosed>('tunnel-closed', (e) => {
@@ -778,7 +779,10 @@ export default function App() {
         {!quickBarShown && <WindowControls />}
         </div>
 
-        <div className="content">
+        {/* Short of the window's right edge by Tauri's resize band, so the
+            scrollbars in here sit where the pointer can reach them. The bars
+            above still run to the edge. */}
+        <div className="content" style={resizeBand ? { paddingRight: resizeBand } : undefined}>
           <div className="content-main">
           <div
             className={`term-area${activeIsSession ? '' : ' term-area-off'}${tabDragOver ? ' term-area-drop' : ''}`}
