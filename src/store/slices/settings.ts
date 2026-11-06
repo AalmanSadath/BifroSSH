@@ -5,7 +5,7 @@ import type { Settings, SettingsSection } from '../../types';
 import type { NamedTheme } from '../../styles/themes';
 import { DEFAULT_SETTINGS } from '../defaults';
 import { persist } from '../persistence';
-import { cacheAppTheme, resolveAppTheme } from '../themeCache';
+import { cacheAppTheme, cacheWindowFrame, resolveAppTheme } from '../themeCache';
 import type { Slice } from '../types';
 import { isAndroid } from '../../platform';
 
@@ -55,6 +55,7 @@ export const createSettingsSlice: Slice<SettingsSlice> = (set, get) => ({
   saveSettings: async (settings) => {
     await ipc.saveSettings(settings);
     cacheAppTheme(resolveAppTheme(settings.app_theme, get().systemAppearance));
+    cacheWindowFrame(settings.window_frame);
     set({ settings });
   },
 

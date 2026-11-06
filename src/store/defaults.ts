@@ -1,6 +1,6 @@
 import { DEFAULT_HIGHLIGHT_RULES } from '../highlight';
 import type { Settings } from '../types';
-import { cachedAppTheme } from './themeCache';
+import { cachedAppTheme, cachedWindowFrame } from './themeCache';
 
 /**
  * How long a retry waits, and how long it may grow to. Shared by the
@@ -46,4 +46,5 @@ export const DEFAULT_SETTINGS: Settings = {
   background_lock_minutes: null,
   volume_keys_zoom: true,
   screen_orientation: 'auto',
+  window_frame: cachedWindowFrame(),
 };

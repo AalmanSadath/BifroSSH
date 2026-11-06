@@ -414,6 +414,9 @@ pub struct Settings {
     /// Android: "auto" follows the phone's own rotation setting, "portrait"
     /// and "landscape" hold the app that way up whatever the phone does.
     pub screen_orientation: String,
+    /// Desktop: "custom" draws the app's own title bar controls in place of
+    /// the window manager's frame, "native" keeps the system frame.
+    pub window_frame: String,
 }
 
 /// One keyword highlighting rule.
@@ -484,6 +487,7 @@ impl Default for Settings {
             background_lock_minutes: None,
             volume_keys_zoom: true,
             screen_orientation: "auto".into(),
+            window_frame: "custom".into(),
         }
     }
 }
