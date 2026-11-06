@@ -15,6 +15,8 @@ import { zoomPercent } from '../zoom';
 import { WINDOW_ACTIONS, actionFor, resolve as resolveShortcuts } from '../shortcuts';
 import TerminalView from './TerminalView';
 import { useHint } from './shared/useHint';
+import WindowControls from './WindowControls';
+import { useWindowFrame } from '../hooks/useWindowFrame';
 
 /** Asks the main window to do what only it can. */
 function toMain(action: DetachedAction) {
@@ -107,6 +109,7 @@ function routeActions(tabId: string) {
 /** A window holding one terminal tab, moved out of the main window. */
 export default function DetachedTerminal({ tabId }: { tabId: string }) {
   const chrome = useAppChrome();
+  useWindowFrame();
   const hint = useHint();
   const tab = useAppStore((s) => s.sessions.find((t) => t.tab_id === tabId));
   const settings = useAppStore((s) => s.settings);
@@ -181,8 +184,8 @@ export default function DetachedTerminal({ tabId }: { tabId: string }) {
     <div className={chrome.className} style={chrome.style}>
       {tab && (
         <div className="detached-window">
-          <div className="detached-bar">
-            <span className="detached-title">{tabLabel(tab)}</span>
+          <div className="detached-bar" data-tauri-drag-region>
+            <span className="detached-title" data-tauri-drag-region>{tabLabel(tab)}</span>
             {tab.recording && <span className="tab-recording" title={hint('Being recorded')}>REC</span>}
             {tab.broadcast && (
               <span className="tab-broadcast" title={hint('Broadcasting: input also goes to every other tab marked the same way')}>⇶</span>
@@ -204,6 +207,7 @@ export default function DetachedTerminal({ tabId }: { tabId: string }) {
             >
               Back to main window
             </button>
+            <WindowControls />
           </div>
           <TerminalView tab={tab} visible focused />
         </div>

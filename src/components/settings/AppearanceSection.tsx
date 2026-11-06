@@ -1,7 +1,7 @@
 import { useAppStore, resolveAccent, resolveAppTheme } from '../../store/appStore';
 import { ColorPickerField } from '../ColorPicker';
 import { Picker, usePatch, type PickerOption } from './Picker';
-import type { AppTheme, ScreenOrientation } from '../../types';
+import type { AppTheme, ScreenOrientation, WindowFrame } from '../../types';
 import { isAndroid } from '../../platform';
 
 /** System first: it is the one that defers rather than decides. */
@@ -9,6 +9,11 @@ const ORIENTATIONS: PickerOption<ScreenOrientation>[] = [
   { value: 'auto', label: 'Follow system' },
   { value: 'portrait', label: 'Portrait' },
   { value: 'landscape', label: 'Landscape' },
+];
+
+const WINDOW_FRAMES: PickerOption<WindowFrame>[] = [
+  { value: 'custom', label: 'Custom' },
+  { value: 'native', label: 'Native (system)' },
 ];
 
 const APP_THEMES: { value: AppTheme; label: string }[] = [
@@ -101,6 +106,18 @@ export default function AppearanceSection() {
       )}
       {/* Nothing hovers on a touch screen. */}
       {!isAndroid && <>
+      <div className="form-group">
+        <label>Window frame</label>
+        <Picker
+          value={settings.window_frame}
+          options={WINDOW_FRAMES}
+          onChange={(v) => patch({ window_frame: v })}
+        />
+        <p className="form-hint">
+          Custom puts the window buttons in the app&rsquo;s own top bar. Native
+          keeps the title bar your desktop draws.
+        </p>
+      </div>
       <label className="checkbox-row">
         <input
           type="checkbox"

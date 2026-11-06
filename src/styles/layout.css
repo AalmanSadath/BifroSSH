@@ -140,7 +140,10 @@
 }
 
 .sidebar-top {
-  padding: 10px 8px;
+  height: var(--header-h);
+  box-sizing: border-box;
+  flex-shrink: 0;
+  padding: 0 8px;
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
@@ -178,6 +181,10 @@
 .sidebar-brand-text {
   overflow: hidden;
 }
+
+/* A drag region drags only from itself, so the mark lets presses through to
+   the brand behind it. */
+.sidebar-brand svg { pointer-events: none; }
 
 .sidebar-collapse-btn {
   background: none;
@@ -327,10 +334,12 @@
 
 /* ── Quick Connect Bar ─────────────────────────────────────── */
 .quick-connect-bar {
+  height: var(--header-h);
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 10px;
+  padding: 0 10px;
   background: var(--bg-dark);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
@@ -343,9 +352,22 @@
   color: var(--text-primary);
   font-family: monospace;
   font-size: 12px;
-  padding: 4px 9px;
+  height: 30px;
+  box-sizing: border-box;
+  padding: 0 9px;
   outline: none;
   transition: border-color 0.15s;
+}
+/* As tall as the field beside them, and as the logo across from them. */
+.quick-connect-bar .btn-sm {
+  height: 30px;
+  box-sizing: border-box;
+  padding-top: 0;
+  padding-bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
 }
 .quick-local-shell-glyph {
   font-family: monospace;
@@ -365,15 +387,23 @@
   margin-bottom: 8px;
 }
 
-.tab-bar {
-  height: var(--tab-h);
+.tab-bar-row {
+  height: var(--header-h);
+  box-sizing: border-box;
   background: var(--bg-dark);
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: stretch;
+  flex-shrink: 0;
+}
+
+.tab-bar {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
   overflow-x: auto;
   overflow-y: hidden;
-  flex-shrink: 0;
 }
 
 /* Held open with nothing in it when no session is running, so opening the
@@ -652,7 +682,8 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  height: 30px;
+  height: var(--header-h);
+  box-sizing: border-box;
   padding: 0 8px;
   font-size: 12px;
   background: var(--bg-dark);
@@ -669,4 +700,47 @@
 
 .detached-spacer {
   flex: 1;
+}
+
+/* ── Window controls ───────────────────────────────────────── */
+/* Drawn by the app when the window has no system frame. They fill the height
+   of whichever bar they end, flush with the window's right edge, and every
+   such bar is --header-h tall, so the buttons are one size everywhere. */
+.window-controls {
+  display: flex;
+  align-self: stretch;
+  flex-shrink: 0;
+  margin-left: 6px;
+}
+.quick-connect-bar .window-controls { margin-right: -10px; }
+.detached-bar .window-controls { margin-right: -8px; }
+.window-control {
+  width: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.window-control:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.window-control-close:hover {
+  background: #c42b1c;
+  color: #fff;
+}
+
+/* Over a screen with no bar of its own: the unlock screen, first run. */
+.window-drag-strip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--header-h);
+  display: flex;
+  justify-content: flex-end;
+  z-index: 1001;
 }

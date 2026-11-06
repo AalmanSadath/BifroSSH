@@ -1,4 +1,4 @@
-import type { ResolvedTheme, Settings, SystemAppearance } from '../types';
+import type { ResolvedTheme, Settings, SystemAppearance, WindowFrame } from '../types';
 
 /**
  * The chosen app theme, mirrored outside the encrypted store.
@@ -29,6 +29,26 @@ export function cacheAppTheme(theme: ResolvedTheme) {
     localStorage.setItem(APP_THEME_CACHE, theme);
   } catch {
     // Storage can be unavailable or full. Nothing here is worth failing over.
+  }
+}
+
+const WINDOW_FRAME_CACHE = 'bifrossh_window_frame';
+
+/**
+ * The window frame setting, mirrored for the same reason as the theme: the
+ * unlock screen needs its window buttons, or the system frame, before the
+ * settings can be read. The default settings start from this, so the window
+ * keeps one frame from launch rather than switching when the settings load.
+ */
+export function cachedWindowFrame(): WindowFrame {
+  return localStorage.getItem(WINDOW_FRAME_CACHE) === 'native' ? 'native' : 'custom';
+}
+
+export function cacheWindowFrame(frame: WindowFrame) {
+  try {
+    localStorage.setItem(WINDOW_FRAME_CACHE, frame);
+  } catch {
+    // As above: only a cache.
   }
 }
 

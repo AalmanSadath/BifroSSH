@@ -10,6 +10,7 @@ import { useIdleLock } from './hooks/useIdleLock';
 import { useBackgroundLock } from './hooks/useBackgroundLock';
 import { useAndroidKeepAlive, useNetworkChange, useOrientation, useVolumeZoom } from './hooks/useAndroidBackground';
 import { useLaunch } from './hooks/useLaunch';
+import { useWindowFrame } from './hooks/useWindowFrame';
 import type { AuthPromptEvent, Codeprint, HostKeyPromptEvent, Launch, SessionTab, TunnelClosed, VaultStatus } from './types';
 import { fill } from './snippets';
 import { zoomPercent } from './zoom';
@@ -30,6 +31,7 @@ import RecordingsPanel from './components/RecordingsPanel';
 import HostKeyPrompt from './components/HostKeyPrompt';
 import AuthPromptModal from './components/AuthPromptModal';
 import Sidebar from './components/Sidebar';
+import WindowControls, { WindowDragStrip } from './components/WindowControls';
 import UnlockScreen from './components/UnlockScreen';
 import FirstRunSetup from './components/FirstRunSetup';
 import TerminalView from './components/TerminalView';
@@ -63,6 +65,8 @@ export default function App() {
   } = useAppStore();
 
   const chrome = useAppChrome();
+  // The quick connect bar shows on the Hosts page only.
+  const quickBarShown = activeTabId === 'hosts' || activeTabId === null;
 
   // 'new' is the Add Host drawer: no record to find, so the form opens empty.
   const [editServerId, setEditServerId] = useState<string | null>(null);
@@ -264,6 +268,7 @@ export default function App() {
   useLaunch(!!vault && !vault.locked && loaded && !restoringTabs, handleLaunch);
   useVolumeZoom(!!vault && !vault.locked && activeIsSession && !activeDetached);
   useOrientation();
+  useWindowFrame();
 
   useEffect(() => {
     const unlisten = listen<TunnelClosed>('tunnel-closed', (e) => {
@@ -582,6 +587,7 @@ export default function App() {
   if (vault.error || vault.setup_required || (vault.locked && sessions.length === 0)) {
     return (
       <div className={chrome.className} style={chrome.style}>
+        <WindowDragStrip />
         {vault.setup_required ? (
           <FirstRunSetup keyringAvailable={vault.keyring_available} onReady={opened} />
         ) : (
@@ -602,6 +608,7 @@ export default function App() {
           a fingerprint or PIN starts the screen again with them. */}
       {vault.locked && (
         <div className="lock-overlay">
+          <WindowDragStrip />
           <UnlockScreen key={`${vault.biometric}-${vault.pin}`} fatal={null} keyringLocked={vault.keyring_locked} biometric={vault.biometric} pin={vault.pin} onUnlocked={opened} />
         </div>
       )}
@@ -652,7 +659,7 @@ export default function App() {
             </button>
           </div>
         )}
-        {(activeTabId === 'hosts' || activeTabId === null) && <div className="quick-connect-bar">
+        {quickBarShown && <div className="quick-connect-bar" data-tauri-drag-region>
 
           <input
             ref={quickInputRef}
@@ -677,10 +684,12 @@ export default function App() {
           >
             <span className="quick-local-shell-glyph">&gt;_</span> Local Shell
           </button>}
+          <WindowControls />
         </div>}
         {/* Always rendered, empty or not. Appearing on the first connect, it
             pushed everything below it down the page. */}
-        <div className={`tab-bar${sessions.length === 0 ? ' tab-bar-empty' : ''}`}>
+        <div className={`tab-bar-row${sessions.length === 0 ? ' tab-bar-empty' : ''}`}>
+        <div className="tab-bar" data-tauri-drag-region>
           {/* Narrow screens only: the drawer's handle, and the palette, which
               a touch keyboard has no Ctrl+K to open. */}
           <div className="tab-bar-narrow">
@@ -763,6 +772,10 @@ export default function App() {
                 </svg>
               </button>
             )}
+        </div>
+        {/* The window's buttons sit in the quick connect bar when it is up,
+            and otherwise here, outside the tabs so they never scroll away. */}
+        {!quickBarShown && <WindowControls />}
         </div>
 
         <div className="content">

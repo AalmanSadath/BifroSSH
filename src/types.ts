@@ -381,9 +381,12 @@ export interface Settings {
   volume_keys_zoom: boolean;
   /** Android: follow the phone's rotation, or hold the app one way up. */
   screen_orientation: ScreenOrientation;
+  /** Desktop: the app's own title bar controls, or the system's frame. */
+  window_frame: WindowFrame;
 }
 
 export type ScreenOrientation = 'auto' | 'portrait' | 'landscape';
+export type WindowFrame = 'custom' | 'native';
 
 /** How the user chose to keep the master key on the first run screen. */
 export type VaultInitMode = 'secret-file' | 'passphrase-only' | 'keyring-and-passphrase';

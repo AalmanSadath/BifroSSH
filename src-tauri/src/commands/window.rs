@@ -50,6 +50,7 @@ fn label_for(tab_id: &str) -> CmdResult<String> {
 #[tauri::command]
 pub async fn window_detach(
     app: AppHandle,
+    state: State<'_, super::AppState>,
     detached: State<'_, DetachedTabs>,
     tab_id: String,
     title: String,
@@ -62,15 +63,23 @@ pub async fn window_detach(
     if app.get_webview_window(&label).is_some() {
         return Err("This tab is already in a window of its own".into());
     }
-    detached.put(&tab_id, payload);
-    let built = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html".into()))
+    let builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html".into()))
         .title(title)
         .inner_size(1000.0, 650.0)
         .min_inner_size(400.0, 250.0)
         // A terminal takes no dropped files, and on Windows the handler would
         // turn off the page's own drag and drop.
-        .disable_drag_drop_handler()
-        .build();
+        .disable_drag_drop_handler();
+    // Opened in the frame the setting asks for, rather than switched once the
+    // page has loaded, which would show the other one first. The builder has
+    // no frame to set on mobile, where this command refuses above anyway.
+    #[cfg(desktop)]
+    let builder = builder
+        .decorations(state.data.lock().await.settings.window_frame == "native");
+    #[cfg(mobile)]
+    let _ = &state;
+    detached.put(&tab_id, payload);
+    let built = builder.build();
     if let Err(e) = built {
         detached.take(&tab_id);
         return Err(format!("Could not open a window for this tab: {e}").into());

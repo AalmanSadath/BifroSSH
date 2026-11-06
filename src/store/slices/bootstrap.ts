@@ -2,7 +2,7 @@ import * as ipc from '../../ipc';
 import { restoreOrder } from '../../sessionRestore';
 import type { OpenTab } from '../../types';
 import { migrateLegacyStorage } from '../persistence';
-import { cacheAppTheme, resolveAppTheme } from '../themeCache';
+import { cacheAppTheme, cacheWindowFrame, resolveAppTheme } from '../themeCache';
 import type { Slice } from '../types';
 
 /** Reading everything in once the vault is open, and putting the tabs back. */
@@ -53,6 +53,7 @@ export const createBootstrapSlice: Slice<BootstrapSlice> = (set, get) => ({
         ]);
 
       cacheAppTheme(resolveAppTheme(settings.app_theme, get().systemAppearance));
+      cacheWindowFrame(settings.window_frame);
 
       let collections = { portForwardings, codeprints, customThemes };
       try {
