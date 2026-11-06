@@ -8,10 +8,10 @@ import { detachTab, mirrorOf, runDetachedAction, takeBack, windowLabel, type Det
 import { setLocalPlatform } from './paths';
 import { useIdleLock } from './hooks/useIdleLock';
 import { useBackgroundLock } from './hooks/useBackgroundLock';
-import { useAndroidKeepAlive, useNetworkChange, useOrientation, useVolumeZoom } from './hooks/useAndroidBackground';
+import { useAndroidKeepAlive, useNetworkChange, useOrientation, useSecureWindow, useVolumeZoom } from './hooks/useAndroidBackground';
 import { useLaunch } from './hooks/useLaunch';
 import { useResizeBand, useWindowFrame } from './hooks/useWindowFrame';
-import type { AuthPromptEvent, Codeprint, HostKeyPromptEvent, Launch, SessionTab, TunnelClosed, VaultStatus } from './types';
+import type { AuthPromptEvent, Codeprint, HostKeyPromptEvent, Launch, Server, SessionTab, TunnelClosed, VaultStatus } from './types';
 import { fill } from './snippets';
 import { zoomPercent } from './zoom';
 import { activityChip, anyBusy } from './activity';
@@ -48,6 +48,7 @@ import ContainersPanel from './components/ContainersPanel';
 import PortForwardingPanel from './components/PortForwardingPanel';
 import ContextMenu from './components/shared/ContextMenu';
 import Modal from './components/shared/Modal';
+import ConfirmModal from './components/shared/ConfirmModal';
 import PassphraseInput from './components/shared/PassphraseInput';
 import { tabLabel } from './tabName';
 import PortalDropdown from './components/shared/PortalDropdown';
@@ -83,6 +84,8 @@ export default function App() {
   const quickInputRef = useRef<HTMLInputElement>(null);
   // Text shared from another Android app, waiting for a terminal to go to.
   const [shareText, setShareText] = useState<string | null>(null);
+  // A saved host an ssh:// link asked for, waiting on the user to say yes.
+  const [linkHost, setLinkHost] = useState<Server | null>(null);
   const [termSidebarOpen, setTermSidebarOpen] = useState(false);
   useBackClose(termSidebarOpen ? () => setTermSidebarOpen(false) : undefined);
   const [tabCtx, setTabCtx] = useState<{ x: number; y: number; session: SessionTab } | null>(null);
@@ -268,6 +271,7 @@ export default function App() {
   useLaunch(!!vault && !vault.locked && loaded && !restoringTabs, handleLaunch);
   useVolumeZoom(!!vault && !vault.locked && activeIsSession && !activeDetached);
   useOrientation();
+  useSecureWindow();
   useWindowFrame();
   const resizeBand = useResizeBand();
 
@@ -471,8 +475,11 @@ export default function App() {
    * What the app was opened for: a launcher shortcut's or the jump list's
    * host, an ssh:// link, or text shared from another app on Android.
    *
-   * A link to a host that is saved opens it as saved, credentials and all.
-   * Any other link stops at the quick connect prompt: a link can name a
+   * A link to a host that is saved opens it as saved, credentials and all,
+   * once the user agrees. Any page can fire an ssh:// link, so it is not the
+   * user asking until they say so; without the question a web page could
+   * make the app log in to a saved server, with whatever forwarding it has
+   * on. Any other link stops at the quick connect prompt: a link can name a
    * host, but never says how to log in to it.
    */
   function handleLaunch(launch: Launch) {
@@ -504,7 +511,7 @@ export default function App() {
       && s.port === url.port
       && (!url.user || userOf(s) === url.user));
     if (match) {
-      void openSession(match.id);
+      setLinkHost(match);
       return;
     }
     setActiveTab('hosts');
@@ -933,6 +940,20 @@ export default function App() {
           extensions={['.txt']}
           onCancel={transcript.cancelSave}
           onChoose={(path) => { void transcript.write(path, transcript.saving!.text); }}
+        />
+      )}
+
+      {linkHost && (
+        <ConfirmModal
+          question={<>Open a session to <strong>{linkHost.name}</strong>?</>}
+          hint={<>
+            A link asked for {linkHost.username ? `${linkHost.username}@` : ''}{linkHost.host}:{linkHost.port}.
+            {linkHost.forward_agent && ' Agent forwarding is on for this host.'}
+            {linkHost.forward_x11 && ' X11 forwarding is on for this host.'}
+          </>}
+          confirmLabel="Connect"
+          onConfirm={() => { void openSession(linkHost.id); setLinkHost(null); }}
+          onCancel={() => setLinkHost(null)}
         />
       )}
 

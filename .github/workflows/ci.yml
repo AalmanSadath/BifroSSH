@@ -22,6 +22,11 @@ on:
 # workflow this still keys on the caller's ref, which for a tag is
 # refs/tags/vX.Y.Z, so a release and the branch push beside it land in
 # different groups and cannot cancel one another.
+# Nothing here writes to the repository, a release or a package; the token
+# only has to read the checkout. A caller can grant no more than it asks for.
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -42,7 +47,7 @@ jobs:
     outputs:
       run: ${{ steps.check.outputs.run }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -68,7 +73,7 @@ jobs:
     if: needs.decide.outputs.run == 'true' && inputs.scope != 'android'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # The Flatpak build runs with no network, so a dependency added since the
       # vendor manifests were last generated fails deep inside the sandbox with
@@ -137,9 +142,9 @@ jobs:
     if: needs.decide.outputs.run == 'true'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: npm
@@ -169,7 +174,7 @@ jobs:
     if: needs.decide.outputs.run == 'true' && inputs.scope != 'android'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install validators
         run: |
@@ -243,7 +248,7 @@ jobs:
     if: needs.decide.outputs.run == 'true'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # Tauri needs these to build at all. Kept in step with the Fedora list in
       # BUILDING.md, which is the other supported build path.
@@ -262,9 +267,13 @@ jobs:
             file \
             openssh-server
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          # Pinned by commit, the action can no longer read the toolchain
+          # from its ref, so it is named here.
+          toolchain: stable
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: src-tauri
 
@@ -311,11 +320,15 @@ jobs:
     if: needs.decide.outputs.run == 'true' && inputs.scope != 'android'
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          # Pinned by commit, the action can no longer read the toolchain
+          # from its ref, so it is named here.
+          toolchain: stable
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: src-tauri
 

@@ -38,4 +38,10 @@ describe('canExport', () => {
   it('does not let saved stand in for a confirmation', () => {
     expect(canExport({ ...base, saved: true, confirmPass: 'wrong' })).toBe(false);
   });
+
+  /** The backend refuses one this short, so the button does not offer it. */
+  it('wants a typed passphrase of at least twelve characters', () => {
+    expect(canExport({ ...base, passphrase: 'elevenchars', confirmPass: 'elevenchars' })).toBe(false);
+    expect(canExport({ ...base, passphrase: 'twelve chars', confirmPass: 'twelve chars' })).toBe(true);
+  });
 });

@@ -270,6 +270,9 @@ pub fn build_export(
     }
 
     let kdf = export_kdf(passphrase);
+    // The file can travel anywhere, so its passphrase meets the same floor
+    // as the vault's own.
+    keystore::check_passphrase(passphrase, kdf.form)?;
     let export_key = derive(&kdf, passphrase)?;
 
     let mut payload = Payload {

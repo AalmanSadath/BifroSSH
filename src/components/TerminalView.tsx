@@ -28,6 +28,7 @@ import { THEMES } from '../styles/themes';
 import { isAndroid } from '../platform';
 import { applyLatch } from '../keyLatch';
 import { KEYBAR_EVENT, type KeyBarKey } from './TerminalKeyBar';
+import ConfirmModal from './shared/ConfirmModal';
 import '@xterm/xterm/css/xterm.css';
 
 interface Props {
@@ -79,6 +80,8 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
   const zmodemRef = useRef<ZmodemHandle | null>(null);
   const [transfer, setTransfer] = useState<TransferProgress | null>(null);
   const [zmodemPick, setZmodemPick] = useState<ZmodemPick | null>(null);
+  // A hyperlink the host printed and the user clicked, waiting to be opened.
+  const [pendingLink, setPendingLink] = useState<string | null>(null);
   /**
    * The session the terminal's own handlers send to. A ref, because the
    * handlers are bound once when the terminal is made and the session under
@@ -283,6 +286,16 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
       // Proposed API can change between xterm minor versions, so an upgrade
       // wants the search highlighting checked rather than assumed.
       allowProposedApi: true,
+      // Hyperlinks a host sends with OSC 8, whose visible text can be
+      // anything and need not resemble where they go. Without a handler xterm
+      // falls back to a confirm() and window.open. This one shows the real
+      // address before anything opens, and the opener's own scope still
+      // refuses anything but http, https, mailto and tel. xterm drops every
+      // other scheme before calling it.
+      linkHandler: {
+        activate: (_event, uri) => setPendingLink(uri),
+        allowNonHttpProtocols: false,
+      },
     });
     const fitAddon = new FitAddon();
     const searchAddon = new SearchAddon();
@@ -1047,6 +1060,19 @@ export default function TerminalView({ tab, visible, focused, header, resizer, w
         </div>
       )}
 
+      {pendingLink !== null && (
+        <ConfirmModal
+          question="Open this link from the host?"
+          hint={<code className="terminal-link-target">{pendingLink}</code>}
+          confirmLabel="Open"
+          onConfirm={() => {
+            const uri = pendingLink;
+            setPendingLink(null);
+            openUrl(uri).catch((e) => console.error('Could not open link', uri, e));
+          }}
+          onCancel={() => setPendingLink(null)}
+        />
+      )}
       {zmodemPick && (
         <FilePickerModal
           mode={zmodemPick.mode === 'folder' ? 'folder' : 'open'}

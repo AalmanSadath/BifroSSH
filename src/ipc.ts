@@ -173,6 +173,9 @@ export const androidVolumeKeys = (enabled: boolean) =>
 /** Android: holds the app one way up, or follows the phone. */
 export const androidOrientation = (mode: ScreenOrientation) =>
   invoke<void>('android_orientation', { mode });
+/** Android: FLAG_SECURE on the window, hiding it from recents and screenshots. */
+export const androidSecure = (enabled: boolean) =>
+  invoke<void>('android_secure', { enabled });
 /** What the app was opened for from outside, taken once. */
 export const takeLaunch = () => invoke<Launch | null>('take_launch');
 /** A host was connected to, for the launcher shortcuts (Android) or jump list (Windows). */

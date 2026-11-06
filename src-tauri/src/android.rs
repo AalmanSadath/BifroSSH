@@ -115,6 +115,14 @@ pub fn orientation(app: &AppHandle, mode: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Sets or clears FLAG_SECURE on the app's window.
+pub fn secure(app: &AppHandle, enabled: bool) -> Result<(), String> {
+    app.state::<Android>()
+        .0
+        .run_mobile_plugin::<()>("secure", Enabled { enabled })
+        .map_err(|e| e.to_string())
+}
+
 // ── Launches ─────────────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]

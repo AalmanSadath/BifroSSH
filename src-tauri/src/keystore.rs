@@ -235,15 +235,41 @@ fn check_argon2_costs(m_cost: u32, t_cost: u32, p_cost: u32) -> Result<()> {
     Ok(())
 }
 
-/// OWASP's second recommended Argon2id profile: 19 MiB, 2 passes, 1 lane.
-/// Chosen over the heavier ones because this runs on the UI thread at unlock.
+/// RFC 9106's second recommended Argon2id profile, 64 MiB and 3 passes, with
+/// one lane: the argon2 crate here runs lanes one after another, so more of
+/// them would add time without adding parallel work for an attacker to match.
+/// It replaced OWASP's 19 MiB and 2 passes, which is a floor rather than a
+/// target, and costs well under a second at unlock on a phone.
 ///
 /// One constant because there are two things that turn a passphrase into a
 /// key, the vault's own wrapper and an export's KDF, and they should not be
 /// two different answers to the same question. Both record the parameters they
 /// used, so raising this only affects what is written afterwards: anything
 /// already encrypted keeps opening with the values stored beside it.
-pub const ARGON2: Argon2Profile = Argon2Profile { m_cost: 19 * 1024, t_cost: 2, p_cost: 1 };
+pub const ARGON2: Argon2Profile = Argon2Profile { m_cost: 64 * 1024, t_cost: 3, p_cost: 1 };
+
+/// Whether costs stored beside a wrapper fall short of [`ARGON2`], so that
+/// the wrapper is worth rewriting the next time its secret is typed.
+pub fn below_profile(m_cost: u32, t_cost: u32) -> bool {
+    m_cost < ARGON2.m_cost || t_cost < ARGON2.t_cost
+}
+
+/// The shortest passphrase the user may choose themselves, in characters.
+/// A generated phrase is eight words and always passes.
+pub const MIN_PASSPHRASE_CHARS: usize = 12;
+
+/// Refuses a passphrase too short to stand up to guessing against a copy of
+/// the data folder. Only what the user chose is measured: a generated phrase,
+/// recognised by its form, is long by construction.
+pub fn check_passphrase(passphrase: &str, form: PassphraseForm) -> Result<()> {
+    if passphrase.is_empty() {
+        return Err(anyhow!("The passphrase cannot be empty"));
+    }
+    if form == PassphraseForm::Verbatim && passphrase.chars().count() < MIN_PASSPHRASE_CHARS {
+        return Err(anyhow!("The passphrase must be at least {MIN_PASSPHRASE_CHARS} characters"));
+    }
+    Ok(())
+}
 
 pub struct Argon2Profile {
     pub m_cost: u32,
@@ -436,6 +462,9 @@ pub fn initialize(dir: &Path, mode: InitMode, passphrase: &str) -> Result<[u8; 3
     }
 
     let form = detect_form(passphrase);
+    if needs_passphrase {
+        check_passphrase(passphrase, form)?;
+    }
 
     let mut store = KeyStore { version: 1, ..Default::default() };
     if mode == InitMode::KeyringAndPassphrase {
@@ -485,9 +514,7 @@ pub fn set_passphrase(
     always_ask: bool,
     form: PassphraseForm,
 ) -> Result<()> {
-    if passphrase.is_empty() {
-        return Err(anyhow!("The passphrase cannot be empty"));
-    }
+    check_passphrase(passphrase, form)?;
     let wrapper = new_passphrase_wrapper(passphrase, master, form)?;
 
     // Prove it opens before anything that currently works is taken away.
@@ -566,6 +593,15 @@ pub fn unlock_with_passphrase(dir: &Path, passphrase: &str) -> Result<[u8; 32]> 
     let kek = derive_passphrase_kek(passphrase, &wrapper)?;
     let master = unwrap_key(&wrapper.blob, &kek).map_err(|_| anyhow!("Wrong passphrase"))?;
 
+    // Written under an older, cheaper profile: this is the one moment both
+    // the passphrase and the key are in hand to rewrap it under the current
+    // one. Failing to is not a reason to refuse an unlock that worked.
+    if below_profile(wrapper.m_cost, wrapper.t_cost) {
+        if let Err(e) = upgrade_passphrase_wrapper(dir, passphrase, &master, wrapper.form) {
+            eprintln!("Could not move the passphrase to the current Argon2 profile: {e:#}");
+        }
+    }
+
     // Being asked for the passphrase when the keyring was supposed to handle
     // it means something is wrong with the keyring wrapper, and this is the
     // only moment the master key is in hand to fix it. Nothing else repairs
@@ -582,6 +618,18 @@ pub fn unlock_with_passphrase(dir: &Path, passphrase: &str) -> Result<[u8; 32]> 
         }
     }
     Ok(master)
+}
+
+/// Rewraps the master key under the passphrase it already has, with the
+/// current Argon2 profile and a fresh salt, keeping the form it was set with.
+fn upgrade_passphrase_wrapper(dir: &Path, passphrase: &str, master: &[u8; 32], form: PassphraseForm) -> Result<()> {
+    let wrapper = new_passphrase_wrapper(passphrase, master, form)?;
+    if unwrap_key(&wrapper.blob, &derive_passphrase_kek(passphrase, &wrapper)?)? != *master {
+        return Err(anyhow!("the rewrapped key did not verify"));
+    }
+    let mut store = load_keystore(dir)?;
+    store.passphrase = Some(wrapper);
+    save_keystore(dir, &store)
 }
 
 pub fn has_passphrase(dir: &Path) -> bool {
@@ -701,6 +749,19 @@ pub fn set_pin(
     check_pin(pin)?;
     let mut store = load_keystore(dir)?;
     require_passphrase(&store)?;
+    let wrapper = new_pin_wrapper(pin, master, hw_mac)
+        .map_err(|_| anyhow!("The new PIN did not verify; nothing was changed"))?;
+    store.pin = Some(wrapper);
+    save_keystore(dir, &store)
+}
+
+/// The master key wrapped under a PIN, with the current Argon2 profile and a
+/// fresh salt, proven to open before it is handed back.
+fn new_pin_wrapper(
+    pin: &str,
+    master: &[u8; 32],
+    hw_mac: &dyn Fn(&[u8; 32]) -> Result<[u8; 32]>,
+) -> Result<PinWrapper> {
     let mut salt = [0u8; 16];
     rand::thread_rng().fill_bytes(&mut salt);
     let mut wrapper = PinWrapper {
@@ -711,14 +772,11 @@ pub fn set_pin(
         blob: String::new(),
         failures: 0,
     };
-    let kek = pin_kek(pin, &wrapper, hw_mac)?;
-    wrapper.blob = wrap(master, &kek)?;
-    // Prove it opens before it is relied on.
+    wrapper.blob = wrap(master, &pin_kek(pin, &wrapper, hw_mac)?)?;
     if unwrap_key(&wrapper.blob, &pin_kek(pin, &wrapper, hw_mac)?)? != *master {
-        return Err(anyhow!("The new PIN did not verify; nothing was changed"));
+        return Err(anyhow!("the PIN wrapper did not verify"));
     }
-    store.pin = Some(wrapper);
-    save_keystore(dir, &store)
+    Ok(wrapper)
 }
 
 pub fn clear_pin(dir: &Path) -> Result<()> {
@@ -747,6 +805,14 @@ pub fn unlock_with_pin(
     match opened {
         Ok(master) => {
             wrapper.failures = 0;
+            // As with the passphrase: rewrapped under the current profile
+            // while the PIN is in hand, keeping the old one if that fails.
+            if below_profile(wrapper.m_cost, wrapper.t_cost) {
+                match new_pin_wrapper(pin, &master, hw_mac) {
+                    Ok(upgraded) => wrapper = upgraded,
+                    Err(e) => eprintln!("Could not move the PIN to the current Argon2 profile: {e:#}"),
+                }
+            }
             store.pin = Some(wrapper);
             save_keystore(dir, &store)?;
             Ok(PinOutcome::Opened(master))
@@ -949,13 +1015,13 @@ mod tests {
             ..Default::default()
         }).unwrap();
 
-        set_passphrase(&dir, &master, "hunter2", true, PassphraseForm::Verbatim).unwrap();
+        set_passphrase(&dir, &master, "hunter2 hunter2", true, PassphraseForm::Verbatim).unwrap();
 
         // Both are gone on purpose: a keyring wrapper would mean unlock never
         // asks, and .secret would mean the key is still in the file tree.
         assert!(!secret_file_path(&dir).exists(), ".secret still there");
         assert!(load_keystore(&dir).unwrap().keyring.is_none(), "keyring wrapper still there");
-        assert_eq!(unlock_with_passphrase(&dir, "hunter2").unwrap(), master);
+        assert_eq!(unlock_with_passphrase(&dir, "hunter2 hunter2").unwrap(), master);
     }
 
     #[test]
@@ -973,7 +1039,7 @@ mod tests {
         let dir = temp_dir();
         let master = key(5);
         crate::store::write_private(&secret_file_path(&dir), &master).unwrap();
-        set_passphrase(&dir, &master, "hunter2", true, PassphraseForm::Verbatim).unwrap();
+        set_passphrase(&dir, &master, "hunter2 hunter2", true, PassphraseForm::Verbatim).unwrap();
 
         let unlocked = unlock(&dir).unwrap();
         assert!(unlocked.needs_passphrase);
@@ -988,7 +1054,7 @@ mod tests {
         let dir = temp_dir();
         let master = key(5);
         crate::store::write_private(&secret_file_path(&dir), &master).unwrap();
-        set_passphrase(&dir, &master, "hunter2", true, PassphraseForm::Verbatim).unwrap();
+        set_passphrase(&dir, &master, "hunter2 hunter2", true, PassphraseForm::Verbatim).unwrap();
 
         assert!(!store_keyring_wrapper(&dir, &master).unwrap());
         assert!(load_keystore(&dir).unwrap().keyring.is_none());
@@ -1008,9 +1074,9 @@ mod tests {
         });
         crate::store::save_app_data_in(&dir, &data, &master).unwrap();
 
-        set_passphrase(&dir, &master, "hunter2", true, PassphraseForm::Verbatim).unwrap();
+        set_passphrase(&dir, &master, "hunter2 hunter2", true, PassphraseForm::Verbatim).unwrap();
 
-        let key = unlock_with_passphrase(&dir, "hunter2").unwrap();
+        let key = unlock_with_passphrase(&dir, "hunter2 hunter2").unwrap();
         let loaded = crate::store::load_app_data_in(&dir, &key).unwrap();
         assert_eq!(loaded.codeprints[0].name, "before");
     }
@@ -1019,7 +1085,7 @@ mod tests {
     fn a_wrong_passphrase_yields_no_key_at_all() {
         let dir = temp_dir();
         let master = { let k = key(9); crate::store::write_private(&secret_file_path(&dir), &k).unwrap(); k };
-        set_passphrase(&dir, &master, "right", true, PassphraseForm::Verbatim).unwrap();
+        set_passphrase(&dir, &master, "the right passphrase", true, PassphraseForm::Verbatim).unwrap();
         // Must be an error, not some other key: a key that is merely wrong
         // would decrypt nothing and could be published as if the vault were
         // open.
@@ -1040,7 +1106,7 @@ mod tests {
             ..Default::default()
         }).unwrap();
 
-        set_passphrase(&dir, &master, "hunter2", false, PassphraseForm::Verbatim).unwrap();
+        set_passphrase(&dir, &master, "hunter2 hunter2", false, PassphraseForm::Verbatim).unwrap();
 
         let store = load_keystore(&dir).unwrap();
         assert!(store.keyring.is_some(), "the keyring route was removed anyway");
@@ -1063,13 +1129,13 @@ mod tests {
             always_ask: false,
             ..Default::default()
         }).unwrap();
-        set_passphrase(&dir, &master, "hunter2", false, PassphraseForm::Verbatim).unwrap();
+        set_passphrase(&dir, &master, "hunter2 hunter2", false, PassphraseForm::Verbatim).unwrap();
 
         let store = load_keystore(&dir).unwrap();
         // Forgetting the passphrase leaves the keyring, and losing the keyring
         // leaves the passphrase. Either one alone recovers the master key.
         assert_eq!(unwrap_key(store.keyring.as_deref().unwrap(), &kek).unwrap(), master);
-        assert_eq!(unlock_with_passphrase(&dir, "hunter2").unwrap(), master);
+        assert_eq!(unlock_with_passphrase(&dir, "hunter2 hunter2").unwrap(), master);
     }
 
     #[test]
@@ -1084,7 +1150,7 @@ mod tests {
             always_ask: false,
             ..Default::default()
         }).unwrap();
-        set_passphrase(&dir, &master, "hunter2", false, PassphraseForm::Verbatim).unwrap();
+        set_passphrase(&dir, &master, "hunter2 hunter2", false, PassphraseForm::Verbatim).unwrap();
 
         set_always_ask(&dir, &master, true).unwrap();
 
@@ -1108,7 +1174,7 @@ mod tests {
         let dir = temp_dir();
         let master = key(5);
         crate::store::write_private(&secret_file_path(&dir), &master).unwrap();
-        set_passphrase(&dir, &master, "hunter2", true, PassphraseForm::Verbatim).unwrap();
+        set_passphrase(&dir, &master, "hunter2 hunter2", true, PassphraseForm::Verbatim).unwrap();
 
         clear_passphrase(&dir, &master).unwrap();
 
@@ -1255,7 +1321,7 @@ mod tests {
         crate::store::write_private(&secret_file_path(&dir), &master).unwrap();
         assert_eq!(current_source(&dir, false), KeySource::File);
 
-        set_passphrase(&dir, &master, "hunter2", true, PassphraseForm::Verbatim).unwrap();
+        set_passphrase(&dir, &master, "hunter2 hunter2", true, PassphraseForm::Verbatim).unwrap();
         assert_eq!(current_source(&dir, false), KeySource::Passphrase);
 
         clear_passphrase(&dir, &master).unwrap();
@@ -1296,7 +1362,7 @@ mod tests {
         let dir = temp_dir();
         let master = key(1);
         crate::store::write_private(&secret_file_path(&dir), &master).unwrap();
-        set_passphrase(&dir, &master, "hunter2", false, PassphraseForm::Verbatim).unwrap();
+        set_passphrase(&dir, &master, "hunter2 hunter2", false, PassphraseForm::Verbatim).unwrap();
 
         // Stand in for a wrapper written against a keyring secret that is gone.
         let mut store = load_keystore(&dir).unwrap();
@@ -1304,7 +1370,7 @@ mod tests {
         save_keystore(&dir, &store).unwrap();
         assert!(unlock(&dir).unwrap().needs_passphrase, "the dead wrapper should not open it");
 
-        assert_eq!(unlock_with_passphrase(&dir, "hunter2").unwrap(), master);
+        assert_eq!(unlock_with_passphrase(&dir, "hunter2 hunter2").unwrap(), master);
 
         // Only meaningful where a keyring actually answers, which is not
         // guaranteed on a build machine.
@@ -1319,9 +1385,9 @@ mod tests {
         let dir = temp_dir();
         let master = key(1);
         crate::store::write_private(&secret_file_path(&dir), &master).unwrap();
-        set_passphrase(&dir, &master, "hunter2", true, PassphraseForm::Verbatim).unwrap();
+        set_passphrase(&dir, &master, "hunter2 hunter2", true, PassphraseForm::Verbatim).unwrap();
 
-        unlock_with_passphrase(&dir, "hunter2").unwrap();
+        unlock_with_passphrase(&dir, "hunter2 hunter2").unwrap();
 
         // The repair above must not quietly hand the keyring a way in again.
         assert!(load_keystore(&dir).unwrap().keyring.is_none());
@@ -1450,5 +1516,81 @@ mod tests {
         std::fs::write(dir.join(KEYSTORE_FILE), r#"{"version":1,"always_ask":false}"#).unwrap();
         let store = load_keystore(&dir).unwrap();
         assert!(store.biometric.is_none() && store.pin.is_none());
+    }
+
+    #[test]
+    fn a_chosen_passphrase_under_twelve_characters_is_refused() {
+        let dir = temp_dir();
+        let master = key(5);
+        let err = set_passphrase(&dir, &master, "elevenchars", true, PassphraseForm::Verbatim).unwrap_err();
+        assert!(err.to_string().contains("at least 12"), "{err}");
+        assert!(load_keystore(&dir).unwrap().passphrase.is_none(), "nothing was written");
+        set_passphrase(&dir, &master, "twelve chars", true, PassphraseForm::Verbatim).unwrap();
+    }
+
+    #[test]
+    fn a_generated_phrase_is_never_measured() {
+        // Short words, short total: still eight words from the list.
+        let phrase = generate_passphrase();
+        assert_eq!(detect_form(&phrase), PassphraseForm::Words);
+        assert!(check_passphrase(&phrase, PassphraseForm::Words).is_ok());
+        assert!(check_passphrase("a b", PassphraseForm::Words).is_ok());
+    }
+
+    /// A wrapper as an older release wrote it, at OWASP's 19 MiB and 2 passes.
+    fn old_profile_wrapper(passphrase: &str, master: &[u8; 32]) -> PassphraseWrapper {
+        let mut w = new_passphrase_wrapper(passphrase, master, PassphraseForm::Verbatim).unwrap();
+        w.m_cost = 19 * 1024;
+        w.t_cost = 2;
+        w.blob = wrap(master, &derive_passphrase_kek(passphrase, &w).unwrap()).unwrap();
+        w
+    }
+
+    #[test]
+    fn unlocking_moves_an_old_passphrase_wrapper_to_the_current_profile() {
+        let dir = temp_dir();
+        let master = key(6);
+        let old = old_profile_wrapper("an older passphrase", &master);
+        let old_salt = old.salt.clone();
+        save_keystore(&dir, &KeyStore { version: 1, passphrase: Some(old), always_ask: true, ..Default::default() }).unwrap();
+
+        assert_eq!(unlock_with_passphrase(&dir, "an older passphrase").unwrap(), master);
+        let w = load_keystore(&dir).unwrap().passphrase.unwrap();
+        assert_eq!((w.m_cost, w.t_cost, w.p_cost), (ARGON2.m_cost, ARGON2.t_cost, ARGON2.p_cost));
+        assert_ne!(w.salt, old_salt, "a rewrap gets a fresh salt");
+        assert_eq!(w.form, PassphraseForm::Verbatim);
+        // And the rewritten wrapper is the one that opens it from now on.
+        assert_eq!(unlock_with_passphrase(&dir, "an older passphrase").unwrap(), master);
+        assert!(unlock_with_passphrase(&dir, "not the passphrase").is_err());
+    }
+
+    #[test]
+    fn a_wrong_passphrase_leaves_an_old_wrapper_alone() {
+        let dir = temp_dir();
+        let master = key(6);
+        let old = old_profile_wrapper("an older passphrase", &master);
+        save_keystore(&dir, &KeyStore { version: 1, passphrase: Some(old.clone()), always_ask: true, ..Default::default() }).unwrap();
+        assert!(unlock_with_passphrase(&dir, "a wrong passphrase").is_err());
+        assert_eq!(load_keystore(&dir).unwrap().passphrase.unwrap().salt, old.salt);
+    }
+
+    #[test]
+    fn unlocking_with_a_pin_moves_it_to_the_current_profile() {
+        let master = key(4);
+        let dir = with_passphrase(&master);
+        set_pin(&dir, &master, "123456", &fake_mac).unwrap();
+        let mut store = load_keystore(&dir).unwrap();
+        let mut pin = store.pin.clone().unwrap();
+        pin.m_cost = 19 * 1024;
+        pin.t_cost = 2;
+        pin.blob = wrap(&master, &pin_kek("123456", &pin, &fake_mac).unwrap()).unwrap();
+        store.pin = Some(pin);
+        save_keystore(&dir, &store).unwrap();
+
+        assert_eq!(unlock_with_pin(&dir, "123456", &fake_mac).unwrap(), PinOutcome::Opened(master));
+        let pin = load_keystore(&dir).unwrap().pin.unwrap();
+        assert_eq!((pin.m_cost, pin.t_cost), (ARGON2.m_cost, ARGON2.t_cost));
+        assert_eq!(pin.failures, 0);
+        assert_eq!(unlock_with_pin(&dir, "123456", &fake_mac).unwrap(), PinOutcome::Opened(master));
     }
 }

@@ -38,7 +38,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       # For the scripts, not the source.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # Fails rather than skips. A release that went out with the repositories
       # quietly left behind is worse than one that stops here, because nobody
@@ -79,7 +79,7 @@ jobs:
           sudo install -m755 "/tmp/rclone-${version}-linux-amd64/rclone" /usr/local/bin/rclone
           rclone version
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: bifrossh-site
 

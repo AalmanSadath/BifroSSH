@@ -397,3 +397,9 @@
 .keybar-wide {
   font-family: inherit;
 }
+
+/* The address an OSC 8 link really goes to, in its confirm. Long ones wrap
+   anywhere rather than widening the dialog. */
+.terminal-link-target {
+  word-break: break-all;
+}

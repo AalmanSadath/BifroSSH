@@ -417,6 +417,10 @@ pub struct Settings {
     /// Desktop: "custom" draws the app's own title bar controls in place of
     /// the window manager's frame, "native" keeps the system frame.
     pub window_frame: String,
+    /// Android: FLAG_SECURE on the app's window, so the recent-apps view
+    /// shows a blank card rather than the terminal. It also blocks
+    /// screenshots and screen recording of the app. On by default.
+    pub hide_in_recents: bool,
 }
 
 /// One keyword highlighting rule.
@@ -488,6 +492,7 @@ impl Default for Settings {
             volume_keys_zoom: true,
             screen_orientation: "auto".into(),
             window_frame: "custom".into(),
+            hide_in_recents: true,
         }
     }
 }
