@@ -1,4 +1,5 @@
-import React, { useState, useId } from 'react';
+import React, { Fragment, useState, useId } from 'react';
+import { bindWarning } from '../bindAddress';
 import { useAppStore } from '../store/appStore';
 import { useHint } from './shared/useHint';
 import type { PortForwarding } from '../types';
@@ -117,6 +118,12 @@ function WizDiagram({ type, step }: { type: PfType; step: number }) {
       <PfDiagram pfType={type} step={step} />
     </div>
   );
+}
+
+/** Shown under a bind address that lets other machines in. */
+function BindWarning({ type, address, hasLogin }: { type: PfType; address: string; hasLogin: boolean }) {
+  const warning = bindWarning(type, address, hasLogin);
+  return warning ? <p className="form-hint pf-bind-warning">{warning}</p> : null;
 }
 
 const BIND_FIELD: WizField = { key: 'bindAddress', label: 'Bind address', placeholder: '127.0.0.1' };
@@ -697,15 +704,17 @@ export default function PortForwardingPanel() {
         <WizDiagram type={d.type} step={spec.diagram} />
         <p className="pf-wiz-desc">{spec.desc}</p>
         {spec.fields.map((f) => (
-          <FloatField
-            key={f.key}
-            label={f.label}
-            required={f.required}
-            value={d[f.key]}
-            onChange={(v) => wiz({ [f.key]: v })}
-            type={f.numeric ? 'number' : undefined}
-            placeholder={f.placeholder}
-          />
+          <Fragment key={f.key}>
+            <FloatField
+              label={f.label}
+              required={f.required}
+              value={d[f.key]}
+              onChange={(v) => wiz({ [f.key]: v })}
+              type={f.numeric ? 'number' : undefined}
+              placeholder={f.placeholder}
+            />
+            {f.key === 'bindAddress' && <BindWarning type={d.type} address={d.bindAddress} hasLogin={!!d.socksUsername} />}
+          </Fragment>
         ))}
         <button className="btn-primary btn-block" onClick={wizNext} disabled={!filled}>
           Continue
@@ -763,6 +772,7 @@ export default function PortForwardingPanel() {
         )}
 
         <FloatField label="Bind address" value={editDraft.bindAddress} onChange={(v) => ed({ bindAddress: v })} placeholder="127.0.0.1" />
+        <BindWarning type={t} address={editDraft.bindAddress} hasLogin={!!editDraft.socksUsername} />
 
         {/* Host selector */}
         {selectedHostId ? (
