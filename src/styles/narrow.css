@@ -3,96 +3,68 @@
  *
  * A desktop window cannot get this narrow or this short (tauri.conf.json holds
  * it to 800 by 500), so everything here is for Android in practice. The
- * sidebar becomes a drawer opened from the tab bar, side columns stack or lay
- * over the page, and fixed widths that assumed a desktop window give way to
- * the screen.
+ * sidebar gives way to a menu page opened from the top row, side columns
+ * stack or lay over the page, and fixed widths that assumed a desktop window
+ * give way to the screen.
  */
 
-.tab-bar-narrow,
-.nav-backdrop,
+.narrow-top-bar,
 .sftp-pane-switch {
   display: none;
 }
 
 @media (max-width: 720px), (max-height: 480px) {
-  /* Nothing to line up with once the sidebar is a drawer, and a phone needs
+  /* Nothing to line up with once the sidebar is gone, and a phone needs
      the room more than a desktop does. */
   :root { --header-h: 37px; }
 
-  /* ── Drawer ──────────────────────────────────────────────── */
+  /* ── Top row ─────────────────────────────────────────────── */
 
-  .tab-bar-narrow {
+  /* The menu page's button and the palette, in a row of their own above
+     everything else on every page. */
+  .narrow-top-bar {
     display: flex;
-    flex-shrink: 0;
-    /* Stays put while the tabs beside it scroll. */
-    position: sticky;
-    left: 0;
-    z-index: 2;
-    background: var(--bg-dark);
-    border-right: 1px solid var(--border);
-  }
-
-  .tab-bar-empty .tab-bar-narrow {
-    background: none;
-    border-right-color: transparent;
-  }
-
-  .tab-bar-icon {
-    display: flex;
+    justify-content: space-between;
     align-items: center;
-    justify-content: center;
-    width: 40px;
-    background: none;
-    border: none;
-    color: var(--text-muted);
-    cursor: pointer;
+    /* As tall as the Menu page's header, the buttons 4px in from the
+       corners as its back arrow is, so opening the menu and going back
+       land the thumb on the same spot. */
+    height: 49px; /* 48 and the border under it */
+    padding: 4px;
+    box-sizing: border-box;
+    flex-shrink: 0;
+    background: var(--bg-dark);
+    border-bottom: 1px solid var(--border);
   }
 
-  .tab-bar-icon:active {
-    background: var(--bg-hover);
-    color: var(--text-primary);
-  }
-
-  .sidebar,
-  .sidebar.sidebar-collapsed {
-    position: fixed;
-    top: 0;
-    bottom: 0;
-    left: 0;
-    z-index: 150;
-    width: min(280px, 85vw);
+  .narrow-top-bar-title {
+    flex: 1;
     min-width: 0;
-    transform: translateX(-100%);
-    transition: transform 0.2s ease;
+    padding: 0 8px;
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
-  /* Scrolls rather than cutting off the last entries on a phone held
-     sideways, where the drawer is only a few entries tall. */
-  .sidebar,
-  .sidebar.sidebar-collapsed {
-    overflow-y: auto;
-  }
-
-  .sidebar-nav {
-    flex: 1 0 auto;
-  }
-
-  .sidebar-open,
-  .sidebar.sidebar-collapsed.sidebar-open {
-    transform: none;
-    box-shadow: 0 0 24px rgba(0, 0, 0, 0.5);
-  }
-
-  .sidebar-collapse-btn {
+  /* The top row names the page, so a page's own title would say it twice.
+     Only the title at the top of a page goes: the ones in a header with a
+     back arrow, a settings category's or the menu page's, stay. */
+  .panel > .panel-title,
+  .panel > .panel-title-row {
     display: none;
   }
 
-  .nav-backdrop {
-    display: block;
-    position: fixed;
-    inset: 0;
-    z-index: 149;
-    background: rgba(0, 0, 0, 0.5);
+  /* With the icons moved out, an empty tab bar is a blank strip. The first
+     connect opens the terminal tab anyway, so nothing below it jumps. */
+  .tab-bar-empty {
+    display: none;
+  }
+
+  .sidebar {
+    display: none;
   }
 
   /* ── Pages ───────────────────────────────────────────────── */

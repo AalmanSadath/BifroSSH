@@ -31,6 +31,8 @@ import RecordingsPanel from './components/RecordingsPanel';
 import HostKeyPrompt from './components/HostKeyPrompt';
 import AuthPromptModal from './components/AuthPromptModal';
 import Sidebar from './components/Sidebar';
+import NavPage from './components/NavPage';
+import { currentPage, pageLabel } from './components/navItems';
 import WindowControls, { WindowDragStrip } from './components/WindowControls';
 import UnlockScreen from './components/UnlockScreen';
 import FirstRunSetup from './components/FirstRunSetup';
@@ -72,7 +74,7 @@ export default function App() {
   // 'new' is the Add Host drawer: no record to find, so the form opens empty.
   const [editServerId, setEditServerId] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  // On a narrow screen the sidebar is a drawer over the page.
+  // On a narrow screen the pages are listed on a menu page over the app.
   const [navOpen, setNavOpen] = useState(false);
   // A codeprint picked in the palette, waiting for its placeholders.
   const [snippet, setSnippet] = useState<Codeprint | null>(null);
@@ -93,7 +95,11 @@ export default function App() {
   const transcript = useTranscript(setActionError);
   const startDrag = useDragResize();
   const hint = useHint();
-  const activeIsSession = sessions.some((s) => s.tab_id === activeTabId);
+  const activeSession = sessions.find((s) => s.tab_id === activeTabId);
+  const activeIsSession = activeSession !== undefined;
+  // The top row's title on a phone: the session's name in a terminal tab,
+  // otherwise the page's.
+  const pageTitle = activeSession ? tabLabel(activeSession) : pageLabel(currentPage(activeTabId));
   const activeDetached = sessions.some((s) => s.tab_id === activeTabId && s.detached);
 
   // A running command's chip counts up, so the strip re-renders while
@@ -625,9 +631,28 @@ export default function App() {
           lands on. `display: contents` keeps the flex layout the two children
           were laid out by. */}
       <div className="app-body" inert={vault.locked || undefined}>
-      <Sidebar open={navOpen} onClose={() => setNavOpen(false)} />
-      {navOpen && <div className="nav-backdrop" onClick={() => setNavOpen(false)} />}
+      <Sidebar />
+      {navOpen && <NavPage onClose={() => setNavOpen(false)} />}
       <div className="main">
+        {/* Narrow screens only: the menu page's button at the left, the
+            page's name, and at the right the palette, which a touch keyboard
+            has no Ctrl+K to open. */}
+        <div className="narrow-top-bar" data-tauri-drag-region>
+          <button className="round-icon-btn" aria-label="Menu" onClick={() => setNavOpen(true)}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+              <line x1="4" y1="6" x2="20" y2="6"/>
+              <line x1="4" y1="12" x2="20" y2="12"/>
+              <line x1="4" y1="18" x2="20" y2="18"/>
+            </svg>
+          </button>
+          <div className="narrow-top-bar-title" data-tauri-drag-region>{pageTitle}</div>
+          <button className="round-icon-btn" aria-label="Command palette" onClick={() => setPaletteOpen(true)}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="7"/>
+              <line x1="16.5" y1="16.5" x2="21" y2="21"/>
+            </svg>
+          </button>
+        </div>
         {loadError && (
           <div className="load-error-banner">
             <span>
@@ -698,23 +723,6 @@ export default function App() {
             pushed everything below it down the page. */}
         <div className={`tab-bar-row${sessions.length === 0 ? ' tab-bar-empty' : ''}`}>
         <div className="tab-bar" data-tauri-drag-region>
-          {/* Narrow screens only: the drawer's handle, and the palette, which
-              a touch keyboard has no Ctrl+K to open. */}
-          <div className="tab-bar-narrow">
-            <button className="tab-bar-icon" aria-label="Menu" onClick={() => setNavOpen(true)}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-                <line x1="4" y1="6" x2="20" y2="6"/>
-                <line x1="4" y1="12" x2="20" y2="12"/>
-                <line x1="4" y1="18" x2="20" y2="18"/>
-              </svg>
-            </button>
-            <button className="tab-bar-icon" aria-label="Command palette" onClick={() => setPaletteOpen(true)}>
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="11" cy="11" r="7"/>
-                <line x1="16.5" y1="16.5" x2="21" y2="21"/>
-              </svg>
-            </button>
-          </div>
           {sessions.map((s) => (
               <div
                 key={s.tab_id}
