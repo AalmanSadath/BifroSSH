@@ -721,3 +721,25 @@ p.form-hint {
 .storage-notice p {
   margin: 0;
 }
+
+/* A round icon-only button: back arrows, and the menu and search buttons in
+   the top row on a phone. One size for all of them, so the menu button and
+   the back arrow that replaces it are the same target in the same place. */
+.round-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-primary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.round-icon-btn:active {
+  background: var(--bg-hover);
+}

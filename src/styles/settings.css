@@ -386,6 +386,15 @@
   white-space: nowrap;
 }
 
+.settings-card-summary-news {
+  color: var(--accent);
+}
+
+/* The page you are on, on Android's menu page. */
+.settings-card-current {
+  border-color: var(--accent);
+}
+
 .settings-card-chevron {
   display: flex;
   flex-shrink: 0;
@@ -405,30 +414,14 @@
   align-items: center;
   gap: 10px;
   margin: -16px -14px 8px;
-  padding: 8px 14px 8px 4px;
+  /* 48px tall with the back arrow 4px in from the corner: the same row
+     height and spot as the top row's menu button that opened the page. */
+  padding: 4px 14px 4px 4px;
   background: var(--bg-darkest);
 }
 
 .settings-subpage-head .panel-title {
   margin-bottom: 0;
-}
-
-.settings-back {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border: none;
-  border-radius: 50%;
-  background: none;
-  color: var(--text-primary);
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.settings-back:active {
-  background: var(--bg-hover);
 }
 
 /* Each titled group in a settings category is a box of its own, outlined in
@@ -454,4 +447,30 @@
 /* The box's own padding is the space under its last control. */
 .settings-body .panel-section > :last-child {
   margin-bottom: 12px;
+}
+
+/* Android's menu page: the app's pages, over whatever screen it was opened
+   from, which waits underneath for Back. Slides in from the left, where the
+   drawer it replaced came from. */
+.nav-page {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  /* The panel inside does the scrolling, so its sticky header holds. */
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-darkest);
+  animation: nav-page-in 0.18s ease-out;
+}
+
+@keyframes nav-page-in {
+  from { transform: translateX(-24px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+.nav-page-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-primary);
 }

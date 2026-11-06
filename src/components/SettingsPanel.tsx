@@ -73,7 +73,7 @@ function AndroidSettings() {
     return (
       <div className="panel settings-panel settings-panel-android">
         <div className="settings-subpage-head">
-          <button className="settings-back" aria-label="Back" onClick={closeSettingsSection}>
+          <button className="round-icon-btn" aria-label="Back" onClick={closeSettingsSection}>
             <ArrowLeftIcon size={22} />
           </button>
           <div className="panel-title">{current.label}</div>

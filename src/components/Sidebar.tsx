@@ -2,41 +2,37 @@ import { useState } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { useAppStore } from '../store/appStore';
 import { useHint } from './shared/useHint';
-import { useBackClose } from '../backStack';
+import { APP, BrandLogo, SETUP, WORK, currentPage, type NavItem } from './navItems';
 
-
-const PANELS = ['hosts', 'sftp', 'containers', 'keychain', 'knownhosts', 'recordings', 'portforwarding', 'settings', 'theme-editor'];
-
-interface Props {
-  /** The drawer is showing, on a narrow screen. */
-  open: boolean;
-  onClose: () => void;
-}
-
-export default function Sidebar({ open, onClose }: Props) {
+/** The desktop's page list. Android lists the same pages on NavPage. */
+export default function Sidebar() {
   const { activeTabId, setActiveTab, updateAvailable } = useAppStore();
   const [collapsed, setCollapsed] = useState(false);
-  useBackClose(open ? onClose : undefined);
   const hint = useHint();
 
-  const activePanel = PANELS.includes(activeTabId ?? '') ? activeTabId : null;
+  const current = currentPage(activeTabId);
+
+  const button = ({ id, label, icon }: NavItem) => (
+    <button
+      key={id}
+      className={`nav-btn ${current === id ? 'active' : ''}`}
+      onClick={() => setActiveTab(id)}
+      title={collapsed ? hint(label) : undefined}
+    >
+      <span className="nav-icon">{icon(20)}</span>
+      {!collapsed && label}
+      {id === 'settings' && updateAvailable && collapsed && <span className="dot dot-on sidebar-update-dot" />}
+    </button>
+  );
 
   return (
     <aside
-      className={`sidebar${collapsed ? ' sidebar-collapsed' : ''}${open ? ' sidebar-open' : ''}`}
+      className={`sidebar${collapsed ? ' sidebar-collapsed' : ''}`}
       onContextMenu={(e) => e.preventDefault()}
-      // Picking a page puts the drawer away, as it would on any phone app.
-      onClick={(e) => { if ((e.target as HTMLElement).closest('.nav-btn')) onClose(); }}
     >
       <div className="sidebar-top" data-tauri-drag-region>
         {!collapsed && <div className="sidebar-brand" data-tauri-drag-region>
-          <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 512 512" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-            <path d="M 110 390 L 110 200" strokeWidth="30"/>
-            <path d="M 402 390 L 402 200" strokeWidth="30"/>
-            <path d="M 110 200 Q 256 40 402 200" strokeWidth="30"/>
-            <path d="M 174 254 L 254 296 L 174 338" strokeWidth="24"/>
-            <path d="M 254 360 L 338 360" strokeWidth="24"/>
-          </svg>
+          <BrandLogo size={28} />
           <span className="sidebar-brand-text" data-tauri-drag-region>BifroSSH</span>
         </div>}
         <button className="sidebar-collapse-btn" onClick={() => setCollapsed(c => !c)} title={hint(collapsed ? 'Expand sidebar' : 'Collapse sidebar')}>
@@ -49,106 +45,11 @@ export default function Sidebar({ open, onClose }: Props) {
         </button>
       </div>
       <nav className="sidebar-nav">
-        <button
-          className={`nav-btn ${activePanel === 'hosts' || activePanel === null ? 'active' : ''}`}
-          onClick={() => setActiveTab('hosts')}
-          title={collapsed ? hint('Hosts') : undefined}
-        >
-          <span className="nav-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="2" y="8" width="20" height="4" rx="1.5"/>
-              <rect x="2" y="15" width="20" height="4" rx="1.5"/>
-              <line x1="6" y1="10" x2="6.01" y2="10"/>
-              <line x1="6" y1="17" x2="6.01" y2="17"/>
-            </svg>
-          </span>
-          {!collapsed && 'Hosts'}
-        </button>
-        <button
-          className={`nav-btn ${activePanel === 'sftp' ? 'active' : ''}`}
-          onClick={() => setActiveTab('sftp')}
-          title={collapsed ? hint('SFTP') : undefined}
-        >
-          <span className="nav-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 8a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/>
-              <path d="M9 14l2 2 4-4"/>
-            </svg>
-          </span>
-          {!collapsed && 'SFTP'}
-        </button>
-        <button
-          className={`nav-btn ${activePanel === 'containers' ? 'active' : ''}`}
-          onClick={() => setActiveTab('containers')}
-          title={collapsed ? hint('Containers') : undefined}
-        >
-          <span className="nav-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 2l9 5v10l-9 5-9-5V7l9-5z"/>
-              <path d="M3 7l9 5 9-5"/>
-              <path d="M12 12v10"/>
-            </svg>
-          </span>
-          {!collapsed && 'Containers'}
-        </button>
-        <button
-          className={`nav-btn ${activePanel === 'portforwarding' ? 'active' : ''}`}
-          onClick={() => setActiveTab('portforwarding')}
-          title={collapsed ? hint('Port Forwarding') : undefined}
-        >
-          <span className="nav-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M5 12h14"/>
-              <path d="M15 7l5 5-5 5"/>
-              <path d="M3 6v12"/>
-            </svg>
-          </span>
-          {!collapsed && 'Port Forwarding'}
-        </button>
+        {WORK.map(button)}
         {/* Set up once and left alone, so they sit with the app's own
             settings rather than with the three you actually work in. */}
         <div className="sidebar-nav-setup">
-          <button
-            className={`nav-btn ${activePanel === 'keychain' ? 'active' : ''}`}
-            onClick={() => setActiveTab('keychain')}
-            title={collapsed ? hint('Keychain') : undefined}
-          >
-            <span className="nav-icon">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="7.5" cy="7.5" r="4.5"/>
-                <path d="M10.5 10.5L21 21"/>
-                <path d="M17 17l2-2"/>
-                <path d="M19 15l2-2"/>
-              </svg>
-            </span>
-            {!collapsed && 'Keychain'}
-          </button>
-          <button
-            className={`nav-btn ${activePanel === 'knownhosts' ? 'active' : ''}`}
-            onClick={() => setActiveTab('knownhosts')}
-            title={collapsed ? hint('Known Hosts') : undefined}
-          >
-            <span className="nav-icon">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 3l7 3v5.5c0 4.2-2.9 7.6-7 8.5-4.1-.9-7-4.3-7-8.5V6z"/>
-                <path d="M9 12l2 2 4-4"/>
-              </svg>
-            </span>
-            {!collapsed && 'Known Hosts'}
-          </button>
-          <button
-            className={`nav-btn ${activePanel === 'recordings' ? 'active' : ''}`}
-            onClick={() => setActiveTab('recordings')}
-            title={collapsed ? hint('Recordings') : undefined}
-          >
-            <span className="nav-icon">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="2.5" y="4" width="19" height="16" rx="2.5"/>
-                <path d="M10 9l5 3-5 3z"/>
-              </svg>
-            </span>
-            {!collapsed && 'Recordings'}
-          </button>
+          {SETUP.map(button)}
         </div>
       </nav>
       <nav className="sidebar-nav-bottom">
@@ -165,36 +66,7 @@ export default function Sidebar({ open, onClose }: Props) {
             v{updateAvailable.version} available
           </button>
         )}
-        <button
-          className={`nav-btn ${activePanel === 'theme-editor' ? 'active' : ''}`}
-          onClick={() => setActiveTab('theme-editor')}
-          title={collapsed ? hint('Theme Editor') : undefined}
-        >
-          <span className="nav-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 2a10 10 0 1 0 10 10c0-2.8-2.2-5-5-5h-1.6c-.9 0-1.6-.7-1.6-1.6 0-.4.2-.8.4-1.1.2-.3.4-.7.4-1.1C14.6 2.7 13.4 2 12 2z"/>
-              <circle cx="7"  cy="10"  r="1.5" fill="currentColor" stroke="none"/>
-              <circle cx="10" cy="7"   r="1.5" fill="currentColor" stroke="none"/>
-              <circle cx="8"  cy="14.5" r="1.5" fill="currentColor" stroke="none"/>
-              <circle cx="12" cy="16"  r="1.5" fill="currentColor" stroke="none"/>
-            </svg>
-          </span>
-          {!collapsed && 'Theme Editor'}
-        </button>
-        <button
-          className={`nav-btn ${activePanel === 'settings' ? 'active' : ''}`}
-          onClick={() => setActiveTab('settings')}
-          title={collapsed ? hint('Settings') : undefined}
-        >
-          <span className="nav-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="3"/>
-              <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
-            </svg>
-          </span>
-          {!collapsed && 'Settings'}
-          {updateAvailable && collapsed && <span className="dot dot-on sidebar-update-dot" />}
-        </button>
+        {APP.map(button)}
       </nav>
     </aside>
   );
