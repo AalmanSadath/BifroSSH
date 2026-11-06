@@ -47,4 +47,5 @@ export const DEFAULT_SETTINGS: Settings = {
   volume_keys_zoom: true,
   screen_orientation: 'auto',
   window_frame: cachedWindowFrame(),
+  hide_in_recents: true,
 };

@@ -17,6 +17,7 @@ import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
 import android.security.keystore.StrongBoxUnavailableException
 import android.util.Base64
+import android.view.WindowManager
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG
 import androidx.biometric.BiometricPrompt
@@ -230,6 +231,21 @@ class AndroidPlugin(private val activity: Activity) : Plugin(activity) {
       else -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
     }
     activity.runOnUiThread { activity.requestedOrientation = mode }
+    invoke.resolve()
+  }
+
+  /**
+   * FLAG_SECURE on or off. On, the recent-apps view shows a blank card and
+   * screenshots of the app come out black. MainActivity turns it on before
+   * anything loads; the setting can turn it off again.
+   */
+  @Command
+  fun secure(invoke: Invoke) {
+    val enabled = invoke.parseArgs(EnabledArgs::class.java).enabled
+    activity.runOnUiThread {
+      if (enabled) activity.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+      else activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+    }
     invoke.resolve()
   }
 

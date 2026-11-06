@@ -64,6 +64,19 @@ export function useOrientation(): void {
 }
 
 /**
+ * FLAG_SECURE as the setting says. MainActivity sets it before anything
+ * loads, so the unlock screen is hidden from the recent-apps view too, before
+ * the settings can be read; this clears it if the user turned it off.
+ */
+export function useSecureWindow(): void {
+  const enabled = useAppStore((s) => s.settings.hide_in_recents);
+  useEffect(() => {
+    if (!isAndroid) return;
+    ipc.androidSecure(enabled).catch(() => {});
+  }, [enabled]);
+}
+
+/**
  * The volume keys as the terminal's text size on Android, while a terminal
  * is in front and the setting is on. Anywhere else they stay the volume.
  */

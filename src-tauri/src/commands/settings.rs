@@ -89,6 +89,22 @@ pub async fn android_volume_keys(
     Ok(())
 }
 
+/// Hides the app's window from the recent-apps view and from screenshots,
+/// or shows it again. Android only.
+#[tauri::command]
+pub async fn android_secure(
+    #[cfg_attr(not(target_os = "android"), allow(unused_variables))] app: tauri::AppHandle,
+    #[cfg_attr(not(target_os = "android"), allow(unused_variables))] enabled: bool,
+) -> CmdResult<()> {
+    #[cfg(target_os = "android")]
+    return tokio::task::spawn_blocking(move || crate::android::secure(&app, enabled))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(Into::into);
+    #[cfg(not(target_os = "android"))]
+    Ok(())
+}
+
 /// Holds the app portrait or landscape, or lets it follow the phone.
 /// Android only.
 #[tauri::command]

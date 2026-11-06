@@ -383,6 +383,8 @@ export interface Settings {
   screen_orientation: ScreenOrientation;
   /** Desktop: the app's own title bar controls, or the system's frame. */
   window_frame: WindowFrame;
+  /** Android: a blank card in recent apps; it also blocks screenshots. */
+  hide_in_recents: boolean;
 }
 
 export type ScreenOrientation = 'auto' | 'portrait' | 'landscape';

@@ -266,6 +266,7 @@ fn start() {
             commands::android_keep_alive,
             commands::android_volume_keys,
             commands::android_orientation,
+            commands::android_secure,
             commands::take_launch,
             commands::host_used,
             commands::android_pin_host,

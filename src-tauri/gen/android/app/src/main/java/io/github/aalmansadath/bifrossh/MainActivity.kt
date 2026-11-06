@@ -9,6 +9,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.KeyEvent
 import android.view.View
+import android.view.WindowManager
 import android.webkit.WebView
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
@@ -23,6 +24,9 @@ class MainActivity : TauriActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
+    // Hidden from the recent-apps view from the first frame, the unlock
+    // screen included. The setting, once it can be read, may clear it.
+    window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
     super.onCreate(savedInstanceState)
 
     // Edge to edge is enforced from Android 15, and the WebView does not keep

@@ -87,6 +87,17 @@ export default function SecuritySection({ setActiveTab }: { setActiveTab: (id: s
             </div>
           </div>
         )}
+        {isAndroid && <>
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={shown.hide_in_recents}
+              onChange={(e) => patch({ hide_in_recents: e.target.checked })}
+            />
+            <span>Hide in recent apps</span>
+          </label>
+          <p className="form-hint">Shows a blank card in the app switcher. Also blocks screenshots of the app.</p>
+        </>}
         {!isAndroid && <label className="checkbox-row">
           <input
             type="checkbox"
