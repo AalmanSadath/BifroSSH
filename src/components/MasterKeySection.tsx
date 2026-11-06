@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { longEnough, TOO_SHORT } from '../passphraseRules';
 import * as ipc from '../ipc';
 import PassphraseInput from './shared/PassphraseInput';
 import type { KeystoreStatus } from '../types';
@@ -222,6 +223,7 @@ export default function MasterKeySection({ onChanged }: Props = {}) {
 
               {mode === 'set' && (
                 <>
+                  {pass !== '' && !longEnough(pass) && <p className="form-hint">{TOO_SHORT}</p>}
                   <label htmlFor="master-pass-confirm">Confirm passphrase</label>
                   <PassphraseInput
                     id="master-pass-confirm"
@@ -257,7 +259,7 @@ export default function MasterKeySection({ onChanged }: Props = {}) {
                 </button>
                 <button
                   className={`${mode === 'set' ? 'btn-primary' : 'btn-danger'} btn-sm`}
-                  disabled={busy || !pass || (mode === 'set' && alwaysAsk && !understood)}
+                  disabled={busy || !pass || (mode === 'set' && (!longEnough(pass) || (alwaysAsk && !understood)))}
                   onClick={apply}
                 >
                   {busy ? 'Working…' : mode === 'set' ? 'Set passphrase' : 'Remove passphrase'}

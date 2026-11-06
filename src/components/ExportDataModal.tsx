@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { longEnough, TOO_SHORT } from '../passphraseRules';
 import * as ipc from '../ipc';
 import { localStyle } from '../paths';
 import PassphraseInput from './shared/PassphraseInput';
@@ -35,6 +36,7 @@ export function canExport(s: {
   busy: boolean;
 }): boolean {
   if (!s.path || s.busy || s.passphrase.length === 0) return false;
+  if (!longEnough(s.passphrase, s.generated)) return false;
   return s.generated ? s.saved : s.passphrase === s.confirmPass;
 }
 
@@ -180,6 +182,10 @@ export default function ExportDataModal({ onClose }: Props) {
               placeholder="Confirm passphrase"
               onChange={setConfirmPass}
             />
+          )}
+
+          {!generated && passphrase !== '' && !longEnough(passphrase) && (
+            <p className="form-hint">{TOO_SHORT}</p>
           )}
 
           {!generated && confirmPass.length > 0 && !matched && (

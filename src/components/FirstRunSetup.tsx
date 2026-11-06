@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { longEnough, TOO_SHORT } from '../passphraseRules';
 import * as ipc from '../ipc';
 import GeneratedPassphraseField from './shared/GeneratedPassphraseField';
 import { isAndroid } from '../platform';
@@ -30,7 +31,7 @@ export default function FirstRunSetup({ keyringAvailable, onReady }: Props) {
   const needsPassphrase = mode !== 'secret-file';
   // A generated phrase is the one nobody has memorised, so it does not count
   // as chosen until the user says they have put it somewhere.
-  const ready = !needsPassphrase || (passphrase.trim() !== '' && (!generated || saved));
+  const ready = !needsPassphrase || (passphrase.trim() !== '' && longEnough(passphrase, generated) && (!generated || saved));
 
   function pick(next: Mode) {
     setMode(next);
@@ -134,6 +135,9 @@ export default function FirstRunSetup({ keyringAvailable, onReady }: Props) {
                 </p>
               }
             />
+            {!generated && passphrase !== '' && !longEnough(passphrase) && (
+              <p className="form-hint">{TOO_SHORT}</p>
+            )}
           </>
         )}
 
