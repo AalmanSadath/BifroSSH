@@ -124,6 +124,16 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.18.1" date="2026-11-07">
+      <description>
+        <p>
+          The SFTP host picker and the Containers page show hosts as cards,
+          the same as the Hosts page: the system icon, the name, and the
+          login and address under it, sorted under the same group headings.
+          The host a page is connected to is outlined.
+        </p>
+      </description>
+    </release>
     <release version="0.18.0" date="2026-11-06">
       <description>
         <p>
