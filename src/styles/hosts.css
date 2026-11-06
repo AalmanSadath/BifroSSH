@@ -213,6 +213,24 @@
   box-shadow: inset 0 0 0 1px var(--accent);
 }
 
+/* The host a page is working on, in SFTP's picker and the Containers
+   column. Drawn as a picked card is. */
+.host-card-active,
+.host-card-active:hover {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.host-card-dim {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.host-card-badge {
+  flex-shrink: 0;
+  font-size: 11px;
+}
+
 .host-card-icon {
   width: 46px;
   height: 46px;

@@ -1,8 +1,6 @@
 import { useState } from 'react';
-import { useAppStore } from '../../store/appStore';
-import { matchesHost } from '../../hosts';
 import type { Server } from '../../types';
-import OsIcon from '../OsIcon';
+import HostCardList, { HostCard } from '../shared/HostCardList';
 import { useHint } from '../shared/useHint';
 import { isAndroid } from '../../platform';
 
@@ -57,10 +55,8 @@ interface HostPickerProps {
 
 /** The hosts a pane can connect to, with a filter over them. */
 export default function HostPicker({ servers, connectingId, activeServerId, error, onConnect, onBack, onGoLocal }: HostPickerProps) {
-  const { identities } = useAppStore();
   const hint = useHint();
   const [query, setQuery] = useState('');
-  const shown = servers.filter((s) => matchesHost(s, query));
   return (
     <div className="sftp-host-picker" onContextMenu={(e) => e.preventDefault()}>
       <div className="sftp-picker-header">
@@ -94,33 +90,30 @@ export default function HostPicker({ servers, connectingId, activeServerId, erro
         </div>
       )}
       <div className="sftp-picker-list">
-        {servers.length === 0 ? (
-          <div className="sftp-picker-empty">No hosts configured. Add one in Hosts.</div>
-        ) : shown.length === 0 ? (
-          <div className="sftp-picker-empty">No hosts match.</div>
-        ) : shown.map((s) => (
-          <div
-            key={s.id}
-            className={`sftp-picker-item${connectingId === s.id ? ' sftp-picker-connecting' : ''}${activeServerId === s.id ? ' sftp-picker-has-session' : ''}`}
-            onClick={isAndroid ? () => !connectingId && onConnect(s) : undefined}
-            onDoubleClick={() => !connectingId && onConnect(s)}
-            title={hint(activeServerId === s.id ? 'Double-click to resume' : 'Double-click to connect via SFTP')}
-          >
-            <div className="sftp-picker-icon">
-              <OsIcon os={s.os} size={28} />
-            </div>
-            <div className="sftp-picker-info">
-              <div className="sftp-picker-name">{s.name}</div>
-              <div className="sftp-picker-addr">{(s.username ?? identities.find(i => i.id === s.identity_id)?.username ?? 'ssh')} · {s.host}:{s.port}</div>
-            </div>
-            {activeServerId === s.id && !connectingId && (
-              <span className="sftp-active-badge">● Active</span>
-            )}
-            {connectingId === s.id && (
-              <span className="sftp-picker-status">Connecting…</span>
-            )}
-          </div>
-        ))}
+        <HostCardList
+          servers={servers}
+          query={query}
+          className="hosts-grid sftp-host-grid"
+          render={(s) => {
+            const connect = () => { if (!connectingId) onConnect(s); };
+            const active = activeServerId === s.id;
+            return (
+              <HostCard
+                key={s.id}
+                server={s}
+                active={active}
+                dim={connectingId === s.id}
+                badge={connectingId === s.id
+                  ? <span className="sftp-picker-status">Connecting…</span>
+                  : active && <span className="sftp-active-badge">● Active</span>}
+                onActivate={connect}
+                onClick={isAndroid ? connect : undefined}
+                onDoubleClick={connect}
+                title={hint(active ? 'Double-click to resume' : 'Double-click to connect via SFTP')}
+              />
+            );
+          }}
+        />
       </div>
     </div>
   );

@@ -2,12 +2,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { withConnectLog } from '../connectLog';
 import * as ipc from '../ipc';
 import { useAppStore, buildJumpChain, resolveServerAuth, reportFailure } from '../store/appStore';
-import { matchesHost } from '../hosts';
 import { useHint } from './shared/useHint';
 import ContextMenu from './shared/ContextMenu';
 import ConnectingView from './ConnectingView';
 import Modal from './shared/Modal';
-import OsIcon from './OsIcon';
+import HostCardList, { HostCard } from './shared/HostCardList';
 import type { Container, ContainerListing, ContainerTab, LogEntry, Server } from '../types';
 
 type Action = 'start' | 'stop' | 'restart';
@@ -171,7 +170,6 @@ export default function ContainersPanel() {
     setContainersConn({ ...containersConn, sudo: false });
   }
 
-  const hosts = servers.filter((s) => matchesHost(s, hostQuery));
   const q = query.trim().toLowerCase();
   const shown = (listing?.containers ?? []).filter((c) =>
     q === '' || c.name.toLowerCase().includes(q) || c.image.toLowerCase().includes(q));
@@ -191,22 +189,20 @@ export default function ContainersPanel() {
             spellCheck={false}
           />
           <div className="containers-host-list">
-            {servers.length === 0 ? (
-              <p className="list-empty">No hosts yet. Add one in Hosts.</p>
-            ) : hosts.length === 0 ? (
-              <p className="list-empty">No hosts match.</p>
-            ) : hosts.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                className={`containers-host${(containersConn?.serverId ?? connecting?.server.id) === s.id ? ' active' : ''}`}
-                onClick={() => void connect(s)}
-                title={`${s.host}:${s.port}`}
-              >
-                <OsIcon os={s.os} size={22} />
-                <span className="containers-host-name">{s.name}</span>
-              </button>
-            ))}
+            <HostCardList
+              servers={servers}
+              query={hostQuery}
+              className="containers-host-cards"
+              render={(s) => (
+                <HostCard
+                  key={s.id}
+                  server={s}
+                  active={(containersConn?.serverId ?? connecting?.server.id) === s.id}
+                  onActivate={() => void connect(s)}
+                  onClick={() => void connect(s)}
+                />
+              )}
+            />
           </div>
         </div>
 
