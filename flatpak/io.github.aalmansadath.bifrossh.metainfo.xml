@@ -124,6 +124,27 @@
     <binary>bifrossh</binary>
   </provides>
   <releases>
+    <release version="0.18.0" date="2026-11-06">
+      <description>
+        <p>
+          The window draws its own title bar: minimize, maximize and close
+          sit at the right end of the top row, beside Quick Connect or the
+          tabs, and the bar drags the window. Appearance has a Window frame
+          setting to go back to the system's frame. The sidebar header, the
+          Quick Connect bar and the tab bar now line up at one height. The
+          resize cursor shows as soon as the pointer reaches the window's
+          edge.
+        </p>
+        <p>
+          Security: an ssh:// link to a saved host asks before connecting, a
+          terminal hyperlink shows its real address before it opens, and a
+          port forward bound beyond this computer says who can reach it. The
+          master passphrase is stretched with stronger Argon2id settings,
+          applied to an existing vault at its next unlock, and a new one
+          must be at least 12 characters.
+        </p>
+      </description>
+    </release>
     <release version="0.17.1" date="2026-11-03">
       <description>
         <p>
