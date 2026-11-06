@@ -19,25 +19,27 @@ interface Category {
   label: string;
   /** Drawn on Android's list of categories; the desktop rail is text only. */
   icon: ReactNode;
+  /** The line under the name on Android's list, saying what is inside. */
+  summary: string;
 }
 
-const ICON = 22;
+const ICON = 20;
 
 const CATEGORIES: Category[] = [
-  { id: 'appearance', label: 'Appearance', icon: <PaletteIcon size={ICON} /> },
-  { id: 'terminal', label: 'Terminal', icon: <TerminalIcon size={ICON} /> },
+  { id: 'appearance', label: 'Appearance', icon: <PaletteIcon size={ICON} />, summary: 'Theme, accent colour, rotation' },
+  { id: 'terminal', label: 'Terminal', icon: <TerminalIcon size={ICON} />, summary: 'Colours, font, cursor, monitor bar' },
   // A touch screen has no keys to bind.
-  ...(isAndroid ? [] : [{ id: 'shortcuts' as const, label: 'Shortcuts', icon: null }]),
-  { id: 'connection', label: 'Connection', icon: <PlugIcon size={ICON} /> },
-  { id: 'security', label: 'Security', icon: <ShieldIcon size={ICON} /> },
-  { id: 'data', label: 'Data', icon: <DatabaseIcon size={ICON} /> },
-  { id: 'about', label: 'About', icon: <InfoIcon size={ICON} /> },
+  ...(isAndroid ? [] : [{ id: 'shortcuts' as const, label: 'Shortcuts', icon: null, summary: '' }]),
+  { id: 'connection', label: 'Connection', icon: <PlugIcon size={ICON} />, summary: 'Timeouts, keepalive, logs, recordings' },
+  { id: 'security', label: 'Security', icon: <ShieldIcon size={ICON} />, summary: 'Master key, locking, host keys' },
+  { id: 'data', label: 'Data', icon: <DatabaseIcon size={ICON} />, summary: 'Backup, import and export' },
+  { id: 'about', label: 'About', icon: <InfoIcon size={ICON} />, summary: 'Version, updates, diagnostics' },
 ];
 
 /** Android's list, in blocks: what you set, then what the app tells you. */
-const CARD_GROUPS: SettingsSection[][] = [
-  ['appearance', 'terminal', 'connection', 'security', 'data'],
-  ['about'],
+const CARD_GROUPS: { title: string; ids: SettingsSection[] }[] = [
+  { title: 'Preferences', ids: ['appearance', 'terminal', 'connection', 'security', 'data'] },
+  { title: 'App', ids: ['about'] },
 ];
 
 function SectionBody({ section }: { section: SettingsSection }) {
@@ -87,18 +89,22 @@ function AndroidSettings() {
     <div className="panel settings-panel">
       <div className="panel-title">Settings</div>
       {CARD_GROUPS.map((group) => (
-        <div key={group[0]} className="settings-cards">
-          {group.map((id) => {
+        <section key={group.title} className="settings-cards">
+          <div className="settings-cards-title">{group.title}</div>
+          {group.ids.map((id) => {
             const c = CATEGORIES.find((x) => x.id === id)!;
             return (
               <button key={id} className="settings-card" onClick={() => openSettings(id)}>
                 <span className="settings-card-icon">{c.icon}</span>
-                <span className="settings-card-label">{c.label}</span>
-                <span className="settings-card-chevron"><ChevronRightIcon size={20} /></span>
+                <span className="settings-card-text">
+                  <span className="settings-card-label">{c.label}</span>
+                  <span className="settings-card-summary">{c.summary}</span>
+                </span>
+                <span className="settings-card-chevron"><ChevronRightIcon size={18} /></span>
               </button>
             );
           })}
-        </div>
+        </section>
       ))}
     </div>
   );
