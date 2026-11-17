@@ -11,6 +11,15 @@ name: Flatpak build
 # signs never needs it either.
 on:
   workflow_call:
+    inputs:
+      # Set by nightly.yml, and only there. A nightly also gets its bundle
+      # here, since it never goes through the release's stage job.
+      version:
+        type: string
+        default: ''
+      date:
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -46,6 +55,13 @@ jobs:
           # copies everything under here, and the built repository beside it
           # would otherwise be dragged into the build.
           path: bifrossh
+
+      - name: Set the nightly version
+        if: inputs.version != ''
+        env:
+          VERSION: ${{ inputs.version }}
+          DATE: ${{ inputs.date }}
+        run: bifrossh/.github/scripts/set-version.sh "$VERSION" "$DATE"
 
       # The vendored sources are checked by the CI workflow the release calls,
       # so a stale manifest fails on the push that introduced it rather than
@@ -83,4 +99,27 @@ jobs:
         with:
           name: bifrossh-ostree-repo
           path: ostree-repo.tar
+          if-no-files-found: error
+
+      # A release bundles from the signed store with --repo-url, so that an
+      # install from the file updates from the repository. A nightly must not:
+      # ostree updates to whatever commit the remote serves, with no notion of
+      # newer, so flatpak update would move a nightly back to the older stable
+      # build. Bundled with no origin URL and no key, it updates from nowhere,
+      # and the next nightly or release is installed over it from its file.
+      # Same app id and branch as a release, so the two replace one another.
+      - name: Bundle the nightly
+        if: inputs.version != ''
+        run: |
+          flatpak build-bundle \
+            --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
+            repo bifrossh.flatpak "$APP_ID" master
+          ls -lh bifrossh.flatpak
+
+      - name: Upload the nightly bundle
+        if: inputs.version != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: bifrossh-flatpak-nightly
+          path: bifrossh.flatpak
           if-no-files-found: error

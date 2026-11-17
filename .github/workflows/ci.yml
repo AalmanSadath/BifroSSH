@@ -21,14 +21,17 @@ on:
 # A newer push makes an in-flight run redundant. Called from the release
 # workflow this still keys on the caller's ref, which for a tag is
 # refs/tags/vX.Y.Z, so a release and the branch push beside it land in
-# different groups and cannot cancel one another.
+# different groups and cannot cancel one another. The nightly calls this on
+# refs/heads/main, the same ref as a push, so the group also carries the
+# calling workflow's name: a push landing mid-nightly must not cancel the
+# checks the nightly is waiting on.
 # Nothing here writes to the repository, a release or a package; the token
 # only has to read the checkout. A caller can grant no more than it asks for.
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -59,7 +62,10 @@ jobs:
           EVENT: ${{ github.event_name }}
           REF_TYPE: ${{ github.ref_type }}
         run: |
-          tags=$(git tag --points-at HEAD)
+          # Only a release tag means another run covers this commit. A nightly
+          # tag, and the nightly-latest marker, sit on commits main pushed
+          # long before, and a re-run there must still test.
+          tags=$(git tag --points-at HEAD | grep -v -e '-nightly\.' -e '^nightly-latest$' || true)
           if [ "$EVENT" = "push" ] && [ "$REF_TYPE" = "branch" ] && [ -n "$tags" ]; then
             echo "Commit is tagged ($(echo "$tags" | tr '\n' ' ')); the release run covers it."
             echo "run=false" >> "$GITHUB_OUTPUT"

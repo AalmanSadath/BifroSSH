@@ -12,6 +12,29 @@ name: Linux packages
 on:
   workflow_dispatch:
   workflow_call:
+    inputs:
+      # Set by nightly.yml, and only there; empty builds what the tree says.
+      # `version` is the semver one the app reports. Neither package format
+      # can carry it as it is, since in both a nightly must sort below the
+      # release it leads to, so each gets its own:
+      #   deb_version  0.18.2~nightly.20261118 (~ sorts first in dpkg)
+      #   rpm_release  0.nightly20261118, under Version 0.18.2. Tauri's rpm
+      #                step refuses the '-' of a pre-release and its config
+      #                refuses a '~', so this is Fedora's own convention
+      #                for a pre-release: a Release starting 0 sorts below
+      #                the 1 every release carries.
+      version:
+        type: string
+        default: ''
+      date:
+        type: string
+        default: ''
+      deb_version:
+        type: string
+        default: ''
+      rpm_release:
+        type: string
+        default: ''
 
 # Nothing here writes to the repository, a release or a package; the token
 # only has to read the checkout. A caller can grant no more than it asks for.
@@ -19,7 +42,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: linux-packages-${{ github.ref }}
+  group: linux-packages-${{ github.ref }}-${{ inputs.version }}
   cancel-in-progress: true
 
 jobs:
@@ -28,6 +51,13 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set the nightly version
+        if: inputs.version != ''
+        env:
+          VERSION: ${{ inputs.version }}
+          DATE: ${{ inputs.date }}
+        run: .github/scripts/set-version.sh "$VERSION" "$DATE"
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
@@ -73,7 +103,22 @@ jobs:
       # runner is pinned rather than ubuntu-latest so that floor only moves
       # when it is chosen to.
       - name: Build the packages
+        if: inputs.version == ''
         run: npm run tauri -- build --bundles deb,rpm
+
+      # The binary is built once, reporting the nightly version; only the rpm's
+      # own label is bundled again, as 0.18.2 with the nightly's Release.
+      - name: Build the nightly packages
+        if: inputs.version != ''
+        env:
+          VERSION: ${{ inputs.version }}
+          RPM_RELEASE: ${{ inputs.rpm_release }}
+        run: |
+          set -euo pipefail
+          npm run tauri -- build --bundles deb
+          core="${VERSION%%-*}"
+          npm run tauri -- bundle --bundles rpm --config \
+            "{\"version\":\"$core\",\"bundle\":{\"linux\":{\"rpm\":{\"release\":\"$RPM_RELEASE\"}}}}"
 
       - name: Find the packages
         run: |
@@ -96,6 +141,33 @@ jobs:
           # nothing, and published without them.
           mkdir -p packages
           cp "$deb" "$rpm" packages/
+          ls -lh packages
+
+      # Tauri writes the semver version into the deb, and in dpkg's eyes
+      # 0.18.2-nightly.20261118 is 0.18.2 at Debian revision "nightly...",
+      # above the release. Unpacked, given the ~ form, packed again. The
+      # files are named after the semver version, since GitHub rewrites some
+      # characters in asset names.
+      - name: Label the nightly packages
+        if: inputs.version != ''
+        env:
+          VERSION: ${{ inputs.version }}
+          DEB_VERSION: ${{ inputs.deb_version }}
+        run: |
+          set -euo pipefail
+          deb=(packages/*.deb) rpm=(packages/*.rpm)
+          work=$(mktemp -d)
+          dpkg-deb -R "${deb[0]}" "$work/pkg"
+          sed -i "s/^Version: .*/Version: $DEB_VERSION/" "$work/pkg/DEBIAN/control"
+          rm "${deb[0]}"
+          dpkg-deb --root-owner-group -b "$work/pkg" "packages/bifrossh_${VERSION}_amd64.deb"
+          mv "${rpm[0]}" "packages/bifrossh-${VERSION}.x86_64.rpm"
+
+          got=$(dpkg-deb -f "packages/bifrossh_${VERSION}_amd64.deb" Version)
+          echo "deb Version: $got"
+          [ "$got" = "$DEB_VERSION" ] || { echo "::error::deb carries $got, not $DEB_VERSION"; exit 1; }
+          dpkg --compare-versions "$DEB_VERSION" lt "${VERSION%%-*}" \
+            || { echo "::error::$DEB_VERSION does not sort below ${VERSION%%-*}"; exit 1; }
           ls -lh packages
 
       - name: Upload the packages

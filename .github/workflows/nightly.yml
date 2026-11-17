@@ -1,0 +1,315 @@
+name: Nightly
+
+# A beta pre-release of whatever main holds, at 06:00 Sydney, when code has
+# changed since the last one. Every channel's file, desktop and Android, on
+# one GitHub pre-release tagged v<next>-nightly.<date>, where <next> is the
+# patch after the latest release. Nothing here touches the apt, dnf or
+# Flatpak repositories: those serve releases only.
+#
+# Each nightly installs over the release before it and is replaced by the
+# next release, so the versions are chosen to sort between the two:
+#   desktop  0.18.2-nightly.20261118   (semver pre-release, NSIS)
+#   deb      0.18.2~nightly.20261118   (~ sorts below 0.18.2 in dpkg)
+#   rpm      0.18.2-0.nightly20261118  (Release 0.x sorts below the 1 of a release)
+#   Android  0.4.3-nightly.20261118, versionCode 400301 (see android-apk.yml)
+# They are written into the tree inside each build and never committed.
+#
+# A manual run is the same flow as the scheduled one: same change check,
+# same publish. Both share one concurrency group, so neither cancels the
+# other, and a manual run moves nightly-latest, so the next scheduled run
+# builds only if code changed after it. A second build on one Sydney date
+# gets a counter (.2, .3), which sorts above the first everywhere.
+on:
+  schedule:
+    # GitHub's cron is UTC only. 06:00 Sydney is 19:00 UTC in summer (AEDT)
+    # and 20:00 in winter (AEST), so both run and the gate lets through the
+    # one that lands at 06 in Sydney. :17 rather than :00 because scheduled
+    # runs on the hour queue longest.
+    - cron: '17 19 * * *'
+    - cron: '17 20 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build everything and publish nothing
+        type: boolean
+        default: false
+      force:
+        description: Build even if no code changed since the last nightly
+        type: boolean
+        default: false
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: Decide and number
+    runs-on: ubuntu-24.04
+    outputs:
+      run: ${{ steps.plan.outputs.run }}
+      date: ${{ steps.plan.outputs.date }}
+      tag: ${{ steps.plan.outputs.tag }}
+      version: ${{ steps.plan.outputs.version }}
+      deb_version: ${{ steps.plan.outputs.deb_version }}
+      rpm_release: ${{ steps.plan.outputs.rpm_release }}
+      android_version: ${{ steps.plan.outputs.android_version }}
+      android_code: ${{ steps.plan.outputs.android_code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Decide whether to build, and the versions
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          FORCE: ${{ inputs.force }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          skip() { echo "$1"; echo "run=false" >> "$GITHUB_OUTPUT"; exit 0; }
+
+          if [ "$EVENT" = "schedule" ]; then
+            hour=$(TZ=Australia/Sydney date +%H)
+            [ "$hour" = "06" ] || skip "It is ${hour}:xx in Sydney; the other schedule entry is today's."
+          fi
+          date=$(TZ=Australia/Sydney date +%Y%m%d)
+
+          stable=$(git tag -l 'v[0-9]*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          android=$(git tag -l 'android-v[0-9]*' | grep -E '^android-v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          [ -n "$stable" ] && [ -n "$android" ] || { echo "::error::no release tags found"; exit 1; }
+
+          # Changed since whichever came later, the last nightly or the last
+          # release, so a release with nothing after it is not built again
+          # as a nightly.
+          base="$stable"
+          if git rev-parse -q --verify refs/tags/nightly-latest >/dev/null \
+             && git merge-base --is-ancestor "$stable" nightly-latest; then
+            base=nightly-latest
+          fi
+          changed=$(git diff --name-only "$base" HEAD -- \
+            src src-tauri public flatpak \
+            package.json package-lock.json index.html vite.config.ts 'tsconfig*.json' \
+            .github/scripts/set-version.sh \
+            .github/workflows/nightly.yml .github/workflows/ci.yml \
+            .github/workflows/linux-packages.yml .github/workflows/windows-installer.yml \
+            .github/workflows/flatpak-bundle.yml .github/workflows/android-apk.yml \
+            ':(exclude)*.md' ':(exclude)docs' ':(exclude)screenshots')
+          echo "Compared with $base ($(git rev-parse --short "$base"))."
+          if [ -z "$changed" ]; then
+            [ "$FORCE" = "true" ] || skip "No code changed since $base; nothing to publish."
+            echo "No code changed, building anyway (force)."
+          else
+            echo "Changed:"; echo "$changed" | sed 's/^/  /'
+          fi
+
+          IFS=. read -r major minor patch <<< "${stable#v}"
+          next="$major.$minor.$((patch + 1))"
+          IFS=. read -r amajor aminor apatch <<< "${android#android-v}"
+          anext="$amajor.$aminor.$((apatch + 1))"
+
+          # A second build on one date, from a manual run, gets a counter.
+          stamp="$date" k=1
+          while git rev-parse -q --verify "refs/tags/v$next-nightly.$stamp" >/dev/null; do
+            k=$((k + 1)); stamp="$date.$k"
+          done
+
+          # The nth nightly toward the next Android release is numbered
+          # base*100+n (android-apk.yml has the reasoning). Only the last five
+          # nightlies are kept, so n cannot be counted from tags; the newest
+          # nightly always survives, and its notes carry its code.
+          code_base=$(( (amajor * 1000000 + aminor * 1000 + apatch + 1) * 100 ))
+          prev=$(gh api "repos/$REPO/releases?per_page=100" --jq \
+            '[.[] | select(.prerelease and (.tag_name | test("-nightly\\.")))]
+             | sort_by(.created_at) | last | .body // ""' \
+            | sed -nE 's/.*Android versionCode: ([0-9]+).*/\1/p' | tail -1)
+          n=1
+          if [ -n "$prev" ] && [ "$prev" -gt "$code_base" ] && [ "$prev" -lt $((code_base + 99)) ]; then
+            n=$((prev - code_base + 1))
+          fi
+          if [ "$n" -gt 98 ]; then
+            echo "::error::98 nightlies since android-v$anext's predecessor; release Android to reset the count"
+            exit 1
+          fi
+
+          version="$next-nightly.$stamp"
+          {
+            echo "run=true"
+            echo "date=$date"
+            echo "tag=v$version"
+            echo "version=$version"
+            echo "deb_version=$next~nightly.$stamp"
+            echo "rpm_release=0.nightly$stamp"
+            echo "android_version=$anext-nightly.$stamp"
+            echo "android_code=$((code_base + n))"
+          } | tee -a "$GITHUB_OUTPUT"
+
+      # Proves the versions write and agree before twenty minutes of builds
+      # find out otherwise.
+      - name: Check the versions write cleanly
+        if: steps.plan.outputs.run == 'true'
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+          ANDROID_VERSION: ${{ steps.plan.outputs.android_version }}
+          DATE: ${{ steps.plan.outputs.date }}
+        run: |
+          .github/scripts/set-version.sh "$VERSION" "$DATE" "$ANDROID_VERSION"
+          .github/scripts/check-versions.sh "$VERSION"
+
+  # The same checks as a release, on the commit the builds use.
+  check:
+    name: CI
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  linux:
+    name: Linux packages
+    needs: [gate, check]
+    uses: ./.github/workflows/linux-packages.yml
+    permissions:
+      contents: read
+    with:
+      version: ${{ needs.gate.outputs.version }}
+      date: ${{ needs.gate.outputs.date }}
+      deb_version: ${{ needs.gate.outputs.deb_version }}
+      rpm_release: ${{ needs.gate.outputs.rpm_release }}
+
+  windows:
+    name: Windows installer
+    needs: [gate, check]
+    uses: ./.github/workflows/windows-installer.yml
+    permissions:
+      contents: read
+    with:
+      version: ${{ needs.gate.outputs.version }}
+      date: ${{ needs.gate.outputs.date }}
+
+  flatpak:
+    name: Flatpak build
+    needs: [gate, check]
+    uses: ./.github/workflows/flatpak-bundle.yml
+    permissions:
+      contents: read
+    with:
+      version: ${{ needs.gate.outputs.version }}
+      date: ${{ needs.gate.outputs.date }}
+
+  # Signed with the release key under the release app id, so a nightly and a
+  # release replace one another on the phone.
+  android:
+    name: Android APK
+    needs: [gate, check]
+    uses: ./.github/workflows/android-apk.yml
+    permissions:
+      contents: read
+    with:
+      release: true
+      version: ${{ needs.gate.outputs.version }}
+      android_version: ${{ needs.gate.outputs.android_version }}
+      version_code: ${{ needs.gate.outputs.android_code }}
+      date: ${{ needs.gate.outputs.date }}
+    secrets: inherit
+
+  publish:
+    name: Publish pre-release
+    needs: [gate, linux, windows, flatpak, android]
+    # Only from main. A manual run on any other branch is a dry run whatever
+    # its inputs say, so testing a workflow change cannot publish it.
+    if: ${{ !inputs.dry_run && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      TAG: ${{ needs.gate.outputs.tag }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: bifrossh-linux-packages
+          path: artefacts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: bifrossh-windows-installer
+          path: artefacts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: bifrossh-flatpak-nightly
+          path: artefacts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: bifrossh-android-apk
+          path: artefacts
+
+      - run: ls -lh artefacts
+
+      # Never latest: the desktop update check and the README read
+      # /releases/latest, and the Android update check skips pre-releases, so
+      # nobody on a release is offered a nightly. The "Android versionCode"
+      # line is read back by the next nightly's gate; keep its wording.
+      - uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3
+        with:
+          tag_name: ${{ needs.gate.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Nightly ${{ needs.gate.outputs.version }}
+          prerelease: true
+          make_latest: false
+          fail_on_unmatched_files: true
+          files: |
+            artefacts/*.deb
+            artefacts/*.rpm
+            artefacts/*-setup.exe
+            artefacts/bifrossh.flatpak
+            artefacts/BifroSSH_android_*_arm64.apk
+          body: |
+            **Beta.** Built from `main` at ${{ github.sha }}, with whatever was merged since the last release. It may break; the [latest release](https://github.com/${{ github.repository }}/releases/latest) is the one for everyday use.
+
+            Desktop ${{ needs.gate.outputs.version }}, Android ${{ needs.gate.outputs.android_version }} (arm64).
+
+            [![Add to Forager](https://aalmansadath.github.io/forager/badge.svg)](https://aalmansadath.github.io/forager/add/?url=https%3A%2F%2Fgithub.com%2FAalmanSadath%2FBifroSSH&tag_filter=%5Ev&prerelease=1)
+
+            The Forager link above follows nightlies as well as releases.
+
+            Each file installs over the release before it, and the next release replaces it:
+            - **.deb / .rpm**: install with apt or dnf. The next release from the repository upgrades it.
+            - **Windows**: run the installer.
+            - **Android**: open the APK. Same app and signing key as the releases.
+            - **Flatpak**: `flatpak install --user bifrossh.flatpak`. It does not update itself; install the next nightly or release over it with `flatpak install --user --reinstall`. Your data stays.
+
+            Android versionCode: ${{ needs.gate.outputs.android_code }}
+
+      # Marks what this nightly was built from, for the next one's change
+      # check. Through the API rather than git so no checkout or push
+      # credential is needed. A tag made with the workflow token starts no
+      # workflow, and nightly-latest matches no trigger anyway.
+      - name: Move nightly-latest
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/$REPO/git/ref/tags/nightly-latest" >/dev/null 2>&1; then
+            gh api -X PATCH "repos/$REPO/git/refs/tags/nightly-latest" -f sha="$SHA" -F force=true >/dev/null
+          else
+            gh api -X POST "repos/$REPO/git/refs" -f ref=refs/tags/nightly-latest -f sha="$SHA" >/dev/null
+          fi
+          echo "nightly-latest -> $SHA"
+
+      - name: Keep the last five nightlies
+        run: |
+          set -euo pipefail
+          gh api "repos/$REPO/releases?per_page=100" --jq \
+            '[.[] | select(.prerelease and (.tag_name | test("-nightly\\.")))]
+             | sort_by(.created_at) | reverse | .[5:] | .[].tag_name' \
+          | while read -r old; do
+              echo "deleting $old"
+              gh release delete "$old" --repo "$REPO" --cleanup-tag --yes
+            done

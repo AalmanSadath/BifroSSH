@@ -2,7 +2,10 @@ name: Release
 
 on:
   push:
-    tags: ['v*']
+    # Nightly pre-releases are tagged v<next>-nightly.<date> and published by
+    # nightly.yml. Their tags are made with the workflow token, which starts
+    # nothing, but a hand-pushed one must not reach the repositories either.
+    tags: ['v*', '!v*-nightly.*']
   workflow_dispatch:
 
 # Only one publish at a time, shared with the rollback workflow: each run
@@ -44,57 +47,12 @@ jobs:
       - name: Check versions agree
         id: check
         # Runs before the expensive steps so a mistake costs seconds, not a full
-        # build. AppStream takes the version from the metainfo, not the git tag,
-        # so tagging without adding a <release> entry ships an app that updates
-        # correctly and then reports the wrong version: a quiet failure that is
-        # easy to make and annoying to diagnose.
-        run: |
-          META="flatpak/${APP_ID}.metainfo.xml"
-
-          # AppStream orders <releases> newest first and every entry here shares
-          # the same date, so document order is the only usable signal. Taking
-          # the first entry matches how the file is written and maintained.
-          meta_ver=$(grep -o '<release version="[^"]*"' "$META" \
-            | head -1 | sed -E 's/.*version="([^"]*)".*/\1/')
-          cargo_ver=$(awk -F'"' '/^\[package\]/{p=1} p && /^version[[:space:]]*=/{print $2; exit}' src-tauri/Cargo.toml)
-          tauri_ver=$(grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' src-tauri/tauri.conf.json \
-            | head -1 | sed -E 's/.*"([^"]*)"$/\1/')
-          npm_ver=$(grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' package.json \
-            | head -1 | sed -E 's/.*"([^"]*)"$/\1/')
-          # The root version, which is the first one in the file, after "name".
-          # npm ci does not object to this being stale, so nothing else catches
-          # it: the lock sat on 0.12.0 through the whole of 0.13.0.
-          lock_ver=$(grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' package-lock.json \
-            | head -1 | sed -E 's/.*"([^"]*)"$/\1/')
-
-          echo "metainfo (newest release): $meta_ver"
-          echo "src-tauri/Cargo.toml:      $cargo_ver"
-          echo "src-tauri/tauri.conf.json: $tauri_ver"
-          echo "package.json:              $npm_ver"
-          echo "package-lock.json:         $lock_ver"
-
-          fail=0
-          for v in "$cargo_ver" "$tauri_ver" "$npm_ver" "$lock_ver"; do
-            if [ "$v" != "$meta_ver" ]; then
-              echo "::error::Version mismatch between metainfo, Cargo.toml, tauri.conf.json, package.json and package-lock.json"
-              fail=1
-              break
-            fi
-          done
-
-          # workflow_dispatch has no tag, so only the internal check applies.
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            tag_ver="${GITHUB_REF_NAME#v}"
-            echo "git tag:                   $tag_ver"
-            if [ "$tag_ver" != "$meta_ver" ]; then
-              echo "::error::Tag $GITHUB_REF_NAME does not match version $meta_ver. A release needs a <release> entry in $META, not just a tag."
-              fail=1
-            fi
-          fi
-
-          [ "$fail" -eq 0 ] && echo "versions agree"
-          echo "version=$meta_ver" >> "$GITHUB_OUTPUT"
-          exit $fail
+        # build. The checks themselves live in the script, which the nightly
+        # build runs as well. workflow_dispatch has no tag, so only the
+        # internal agreement applies there.
+        env:
+          TAG_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: .github/scripts/check-versions.sh "${TAG_VERSION#v}"
 
 
   # Every build runs from its own workflow, so the graph reads the same on

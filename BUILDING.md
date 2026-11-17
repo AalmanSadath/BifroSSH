@@ -98,3 +98,23 @@ The build runs entirely inside the sandbox with no network, so npm dependencies 
 npm install
 npm run tauri dev
 ```
+
+## Nightly builds
+
+`.github/workflows/nightly.yml` publishes a GitHub pre-release of `main` at 06:00 Sydney time, on days when code changed since the last nightly or release. It can also be started by hand from the Actions tab: the same flow, with an optional dry run that builds without publishing. The last five nightlies are kept. Nothing goes to the apt, dnf or Flatpak repositories.
+
+A nightly sorts between the release before it and the next one, on every channel:
+
+| | Last release | Nightly | Next release |
+|---|---|---|---|
+| App, NSIS | 0.18.1 | 0.18.2-nightly.20261118 | 0.18.2 |
+| deb | 0.18.1 | 0.18.2~nightly.20261118 | 0.18.2 |
+| rpm | 0.18.1-1 | 0.18.2-0.nightly20261118 | 0.18.2-1 |
+| Android | 0.4.2 | 0.4.3-nightly.20261118 | 0.4.3 |
+| Android versionCode | 4002 | 400301 (nth nightly: 4003*100+n) | 400399 (4003*100+99) |
+
+A second build on the same date adds a counter (`.20261118.2`). The versions are written into the tree during the build and never committed.
+
+From 0.4.3 on, an Android release's versionCode is its version times 100, plus 99 (`android-apk.yml` works it out). This leaves room for nightlies in between, and it is why a release must not be built with Tauri's own numbering.
+
+Stored data has to keep working when a user moves from a nightly to a release. A change to a stored or exported format reaches nightly users the morning after it merges, so it has to keep loading in every later build. Once a format change is merged, its meaning is never changed again before the release; a further change is a new format version, with a loader for the old one.
