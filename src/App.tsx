@@ -653,45 +653,6 @@ export default function App() {
             </svg>
           </button>
         </div>
-        {loadError && (
-          <div className="load-error-banner">
-            <span>
-              Saved data could not be read, so this may not be showing everything.
-              {' '}{loadError}
-            </span>
-            <button className="btn-secondary btn-sm" onClick={() => loadAll()}>Try again</button>
-          </div>
-        )}
-        {savedRecording && (
-          <div className="notice-banner">
-            <span>Recording saved to {savedRecording}</span>
-            <button
-              className="btn-secondary btn-sm"
-              onClick={() => { playRecording(savedRecording); setSavedRecording(null); }}
-            >
-              Play
-            </button>
-            <button
-              className="load-error-dismiss"
-              aria-label="Dismiss"
-              onClick={() => setSavedRecording(null)}
-            >
-              ✕
-            </button>
-          </div>
-        )}
-        {actionError && (
-          <div className="load-error-banner">
-            <span>{actionError}</span>
-            <button
-              className="load-error-dismiss"
-              aria-label="Dismiss"
-              onClick={() => setActionError(null)}
-            >
-              ✕
-            </button>
-          </div>
-        )}
         {quickBarShown && <div className="quick-connect-bar" data-tauri-drag-region>
 
           <input
@@ -793,6 +754,50 @@ export default function App() {
             and otherwise here, outside the tabs so they never scroll away. */}
         {!quickBarShown && <WindowControls />}
         </div>
+
+        {/* Under the bars rather than above them: the window's own buttons
+            and drag region live in those bars, and a banner above them pushed
+            the frame down into the window and sat where the title bar
+            belongs. */}
+        {loadError && (
+          <div className="load-error-banner">
+            <span>
+              Saved data could not be read, so this may not be showing everything.
+              {' '}{loadError}
+            </span>
+            <button className="btn-secondary btn-sm" onClick={() => loadAll()}>Try again</button>
+          </div>
+        )}
+        {savedRecording && (
+          <div className="notice-banner">
+            <span>Recording saved to {savedRecording}</span>
+            <button
+              className="btn-secondary btn-sm"
+              onClick={() => { playRecording(savedRecording); setSavedRecording(null); }}
+            >
+              Play
+            </button>
+            <button
+              className="load-error-dismiss"
+              aria-label="Dismiss"
+              onClick={() => setSavedRecording(null)}
+            >
+              ✕
+            </button>
+          </div>
+        )}
+        {actionError && (
+          <div className="load-error-banner">
+            <span>{actionError}</span>
+            <button
+              className="load-error-dismiss"
+              aria-label="Dismiss"
+              onClick={() => setActionError(null)}
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {/* Short of the window's right edge by Tauri's resize band, so the
             scrollbars in here sit where the pointer can reach them. The bars
