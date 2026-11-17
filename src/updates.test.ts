@@ -20,6 +20,19 @@ describe('newerVersion', () => {
     expect(newerVersion('0.14.1', 'v0.15.0')).toBe(true);
   });
 
+  it('offers a nightly the release it leads up to', () => {
+    expect(newerVersion('0.18.2-nightly.20261118', '0.18.2')).toBe(true);
+    expect(newerVersion('0.18.2-nightly.20261118.2', 'v0.18.2')).toBe(true);
+    expect(newerVersion('0.4.3-nightly.20261118', '0.4.3')).toBe(true);
+    expect(newerVersion('0.18.2-nightly.20261118', '0.18.3')).toBe(true);
+  });
+
+  it('does not offer a nightly an older release', () => {
+    expect(newerVersion('0.18.2-nightly.20261118', '0.18.1')).toBe(false);
+    expect(newerVersion('0.18.2', '0.18.2-nightly.20261118')).toBe(false);
+    expect(newerVersion('0.18.1', '0.18.2-nightly.20261118')).toBe(true);
+  });
+
   it('never raises an alarm for a tag it cannot read', () => {
     expect(newerVersion('0.14.1', 'nightly')).toBe(false);
     expect(newerVersion('0.14.1', '')).toBe(false);

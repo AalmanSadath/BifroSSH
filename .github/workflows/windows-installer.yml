@@ -13,6 +13,15 @@ on:
   pull_request:
   workflow_dispatch:
   workflow_call:
+    inputs:
+      # Set by nightly.yml, and only there: the version written into the tree
+      # before it builds. Empty builds what the tree says.
+      version:
+        type: string
+        default: ''
+      date:
+        type: string
+        default: ''
 
 # Nothing here writes to the repository, a release or a package; the token
 # only has to read the checkout. A caller can grant no more than it asks for.
@@ -20,7 +29,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: windows-installer-${{ github.ref }}
+  group: windows-installer-${{ github.ref }}-${{ inputs.version }}
   cancel-in-progress: true
 
 jobs:
@@ -29,6 +38,14 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set the nightly version
+        if: inputs.version != ''
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          DATE: ${{ inputs.date }}
+        run: .github/scripts/set-version.sh "$VERSION" "$DATE"
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:

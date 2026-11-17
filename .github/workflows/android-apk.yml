@@ -21,9 +21,24 @@ on:
       release:
         type: boolean
         default: false
+      # Set by nightly.yml, and only there: the versions written into the
+      # tree before it builds, and the versionCode the nightly is numbered
+      # with. Empty builds what the tree says.
+      version:
+        type: string
+        default: ''
+      android_version:
+        type: string
+        default: ''
+      version_code:
+        type: string
+        default: ''
+      date:
+        type: string
+        default: ''
 
 concurrency:
-  group: android-apk-${{ github.ref }}-${{ inputs.release && 'release' || 'debug' }}
+  group: android-apk-${{ github.ref }}-${{ inputs.release && 'release' || 'debug' }}-${{ inputs.android_version }}
   cancel-in-progress: true
 
 permissions:
@@ -41,6 +56,14 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set the nightly version
+        if: inputs.version != ''
+        env:
+          VERSION: ${{ inputs.version }}
+          ANDROID_VERSION: ${{ inputs.android_version }}
+          DATE: ${{ inputs.date }}
+        run: .github/scripts/set-version.sh "$VERSION" "$DATE" "$ANDROID_VERSION"
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
@@ -75,16 +98,40 @@ jobs:
 
       # The Android line is numbered on its own, in tauri.android.conf.json,
       # not with the desktop version.
+      #
+      # The versionCode is set here rather than left to Tauri, whose default
+      # (major*1000000 + minor*1000 + patch) has no room for builds between
+      # two releases. Scaled by 100: a release X.Y.Z is that times 100 plus
+      # 99, and the nth nightly toward it is plus n, so 0.4.2 (4002, from
+      # before) < 400301, the first nightly toward 0.4.3 < 400399, 0.4.3 itself.
+      # Every step is an upgrade.
       - name: Read the version
         id: version
+        env:
+          CODE: ${{ inputs.version_code }}
         run: |
+          set -euo pipefail
           version=$(jq -r .version src-tauri/tauri.android.conf.json)
+          core="${version%%-*}"
+          if [ -n "$CODE" ]; then
+            code="$CODE"
+          elif [ "$core" != "$version" ]; then
+            echo "::error::$version is a pre-release, which needs its versionCode given"
+            exit 1
+          else
+            IFS=. read -r major minor patch <<< "$core"
+            code=$(( (major * 1000000 + minor * 1000 + patch) * 100 + 99 ))
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Android version $version"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "config={\"bundle\":{\"android\":{\"versionCode\":$code}}}" >> "$GITHUB_OUTPUT"
+          echo "Android version $version, versionCode $code"
 
       - name: Build the debug APK
         if: ${{ !inputs.release }}
-        run: npm run tauri android build -- --debug --apk --target aarch64
+        run: npm run tauri android build -- --debug --apk --target aarch64 --config "$CONFIG"
+        env:
+          CONFIG: ${{ steps.version.outputs.config }}
 
       # Gradle signs the release build from keystore.properties when it exists
       # (build.gradle.kts). Checked up front, because without it the build
@@ -116,7 +163,9 @@ jobs:
 
       - name: Build the release APK
         if: ${{ inputs.release }}
-        run: npm run tauri android build -- --apk --target aarch64
+        run: npm run tauri android build -- --apk --target aarch64 --config "$CONFIG"
+        env:
+          CONFIG: ${{ steps.version.outputs.config }}
 
       - name: Remove the signing key
         if: ${{ always() && inputs.release }}
@@ -145,6 +194,22 @@ jobs:
           mv "$src" "apk/$name"
           echo "path=apk/$name" >> "$GITHUB_OUTPUT"
           ls -lh apk
+
+      # The code came in through --config, and a build that ignored it would
+      # still succeed with Tauri's own number, below every nightly before it.
+      - name: Check the versionCode
+        env:
+          APK: ${{ steps.artefact.outputs.path }}
+          EXPECTED: ${{ steps.version.outputs.code }}
+        run: |
+          set -euo pipefail
+          tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          badging=$("$tools/aapt2" dump badging "$APK" | awk 'NR == 1')
+          echo "$badging"
+          if ! echo "$badging" | grep -q "versionCode='$EXPECTED'"; then
+            echo "::error::The APK's versionCode is not $EXPECTED"
+            exit 1
+          fi
 
       # A release APK signed by anything but the release key would install
       # once and then refuse every update, so the certificate is checked and

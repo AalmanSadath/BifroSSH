@@ -24,21 +24,27 @@ export interface Release {
   url: string;
 }
 
-/** `v1.2.3` or `1.2.3` to its numbers; null for anything else. */
+/**
+ * `v1.2.3` or `1.2.3` to its numbers, with a fourth that is 0 for a
+ * pre-release (`1.2.3-nightly.20261118`) and 1 for the release itself, so a
+ * nightly sorts below the release it leads up to. Null for anything else.
+ */
 function parts(version: string): number[] | null {
-  const m = /^v?(\d+)\.(\d+)\.(\d+)/.exec(version.trim());
-  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+  const m = /^v?(\d+)\.(\d+)\.(\d+)(-)?/.exec(version.trim());
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3]), m[4] ? 0 : 1] : null;
 }
 
 /**
  * Whether `latest` is newer than `current`. A version that does not parse
- * is never newer, so a tag named oddly cannot raise a false alarm.
+ * is never newer, so a tag named oddly cannot raise a false alarm. Two
+ * pre-releases of the same version count as equal: only releases are ever
+ * offered, so the question never comes up.
  */
 export function newerVersion(current: string, latest: string): boolean {
   const a = parts(current);
   const b = parts(latest);
   if (!a || !b) return false;
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 4; i++) {
     if (b[i] !== a[i]) return b[i] > a[i];
   }
   return false;
