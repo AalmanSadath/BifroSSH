@@ -67,6 +67,13 @@ export interface Server {
    * windows here, and read this display's keyboard and screen. Off by default.
    */
   forward_x11: boolean;
+  /**
+   * What a changed host key does. `block` refuses it, as OpenSSH does.
+   * `ask` offers to keep the stored key and add the new one beside it, for a
+   * device with several (a Raspberry Pi with swapped SD cards); `auto` adds
+   * it without asking. Applies to the address, not just this record.
+   */
+  host_key_changes: HostKeyChanges;
   /** Every session to this host is logged to a file from its first byte. */
   log_sessions: boolean;
   /** Hosts are sectioned by this on the hosts page. Null or empty: no group. */
@@ -456,7 +463,9 @@ export interface SystemAppearance {
 /** A mismatched key is blocked under all three policies. */
 export type HostKeyPolicy = 'ask' | 'accept-new' | 'strict';
 
-export type HostKeyDecision = 'trust' | 'once' | 'replace' | 'reject';
+export type HostKeyDecision = 'trust' | 'once' | 'replace' | 'add' | 'reject';
+
+export type HostKeyChanges = 'block' | 'ask' | 'auto';
 
 export interface HostKeyPromptEvent {
   request_id: string;
@@ -474,6 +483,8 @@ export interface HostKeyPromptEvent {
   line: number | null;
   /** A jump host on the way to the requested server, not the server itself. */
   is_jump: boolean;
+  /** The host allows several keys, so this one can be added beside the stored one. */
+  allow_add: boolean;
 }
 
 export interface SshConfigHost {

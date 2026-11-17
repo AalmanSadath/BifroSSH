@@ -17,7 +17,7 @@ use russh::keys::{PublicKey, PublicKeyOrCertificate};
 use russh::Channel;
 
 use crate::connect::ConnectSecurity;
-use crate::models::HostKeyPolicy;
+use crate::models::{HostKeyChanges, HostKeyPolicy};
 use crate::hostkeys::{
     check_host, fingerprint, key_type, learn_host, replace_host, KnownHostStatus,
 };
@@ -151,9 +151,29 @@ impl HostKeyVerifier {
                     stored.line,
                 ));
 
-                // Never learned silently, whatever the policy: accept-new is
-                // for hosts that are new, and this one is not.
-                if self.sec.policy != HostKeyPolicy::Ask || !self.sec.interactive {
+                // A host set to have several keys, a Raspberry Pi with one SD
+                // card or another in it, keeps the stored key and gains this
+                // one beside it. check_host accepts a match on any line, so
+                // both are verified from then on. Auto does that without
+                // asking, by the user's choice for this host alone.
+                let changes = self.sec.key_changes_for(&self.host, self.port);
+                if changes == HostKeyChanges::Auto {
+                    return self.add_beside(
+                        key,
+                        &format!(
+                            "Host key changed (stored {stored_type} {stored_fp}, offered \
+                             {offered_type} {offered_fp}). Added as another key for this host, \
+                             which is set to add new keys without asking."
+                        ),
+                    );
+                }
+
+                // Otherwise never learned silently, whatever the policy:
+                // accept-new is for hosts that are new, and this one is not. A
+                // host that allows several keys is asked whatever the policy,
+                // since the user said to expect this of it.
+                let allow_add = changes == HostKeyChanges::Ask;
+                if (self.sec.policy != HostKeyPolicy::Ask && !allow_add) || !self.sec.interactive {
                     return false;
                 }
 
@@ -166,9 +186,13 @@ impl HostKeyVerifier {
                         existing_fingerprint: Some(stored.fingerprint),
                         source: Some(stored.source.as_str().to_string()),
                         line: Some(stored.line),
+                        allow_add,
                     })
                     .await;
 
+                if decision == HostKeyDecision::Add && allow_add {
+                    return self.add_beside(key, "Host key added beside the stored one by user");
+                }
                 if decision != HostKeyDecision::Replace {
                     return false;
                 }
@@ -225,6 +249,7 @@ impl HostKeyVerifier {
                             existing_fingerprint: None,
                             source: None,
                             line: None,
+                            allow_add: false,
                         })
                         .await
                     {
@@ -253,6 +278,21 @@ impl HostKeyVerifier {
         }
     }
 
+    /// Saves `key` beside whatever is stored for this host, keeping the rest,
+    /// and lets the connection through.
+    fn add_beside(&self, key: &PublicKey, message: &str) -> bool {
+        if let Err(e) = learn_host(&self.host, self.port, key) {
+            self.fail(format!("Could not write known_hosts: {}", e));
+            return false;
+        }
+        // The rejection reason recorded for the mismatch no longer applies.
+        if let Ok(mut guard) = self.outcome.lock() {
+            *guard = None;
+        }
+        self.log("auth", message);
+        true
+    }
+
     /// Puts a key to the user and waits. No answer means reject: a prompt
     /// nobody was there to answer must not become a trusted host.
     async fn ask(&self, offer: KeyOffer) -> HostKeyDecision {
@@ -275,6 +315,7 @@ impl HostKeyVerifier {
                 source: offer.source,
                 line: offer.line,
                 is_jump: self.is_jump,
+                allow_add: offer.allow_add,
             },
         )
         .await
@@ -294,6 +335,8 @@ struct KeyOffer {
     existing_fingerprint: Option<String>,
     source: Option<String>,
     line: Option<usize>,
+    /// Offer to add the key beside the stored one.
+    allow_add: bool,
 }
 
 /// The single `client::Handler` used by every connect path in the app.

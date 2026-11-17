@@ -15,6 +15,9 @@ export default function HostKeyPrompt({ event, onResolved }: Props) {
   const [nudge, setNudge] = useState(false);
   const changed = event.status !== 'unknown';
   const otherType = event.status === 'other-type';
+  // Only for a plain change: a key of another type is already kept beside
+  // the stored one by "Trust this key too".
+  const canAdd = event.allow_add && event.status === 'mismatch';
   const target = event.username
     ? `${event.username}@${event.host}:${event.port}`
     : `${event.host}:${event.port}`;
@@ -101,8 +104,16 @@ export default function HostKeyPrompt({ event, onResolved }: Props) {
               {/* Replacing a stored key is the one action here that can write
                   an attacker's key into known_hosts, so it takes a deliberate
                   tick rather than one click from arriving at the dialog. */}
-              {otherType ? 'I confirm trusting this key as well' : 'I confirm replacing the host key'}
+              {otherType ? 'I confirm trusting this key as well' : canAdd ? 'I confirm this key belongs to this host' : 'I confirm replacing the host key'}
             </label>
+          )}
+
+          {canAdd && (
+            <p className="form-hint">
+              This host is set to allow several host keys, as a device booted
+              from more than one disk has. Adding keeps the stored key, and
+              both are accepted from then on.
+            </p>
           )}
 
           {event.source && (
@@ -135,6 +146,15 @@ export default function HostKeyPrompt({ event, onResolved }: Props) {
             <button className="btn-primary" autoFocus onClick={() => respond('reject')}>
               Cancel
             </button>
+            {canAdd && (
+              <button
+                className={`btn-danger${acknowledged ? '' : ' btn-held'}`}
+                aria-disabled={!acknowledged}
+                onClick={() => (acknowledged ? respond('add') : setNudge(true))}
+              >
+                Add as another key
+              </button>
+            )}
             {event.status !== 'revoked' && (
               <button
                 className={`btn-danger${acknowledged ? '' : ' btn-held'}`}

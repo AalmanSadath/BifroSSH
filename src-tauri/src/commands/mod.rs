@@ -246,17 +246,19 @@ async fn connect_security(
     connect_id: Option<String>,
     interactive: bool,
 ) -> ConnectSecurity {
-    let policy = {
+    let (policy, key_changes) = {
         let data = state.data.lock().await;
-        data.settings.host_key_policy
+        (data.settings.host_key_policy, ConnectSecurity::key_changes_from(&data.servers))
     };
-    ConnectSecurity::new(
+    let mut sec = ConnectSecurity::new(
         app.clone(),
         Arc::clone(&state.prompts),
         policy,
         connect_id,
         interactive,
-    )
+    );
+    sec.key_changes = Arc::new(key_changes);
+    sec
 }
 
 // Command modules. `resolve` is not one of them: it holds the shared
