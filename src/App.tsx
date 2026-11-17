@@ -653,45 +653,6 @@ export default function App() {
             </svg>
           </button>
         </div>
-        {loadError && (
-          <div className="load-error-banner">
-            <span>
-              Saved data could not be read, so this may not be showing everything.
-              {' '}{loadError}
-            </span>
-            <button className="btn-secondary btn-sm" onClick={() => loadAll()}>Try again</button>
-          </div>
-        )}
-        {savedRecording && (
-          <div className="notice-banner">
-            <span>Recording saved to {savedRecording}</span>
-            <button
-              className="btn-secondary btn-sm"
-              onClick={() => { playRecording(savedRecording); setSavedRecording(null); }}
-            >
-              Play
-            </button>
-            <button
-              className="load-error-dismiss"
-              aria-label="Dismiss"
-              onClick={() => setSavedRecording(null)}
-            >
-              ✕
-            </button>
-          </div>
-        )}
-        {actionError && (
-          <div className="load-error-banner">
-            <span>{actionError}</span>
-            <button
-              className="load-error-dismiss"
-              aria-label="Dismiss"
-              onClick={() => setActionError(null)}
-            >
-              ✕
-            </button>
-          </div>
-        )}
         {quickBarShown && <div className="quick-connect-bar" data-tauri-drag-region>
 
           <input
@@ -794,6 +755,50 @@ export default function App() {
         {!quickBarShown && <WindowControls />}
         </div>
 
+        {/* Under the bars rather than above them: the window's own buttons
+            and drag region live in those bars, and a banner above them pushed
+            the frame down into the window and sat where the title bar
+            belongs. */}
+        {loadError && (
+          <div className="load-error-banner">
+            <span>
+              Saved data could not be read, so this may not be showing everything.
+              {' '}{loadError}
+            </span>
+            <button className="btn-secondary btn-sm" onClick={() => loadAll()}>Try again</button>
+          </div>
+        )}
+        {savedRecording && (
+          <div className="notice-banner">
+            <span>Recording saved to {savedRecording}</span>
+            <button
+              className="btn-secondary btn-sm"
+              onClick={() => { playRecording(savedRecording); setSavedRecording(null); }}
+            >
+              Play
+            </button>
+            <button
+              className="load-error-dismiss"
+              aria-label="Dismiss"
+              onClick={() => setSavedRecording(null)}
+            >
+              ✕
+            </button>
+          </div>
+        )}
+        {actionError && (
+          <div className="load-error-banner">
+            <span>{actionError}</span>
+            <button
+              className="load-error-dismiss"
+              aria-label="Dismiss"
+              onClick={() => setActionError(null)}
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {/* Short of the window's right edge by Tauri's resize band, so the
             scrollbars in here sit where the pointer can reach them. The bars
             above still run to the edge. */}
@@ -831,14 +836,14 @@ export default function App() {
                 id: '', name: s.server_name, host: 'this computer', port: 0,
                 identity_id: null, theme: null, connection_timeout: null, os: 'local',
                 username: null, encrypted_password: null, key_id: null,
-                auth_kind: null, proxy_jump: null, proxy_command: null, forward_agent: false, forward_x11: false, log_sessions: false, group: null, run_on_connect: null, hide_run_on_connect: true, notes: null, term: null, env: null, monitor: null, tags: [],
+                auth_kind: null, proxy_jump: null, proxy_command: null, forward_agent: false, forward_x11: false, host_key_changes: 'block', log_sessions: false, group: null, run_on_connect: null, hide_run_on_connect: true, notes: null, term: null, env: null, monitor: null, tags: [],
               } : undefined)
               ?? (s.quick_info ? {
                 id: '', name: s.server_name,
                 host: s.quick_info.host, port: s.quick_info.port,
                 identity_id: null, theme: null, connection_timeout: null, os: '',
                 username: s.quick_info.username, encrypted_password: null, key_id: null,
-                auth_kind: null, proxy_jump: null, proxy_command: null, forward_agent: false, forward_x11: false, log_sessions: false, group: null, run_on_connect: null, hide_run_on_connect: true, notes: null, term: null, env: null, monitor: null, tags: [],
+                auth_kind: null, proxy_jump: null, proxy_command: null, forward_agent: false, forward_x11: false, host_key_changes: 'block', log_sessions: false, group: null, run_on_connect: null, hide_run_on_connect: true, notes: null, term: null, env: null, monitor: null, tags: [],
               } : undefined);
 
             if (s.detached) {

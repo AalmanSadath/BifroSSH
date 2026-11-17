@@ -7,7 +7,7 @@ import { useHint } from './shared/useHint';
 import ThemePicker, { ThumbNail } from './ThemePicker';
 import { THEMES } from '../styles/themes';
 import { STORED } from '../types';
-import type { Server } from '../types';
+import type { HostKeyChanges, Server } from '../types';
 import Drawer from './shared/Drawer';
 import { Picker, type PickerOption } from './settings/Picker';
 
@@ -73,6 +73,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
   const [proxyCommand, setProxyCommand] = useState(server?.proxy_command ?? '');
   const [forwardAgent, setForwardAgent] = useState(server?.forward_agent ?? false);
   const [forwardX11, setForwardX11] = useState(server?.forward_x11 ?? false);
+  const [keyChanges, setKeyChanges] = useState<HostKeyChanges>(server?.host_key_changes ?? 'block');
   const [logSessions, setLogSessions] = useState(server?.log_sessions ?? false);
   const [group, setGroup] = useState(server?.group ?? '');
   const [tags, setTags] = useState<string[]>(server?.tags ?? []);
@@ -150,6 +151,7 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
           proxy_command: proxyJump ? null : proxyCommand.trim() || null,
           forward_agent: forwardAgent,
           forward_x11: forwardX11,
+          host_key_changes: keyChanges,
           log_sessions: logSessions,
           group: group.trim() || null,
           run_on_connect: runOnConnect.trim() || null,
@@ -433,6 +435,31 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
             <span>Forward X11 to this host</span>
           </label>
           </>}
+          {/* For a device that really has several host keys: a Raspberry Pi
+              booted from one SD card or another. Shown on Android too. */}
+          <label
+            className="checkbox-row"
+            title={hint('For a device with more than one host key, such as a Raspberry Pi booted from different SD cards. When the key changes, you can keep the stored one and add the new key beside it, and each is checked from then on. Applies to every saved host at this address.')}
+          >
+            <input
+              type="checkbox"
+              checked={keyChanges !== 'block'}
+              onChange={(e) => setKeyChanges(e.target.checked ? 'ask' : 'block')}
+            />
+            <span>Allow several host keys</span>
+          </label>
+          <label
+            className={`checkbox-row checkbox-row-sub${keyChanges === 'block' ? ' checkbox-row-off' : ''}`}
+            title={hint('A changed key is added without asking, and the connection log says so. A man-in-the-middle on this host would not be caught.')}
+          >
+            <input
+              type="checkbox"
+              disabled={keyChanges === 'block'}
+              checked={keyChanges === 'auto'}
+              onChange={(e) => setKeyChanges(e.target.checked ? 'auto' : 'ask')}
+            />
+            <span>Add new keys without asking</span>
+          </label>
           <label
             className="checkbox-row"
             title={hint('Everything the session prints is written to a file in the session logs folder, set in Settings.')}

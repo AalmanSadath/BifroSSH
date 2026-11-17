@@ -83,6 +83,30 @@ pub enum HostKeyPolicy {
     Strict,
 }
 
+/// What to do when a host that already has a stored key offers a different
+/// one. Set per host, for a device that really does have several: a
+/// Raspberry Pi booted from one SD card or another answers on the same
+/// address with each card's own key.
+///
+/// Every setting still refuses a key marked @revoked, and a host with no
+/// stored key at all is left to the global [`HostKeyPolicy`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum HostKeyChanges {
+    /// A changed key is refused, and the prompt offers only to replace the
+    /// stored one. What OpenSSH does, and every host's setting until it is
+    /// changed.
+    #[default]
+    Block,
+    /// The prompt also offers to keep the stored key and add the new one
+    /// beside it, so both are accepted from then on.
+    Ask,
+    /// A new key is added beside the stored ones without asking, and the
+    /// connection log says so. Nothing would catch a man-in-the-middle on
+    /// this host, which is the user's choice to make for it.
+    Auto,
+}
+
 /// Shape of the terminal cursor. Passed straight to xterm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -153,6 +177,10 @@ pub struct Server {
     /// the screen of this display. Off unless the user turned it on.
     #[serde(default)]
     pub forward_x11: bool,
+    /// Whether this host may have more than one host key, and whether new
+    /// ones are added without asking. See [`HostKeyChanges`].
+    #[serde(default, deserialize_with = "lenient")]
+    pub host_key_changes: HostKeyChanges,
     /// Every session to this host is written to a log file from its
     /// first byte. Off by default.
     #[serde(default)]

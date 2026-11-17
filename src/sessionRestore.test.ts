@@ -30,6 +30,7 @@ function host(id: string): Server {
     proxy_command: null,
     forward_agent: false,
     forward_x11: false,
+    host_key_changes: 'block',
     log_sessions: false,
     group: null,
     run_on_connect: null,

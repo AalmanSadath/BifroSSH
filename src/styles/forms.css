@@ -176,6 +176,19 @@ select option {
   outline-offset: 2px;
 }
 
+/* A choice that refines the one above it, indented under it by the width of
+   its box and the gap, and faded while that one is off. */
+.checkbox-row-sub {
+  margin-left: 23px;
+}
+.checkbox-row-off {
+  opacity: 0.45;
+  cursor: default;
+}
+.checkbox-row-off input[type="checkbox"] {
+  cursor: default;
+}
+
 .form-error {
   color: var(--danger);
   font-size: 12px;

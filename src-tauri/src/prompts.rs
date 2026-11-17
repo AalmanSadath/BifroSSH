@@ -81,6 +81,9 @@ pub enum HostKeyDecision {
     Once,
     /// Overwrite the stored key for this host (mismatch case).
     Replace,
+    /// Keep the stored key and add this one beside it (mismatch case, on a
+    /// host set to allow several keys).
+    Add,
     Reject,
 }
 
@@ -90,6 +93,7 @@ impl HostKeyDecision {
             "trust" => Some(HostKeyDecision::Trust),
             "once" => Some(HostKeyDecision::Once),
             "replace" => Some(HostKeyDecision::Replace),
+            "add" => Some(HostKeyDecision::Add),
             "reject" => Some(HostKeyDecision::Reject),
             _ => None,
         }
@@ -117,6 +121,9 @@ pub struct HostKeyPromptEvent {
     /// user asked for. Worth saying, because a chain asks about each hop in
     /// turn and the prompts are otherwise indistinguishable.
     pub is_jump: bool,
+    /// The host is set to allow several keys, so a changed key can be added
+    /// beside the stored one instead of replacing it.
+    pub allow_add: bool,
 }
 
 #[derive(serde::Serialize, Clone)]

@@ -983,6 +983,17 @@ mod tests {
         assert_eq!(forget_host("example.com", 2222).unwrap(), 2);
         learn_host("example.com", 2222, &other).unwrap();
 
+        // A host allowed several keys, the same device booted from another
+        // SD card, gains a second key of the same type beside the first.
+        // Both are then verified, and neither displaces the other.
+        learn_host("example.com", 2222, &key).unwrap();
+        assert!(matches!(check_host("example.com", 2222, &key), KnownHostStatus::Match { .. }));
+        assert!(matches!(check_host("example.com", 2222, &other), KnownHostStatus::Match { .. }));
+        assert!(matches!(check_host("example.com", 2222, &ecdsa), KnownHostStatus::OtherType(_)));
+        assert_eq!(list_known_hosts().unwrap().len(), 2);
+        assert_eq!(forget_host("example.com", 2222).unwrap(), 2);
+        learn_host("example.com", 2222, &other).unwrap();
+
         assert_eq!(forget_host("example.com", 2222).unwrap(), 1);
         assert!(matches!(
             check_host("example.com", 2222, &other),
