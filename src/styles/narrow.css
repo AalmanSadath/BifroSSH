@@ -67,6 +67,11 @@
     display: none;
   }
 
+  /* The top row has the menu button already. */
+  .tab-menu {
+    display: none;
+  }
+
   /* ── Pages ───────────────────────────────────────────────── */
 
   .panel {

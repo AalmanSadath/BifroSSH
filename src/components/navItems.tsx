@@ -132,6 +132,11 @@ export const NAV_GROUPS: NavGroup[] = [
 const ITEMS = new Map(NAV_GROUPS.flatMap((g) => g.items.map((i) => [i.id, i] as const)));
 const PANELS = new Set(ITEMS.keys());
 
+/** Whether a tab id names one of the pages, rather than a session or nothing. */
+export function isPage(id: string | null): id is string {
+  return id !== null && PANELS.has(id);
+}
+
 /** A page's name, for the top row on a phone. */
 export function pageLabel(id: string): string {
   return ITEMS.get(id)?.label ?? '';
@@ -142,5 +147,5 @@ export function pageLabel(id: string): string {
  * Hosts, which is where the sessions are started from.
  */
 export function currentPage(activeTabId: string | null): string {
-  return activeTabId && PANELS.has(activeTabId) ? activeTabId : 'hosts';
+  return isPage(activeTabId) ? activeTabId : 'hosts';
 }

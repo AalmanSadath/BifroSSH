@@ -32,7 +32,7 @@ import HostKeyPrompt from './components/HostKeyPrompt';
 import AuthPromptModal from './components/AuthPromptModal';
 import Sidebar from './components/Sidebar';
 import NavPage from './components/NavPage';
-import { currentPage, pageLabel } from './components/navItems';
+import { currentPage, isPage, pageLabel } from './components/navItems';
 import WindowControls, { WindowDragStrip } from './components/WindowControls';
 import UnlockScreen from './components/UnlockScreen';
 import FirstRunSetup from './components/FirstRunSetup';
@@ -101,6 +101,13 @@ export default function App() {
   // otherwise the page's.
   const pageTitle = activeSession ? tabLabel(activeSession) : pageLabel(currentPage(activeTabId));
   const activeDetached = sessions.some((s) => s.tab_id === activeTabId && s.detached);
+  // A terminal tab hides the sidebar so the terminal has the window's width;
+  // the menu tab shows it again beside the terminal. Hidden again once a page
+  // is opened, so the next terminal starts out full width.
+  const [termNavOpen, setTermNavOpen] = useState(false);
+  useEffect(() => {
+    if (isPage(activeTabId)) setTermNavOpen(false);
+  }, [activeTabId]);
 
   // A running command's chip counts up, so the strip re-renders while
   // anything is running and stops the moment nothing is. Nothing ticks on an
@@ -631,7 +638,7 @@ export default function App() {
           lands on. `display: contents` keeps the flex layout the two children
           were laid out by. */}
       <div className="app-body" inert={vault.locked || undefined}>
-      <Sidebar />
+      <Sidebar hidden={activeIsSession && !termNavOpen} />
       {navOpen && <NavPage onClose={() => setNavOpen(false)} />}
       <div className="main">
         {/* Narrow screens only: the menu page's button at the left, the
@@ -683,6 +690,21 @@ export default function App() {
         {/* Always rendered, empty or not. Appearing on the first connect, it
             pushed everything below it down the page. */}
         <div className={`tab-bar-row${sessions.length === 0 ? ' tab-bar-empty' : ''}`}>
+        {activeIsSession && (
+          <button
+            className={`tab-menu${termNavOpen ? ' active' : ''}`}
+            aria-label={termNavOpen ? 'Hide sidebar' : 'Show sidebar'}
+            aria-pressed={termNavOpen}
+            title={hint(termNavOpen ? 'Hide sidebar' : 'Show sidebar')}
+            onClick={() => setTermNavOpen((v) => !v)}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+              <line x1="4" y1="6" x2="20" y2="6"/>
+              <line x1="4" y1="12" x2="20" y2="12"/>
+              <line x1="4" y1="18" x2="20" y2="18"/>
+            </svg>
+          </button>
+        )}
         <div className="tab-bar" data-tauri-drag-region>
           {sessions.map((s) => (
               <div
