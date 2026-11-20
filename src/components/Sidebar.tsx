@@ -4,8 +4,14 @@ import { useAppStore } from '../store/appStore';
 import { useHint } from './shared/useHint';
 import { APP, BrandLogo, SETUP, WORK, currentPage, type NavItem } from './navItems';
 
-/** The desktop's page list. Android lists the same pages on NavPage. */
-export default function Sidebar() {
+/**
+ * The desktop's page list. Android lists the same pages on NavPage.
+ *
+ * `hidden` while a terminal tab is active, so the terminal has the window's
+ * width; the tab bar's menu tab shows it again. Hidden rather than
+ * unmounted, so that a collapsed sidebar is still collapsed afterwards.
+ */
+export default function Sidebar({ hidden = false }: { hidden?: boolean }) {
   const { activeTabId, setActiveTab, updateAvailable } = useAppStore();
   const [collapsed, setCollapsed] = useState(false);
   const hint = useHint();
@@ -27,7 +33,7 @@ export default function Sidebar() {
 
   return (
     <aside
-      className={`sidebar${collapsed ? ' sidebar-collapsed' : ''}`}
+      className={`sidebar${collapsed ? ' sidebar-collapsed' : ''}${hidden ? ' sidebar-hidden' : ''}`}
       onContextMenu={(e) => e.preventDefault()}
     >
       <div className="sidebar-top" data-tauri-drag-region>

@@ -139,6 +139,12 @@
   min-width: 48px;
 }
 
+/* While a terminal tab is active: the terminal takes the window's width, and
+   the tab bar's menu tab leads back to the pages. */
+.sidebar-hidden {
+  display: none;
+}
+
 .sidebar-top {
   height: var(--header-h);
   box-sizing: border-box;
@@ -395,6 +401,29 @@
   display: flex;
   align-items: stretch;
   flex-shrink: 0;
+}
+
+/* First in the tab bar while a terminal is showing: three lines, so it reads
+   as the menu. Shows and hides the sidebar beside the terminal. */
+.tab-menu {
+  flex-shrink: 0;
+  width: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-right: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.tab-menu:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.tab-menu.active {
+  color: var(--accent);
 }
 
 .tab-bar {
