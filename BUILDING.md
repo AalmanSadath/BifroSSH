@@ -101,7 +101,7 @@ npm run tauri dev
 
 ## Nightly builds
 
-`.github/workflows/nightly.yml` publishes a GitHub pre-release of `main` at 06:00 Sydney time, on days when code changed since the last nightly or release. It can also be started by hand from the Actions tab: the same flow, with an optional dry run that builds without publishing. The last five nightlies are kept. Nothing goes to the apt, dnf or Flatpak repositories.
+`.github/workflows/nightly.yml` publishes a GitHub pre-release of `main` once a day, scheduled for midnight Sydney time; GitHub starts scheduled runs hours late, so it lands around 05:00 to 06:00, on days when code changed since the last nightly or release. It can also be started by hand from the Actions tab: the same flow, with an optional dry run that builds without publishing. The last five nightlies are kept. Nothing goes to the apt, dnf or Flatpak repositories.
 
 A nightly sorts between the release before it and the next one, on every channel:
 
