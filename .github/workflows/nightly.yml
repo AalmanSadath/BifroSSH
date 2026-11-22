@@ -1,8 +1,9 @@
 name: Nightly
 
-# A beta pre-release of whatever main holds, at 06:00 Sydney, when code has
-# changed since the last one. Every channel's file, desktop and Android, on
-# one GitHub pre-release tagged v<next>-nightly.<date>, where <next> is the
+# A beta pre-release of whatever main holds, once a day (scheduled for
+# midnight Sydney, landing around 05:00 to 06:00), when code has changed
+# since the last one. Every channel's file, desktop and Android, on one
+# GitHub pre-release tagged v<next>-nightly.<date>, where <next> is the
 # patch after the latest release. Nothing here touches the apt, dnf or
 # Flatpak repositories: those serve releases only.
 #
@@ -21,12 +22,12 @@ name: Nightly
 # gets a counter (.2, .3), which sorts above the first everywhere.
 on:
   schedule:
-    # GitHub's cron is UTC only. 06:00 Sydney is 19:00 UTC in summer (AEDT)
-    # and 20:00 in winter (AEST), so both run and the gate lets through the
-    # one that lands at 06 in Sydney. :17 rather than :00 because scheduled
-    # runs on the hour queue longest.
-    - cron: '17 19 * * *'
-    - cron: '17 20 * * *'
+    # Once a day at 13:00 UTC: midnight in Sydney in summer, 23:00 in winter
+    # (cron is UTC only). GitHub starts scheduled runs late, five or six
+    # hours on this repository, so midnight is what lands the nightly around
+    # 05:00 to 06:00. The run takes whatever time it starts at rather
+    # than checking the clock.
+    - cron: '0 13 * * *'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -67,7 +68,6 @@ jobs:
       - name: Decide whether to build, and the versions
         id: plan
         env:
-          EVENT: ${{ github.event_name }}
           FORCE: ${{ inputs.force }}
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -75,10 +75,6 @@ jobs:
           set -euo pipefail
           skip() { echo "$1"; echo "run=false" >> "$GITHUB_OUTPUT"; exit 0; }
 
-          if [ "$EVENT" = "schedule" ]; then
-            hour=$(TZ=Australia/Sydney date +%H)
-            [ "$hour" = "06" ] || skip "It is ${hour}:xx in Sydney; the other schedule entry is today's."
-          fi
           date=$(TZ=Australia/Sydney date +%Y%m%d)
 
           stable=$(git tag -l 'v[0-9]*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
