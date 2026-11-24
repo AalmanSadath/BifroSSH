@@ -261,15 +261,25 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
               <div className="form-group">
                 <label>Key</label>
                 <div className="picker">
-                  <PortalDropdown label={selectedKey?.name ?? 'Select key…'}>
+                  <PortalDropdown label={selectedKey?.name ?? 'None'}>
                     {(close) => (
                       <>
+                        {/* The way back to no key, which used to be a second
+                            click on the chosen one, with nothing saying so. */}
+                        <button
+                          type="button"
+                          className={`picker-item${keyId === '' ? ' selected' : ''}`}
+                          onMouseDown={(e) => { e.preventDefault(); setKeyId(''); close(); }}
+                        >
+                          None
+                        </button>
+                        <div className="picker-divider" />
                         {keys.map((k) => (
                           <button
                             key={k.id}
                             type="button"
                             className={`picker-item${keyId === k.id ? ' selected' : ''}`}
-                            onMouseDown={(e) => { e.preventDefault(); setKeyId(keyId === k.id ? '' : k.id); close(); }}
+                            onMouseDown={(e) => { e.preventDefault(); setKeyId(k.id); close(); }}
                           >
                             {k.name}
                           </button>
@@ -296,6 +306,14 @@ export default function ServerForm({ server, onClose, onDelete }: Props) {
                     )}
                   </PortalDropdown>
                 </div>
+                {/* Saving with a key dropped the stored password, so there is
+                    none to fall back on once the key is taken away. */}
+                {server?.key_id && !keyId && !password && (
+                  <p className="form-hint">
+                    No password is saved for this host. Type one above, or leave
+                    it blank to be asked when connecting.
+                  </p>
+                )}
               </div>
               {showSuggestions && dropdownAnchor && (() => {
                 const items = suggestions.length > 0 ? suggestions : (!username ? identities : []);
