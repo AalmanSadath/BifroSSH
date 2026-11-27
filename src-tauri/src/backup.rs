@@ -119,6 +119,12 @@ pub struct MergePlan {
     /// program run on this computer each time, which the user should know
     /// about before taking a file from someone else.
     pub proxy_command_hosts: Vec<String>,
+    /// Incoming hosts, new here, that take a changed host key without
+    /// asking. A file that sets this can make a later impersonation silent.
+    pub auto_host_key_hosts: Vec<String>,
+    /// Incoming hosts, new here, that forward the SSH agent or X11: either
+    /// one lets the server reach back into this computer.
+    pub forwarding_hosts: Vec<String>,
     /// The local shell command the file's settings would put in place, when
     /// it is set and differs from the one in use.
     pub local_shell: Option<String>,
@@ -444,6 +450,17 @@ pub fn plan_merge(file: &ExportFile, payload: &Payload, current: &AppData) -> Me
         known_hosts: 0,
     };
 
+    // The names of incoming hosts, not already here, that `pred` picks out.
+    let new_hosts_where = |pred: fn(&crate::models::Server) -> bool| -> Vec<String> {
+        payload
+            .servers
+            .iter()
+            .filter(|s| pred(s))
+            .filter(|s| !current.servers.iter().any(|e| same_server(s, e)))
+            .map(|s| s.name.clone())
+            .collect()
+    };
+
     let missing_key_paths = payload
         .keys
         .iter()
@@ -467,13 +484,9 @@ pub fn plan_merge(file: &ExportFile, payload: &Payload, current: &AppData) -> Me
         host_key_conflicts: Vec::new(),
         has_settings: payload.settings.is_some(),
         // A duplicate is skipped, so only a new host brings its command in.
-        proxy_command_hosts: payload
-            .servers
-            .iter()
-            .filter(|s| s.proxy_command.as_deref().is_some_and(|c| !c.trim().is_empty()))
-            .filter(|s| !current.servers.iter().any(|e| same_server(s, e)))
-            .map(|s| s.name.clone())
-            .collect(),
+        proxy_command_hosts: new_hosts_where(|s| s.proxy_command.as_deref().is_some_and(|c| !c.trim().is_empty())),
+        auto_host_key_hosts: new_hosts_where(|s| s.host_key_changes == crate::models::HostKeyChanges::Auto),
+        forwarding_hosts: new_hosts_where(|s| s.forward_agent || s.forward_x11),
         local_shell: payload
             .settings
             .as_ref()
@@ -954,6 +967,30 @@ mod tests {
     /// What the import would run on this computer is named before the user
     /// agrees to it: new hosts with a proxy command, and a changed local
     /// shell. A host already here is skipped, so its command is not news.
+    /// Settings that loosen what a server can do are named too: taking a
+    /// changed host key silently, and reaching back through agent or X11
+    /// forwarding.
+    #[test]
+    fn the_plan_names_hosts_that_trust_the_server_more() {
+        let mut auto = server("s1", "alpha.example", None, &key(1));
+        auto.host_key_changes = crate::models::HostKeyChanges::Auto;
+        let mut agent = server("s2", "beta.example", None, &key(1));
+        agent.forward_agent = true;
+        let mut x11 = server("s3", "gamma.example", None, &key(1));
+        x11.forward_x11 = true;
+        let mut known = server("s4", "delta.example", None, &key(1));
+        known.forward_agent = true;
+        let payload = Payload { servers: vec![auto, agent, x11, known], ..Default::default() };
+        let content = seal(&payload, "phrase");
+        let (file, opened, _) = open_export(&content, "phrase").unwrap();
+        let mut current = AppData::default();
+        current.servers.push(server("other", "delta.example", None, &key(2)));
+
+        let plan = plan_merge(&file, &opened, &current);
+        assert_eq!(plan.auto_host_key_hosts, vec!["host s1".to_string()]);
+        assert_eq!(plan.forwarding_hosts, vec!["host s2".to_string(), "host s3".to_string()]);
+    }
+
     #[test]
     fn the_plan_names_what_would_run_on_this_computer() {
         let mut with_proxy = server("s1", "alpha.example", None, &key(1));
@@ -973,6 +1010,8 @@ mod tests {
         let plan = plan_merge(&file, &opened, &current);
         assert_eq!(plan.proxy_command_hosts, vec!["host s1".to_string()]);
         assert_eq!(plan.local_shell.as_deref(), Some("sh -c 'curl x | sh'"));
+        assert!(plan.auto_host_key_hosts.is_empty());
+        assert!(plan.forwarding_hosts.is_empty());
 
         // The same shell as the one in use is no change to warn about.
         current.settings.local_shell = "sh -c 'curl x | sh'".into();

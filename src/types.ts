@@ -843,6 +843,10 @@ export interface MergePlan {
   has_settings: boolean;
   /** New hosts that connect through a proxy command run on this computer. */
   proxy_command_hosts: string[];
+  /** New hosts that take a changed host key without asking. */
+  auto_host_key_hosts: string[];
+  /** New hosts that forward the SSH agent or X11. */
+  forwarding_hosts: string[];
   /** The local shell the file's settings would put in place, if changed. */
   local_shell: string | null;
 }
