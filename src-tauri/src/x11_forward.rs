@@ -218,7 +218,7 @@ pub fn rewrite_setup(buf: &[u8], fake: &[u8], real: Option<&[u8]>) -> Setup {
     let name = &buf[12..12 + name_len];
     let data_at = 12 + pad4(name_len);
     let data = &buf[data_at..data_at + data_len];
-    if name != PROTOCOL.as_bytes() || data != fake {
+    if name != PROTOCOL.as_bytes() || !same_bytes(data, fake) {
         return Setup::Refused("the connection did not carry this session's cookie");
     }
 
@@ -240,6 +240,12 @@ pub fn rewrite_setup(buf: &[u8], fake: &[u8], real: Option<&[u8]>) -> Setup {
 }
 
 /// Lowercase hex, which is how a cookie goes in an `x11-req`.
+/// Whether two byte strings are equal, taking the same time wherever they
+/// first differ, so the reply to a guess says nothing about how close it was.
+fn same_bytes(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }

@@ -63,6 +63,15 @@ pub(super) fn staged_untar_command(remote_dir: &str, old_name: &str, new_name: &
     )
 }
 
+/// A kept copy's new name comes from the frontend and becomes one path
+/// part on the side that receives it, so it is held to that side's rule.
+fn check_into_name(into_name: Option<&str>, ok: fn(&str) -> bool) -> Result<()> {
+    match into_name {
+        Some(name) if !ok(name) => bail!("{name:?} cannot be used as a file name"),
+        _ => Ok(()),
+    }
+}
+
 /// The archive's path with its first component swapped for `name`.
 fn rename_top(path: &Path, name: &str) -> PathBuf {
     let mut parts = path.components();
@@ -101,6 +110,7 @@ pub async fn download_archive(
     // asked to keep both copies.
     into_name: Option<&str>,
 ) -> Result<TransferSummary> {
+    check_into_name(into_name, super::local_name_ok)?;
     let opener = get_opener(sftp_state, session_id).await?;
     let guard = sftp_state.begin_transfer(transfer_id);
     let cancel = guard.cancel.clone();
@@ -193,6 +203,10 @@ fn unpack_into(reader: impl Read, dest: &Path, rename_to: Option<&str>) -> Resul
     archive.set_preserve_permissions(false);
     archive.set_unpack_xattrs(false);
 
+    // Where every entry must land, resolved once: a link already on this
+    // disk inside the destination would otherwise carry writes out of it.
+    let root = dest.canonicalize().with_context(|| format!("Could not open {}", dest.display()))?;
+
     let mut files = 0u32;
     let mut directories = 0u32;
     for entry in archive.entries().context("The archive could not be read")? {
@@ -201,7 +215,14 @@ fn unpack_into(reader: impl Read, dest: &Path, rename_to: Option<&str>) -> Resul
         if !safe_entry_path(&path) {
             bail!("The archive tried to write outside the destination: {}", path.display());
         }
-        let is_dir = entry.header().entry_type().is_dir();
+        let kind = entry.header().entry_type();
+        // Links are not made. A symlink entry followed by a file under it
+        // passes the path check and writes wherever the link points, and a
+        // listing skips links the same way, so neither path ever makes one.
+        if kind.is_symlink() || kind.is_hard_link() {
+            continue;
+        }
+        let is_dir = kind.is_dir();
         // Keeping both copies means the tree lands under another name;
         // the archive's own top-level component is swapped for it.
         let path = match rename_to {
@@ -211,8 +232,17 @@ fn unpack_into(reader: impl Read, dest: &Path, rename_to: Option<&str>) -> Resul
         // unpack_in would use the archive's own path; the renamed one is
         // joined here instead. It is safe to join: the components were
         // checked above and the new top-level name is one the app chose.
+        let target = dest.join(&path);
+        if let Some(parent) = target.parent() {
+            let real = parent
+                .canonicalize()
+                .with_context(|| format!("Could not write {}", path.display()))?;
+            if !real.starts_with(&root) {
+                bail!("The archive tried to write outside the destination: {}", path.display());
+            }
+        }
         entry
-            .unpack(dest.join(&path))
+            .unpack(&target)
             .with_context(|| format!("Could not write {}", path.display()))?;
         if is_dir { directories += 1; } else { files += 1; }
     }
@@ -252,6 +282,7 @@ pub async fn upload_archive(
     remote_dir: &str,
     into_name: Option<&str>,
 ) -> Result<TransferSummary> {
+    check_into_name(into_name, super::is_safe_name)?;
     let opener = get_opener(sftp_state, session_id).await?;
     let guard = sftp_state.begin_transfer(transfer_id);
     let cancel = guard.cancel.clone();
@@ -333,6 +364,7 @@ pub async fn copy_archive(
     dst_dir: &str,
     into_name: Option<&str>,
 ) -> Result<TransferSummary> {
+    check_into_name(into_name, super::is_safe_name)?;
     let src_opener = get_opener(sftp_state, src_session_id).await?;
     let dst_opener = get_opener(sftp_state, dst_session_id).await?;
     let guard = sftp_state.begin_transfer(transfer_id);
@@ -438,6 +470,80 @@ mod tests {
             staged_untar_command("/tmp/out", "tree", "tree (2)"),
             "mkdir -p '/tmp/out/.bifrossh-tree (2)' && tar xzf - -C '/tmp/out/.bifrossh-tree (2)' && mv '/tmp/out/.bifrossh-tree (2)/tree' '/tmp/out/tree (2)' && rmdir '/tmp/out/.bifrossh-tree (2)'",
         );
+    }
+
+    fn gz_tar(build: impl FnOnce(&mut tar::Builder<flate2::write::GzEncoder<Vec<u8>>>)) -> Vec<u8> {
+        let mut b = tar::Builder::new(flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast()));
+        build(&mut b);
+        b.into_inner().unwrap().finish().unwrap()
+    }
+
+    fn file_header(size: u64) -> tar::Header {
+        let mut h = tar::Header::new_gnu();
+        h.set_entry_type(tar::EntryType::Regular);
+        h.set_size(size);
+        h.set_mode(0o644);
+        h
+    }
+
+    /// A hostile server's archive: a link out of the destination, then a
+    /// file written through it. The link is never made, so the file has
+    /// no directory to land in.
+    #[test]
+    fn a_link_in_the_archive_cannot_carry_a_write_out() {
+        let base = std::env::temp_dir().join(format!("bifrossh-untar-{}", uuid::Uuid::new_v4()));
+        let dest = base.join("dest");
+        let outside = base.join("outside");
+        std::fs::create_dir_all(&dest).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+
+        let bytes = gz_tar(|b| {
+            let mut link = tar::Header::new_gnu();
+            link.set_entry_type(tar::EntryType::Symlink);
+            link.set_size(0);
+            b.append_link(&mut link, "a", &outside).unwrap();
+            b.append_data(&mut file_header(2), "a/owned", &b"hi"[..]).unwrap();
+        });
+        assert!(unpack_into(&bytes[..], &dest, None).is_err());
+        assert!(!outside.join("owned").exists());
+        assert!(std::fs::symlink_metadata(dest.join("a")).is_err());
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// A link that was already in the destination is not followed either.
+    #[cfg(unix)]
+    #[test]
+    fn a_link_already_on_disk_cannot_carry_a_write_out() {
+        let base = std::env::temp_dir().join(format!("bifrossh-untar-{}", uuid::Uuid::new_v4()));
+        let dest = base.join("dest");
+        let outside = base.join("outside");
+        std::fs::create_dir_all(&dest).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, dest.join("a")).unwrap();
+
+        let bytes = gz_tar(|b| {
+            b.append_data(&mut file_header(2), "a/owned", &b"hi"[..]).unwrap();
+        });
+        assert!(unpack_into(&bytes[..], &dest, None).is_err());
+        assert!(!outside.join("owned").exists());
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn an_ordinary_tree_unpacks() {
+        let dest = std::env::temp_dir().join(format!("bifrossh-untar-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dest).unwrap();
+        let bytes = gz_tar(|b| {
+            let mut dir = tar::Header::new_gnu();
+            dir.set_entry_type(tar::EntryType::Directory);
+            dir.set_size(0);
+            dir.set_mode(0o755);
+            b.append_data(&mut dir, "tree", io::empty()).unwrap();
+            b.append_data(&mut file_header(2), "tree/f.txt", &b"hi"[..]).unwrap();
+        });
+        assert_eq!(unpack_into(&bytes[..], &dest, Some("tree (2)")).unwrap(), (1, 1));
+        assert_eq!(std::fs::read(dest.join("tree (2)/f.txt")).unwrap(), b"hi");
+        std::fs::remove_dir_all(&dest).unwrap();
     }
 
     #[test]

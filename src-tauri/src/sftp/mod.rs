@@ -148,7 +148,7 @@ pub(super) fn join_remote(dir: &str, name: &str) -> String {
 /// way, which makes this the boundary between a path the app decided on and one
 /// a server did. Names come from the wire, not from a filesystem, so a server
 /// is free to answer `read_dir` with whatever it likes.
-fn is_safe_name(name: &str) -> bool {
+pub(crate) fn is_safe_name(name: &str) -> bool {
     !name.is_empty()
         && name != "."
         && name != ".."

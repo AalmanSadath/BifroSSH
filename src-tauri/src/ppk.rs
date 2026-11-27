@@ -262,7 +262,7 @@ fn decrypt_ppk_v2(data: &[u8], passphrase: &str) -> Result<Vec<u8>> {
         .chain_update(b"\x00\x00\x00\x01")
         .chain_update(passphrase.as_bytes())
         .finalize();
-    let mut key = [0u8; 32];
+    let mut key = zeroize::Zeroizing::new([0u8; 32]);
     key[..20].copy_from_slice(&h0);
     key[20..].copy_from_slice(&h1[..12]);
 
@@ -271,7 +271,7 @@ fn decrypt_ppk_v2(data: &[u8], passphrase: &str) -> Result<Vec<u8>> {
     if !buf.len().is_multiple_of(16) {
         buf.resize(buf.len() + (16 - buf.len() % 16), 0);
     }
-    cbc::Decryptor::<Aes256>::new(&key.into(), &iv.into())
+    cbc::Decryptor::<Aes256>::new(key[..].into(), &iv.into())
         .decrypt_padded_mut::<NoPadding>(&mut buf)
         .map_err(|e| anyhow!("AES decrypt error: {e:?}"))?;
     buf.truncate(data.len());
@@ -317,7 +317,7 @@ fn decrypt_ppk_v3(ppk: &PpkData, passphrase: &str) -> Result<(Vec<u8>, Vec<u8>)>
     let params = Params::new(memory, passes, parallel, Some(out_len))
         .map_err(|e| anyhow!("Argon2 parameters: {e}"))?;
     let argon2 = Argon2::new(alg, Version::V0x13, params);
-    let mut key_material = vec![0u8; out_len];
+    let mut key_material = zeroize::Zeroizing::new(vec![0u8; out_len]);
     argon2
         .hash_password_into(passphrase.as_bytes(), salt, &mut key_material)
         .map_err(|e| anyhow!("Argon2 key derivation: {e}"))?;
@@ -497,17 +497,31 @@ fn build_ecdsa(algorithm: &str, public_data: &[u8], private_blob: &[u8], comment
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
+/// Byte pairs rather than string slices: the text is the file's, and a
+/// slice through a multi-byte character would panic.
 fn from_hex(s: &str) -> Result<Vec<u8>> {
     if !s.len().is_multiple_of(2) { bail!("Odd hex length"); }
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(|_| anyhow!("Invalid hex char")))
+    let digit = |b: u8| (b as char).to_digit(16).ok_or_else(|| anyhow!("Invalid hex char"));
+    s.as_bytes()
+        .chunks(2)
+        .map(|pair| Ok((digit(pair[0])? << 4 | digit(pair[1])?) as u8))
         .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hex_is_read_without_trusting_the_text() {
+        assert_eq!(from_hex("00ff7A").unwrap(), vec![0x00, 0xff, 0x7a]);
+        assert!(from_hex("abc").is_err());
+        assert!(from_hex("zz").is_err());
+        // Two bytes of UTF-8: an even length, and a slice at byte 1 would
+        // have cut the character in half.
+        assert!(from_hex("é").is_err());
+        assert!(from_hex("aé0").is_err());
+    }
 
     const PASSPHRASE: &str = include_str!("testdata/PASSPHRASE");
 

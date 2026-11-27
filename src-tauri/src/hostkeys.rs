@@ -141,9 +141,14 @@ pub fn key_type(key: &PublicKey) -> String {
 }
 
 /// The form OpenSSH matches and hashes against: bare host on 22, `[host]:port` otherwise.
+///
+/// Lowercased, as ssh lowercases the host name before it looks anything up:
+/// `Example.com` and `example.com` are one host, and a hashed line holds the
+/// hash of the lowercase form.
 fn host_spec(host: &str, port: u16) -> String {
+    let host = host.to_ascii_lowercase();
     if port == 22 {
-        host.to_string()
+        host
     } else {
         format!("[{}]:{}", host, port)
     }
@@ -255,6 +260,9 @@ fn host_matches(field: &str, target: &str) -> bool {
         return mac.verify_slice(&hash).is_ok();
     }
 
+    // Patterns match without regard to case, as OpenSSH's do. Lines written
+    // before host_spec lowercased may hold the name as it was typed.
+    let field = field.to_ascii_lowercase();
     let mut matched = false;
     for pat in field.split(',') {
         if let Some(negated) = pat.strip_prefix('!') {
@@ -280,6 +288,9 @@ pub fn check_host(host: &str, port: u16, key: &PublicKey) -> KnownHostStatus {
     let mut mismatch: Option<KnownHostStatus> = None;
     // Only reported when there is neither a match nor a mismatch.
     let mut other_type: Option<KnownHostStatus> = None;
+    // The first source that trusts the key. Every line is still read: an
+    // `@revoked` line for the key in a later file outranks it.
+    let mut matched: Option<HostKeySource> = None;
 
     for (source, path) in sources {
         let Some(path) = path else { continue };
@@ -315,10 +326,8 @@ pub fn check_host(host: &str, port: u16, key: &PublicKey) -> KnownHostStatus {
                     Some("@cert-authority") => continue,
                     _ => {}
                 }
-                if source == HostKeySource::OpenSsh {
-                    let _ = learn_host(host, port, key);
-                }
-                return KnownHostStatus::Match { source };
+                matched.get_or_insert(source);
+                continue;
             }
 
             if line.marker.is_none() && mismatch.is_none() {
@@ -330,6 +339,15 @@ pub fn check_host(host: &str, port: u16, key: &PublicKey) -> KnownHostStatus {
                 }));
             }
         }
+    }
+
+    if let Some(source) = matched {
+        // Copied only once nothing anywhere revokes it, so a key revoked in
+        // ~/.ssh/known_hosts is never carried into BifroSSH's own file.
+        if source == HostKeySource::OpenSsh {
+            let _ = learn_host(host, port, key);
+        }
+        return KnownHostStatus::Match { source };
     }
 
     mismatch.or(other_type).unwrap_or(KnownHostStatus::Unknown)
@@ -750,6 +768,7 @@ mod tests {
     fn host_spec_follows_openssh() {
         assert_eq!(host_spec("example.com", 22), "example.com");
         assert_eq!(host_spec("example.com", 2222), "[example.com]:2222");
+        assert_eq!(host_spec("Example.COM", 2222), "[example.com]:2222");
     }
 
     #[test]
@@ -1079,6 +1098,30 @@ mod tests {
             check_host("imported.example", 22, &key),
             KnownHostStatus::Match { .. }
         ));
+
+        // Case does not make another host: ssh lowercases the name, and a
+        // line written as it was typed still matches.
+        assert!(matches!(check_host("IMPORTED.example", 22, &key), KnownHostStatus::Match { .. }));
+        learn_host("Mixed.Example", 22, &key).unwrap();
+        assert!(fs::read_to_string(bifrossh_known_hosts_path().unwrap()).unwrap().contains("mixed.example ssh-ed25519"));
+        assert!(matches!(check_host("mixed.example", 22, &key), KnownHostStatus::Match { .. }));
+
+        // A key revoked in ~/.ssh/known_hosts is revoked even though
+        // BifroSSH's own file, read first, trusts it.
+        fs::write(
+            ssh_dir.join("known_hosts"),
+            format!("@revoked * ssh-ed25519 {}\n", ED25519_B64),
+        )
+        .unwrap();
+        assert!(matches!(check_host("imported.example", 22, &key), KnownHostStatus::Revoked));
+        // And one trusted only there is not copied across while revoked.
+        fs::write(
+            ssh_dir.join("known_hosts"),
+            format!("fresh.example ssh-ed25519 {ED25519_B64}\n@revoked fresh.example ssh-ed25519 {ED25519_B64}\n"),
+        )
+        .unwrap();
+        assert!(matches!(check_host("fresh.example", 22, &key), KnownHostStatus::Revoked));
+        assert!(!fs::read_to_string(bifrossh_known_hosts_path().unwrap()).unwrap().contains("fresh.example"));
 
         fs::remove_dir_all(&home).ok();
         *SCRATCH_HOME.lock().unwrap() = None;

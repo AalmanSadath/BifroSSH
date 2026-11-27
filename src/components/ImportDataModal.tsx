@@ -205,6 +205,29 @@ export default function ImportDataModal({ onClose }: Props) {
             </div>
           )}
 
+          {/* Settings that let a server do more than a fresh host would: a
+              changed key taken silently, or a way back into this computer. */}
+          {chosen.servers && (plan.auto_host_key_hosts.length > 0 || plan.forwarding_hosts.length > 0) && (
+            <div className="hostkey-warn">
+              <strong>Trusts these servers more</strong>
+              <ul className="transfer-conflicts">
+                {plan.auto_host_key_hosts.length > 0 && (
+                  <li>
+                    {plan.auto_host_key_hosts.length === 1 ? 'A host adds' : `${plan.auto_host_key_hosts.length} hosts add`}{' '}
+                    new host keys without asking: {plan.auto_host_key_hosts.join(', ')}.
+                  </li>
+                )}
+                {plan.forwarding_hosts.length > 0 && (
+                  <li>
+                    {plan.forwarding_hosts.length === 1 ? 'A host forwards' : `${plan.forwarding_hosts.length} hosts forward`}{' '}
+                    the SSH agent or X11 to the server: {plan.forwarding_hosts.join(', ')}.
+                  </li>
+                )}
+              </ul>
+              <p>Check these before connecting if the file is not your own.</p>
+            </div>
+          )}
+
           {error && <p className="form-hint form-hint-error">{error}</p>}
 
           <div className="modal-actions">
