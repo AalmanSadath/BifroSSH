@@ -12,7 +12,7 @@ use std::process::Stdio;
 use std::task::{Context, Poll};
 
 use anyhow::{anyhow, bail, Result};
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, BufReader, ReadBuf};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, BufReader, ReadBuf};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 
 use crate::connect::ConnectSecurity;
@@ -22,6 +22,8 @@ use crate::localshell::Platform;
 /// show why it failed; a chatty proxy that logs every packet does not get to
 /// fill the log.
 const STDERR_LINES: usize = 50;
+/// The longest stretch of stderr read as one line; a longer one is split.
+const STDERR_LINE_MAX: u64 = 4096;
 
 /// A host's ProxyCommand as saved, with what its tokens stand for. Filled
 /// in only when it is dialled, so a bad token fails inside the connect and
@@ -153,9 +155,19 @@ fn spawn_on(platform: Platform, command: &str, log: Log) -> Result<ProxyStream> 
     let stdin = child.stdin.take().ok_or_else(|| anyhow!("The proxy command has no stdin"))?;
     if let Some(stderr) = child.stderr.take() {
         tokio::spawn(async move {
-            let mut lines = BufReader::new(stderr).lines();
+            // Read a bounded piece at a time rather than by `lines`, which
+            // holds a whole line however long the program makes it.
+            let mut reader = BufReader::new(stderr);
+            let mut buf = Vec::new();
             let mut shown = 0;
-            while let Ok(Some(line)) = lines.next_line().await {
+            loop {
+                buf.clear();
+                match (&mut reader).take(STDERR_LINE_MAX).read_until(b'\n', &mut buf).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {}
+                }
+                let line = String::from_utf8_lossy(&buf);
+                let line = line.trim_end();
                 if shown < STDERR_LINES && !line.trim().is_empty() {
                     log("error", &format!("proxy: {line}"));
                     shown += 1;

@@ -12,6 +12,21 @@ use russh::ChannelMsg;
 
 use super::ChannelOpener;
 
+/// How much of a command's output is kept. The commands run here print a
+/// line per path at most, so a server sending more than this is not
+/// answering the question, and is not allowed to fill this computer's memory.
+const MAX_STDOUT: usize = 64 * 1024 * 1024;
+/// stderr is kept only to be shown in an error message.
+const MAX_STDERR: usize = 64 * 1024;
+
+/// Appends a server's stderr, keeping no more than `MAX_STDERR` of it.
+fn push_stderr(stderr: &mut String, data: &[u8]) {
+    if stderr.len() < MAX_STDERR {
+        let room = MAX_STDERR - stderr.len();
+        stderr.push_str(&String::from_utf8_lossy(&data[..data.len().min(room)]));
+    }
+}
+
 /// A path or a name as a single shell word.
 ///
 /// The command is one string handed to the server's shell, so a directory
@@ -81,8 +96,14 @@ pub(crate) async fn run_capture_with_input(
     let mut status = None;
     while let Some(msg) = channel.wait().await {
         match msg {
-            ChannelMsg::Data { ref data } => stdout.extend_from_slice(data),
-            ChannelMsg::ExtendedData { ref data, .. } => stderr.push_str(&String::from_utf8_lossy(data)),
+            ChannelMsg::Data { ref data } => {
+                if stdout.len() + data.len() > MAX_STDOUT {
+                    let _ = channel.close().await;
+                    return Err(anyhow!("{tool} on the server printed more than {} MiB", MAX_STDOUT >> 20));
+                }
+                stdout.extend_from_slice(data);
+            }
+            ChannelMsg::ExtendedData { ref data, .. } => push_stderr(&mut stderr, data),
             ChannelMsg::ExitStatus { exit_status } => status = Some(exit_status),
             // Not Eof: the exit status arrives after it, so breaking there
             // loses the reason the command failed.
@@ -103,7 +124,7 @@ pub(super) async fn drain_exec(channel: &mut russh::Channel<russh::client::Msg>)
     let mut stderr = String::new();
     while let Some(msg) = channel.wait().await {
         match msg {
-            ChannelMsg::ExtendedData { ref data, .. } => stderr.push_str(&String::from_utf8_lossy(data)),
+            ChannelMsg::ExtendedData { ref data, .. } => push_stderr(&mut stderr, data),
             ChannelMsg::ExitStatus { exit_status } => status = Some(exit_status),
             ChannelMsg::Close => break,
             _ => {}
