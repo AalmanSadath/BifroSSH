@@ -150,7 +150,9 @@ impl KeyCell {
     pub fn clear(&self) {
         let mut slot = self.0.write().unwrap_or_else(|e| e.into_inner());
         if let Some(key) = slot.as_mut() {
-            key.fill(0);
+            // zeroize rather than fill(0): a store the compiler can see is
+            // never read again is one it may leave out.
+            zeroize::Zeroize::zeroize(key);
         }
         *slot = None;
     }

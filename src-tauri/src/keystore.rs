@@ -329,12 +329,25 @@ pub struct Unlocked {
     pub needs_passphrase: bool,
 }
 
+/// The key is copied out to where it is used; this copy goes no further.
+impl Drop for Unlocked {
+    fn drop(&mut self) {
+        zeroize::Zeroize::zeroize(&mut self.key);
+    }
+}
+
 pub fn secret_file_path(dir: &Path) -> PathBuf {
     dir.join(SECRET_FILE)
 }
 
 fn read_secret_file(dir: &Path) -> Option<[u8; 32]> {
-    let bytes = std::fs::read(secret_file_path(dir)).ok()?;
+    let path = secret_file_path(dir);
+    let bytes = zeroize::Zeroizing::new(std::fs::read(&path).ok()?);
+    // A file copied in by hand, or restored from a backup, can arrive
+    // readable by everyone. It holds the master key, so it is tightened the
+    // way data.json is on load. Best effort: failing to does not lock the
+    // user out of their own data.
+    let _ = crate::store::make_private(&path);
     bytes.as_slice().try_into().ok()
 }
 
