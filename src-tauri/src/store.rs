@@ -62,7 +62,16 @@ fn create_private(path: &Path) -> Result<fs::File> {
         use std::os::unix::fs::OpenOptionsExt;
         opts.mode(FILE_MODE);
     }
-    Ok(opts.open(path)?)
+    let file = opts.open(path)?;
+    // The mode above applies only when the file is created. Overwriting one
+    // that already exists at 0644 would keep 0644, so it is tightened here,
+    // before a byte of the new content is written.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(fs::Permissions::from_mode(FILE_MODE))?;
+    }
+    Ok(file)
 }
 
 /// Writes a file that is private from the moment it exists and is on the disk
@@ -332,6 +341,21 @@ mod tests {
             let mode = fs::metadata(dir.join(name)).unwrap().permissions().mode() & 0o777;
             assert_eq!(mode, FILE_MODE, "{name} is mode {mode:o}");
         }
+    }
+
+    /// An export written over a file that was already there, at whatever
+    /// mode it had, ends up private.
+    #[cfg(unix)]
+    #[test]
+    fn overwriting_a_world_readable_file_makes_it_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = temp_dir();
+        let path = dir.join("export.json");
+        fs::write(&path, "old").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        write_private(&path, b"secret").unwrap();
+        assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, FILE_MODE);
+        assert_eq!(fs::read(&path).unwrap(), b"secret");
     }
 
     #[cfg(unix)]
