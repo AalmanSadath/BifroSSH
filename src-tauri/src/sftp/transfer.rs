@@ -739,6 +739,18 @@ pub async fn recopy_paths(
     dest_root: &str,
     rels: &[String],
 ) -> Result<TransferSummary> {
+    // The paths come back from the frontend, which had them from an earlier
+    // summary, and are joined onto both roots. Every part is held to the
+    // rule a listing's names are, and to this computer's when one side is it.
+    let local = !matches!(pairing, Pairing::Copy { .. });
+    for rel in rels {
+        // Empty is the transfer's own root: a single file copied again.
+        let ok = rel.is_empty()
+            || rel.split('/').all(|part| if local { super::local_name_ok(part) } else { super::is_safe_name(part) });
+        if !ok {
+            anyhow::bail!("Refusing to copy {rel:?}: it is not a path inside the transfer");
+        }
+    }
     let guard = sftp_state.begin_transfer(transfer_id);
     match pairing {
         Pairing::Upload { session_id } => {
